@@ -2,14 +2,17 @@ package com.meetily.mobile
 
 import android.content.Intent
 import android.os.Bundle
+import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.appbar.MaterialToolbar
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
@@ -24,9 +27,12 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var settings: AppSettings
     private var meeting: Meeting? = null
 
+    private lateinit var titleView: TextView
     private lateinit var dateView: TextView
+    private lateinit var metaView: TextView
     private lateinit var summaryView: TextView
-    private lateinit var transcriptView: TextView
+    private lateinit var aiPanel: View
+    private lateinit var transcriptList: LinearLayout
     private lateinit var notesInput: EditText
     private lateinit var progress: ProgressBar
 
@@ -37,9 +43,17 @@ class MeetingDetailActivity : AppCompatActivity() {
         store = MeetingStore(this)
         settings = AppSettings(this)
 
+        val toolbar = findViewById<MaterialToolbar>(R.id.detailToolbar)
+        setSupportActionBar(toolbar)
+        supportActionBar?.title = ""
+        toolbar.setNavigationOnClickListener { finish() }
+
+        titleView = findViewById(R.id.detailTitle)
         dateView = findViewById(R.id.detailDate)
+        metaView = findViewById(R.id.detailMeta)
         summaryView = findViewById(R.id.detailSummary)
-        transcriptView = findViewById(R.id.detailTranscript)
+        aiPanel = findViewById(R.id.aiPanel)
+        transcriptList = findViewById(R.id.transcriptList)
         notesInput = findViewById(R.id.detailNotes)
         progress = findViewById(R.id.summaryProgress)
 
@@ -52,12 +66,54 @@ class MeetingDetailActivity : AppCompatActivity() {
             return
         }
 
-        title = m.title
+        titleView.text = m.title
         dateView.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(m.createdAtMs))
-        summaryView.text = m.summary.ifBlank { getString(R.string.no_summary_yet) }
-        transcriptView.text = m.transcriptText().ifBlank { getString(R.string.no_transcript) }
+        val wordCount = m.transcriptText()
+            .split(Regex("\\s+"))
+            .count { it.isNotBlank() }
+        metaView.text = getString(R.string.detail_meta, m.segments.size, wordCount)
+
+        findViewById<View>(R.id.generateButton).setOnClickListener { generateSummary() }
+
+        renderSummary(m.summary)
+        renderTranscript(m)
         notesInput.setText(m.notes)
+    }
+
+    private fun renderSummary(summary: String) {
+        if (summary.isBlank()) {
+            summaryView.visibility = View.GONE
+            aiPanel.visibility = View.VISIBLE
+        } else {
+            summaryView.text = summary
+            summaryView.visibility = View.VISIBLE
+            aiPanel.visibility = View.GONE
+        }
+    }
+
+    private fun renderTranscript(m: Meeting) {
+        transcriptList.removeAllViews()
+        if (m.segments.isEmpty()) {
+            val empty = TextView(this).apply {
+                text = getString(R.string.no_transcript)
+                setTextAppearance(
+                    com.google.android.material.R.style.TextAppearance_Material3_BodyMedium
+                )
+                setTextColor(dateView.currentTextColor)
+            }
+            transcriptList.addView(empty)
+            return
+        }
+        val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
+        val inflater = LayoutInflater.from(this)
+        for (segment in m.segments) {
+            val line = inflater.inflate(R.layout.item_transcript_line, transcriptList, false)
+            line.findViewById<TextView>(R.id.lineTime).text =
+                timeFormat.format(Date(segment.timestampMs))
+            line.findViewById<TextView>(R.id.lineText).text = segment.text
+            transcriptList.addView(line)
+        }
     }
 
     override fun onPause() {
@@ -83,7 +139,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             return
         }
 
+        aiPanel.visibility = View.GONE
         progress.visibility = View.VISIBLE
+        summaryView.visibility = View.VISIBLE
         summaryView.text = getString(R.string.summarizing)
 
         val useLlm = settings.useLlm

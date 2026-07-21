@@ -1,9 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.Meetily" parent="Theme.Material3.DayNight">
-        <item name="colorPrimary">@color/meetily_primary</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <item name="colorPrimaryContainer">@color/meetily_primary_container</item>
-        <item name="colorOnPrimaryContainer">@color/meetily_on_primary_container</item>
+    <!--
+      Editorial document look: neutral warm-white surfaces, near-black text,
+      thin outlines, indigo reserved for AI/primary actions. Dark mode comes
+      from the values-night color overrides, so one theme definition suffices.
+    -->
+    <style name="Theme.Meetily" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/accent</item>
+        <item name="colorOnPrimary">@color/accent_on</item>
+        <item name="colorPrimaryContainer">@color/accent_container</item>
+        <item name="colorOnPrimaryContainer">@color/accent_on_container</item>
+        <item name="android:colorBackground">@color/bg</item>
+        <item name="colorSurface">@color/bg</item>
+        <item name="colorOnSurface">@color/ink</item>
+        <item name="colorSurfaceVariant">@color/surface_soft</item>
+        <item name="colorOnSurfaceVariant">@color/ink_soft</item>
+        <item name="colorSecondaryContainer">@color/surface_soft</item>
+        <item name="colorOnSecondaryContainer">@color/ink</item>
+        <item name="colorOutline">@color/line_strong</item>
+        <item name="colorOutlineVariant">@color/line</item>
     </style>
 </resources>

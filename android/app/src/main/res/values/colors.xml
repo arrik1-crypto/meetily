@@ -1,8 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="meetily_primary">#2563EB</color>
-    <color name="meetily_primary_container">#DBEAFE</color>
-    <color name="meetily_on_primary_container">#1E3A8A</color>
+    <!-- Editorial palette: warm near-white canvas, near-black ink, indigo AI accent -->
+    <color name="bg">#FAFAF9</color>
+    <color name="ink">#1C1917</color>
+    <color name="ink_soft">#78716C</color>
+    <color name="surface_soft">#F1F0EE</color>
+    <color name="line">#E7E5E4</color>
+    <color name="line_strong">#D6D3D1</color>
+
+    <color name="accent">#4F46E5</color>
+    <color name="accent_on">#FFFFFF</color>
+    <color name="accent_container">#EEF0FE</color>
+    <color name="accent_on_container">#3730A3</color>
+
+    <color name="record_red">#DC2626</color>
+
     <color name="white">#FFFFFF</color>
-    <color name="ic_launcher_background">#2563EB</color>
+    <color name="ic_launcher_background">#4F46E5</color>
 </resources>

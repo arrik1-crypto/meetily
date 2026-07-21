@@ -10,7 +10,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 
@@ -18,14 +19,20 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var store: MeetingStore
     private lateinit var adapter: MeetingAdapter
-    private lateinit var emptyView: TextView
+    private lateinit var emptyState: View
+    private lateinit var meetingCount: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        val toolbar = findViewById<MaterialToolbar>(R.id.topAppBar)
+        setSupportActionBar(toolbar)
+        supportActionBar?.title = ""
+
         store = MeetingStore(this)
-        emptyView = findViewById(R.id.emptyView)
+        emptyState = findViewById(R.id.emptyState)
+        meetingCount = findViewById(R.id.meetingCount)
 
         val recycler = findViewById<RecyclerView>(R.id.meetingList)
         recycler.layoutManager = LinearLayoutManager(this)
@@ -40,7 +47,7 @@ class MainActivity : AppCompatActivity() {
         )
         recycler.adapter = adapter
 
-        findViewById<FloatingActionButton>(R.id.fabNewMeeting).setOnClickListener {
+        findViewById<ExtendedFloatingActionButton>(R.id.fabNewMeeting).setOnClickListener {
             startActivity(Intent(this, RecordingActivity::class.java))
         }
     }
@@ -53,7 +60,12 @@ class MainActivity : AppCompatActivity() {
     private fun refresh() {
         val meetings = store.list()
         adapter.submit(meetings)
-        emptyView.visibility = if (meetings.isEmpty()) View.VISIBLE else View.GONE
+        emptyState.visibility = if (meetings.isEmpty()) View.VISIBLE else View.GONE
+        meetingCount.text = if (meetings.isEmpty()) {
+            getString(R.string.empty_body)
+        } else {
+            resources.getQuantityString(R.plurals.meeting_count, meetings.size, meetings.size)
+        }
     }
 
     private fun confirmDelete(meeting: Meeting) {

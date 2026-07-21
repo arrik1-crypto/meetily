@@ -1,6 +1,8 @@
 package com.meetily.mobile
 
 import android.Manifest
+import android.animation.ObjectAnimator
+import android.animation.ValueAnimator
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioManager
@@ -8,24 +10,32 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.view.LayoutInflater
+import android.view.View
 import android.view.WindowManager
-import android.widget.Button
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.TranscriptSegment
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 import java.util.UUID
 
 class RecordingActivity : AppCompatActivity() {
@@ -35,12 +45,14 @@ class RecordingActivity : AppCompatActivity() {
 
     private lateinit var titleInput: EditText
     private lateinit var statusView: TextView
+    private lateinit var elapsedView: TextView
+    private lateinit var recordDot: View
     private lateinit var partialView: TextView
-    private lateinit var transcriptView: TextView
+    private lateinit var transcriptContainer: LinearLayout
     private lateinit var transcriptScroll: ScrollView
     private lateinit var notesInput: EditText
-    private lateinit var pauseButton: Button
-    private lateinit var finishButton: Button
+    private lateinit var pauseButton: MaterialButton
+    private lateinit var finishButton: MaterialButton
 
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
@@ -50,8 +62,21 @@ class RecordingActivity : AppCompatActivity() {
 
     private val segments = mutableListOf<TranscriptSegment>()
     private val handler = Handler(Looper.getMainLooper())
+    private val timerHandler = Handler(Looper.getMainLooper())
     private val meetingId = UUID.randomUUID().toString()
     private val startedAtMs = System.currentTimeMillis()
+
+    // Elapsed recording time, excluding paused stretches.
+    private var accumulatedMs = 0L
+    private var lastResumeAt = 0L
+    private var pulseAnimator: ObjectAnimator? = null
+
+    private val timerTick = object : Runnable {
+        override fun run() {
+            elapsedView.text = formatElapsed(currentElapsedMs())
+            timerHandler.postDelayed(this, 500)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -63,12 +88,23 @@ class RecordingActivity : AppCompatActivity() {
 
         titleInput = findViewById(R.id.titleInput)
         statusView = findViewById(R.id.statusView)
+        elapsedView = findViewById(R.id.elapsedView)
+        recordDot = findViewById(R.id.recordDot)
         partialView = findViewById(R.id.partialView)
-        transcriptView = findViewById(R.id.transcriptView)
+        transcriptContainer = findViewById(R.id.transcriptContainer)
         transcriptScroll = findViewById(R.id.transcriptScroll)
         notesInput = findViewById(R.id.notesInput)
         pauseButton = findViewById(R.id.pauseButton)
         finishButton = findViewById(R.id.finishButton)
+
+        findViewById<MaterialToolbar>(R.id.recordingToolbar).setNavigationOnClickListener {
+            confirmDiscard()
+        }
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                confirmDiscard()
+            }
+        })
 
         val defaultTitle = getString(
             R.string.default_meeting_title,
@@ -80,12 +116,56 @@ class RecordingActivity : AppCompatActivity() {
         pauseButton.setOnClickListener { togglePause() }
         finishButton.setOnClickListener { finishAndSave() }
 
+        lastResumeAt = SystemClock.elapsedRealtime()
+        timerHandler.post(timerTick)
+        startPulse()
+
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             statusView.text = getString(R.string.recognition_unavailable)
             Toast.makeText(this, R.string.recognition_unavailable, Toast.LENGTH_LONG).show()
         } else {
             ensurePermissionAndStart()
         }
+    }
+
+    private fun currentElapsedMs(): Long =
+        accumulatedMs + if (paused) 0L else SystemClock.elapsedRealtime() - lastResumeAt
+
+    private fun formatElapsed(ms: Long): String {
+        val totalSeconds = ms / 1000
+        val hours = totalSeconds / 3600
+        val minutes = (totalSeconds % 3600) / 60
+        val seconds = totalSeconds % 60
+        return if (hours > 0) {
+            String.format(Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(Locale.US, "%02d:%02d", minutes, seconds)
+        }
+    }
+
+    private fun startPulse() {
+        pulseAnimator?.cancel()
+        pulseAnimator = ObjectAnimator.ofFloat(recordDot, View.ALPHA, 1f, 0.25f).apply {
+            duration = 750
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            start()
+        }
+    }
+
+    private fun stopPulse() {
+        pulseAnimator?.cancel()
+        pulseAnimator = null
+        recordDot.alpha = 0.3f
+    }
+
+    private fun confirmDiscard() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.discard_title)
+            .setMessage(R.string.discard_message)
+            .setPositiveButton(R.string.keep_recording, null)
+            .setNegativeButton(R.string.discard) { _, _ -> finish() }
+            .show()
     }
 
     private fun ensurePermissionAndStart() {
@@ -220,6 +300,8 @@ class RecordingActivity : AppCompatActivity() {
             val text = texts?.firstOrNull().orEmpty()
             if (text.isNotBlank()) {
                 partialView.text = text
+                partialView.visibility = View.VISIBLE
+                scrollTranscriptToBottom()
             }
         }
 
@@ -230,6 +312,7 @@ class RecordingActivity : AppCompatActivity() {
                 appendSegment(text)
             }
             partialView.text = ""
+            partialView.visibility = View.GONE
             listening = false
             scheduleRestart(150)
         }
@@ -261,25 +344,43 @@ class RecordingActivity : AppCompatActivity() {
     }
 
     private fun appendSegment(text: String) {
-        segments.add(TranscriptSegment(System.currentTimeMillis(), text))
-        val current = transcriptView.text.toString()
-        transcriptView.text = if (current.isBlank()) text else "$current\n$text"
+        val timestamp = System.currentTimeMillis()
+        segments.add(TranscriptSegment(timestamp, text))
+
+        val bubble = LayoutInflater.from(this)
+            .inflate(R.layout.item_transcript_segment, transcriptContainer, false)
+        bubble.findViewById<TextView>(R.id.segmentTime).text =
+            DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp))
+        bubble.findViewById<TextView>(R.id.segmentText).text = text
+
+        val partialIndex = transcriptContainer.indexOfChild(partialView)
+        transcriptContainer.addView(bubble, if (partialIndex >= 0) partialIndex else -1)
+        scrollTranscriptToBottom()
+    }
+
+    private fun scrollTranscriptToBottom() {
         transcriptScroll.post { transcriptScroll.fullScroll(ScrollView.FOCUS_DOWN) }
     }
 
     private fun togglePause() {
         paused = !paused
         if (paused) {
+            accumulatedMs += SystemClock.elapsedRealtime() - lastResumeAt
             handler.removeCallbacksAndMessages(null)
             recognizer?.stopListening()
             recognizer?.destroy()
             recognizer = null
             listening = false
             restoreSystemSounds()
-            pauseButton.text = getString(R.string.resume)
+            stopPulse()
+            pauseButton.setIconResource(R.drawable.ic_play)
+            pauseButton.contentDescription = getString(R.string.resume)
             statusView.text = getString(R.string.status_paused)
         } else {
-            pauseButton.text = getString(R.string.pause)
+            lastResumeAt = SystemClock.elapsedRealtime()
+            startPulse()
+            pauseButton.setIconResource(R.drawable.ic_pause)
+            pauseButton.contentDescription = getString(R.string.pause)
             startListening()
         }
     }
@@ -287,6 +388,8 @@ class RecordingActivity : AppCompatActivity() {
     private fun finishAndSave() {
         destroyed = true
         handler.removeCallbacksAndMessages(null)
+        timerHandler.removeCallbacksAndMessages(null)
+        stopPulse()
         try {
             recognizer?.stopListening()
             recognizer?.destroy()
@@ -321,6 +424,8 @@ class RecordingActivity : AppCompatActivity() {
     override fun onDestroy() {
         destroyed = true
         handler.removeCallbacksAndMessages(null)
+        timerHandler.removeCallbacksAndMessages(null)
+        stopPulse()
         try {
             recognizer?.destroy()
         } catch (_: Exception) {

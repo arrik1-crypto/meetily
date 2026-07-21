@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="bg">#141312</color>
+    <color name="ink">#F5F5F4</color>
+    <color name="ink_soft">#A8A29E</color>
+    <color name="surface_soft">#23211F</color>
+    <color name="line">#2E2B29</color>
+    <color name="line_strong">#44403C</color>
+
+    <color name="accent">#A5B4FC</color>
+    <color name="accent_on">#1E1B4B</color>
+    <color name="accent_container">#312E81</color>
+    <color name="accent_on_container">#E0E7FF</color>
+
+    <color name="record_red">#F87171</color>
+</resources>

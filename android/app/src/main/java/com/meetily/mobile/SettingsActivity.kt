@@ -5,6 +5,7 @@ import android.view.View
 import android.widget.EditText
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.meetily.mobile.data.AppSettings
 
@@ -25,6 +26,10 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_settings)
 
         settings = AppSettings(this)
+
+        findViewById<MaterialToolbar>(R.id.settingsToolbar).setNavigationOnClickListener {
+            finish()
+        }
 
         useLlmSwitch = findViewById(R.id.useLlmSwitch)
         offlineSwitch = findViewById(R.id.offlineSwitch)

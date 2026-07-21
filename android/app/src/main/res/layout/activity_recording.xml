@@ -1,89 +1,167 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical"
-    android:padding="16dp">
+    android:background="?android:attr/colorBackground"
+    android:orientation="vertical">
 
-    <EditText
-        android:id="@+id/titleInput"
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/recordingToolbar"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:hint="@string/meeting_title_hint"
-        android:inputType="textCapSentences"
-        android:maxLines="1"
-        android:importantForAutofill="no" />
-
-    <TextView
-        android:id="@+id/statusView"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
-        android:text="@string/status_starting"
-        android:textAppearance="?attr/textAppearanceBodySmall"
-        android:textColor="?attr/colorPrimary" />
-
-    <ScrollView
-        android:id="@+id/transcriptScroll"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:layout_weight="3"
-        android:background="@drawable/bg_panel"
-        android:padding="8dp">
-
-        <TextView
-            android:id="@+id/transcriptView"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="8dp"
-            android:textAppearance="?attr/textAppearanceBodyMedium"
-            android:textIsSelectable="true" />
-    </ScrollView>
-
-    <TextView
-        android:id="@+id/partialView"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="4dp"
-        android:minHeight="24dp"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:textStyle="italic" />
-
-    <EditText
-        android:id="@+id/notesInput"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_marginTop="8dp"
-        android:layout_weight="2"
-        android:background="@drawable/bg_panel"
-        android:gravity="top"
-        android:hint="@string/notes_hint"
-        android:inputType="textMultiLine|textCapSentences"
-        android:padding="12dp"
-        android:importantForAutofill="no" />
+        android:layout_height="?attr/actionBarSize"
+        android:background="?android:attr/colorBackground"
+        app:navigationContentDescription="@string/discard"
+        app:navigationIcon="@drawable/ic_chevron_left"
+        app:title="" />
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginTop="12dp"
-        android:orientation="horizontal">
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:paddingHorizontal="20dp">
 
-        <Button
-            android:id="@+id/pauseButton"
-            style="@style/Widget.Material3.Button.TonalButton"
-            android:layout_width="0dp"
+        <EditText
+            android:id="@+id/titleInput"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:layout_weight="1"
-            android:text="@string/pause" />
+            android:background="@null"
+            android:hint="@string/meeting_title_hint"
+            android:importantForAutofill="no"
+            android:inputType="textCapSentences"
+            android:maxLines="2"
+            android:textColor="?attr/colorOnSurface"
+            android:textColorHint="?attr/colorOutline"
+            android:textSize="24sp"
+            android:textStyle="bold" />
 
-        <Button
-            android:id="@+id/finishButton"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="@string/finish_save" />
+            android:layout_marginTop="12dp"
+            android:background="@drawable/bg_status_pill"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingHorizontal="14dp"
+            android:paddingVertical="8dp">
+
+            <View
+                android:id="@+id/recordDot"
+                android:layout_width="8dp"
+                android:layout_height="8dp"
+                android:background="@drawable/bg_record_dot" />
+
+            <TextView
+                android:id="@+id/statusView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="8dp"
+                android:text="@string/status_starting"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <TextView
+                android:id="@+id/elapsedView"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:text="@string/elapsed_zero"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurface"
+                android:textStyle="bold" />
+        </LinearLayout>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="18dp"
+            android:text="@string/live_transcript"
+            android:textAppearance="?attr/textAppearanceTitleSmall"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <ScrollView
+            android:id="@+id/transcriptScroll"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="3"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:id="@+id/transcriptContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:paddingBottom="8dp">
+
+                <TextView
+                    android:id="@+id/partialView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="6dp"
+                    android:background="@drawable/bg_bubble"
+                    android:paddingHorizontal="12dp"
+                    android:paddingVertical="9dp"
+                    android:textAppearance="?attr/textAppearanceBodyMedium"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textStyle="italic"
+                    android:visibility="gone" />
+            </LinearLayout>
+        </ScrollView>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/section_notes"
+            android:textAppearance="?attr/textAppearanceTitleSmall"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <EditText
+            android:id="@+id/notesInput"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="2"
+            android:background="@drawable/bg_field"
+            android:gravity="top"
+            android:hint="@string/notes_hint"
+            android:importantForAutofill="no"
+            android:inputType="textMultiLine|textCapSentences"
+            android:padding="14dp"
+            android:textColor="?attr/colorOnSurface"
+            android:textColorHint="?attr/colorOutline"
+            android:textSize="15sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingVertical="14dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/pauseButton"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:contentDescription="@string/pause"
+                app:icon="@drawable/ic_pause"
+                app:iconTint="?attr/colorOnSurface"
+                app:strokeColor="?attr/colorOutline" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/finishButton"
+                android:layout_width="0dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:text="@string/finish_save"
+                android:textColor="?attr/colorOnPrimary"
+                app:backgroundTint="?attr/colorPrimary"
+                app:cornerRadius="28dp"
+                app:icon="@drawable/ic_check"
+                app:iconTint="?attr/colorOnPrimary" />
+        </LinearLayout>
     </LinearLayout>
-
 </LinearLayout>

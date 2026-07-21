@@ -1,5 +1,6 @@
 package com.meetily.mobile
 
+import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -26,6 +27,7 @@ class MeetingAdapter(
         val title: TextView = view.findViewById(R.id.meetingTitle)
         val date: TextView = view.findViewById(R.id.meetingDate)
         val snippet: TextView = view.findViewById(R.id.meetingSnippet)
+        val chip: TextView = view.findViewById(R.id.meetingChip)
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder {
@@ -36,16 +38,36 @@ class MeetingAdapter(
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val meeting = items[position]
+        val context = holder.itemView.context
+
         holder.title.text = meeting.title
         holder.date.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(meeting.createdAtMs))
+
         val snippet = when {
             meeting.summary.isNotBlank() -> meeting.summary
             meeting.segments.isNotEmpty() -> meeting.transcriptText()
             meeting.notes.isNotBlank() -> meeting.notes
-            else -> holder.itemView.context.getString(R.string.no_content_yet)
+            else -> context.getString(R.string.no_content_yet)
         }
-        holder.snippet.text = snippet.replace('\n', ' ').take(140)
+        holder.snippet.text = snippet.replace('\n', ' ').take(160)
+
+        if (meeting.summary.isNotBlank()) {
+            holder.chip.setText(R.string.chip_summarized)
+            holder.chip.setBackgroundResource(R.drawable.bg_pill_accent)
+            holder.chip.setTextColor(
+                themeColor(holder.chip, com.google.android.material.R.attr.colorOnPrimaryContainer)
+            )
+        } else {
+            holder.chip.setText(
+                if (meeting.segments.isNotEmpty()) R.string.chip_transcript else R.string.chip_notes
+            )
+            holder.chip.setBackgroundResource(R.drawable.bg_pill)
+            holder.chip.setTextColor(
+                themeColor(holder.chip, com.google.android.material.R.attr.colorOnSurfaceVariant)
+            )
+        }
+
         holder.itemView.setOnClickListener { onClick(meeting) }
         holder.itemView.setOnLongClickListener {
             onLongClick(meeting)
@@ -54,4 +76,10 @@ class MeetingAdapter(
     }
 
     override fun getItemCount(): Int = items.size
+
+    private fun themeColor(view: View, attr: Int): Int {
+        val value = TypedValue()
+        view.context.theme.resolveAttribute(attr, value, true)
+        return value.data
+    }
 }
