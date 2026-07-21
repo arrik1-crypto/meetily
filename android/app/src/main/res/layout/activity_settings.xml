@@ -70,6 +70,57 @@
                         android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/whisperSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="18dp"
+                        android:text="@string/setting_whisper"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/setting_whisper_desc"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <LinearLayout
+                        android:id="@+id/whisperSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:id="@+id/whisperModelStatus"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:textAppearance="?attr/textAppearanceBodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <com.google.android.material.progressindicator.LinearProgressIndicator
+                            android:id="@+id/modelProgress"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:visibility="gone"
+                            app:trackCornerRadius="2dp" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/manageModelsButton"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/manage_models"
+                            android:textColor="?attr/colorOnSurface"
+                            app:cornerRadius="22dp"
+                            app:strokeColor="?attr/colorOutline" />
+                    </LinearLayout>
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/muteSoundsSwitch"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

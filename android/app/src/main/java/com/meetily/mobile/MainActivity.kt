@@ -2,9 +2,12 @@ package com.meetily.mobile
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.EditText
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -22,6 +25,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var adapter: MeetingAdapter
     private lateinit var emptyState: View
     private lateinit var meetingCount: TextView
+    private lateinit var searchInput: EditText
+    private var allMeetings: List<Meeting> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -34,6 +39,14 @@ class MainActivity : AppCompatActivity() {
         store = MeetingStore(this)
         emptyState = findViewById(R.id.emptyState)
         meetingCount = findViewById(R.id.meetingCount)
+        searchInput = findViewById(R.id.searchInput)
+        searchInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
+            override fun afterTextChanged(s: Editable?) {
+                applyFilter()
+            }
+        })
 
         val recycler = findViewById<RecyclerView>(R.id.meetingList)
         recycler.layoutManager = LinearLayoutManager(this)
@@ -59,13 +72,33 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        val meetings = store.list()
-        adapter.submit(meetings)
-        emptyState.visibility = if (meetings.isEmpty()) View.VISIBLE else View.GONE
-        meetingCount.text = if (meetings.isEmpty()) {
-            getString(R.string.empty_body)
+        allMeetings = store.list()
+        searchInput.visibility = if (allMeetings.isEmpty()) View.GONE else View.VISIBLE
+        applyFilter()
+    }
+
+    private fun applyFilter() {
+        val query = searchInput.text.toString().trim().lowercase()
+        val filtered = if (query.isBlank()) {
+            allMeetings
         } else {
-            resources.getQuantityString(R.plurals.meeting_count, meetings.size, meetings.size)
+            allMeetings.filter { meeting ->
+                meeting.title.lowercase().contains(query) ||
+                    meeting.notes.lowercase().contains(query) ||
+                    meeting.summary.lowercase().contains(query) ||
+                    meeting.attendeesText().lowercase().contains(query) ||
+                    meeting.transcriptTextWithSpeakers().lowercase().contains(query)
+            }
+        }
+        adapter.submit(filtered)
+        emptyState.visibility = if (allMeetings.isEmpty()) View.VISIBLE else View.GONE
+        meetingCount.text = when {
+            allMeetings.isEmpty() -> getString(R.string.empty_body)
+            query.isBlank() ->
+                resources.getQuantityString(
+                    R.plurals.meeting_count, allMeetings.size, allMeetings.size
+                )
+            else -> getString(R.string.search_results, filtered.size, allMeetings.size)
         }
     }
 

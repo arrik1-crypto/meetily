@@ -18,6 +18,26 @@
     <string name="chip_transcript">Transcript</string>
     <string name="chip_notes">Notes</string>
 
+    <!-- Search -->
+    <string name="search_hint">Search meetings…</string>
+    <string name="search_results">%1$d of %2$d meetings match</string>
+
+    <!-- Whisper -->
+    <string name="setting_whisper">Transcribe with on-device Whisper</string>
+    <string name="setting_whisper_desc">Runs Whisper (whisper.cpp) directly on this phone: fully offline, works on any device, no gaps between sentences. Uses more battery than the system recognizer, and text appears with a few seconds of delay. Requires downloading a model once.</string>
+    <string name="manage_models">Manage models…</string>
+    <string name="model_status_downloaded">Active model: %1$s — downloaded</string>
+    <string name="model_status_missing">Active model: %1$s — not downloaded yet</string>
+    <string name="model_downloading">Downloading %1$s… %2$d%%</string>
+    <string name="model_download_failed">Download failed: %1$s</string>
+    <string name="model_delete_all">Delete all downloaded models</string>
+    <string name="model_tap_download">tap to download</string>
+    <string name="model_downloaded_label">downloaded</string>
+    <string name="status_listening_whisper">Listening (Whisper)</string>
+    <string name="status_finishing">Finishing transcription…</string>
+    <string name="whisper_model_missing">Whisper model not downloaded — using system recognition. Download it in Settings.</string>
+    <string name="whisper_unavailable">Whisper isn\'t supported on this device — using system recognition.</string>
+
     <!-- Recording -->
     <string name="meeting_title_hint">Meeting title</string>
     <string name="default_meeting_title">Meeting %1$s</string>

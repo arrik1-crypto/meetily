@@ -35,6 +35,8 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.TranscriptSegment
+import com.meetily.mobile.whisper.WhisperModels
+import com.meetily.mobile.whisper.WhisperRecorder
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -81,6 +83,11 @@ class RecordingActivity : AppCompatActivity() {
     private var paused = false
     private var destroyed = false
     private val mutedStreams = mutableListOf<Int>()
+
+    private var whisperMode = false
+    private var whisperRecorder: WhisperRecorder? = null
+    private var finishing = false
+    private var savedMeeting = false
 
     private val segments = mutableListOf<TranscriptSegment>()
     private val bubbleViews = mutableListOf<View>()
@@ -149,12 +156,63 @@ class RecordingActivity : AppCompatActivity() {
         timerHandler.post(timerTick)
         startPulse()
 
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+        whisperMode = resolveWhisperMode()
+        if (whisperMode) {
+            ensurePermissionAndStart()
+        } else if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             statusView.text = getString(R.string.recognition_unavailable)
             Toast.makeText(this, R.string.recognition_unavailable, Toast.LENGTH_LONG).show()
         } else {
             ensurePermissionAndStart()
         }
+    }
+
+    private fun resolveWhisperMode(): Boolean {
+        if (settings.transcriptionEngine != "whisper") return false
+        val model = WhisperModels.byKey(settings.whisperModel)
+        if (!WhisperModels.isDownloaded(this, model)) {
+            Toast.makeText(this, R.string.whisper_model_missing, Toast.LENGTH_LONG).show()
+            return false
+        }
+        if (!WhisperModels.isRuntimeAvailable()) {
+            Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG).show()
+            return false
+        }
+        return true
+    }
+
+    private fun startTranscription() {
+        if (whisperMode) startWhisper() else startListening()
+    }
+
+    private fun startWhisper() {
+        if (destroyed || whisperRecorder != null) return
+        val model = WhisperModels.byKey(settings.whisperModel)
+        whisperRecorder = WhisperRecorder(
+            modelPath = WhisperModels.fileFor(this, model).absolutePath,
+            language = if (model.englishOnly) "en" else "auto",
+            onSegment = { text ->
+                runOnUiThread {
+                    if (!savedMeeting) appendSegment(text)
+                }
+            },
+            onProcessingChange = { processing ->
+                runOnUiThread {
+                    if (!savedMeeting && !finishing && !paused) {
+                        statusView.text = getString(
+                            if (processing) R.string.status_processing
+                            else R.string.status_listening_whisper
+                        )
+                    }
+                }
+            },
+            onError = { message ->
+                runOnUiThread {
+                    if (!savedMeeting && !finishing) statusView.text = message
+                }
+            }
+        ).also { it.start() }
+        statusView.text = getString(R.string.status_listening_whisper)
     }
 
     private fun currentElapsedMs(): Long =
@@ -218,7 +276,7 @@ class RecordingActivity : AppCompatActivity() {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
             == PackageManager.PERMISSION_GRANTED
         ) {
-            startListening()
+            startTranscription()
         } else {
             ActivityCompat.requestPermissions(
                 this, arrayOf(Manifest.permission.RECORD_AUDIO), PERMISSION_REQUEST
@@ -234,7 +292,7 @@ class RecordingActivity : AppCompatActivity() {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         if (requestCode == PERMISSION_REQUEST) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                startListening()
+                startTranscription()
             } else {
                 statusView.text = getString(R.string.mic_permission_denied)
                 Toast.makeText(this, R.string.mic_permission_denied, Toast.LENGTH_LONG).show()
@@ -471,12 +529,16 @@ class RecordingActivity : AppCompatActivity() {
         paused = !paused
         if (paused) {
             accumulatedMs += SystemClock.elapsedRealtime() - lastResumeAt
-            handler.removeCallbacksAndMessages(null)
-            recognizer?.stopListening()
-            recognizer?.destroy()
-            recognizer = null
-            listening = false
-            restoreSystemSounds()
+            if (whisperMode) {
+                whisperRecorder?.pause()
+            } else {
+                handler.removeCallbacksAndMessages(null)
+                recognizer?.stopListening()
+                recognizer?.destroy()
+                recognizer = null
+                listening = false
+                restoreSystemSounds()
+            }
             stopPulse()
             pauseButton.setIconResource(R.drawable.ic_play)
             pauseButton.contentDescription = getString(R.string.resume)
@@ -486,11 +548,36 @@ class RecordingActivity : AppCompatActivity() {
             startPulse()
             pauseButton.setIconResource(R.drawable.ic_pause)
             pauseButton.contentDescription = getString(R.string.pause)
-            startListening()
+            if (whisperMode) {
+                whisperRecorder?.resume()
+                statusView.text = getString(R.string.status_listening_whisper)
+            } else {
+                startListening()
+            }
         }
     }
 
     private fun finishAndSave() {
+        if (finishing || savedMeeting) return
+        val recorder = whisperRecorder
+        if (recorder != null) {
+            // Let the final audio chunk finish transcribing before saving.
+            finishing = true
+            finishButton.isEnabled = false
+            pauseButton.isEnabled = false
+            statusView.text = getString(R.string.status_finishing)
+            recorder.finish {
+                runOnUiThread { completeFinish() }
+            }
+            handler.postDelayed({ completeFinish() }, 15_000)
+        } else {
+            completeFinish()
+        }
+    }
+
+    private fun completeFinish() {
+        if (savedMeeting) return
+        savedMeeting = true
         destroyed = true
         handler.removeCallbacksAndMessages(null)
         timerHandler.removeCallbacksAndMessages(null)
@@ -538,6 +625,10 @@ class RecordingActivity : AppCompatActivity() {
         } catch (_: Exception) {
         }
         recognizer = null
+        if (!savedMeeting) {
+            whisperRecorder?.destroy()
+        }
+        whisperRecorder = null
         restoreSystemSounds()
         super.onDestroy()
     }

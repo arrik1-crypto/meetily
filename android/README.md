@@ -6,7 +6,10 @@ This is a standalone native Android app (Kotlin). It does **not** depend on the 
 
 ## Features
 
-- **Live transcription** while you record, using Android's built-in speech recognition. On Android 12+ you can prefer the fully on-device recognizer (Settings → "Prefer on-device transcription") so audio never leaves the phone.
+- **Live transcription** while you record, with two engines:
+  - **System** (default): Android's built-in speech recognition; instant partial results. On Android 12+ you can prefer the fully on-device recognizer (Settings → "Prefer on-device transcription").
+  - **On-device Whisper**: whisper.cpp compiled into the app (arm64/x86_64). Fully offline on any device, no per-utterance gaps, better accuracy on names/jargon; text arrives with a few seconds of latency and uses more battery. Download a model in Settings (Tiny 75 MB → Small 466 MB, English-only or multilingual).
+- **Global search** across all meetings — titles, transcripts, notes, summaries, and attendees — from the search bar on the main screen.
 - **Notes** — type notes in a pane below the live transcript during the meeting, or edit them afterwards.
 - **Attendees & speaker tagging** — list attendees for a meeting, then tap any transcript segment (during recording or afterwards) to tag who said it. Speaker names flow into shared exports and LLM summaries. (Automatic diarization isn't possible with Android's recognition service, so tagging is manual.)
 - **Highlights** — a star button while recording marks the current moment; long-press any transcript line afterwards to toggle. Highlighted moments get priority treatment in summaries.
@@ -30,7 +33,7 @@ The APK is signed with a debug key — fine for personal sideloading, not for st
 
 ## Building locally
 
-Requirements: JDK 17+, Android SDK (API 34).
+Requirements: JDK 17+, Android SDK (API 34), NDK 27 + CMake 3.22 (installed automatically by the Android Gradle Plugin). The native module fetches whisper.cpp (pinned release tarball) at CMake configure time, so the first build needs network access to github.com.
 
 ```bash
 cd android

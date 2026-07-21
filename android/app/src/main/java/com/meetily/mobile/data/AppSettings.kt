@@ -35,4 +35,13 @@ class AppSettings(context: Context) {
     var summaryTemplate: String
         get() = prefs.getString("summary_template", "general") ?: "general"
         set(value) = prefs.edit().putString("summary_template", value).apply()
+
+    /** "system" (Android speech recognizer) or "whisper" (on-device whisper.cpp). */
+    var transcriptionEngine: String
+        get() = prefs.getString("transcription_engine", "system") ?: "system"
+        set(value) = prefs.edit().putString("transcription_engine", value).apply()
+
+    var whisperModel: String
+        get() = prefs.getString("whisper_model", "base.en") ?: "base.en"
+        set(value) = prefs.edit().putString("whisper_model", value).apply()
 }
