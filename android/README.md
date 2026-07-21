@@ -32,7 +32,7 @@ cd android
 
 ## Notes and limitations
 
-- Speech recognition uses the device's recognition service (Google's on most phones). Continuous listening is implemented by restarting the recognizer between utterances, so an occasional word can be missed at segment boundaries, and some devices play a beep on each restart.
+- Speech recognition uses the device's recognition service (Google's on most phones). Continuous listening is implemented by restarting the recognizer between utterances, so an occasional word can be missed at segment boundaries. The recognizer's start/stop chime is muted during recording by default (Settings → "Mute recognizer chime while recording"); turn that off if you need phone audio (e.g. a call on speaker) to stay audible while recording.
 - On-device (offline) recognition requires Android 12+ and the language pack downloaded in system settings; otherwise the device's default (usually networked) recognizer is used.
 - The app records transcription only; it does not save an audio file of the meeting.
 - Capturing the other side of a phone/VoIP call is restricted by Android for third-party apps; this app transcribes what the microphone hears (in-person meetings, or calls on speaker).

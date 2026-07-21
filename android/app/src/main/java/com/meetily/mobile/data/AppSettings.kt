@@ -27,4 +27,8 @@ class AppSettings(context: Context) {
     var preferOfflineRecognition: Boolean
         get() = prefs.getBoolean("prefer_offline_recognition", false)
         set(value) = prefs.edit().putBoolean("prefer_offline_recognition", value).apply()
+
+    var muteRecognizerSounds: Boolean
+        get() = prefs.getBoolean("mute_recognizer_sounds", true)
+        set(value) = prefs.edit().putBoolean("mute_recognizer_sounds", value).apply()
 }

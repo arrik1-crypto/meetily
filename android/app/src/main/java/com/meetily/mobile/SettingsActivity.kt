@@ -14,6 +14,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var useLlmSwitch: MaterialSwitch
     private lateinit var offlineSwitch: MaterialSwitch
+    private lateinit var muteSoundsSwitch: MaterialSwitch
     private lateinit var urlInput: EditText
     private lateinit var keyInput: EditText
     private lateinit var modelInput: EditText
@@ -27,6 +28,7 @@ class SettingsActivity : AppCompatActivity() {
 
         useLlmSwitch = findViewById(R.id.useLlmSwitch)
         offlineSwitch = findViewById(R.id.offlineSwitch)
+        muteSoundsSwitch = findViewById(R.id.muteSoundsSwitch)
         urlInput = findViewById(R.id.llmUrlInput)
         keyInput = findViewById(R.id.llmKeyInput)
         modelInput = findViewById(R.id.llmModelInput)
@@ -34,6 +36,7 @@ class SettingsActivity : AppCompatActivity() {
 
         useLlmSwitch.isChecked = settings.useLlm
         offlineSwitch.isChecked = settings.preferOfflineRecognition
+        muteSoundsSwitch.isChecked = settings.muteRecognizerSounds
         urlInput.setText(settings.llmBaseUrl)
         keyInput.setText(settings.llmApiKey)
         modelInput.setText(settings.llmModel)
@@ -44,6 +47,7 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.saveButton).setOnClickListener {
             settings.useLlm = useLlmSwitch.isChecked
             settings.preferOfflineRecognition = offlineSwitch.isChecked
+            settings.muteRecognizerSounds = muteSoundsSwitch.isChecked
             settings.llmBaseUrl = urlInput.text.toString().trim()
             settings.llmApiKey = keyInput.text.toString().trim()
             settings.llmModel = modelInput.text.toString().trim()

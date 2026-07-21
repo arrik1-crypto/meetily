@@ -3,6 +3,7 @@ package com.meetily.mobile
 import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.media.AudioManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -45,6 +46,7 @@ class RecordingActivity : AppCompatActivity() {
     private var listening = false
     private var paused = false
     private var destroyed = false
+    private val mutedStreams = mutableListOf<Int>()
 
     private val segments = mutableListOf<TranscriptSegment>()
     private val handler = Handler(Looper.getMainLooper())
@@ -137,8 +139,46 @@ class RecordingActivity : AppCompatActivity() {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
+    /**
+     * The system speech recognizer plays a chime every time listening starts
+     * and stops, which becomes a constant beeping with continuous recognition.
+     * There is no official API to disable it, so mute the streams it plays on
+     * for the duration of the recording session and restore them afterwards.
+     */
+    private fun muteSystemSounds() {
+        if (!settings.muteRecognizerSounds || mutedStreams.isNotEmpty()) return
+        val audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
+        for (stream in intArrayOf(
+            AudioManager.STREAM_SYSTEM,
+            AudioManager.STREAM_NOTIFICATION,
+            AudioManager.STREAM_MUSIC
+        )) {
+            try {
+                audioManager.adjustStreamVolume(stream, AudioManager.ADJUST_MUTE, 0)
+                mutedStreams.add(stream)
+            } catch (_: Exception) {
+                // Some devices/DND modes forbid volume changes; skip that stream.
+            }
+        }
+    }
+
+    private fun restoreSystemSounds() {
+        if (mutedStreams.isEmpty()) return
+        val audioManager = getSystemService(AUDIO_SERVICE) as? AudioManager
+        if (audioManager != null) {
+            for (stream in mutedStreams) {
+                try {
+                    audioManager.adjustStreamVolume(stream, AudioManager.ADJUST_UNMUTE, 0)
+                } catch (_: Exception) {
+                }
+            }
+        }
+        mutedStreams.clear()
+    }
+
     private fun startListening() {
         if (destroyed || paused) return
+        muteSystemSounds()
         try {
             recognizer?.destroy()
             recognizer = createRecognizer().apply {
@@ -235,6 +275,7 @@ class RecordingActivity : AppCompatActivity() {
             recognizer?.destroy()
             recognizer = null
             listening = false
+            restoreSystemSounds()
             pauseButton.text = getString(R.string.resume)
             statusView.text = getString(R.string.status_paused)
         } else {
@@ -252,6 +293,7 @@ class RecordingActivity : AppCompatActivity() {
         } catch (_: Exception) {
         }
         recognizer = null
+        restoreSystemSounds()
 
         val title = titleInput.text.toString().ifBlank {
             getString(
@@ -284,6 +326,7 @@ class RecordingActivity : AppCompatActivity() {
         } catch (_: Exception) {
         }
         recognizer = null
+        restoreSystemSounds()
         super.onDestroy()
     }
 
