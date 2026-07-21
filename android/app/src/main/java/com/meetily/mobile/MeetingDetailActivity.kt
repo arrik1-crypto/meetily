@@ -88,6 +88,7 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ThemeManager.apply(this)
         setContentView(R.layout.activity_detail)
 
         store = MeetingStore(this)

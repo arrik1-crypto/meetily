@@ -1,10 +1,15 @@
 package com.meetily.mobile
 
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageView
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
@@ -36,6 +41,7 @@ class SettingsActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ThemeManager.apply(this)
         setContentView(R.layout.activity_settings)
 
         settings = AppSettings(this)
@@ -69,6 +75,7 @@ class SettingsActivity : AppCompatActivity() {
 
         updateLlmSectionVisibility()
         updateWhisperSection()
+        buildAccentRow()
         useLlmSwitch.setOnCheckedChangeListener { _, _ -> updateLlmSectionVisibility() }
         whisperSwitch.setOnCheckedChangeListener { _, checked ->
             updateWhisperSection()
@@ -79,17 +86,63 @@ class SettingsActivity : AppCompatActivity() {
         manageModelsButton.setOnClickListener { showModelDialog() }
 
         findViewById<View>(R.id.saveButton).setOnClickListener {
-            settings.useLlm = useLlmSwitch.isChecked
-            settings.preferOfflineRecognition = offlineSwitch.isChecked
-            settings.muteRecognizerSounds = muteSoundsSwitch.isChecked
-            settings.transcriptionEngine =
-                if (whisperSwitch.isChecked) "whisper" else "system"
-            settings.calendarPrefill = calendarSwitch.isChecked
-            settings.llmBaseUrl = urlInput.text.toString().trim()
-            settings.llmApiKey = keyInput.text.toString().trim()
-            settings.llmModel = modelInput.text.toString().trim()
+            persistAll()
             Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
             finish()
+        }
+    }
+
+    private fun persistAll() {
+        settings.useLlm = useLlmSwitch.isChecked
+        settings.preferOfflineRecognition = offlineSwitch.isChecked
+        settings.muteRecognizerSounds = muteSoundsSwitch.isChecked
+        settings.transcriptionEngine =
+            if (whisperSwitch.isChecked) "whisper" else "system"
+        settings.calendarPrefill = calendarSwitch.isChecked
+        settings.llmBaseUrl = urlInput.text.toString().trim()
+        settings.llmApiKey = keyInput.text.toString().trim()
+        settings.llmModel = modelInput.text.toString().trim()
+    }
+
+    private fun buildAccentRow() {
+        val row = findViewById<LinearLayout>(R.id.accentRow)
+        row.removeAllViews()
+        val density = resources.displayMetrics.density
+        val size = (44 * density).toInt()
+        val margin = (10 * density).toInt()
+        val strokeWidth = (2.5f * density).toInt()
+        val ringColor = TypedValue().let {
+            theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, it, true)
+            it.data
+        }
+        for (accent in ThemeManager.ACCENTS) {
+            val selected = accent.key == settings.accentColor
+            val circle = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(ContextCompat.getColor(this@SettingsActivity, accent.swatchColorRes))
+                if (selected) setStroke(strokeWidth, ringColor)
+            }
+            val swatch = ImageView(this).apply {
+                background = circle
+                if (selected) {
+                    setImageResource(R.drawable.ic_check)
+                    val pad = (10 * density).toInt()
+                    setPadding(pad, pad, pad, pad)
+                }
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    marginEnd = margin
+                }
+                contentDescription = accent.key
+                setOnClickListener {
+                    if (accent.key != settings.accentColor) {
+                        // Keep any unsaved toggles, then retint the screen live.
+                        persistAll()
+                        settings.accentColor = accent.key
+                        recreate()
+                    }
+                }
+            }
+            row.addView(swatch)
         }
     }
 

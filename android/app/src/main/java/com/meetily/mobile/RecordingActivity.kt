@@ -114,6 +114,7 @@ class RecordingActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ThemeManager.apply(this)
         setContentView(R.layout.activity_recording)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 

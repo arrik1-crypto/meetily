@@ -48,4 +48,8 @@ class AppSettings(context: Context) {
     var calendarPrefill: Boolean
         get() = prefs.getBoolean("calendar_prefill", true)
         set(value) = prefs.edit().putBoolean("calendar_prefill", value).apply()
+
+    var accentColor: String
+        get() = prefs.getString("accent_color", "indigo") ?: "indigo"
+        set(value) = prefs.edit().putString("accent_color", value).apply()
 }

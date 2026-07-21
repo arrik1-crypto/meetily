@@ -32,6 +32,62 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="8dp"
                 android:letterSpacing="0.08"
+                android:text="@string/settings_section_appearance"
+                android:textAllCaps="true"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                app:cardBackgroundColor="?attr/colorSurface"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/colorOutlineVariant"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/setting_accent"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/setting_accent_desc"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <HorizontalScrollView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:scrollbars="none">
+
+                        <LinearLayout
+                            android:id="@+id/accentRow"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal" />
+                    </HorizontalScrollView>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:letterSpacing="0.08"
                 android:text="@string/settings_section_meetings"
                 android:textAllCaps="true"
                 android:textAppearance="?attr/textAppearanceLabelMedium"

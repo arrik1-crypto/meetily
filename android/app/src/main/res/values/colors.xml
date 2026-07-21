@@ -15,6 +15,37 @@
 
     <color name="record_red">#DC2626</color>
 
+    <!-- Selectable accents (light variants; night overrides in values-night) -->
+    <color name="accent_indigo">#4F46E5</color>
+    <color name="accent_indigo_on">#FFFFFF</color>
+    <color name="accent_indigo_container">#EEF0FE</color>
+    <color name="accent_indigo_on_container">#3730A3</color>
+
+    <color name="accent_teal">#0D9488</color>
+    <color name="accent_teal_on">#FFFFFF</color>
+    <color name="accent_teal_container">#CCFBF1</color>
+    <color name="accent_teal_on_container">#134E4A</color>
+
+    <color name="accent_rose">#E11D48</color>
+    <color name="accent_rose_on">#FFFFFF</color>
+    <color name="accent_rose_container">#FFE4E6</color>
+    <color name="accent_rose_on_container">#881337</color>
+
+    <color name="accent_amber">#B45309</color>
+    <color name="accent_amber_on">#FFFFFF</color>
+    <color name="accent_amber_container">#FEF3C7</color>
+    <color name="accent_amber_on_container">#78350F</color>
+
+    <color name="accent_emerald">#047857</color>
+    <color name="accent_emerald_on">#FFFFFF</color>
+    <color name="accent_emerald_container">#D1FAE5</color>
+    <color name="accent_emerald_on_container">#064E3B</color>
+
+    <color name="accent_graphite">#374151</color>
+    <color name="accent_graphite_on">#FFFFFF</color>
+    <color name="accent_graphite_container">#E5E7EB</color>
+    <color name="accent_graphite_on_container">#111827</color>
+
     <color name="white">#FFFFFF</color>
     <color name="ic_launcher_background">#4F46E5</color>
 </resources>

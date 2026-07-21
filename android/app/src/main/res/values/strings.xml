@@ -44,6 +44,9 @@
     <string name="calendar_prefilled">Filled from calendar: %1$s</string>
     <string name="calendar_permission_denied">Calendar permission denied</string>
     <string name="choose_calendar_event">Which event is this meeting?</string>
+    <string name="settings_section_appearance">Appearance</string>
+    <string name="setting_accent">Accent color</string>
+    <string name="setting_accent_desc">Recolors buttons, highlights, and AI panels across the app, in light and dark mode.</string>
     <string name="settings_section_meetings">Meetings</string>
     <string name="setting_calendar">Pre-fill from calendar</string>
     <string name="setting_calendar_desc">When you start recording during a scheduled event, use its title and guest list automatically. Needs read-only calendar access — the first tap on \"From calendar\" asks for it. Nothing is written to your calendar.</string>

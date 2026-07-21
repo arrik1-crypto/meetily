@@ -5,6 +5,49 @@
       thin outlines, indigo reserved for AI/primary actions. Dark mode comes
       from the values-night color overrides, so one theme definition suffices.
     -->
+    <!-- Accent overlays: applied on top of Theme.Meetily by ThemeManager. -->
+    <style name="ThemeOverlay.Meetily.Indigo" parent="">
+        <item name="colorPrimary">@color/accent_indigo</item>
+        <item name="colorOnPrimary">@color/accent_indigo_on</item>
+        <item name="colorPrimaryContainer">@color/accent_indigo_container</item>
+        <item name="colorOnPrimaryContainer">@color/accent_indigo_on_container</item>
+    </style>
+
+    <style name="ThemeOverlay.Meetily.Teal" parent="">
+        <item name="colorPrimary">@color/accent_teal</item>
+        <item name="colorOnPrimary">@color/accent_teal_on</item>
+        <item name="colorPrimaryContainer">@color/accent_teal_container</item>
+        <item name="colorOnPrimaryContainer">@color/accent_teal_on_container</item>
+    </style>
+
+    <style name="ThemeOverlay.Meetily.Rose" parent="">
+        <item name="colorPrimary">@color/accent_rose</item>
+        <item name="colorOnPrimary">@color/accent_rose_on</item>
+        <item name="colorPrimaryContainer">@color/accent_rose_container</item>
+        <item name="colorOnPrimaryContainer">@color/accent_rose_on_container</item>
+    </style>
+
+    <style name="ThemeOverlay.Meetily.Amber" parent="">
+        <item name="colorPrimary">@color/accent_amber</item>
+        <item name="colorOnPrimary">@color/accent_amber_on</item>
+        <item name="colorPrimaryContainer">@color/accent_amber_container</item>
+        <item name="colorOnPrimaryContainer">@color/accent_amber_on_container</item>
+    </style>
+
+    <style name="ThemeOverlay.Meetily.Emerald" parent="">
+        <item name="colorPrimary">@color/accent_emerald</item>
+        <item name="colorOnPrimary">@color/accent_emerald_on</item>
+        <item name="colorPrimaryContainer">@color/accent_emerald_container</item>
+        <item name="colorOnPrimaryContainer">@color/accent_emerald_on_container</item>
+    </style>
+
+    <style name="ThemeOverlay.Meetily.Graphite" parent="">
+        <item name="colorPrimary">@color/accent_graphite</item>
+        <item name="colorOnPrimary">@color/accent_graphite_on</item>
+        <item name="colorPrimaryContainer">@color/accent_graphite_container</item>
+        <item name="colorOnPrimaryContainer">@color/accent_graphite_on_container</item>
+    </style>
+
     <style name="Theme.Meetily" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/accent</item>
         <item name="colorOnPrimary">@color/accent_on</item>

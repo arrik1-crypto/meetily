@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
@@ -28,8 +29,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchInput: EditText
     private var allMeetings: List<Meeting> = emptyList()
 
+    private var appliedAccent: String = ""
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        appliedAccent = ThemeManager.apply(this)
         setContentView(R.layout.activity_main)
 
         val toolbar = findViewById<MaterialToolbar>(R.id.topAppBar)
@@ -68,6 +72,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (appliedAccent.isNotEmpty() && appliedAccent != AppSettings(this).accentColor) {
+            recreate()
+            return
+        }
         refresh()
     }
 
