@@ -31,4 +31,8 @@ class AppSettings(context: Context) {
     var muteRecognizerSounds: Boolean
         get() = prefs.getBoolean("mute_recognizer_sounds", true)
         set(value) = prefs.edit().putBoolean("mute_recognizer_sounds", value).apply()
+
+    var summaryTemplate: String
+        get() = prefs.getString("summary_template", "general") ?: "general"
+        set(value) = prefs.edit().putString("summary_template", value).apply()
 }

@@ -9,6 +9,9 @@ This is a standalone native Android app (Kotlin). It does **not** depend on the 
 - **Live transcription** while you record, using Android's built-in speech recognition. On Android 12+ you can prefer the fully on-device recognizer (Settings → "Prefer on-device transcription") so audio never leaves the phone.
 - **Notes** — type notes in a pane below the live transcript during the meeting, or edit them afterwards.
 - **Attendees & speaker tagging** — list attendees for a meeting, then tap any transcript segment (during recording or afterwards) to tag who said it. Speaker names flow into shared exports and LLM summaries. (Automatic diarization isn't possible with Android's recognition service, so tagging is manual.)
+- **Highlights** — a star button while recording marks the current moment; long-press any transcript line afterwards to toggle. Highlighted moments get priority treatment in summaries.
+- **Ask this meeting** — with an LLM endpoint configured, ask free-form questions on the meeting page ("what did we decide about pricing?"); answers come strictly from the transcript, notes, and summary, and the Q&A thread is saved with the meeting.
+- **Summary templates** — choose the summary's shape when generating: General minutes, Action items, Decisions & open questions, Standup by person, or Sales call report.
 - **Summaries**, two ways:
   - **On-device (default, zero config)**: an offline extractive summarizer produces key points and detected action items. No network involved.
   - **LLM (optional)**: point the app at any OpenAI-compatible endpoint — Ollama running on your computer (`http://YOUR_PC_IP:11434/v1`), Groq, OpenRouter, etc. Configure URL, model, and API key in Settings. If the LLM call fails, the app falls back to the on-device summary.

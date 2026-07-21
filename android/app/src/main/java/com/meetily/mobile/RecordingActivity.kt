@@ -53,6 +53,7 @@ class RecordingActivity : AppCompatActivity() {
     private lateinit var transcriptScroll: ScrollView
     private lateinit var notesInput: EditText
     private lateinit var pauseButton: MaterialButton
+    private lateinit var highlightButton: MaterialButton
     private lateinit var finishButton: MaterialButton
 
     private var recognizer: SpeechRecognizer? = null
@@ -62,6 +63,8 @@ class RecordingActivity : AppCompatActivity() {
     private val mutedStreams = mutableListOf<Int>()
 
     private val segments = mutableListOf<TranscriptSegment>()
+    private val bubbleViews = mutableListOf<View>()
+    private var pendingHighlight = false
     private val handler = Handler(Looper.getMainLooper())
     private val timerHandler = Handler(Looper.getMainLooper())
     private val meetingId = UUID.randomUUID().toString()
@@ -97,6 +100,7 @@ class RecordingActivity : AppCompatActivity() {
         transcriptScroll = findViewById(R.id.transcriptScroll)
         notesInput = findViewById(R.id.notesInput)
         pauseButton = findViewById(R.id.pauseButton)
+        highlightButton = findViewById(R.id.highlightButton)
         finishButton = findViewById(R.id.finishButton)
 
         findViewById<MaterialToolbar>(R.id.recordingToolbar).setNavigationOnClickListener {
@@ -116,6 +120,7 @@ class RecordingActivity : AppCompatActivity() {
         titleInput.setText(defaultTitle)
 
         pauseButton.setOnClickListener { togglePause() }
+        highlightButton.setOnClickListener { highlightNow() }
         finishButton.setOnClickListener { finishAndSave() }
 
         lastResumeAt = SystemClock.elapsedRealtime()
@@ -347,36 +352,68 @@ class RecordingActivity : AppCompatActivity() {
 
     private fun appendSegment(text: String) {
         val timestamp = System.currentTimeMillis()
-        segments.add(TranscriptSegment(timestamp, text))
+        segments.add(TranscriptSegment(timestamp, text, highlighted = pendingHighlight))
+        pendingHighlight = false
         val index = segments.size - 1
 
         val bubble = LayoutInflater.from(this)
             .inflate(R.layout.item_transcript_segment, transcriptContainer, false)
-        val timeView = bubble.findViewById<TextView>(R.id.segmentTime)
-        timeView.text = timeLabel(timestamp, null)
         bubble.findViewById<TextView>(R.id.segmentText).text = text
-        bubble.setOnClickListener { assignSpeaker(index, timeView) }
+        bubble.setOnClickListener { assignSpeaker(index) }
+        bubbleViews.add(bubble)
 
         val partialIndex = transcriptContainer.indexOfChild(partialView)
         transcriptContainer.addView(bubble, if (partialIndex >= 0) partialIndex else -1)
+        refreshBubble(index)
         scrollTranscriptToBottom()
     }
 
-    private fun timeLabel(timestampMs: Long, speaker: String?): String {
-        val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
-        return if (speaker.isNullOrBlank()) time else "$time · $speaker"
+    private fun timeLabel(segment: TranscriptSegment): String {
+        val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(segment.timestampMs))
+        val star = if (segment.highlighted) "★ " else ""
+        val speaker = segment.speaker
+        return if (speaker.isNullOrBlank()) "$star$time" else "$star$time · $speaker"
+    }
+
+    private fun refreshBubble(index: Int) {
+        val bubble = bubbleViews.getOrNull(index) ?: return
+        val segment = segments.getOrNull(index) ?: return
+        bubble.setBackgroundResource(
+            if (segment.highlighted) R.drawable.bg_bubble_highlight else R.drawable.bg_bubble
+        )
+        bubble.findViewById<TextView>(R.id.segmentTime).text = timeLabel(segment)
+    }
+
+    private fun highlightNow() {
+        val partialActive = partialView.visibility == View.VISIBLE
+        if (partialActive || segments.isEmpty()) {
+            // Speech is mid-utterance (or nothing transcribed yet): flag the
+            // segment that is about to arrive.
+            pendingHighlight = true
+            Toast.makeText(this, R.string.highlight_pending_toast, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val index = segments.size - 1
+        val nowHighlighted = !segments[index].highlighted
+        segments[index] = segments[index].copy(highlighted = nowHighlighted)
+        refreshBubble(index)
+        Toast.makeText(
+            this,
+            if (nowHighlighted) R.string.highlighted_toast else R.string.unhighlighted_toast,
+            Toast.LENGTH_SHORT
+        ).show()
     }
 
     private fun currentAttendees(): MutableList<String> =
         Meeting.parseAttendees(attendeesInput.text.toString())
 
-    private fun assignSpeaker(index: Int, timeView: TextView) {
+    private fun assignSpeaker(index: Int) {
         if (index !in segments.indices) return
         val segment = segments[index]
         SpeakerPicker.show(this, currentAttendees(), segment.speaker) { name ->
             if (index !in segments.indices) return@show
             segments[index] = segments[index].copy(speaker = name)
-            timeView.text = timeLabel(segments[index].timestampMs, name)
+            refreshBubble(index)
             if (!name.isNullOrBlank()) {
                 val attendees = currentAttendees()
                 if (attendees.none { it.equals(name, ignoreCase = true) }) {

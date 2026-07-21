@@ -165,6 +165,17 @@
                 app:strokeColor="?attr/colorOutline" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/highlightButton"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="12dp"
+                android:contentDescription="@string/highlight"
+                app:icon="@drawable/ic_star"
+                app:iconTint="?attr/colorPrimary"
+                app:strokeColor="?attr/colorOutline" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/finishButton"
                 android:layout_width="0dp"
                 android:layout_height="56dp"

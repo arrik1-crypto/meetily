@@ -13,27 +13,32 @@ import java.net.URL
  */
 object LlmClient {
 
-    private const val SYSTEM_PROMPT =
-        "You are a meeting assistant. Summarize the meeting transcript into: " +
-            "1) a short overview paragraph, 2) key discussion points as bullets, " +
-            "3) decisions made, 4) action items with owners if mentioned. " +
-            "Be concise and factual; incorporate the user's own notes where relevant."
-
     fun summarize(
         baseUrl: String,
         apiKey: String,
         model: String,
         transcript: String,
         notes: String,
-        attendees: List<String> = emptyList()
+        attendees: List<String> = emptyList(),
+        highlights: List<String> = emptyList(),
+        template: SummaryTemplate = SummaryTemplates.ALL.first()
     ): String {
-        val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
+        val systemPrompt = "You are a meeting assistant. " + template.llmInstructions +
+            " Be concise and factual; incorporate the user's own notes and highlighted " +
+            "moments where relevant."
 
         val userContent = buildString {
             if (attendees.isNotEmpty()) {
                 append("Meeting attendees: ")
                 append(attendees.joinToString(", "))
                 append("\n\n")
+            }
+            if (highlights.isNotEmpty()) {
+                append("Moments the user highlighted as important:\n")
+                for (h in highlights.take(40)) {
+                    append("- ").append(h).append('\n')
+                }
+                append('\n')
             }
             append("Meeting transcript (lines may be prefixed with the speaker's name):\n")
             append(transcript.take(48_000))
@@ -44,8 +49,60 @@ object LlmClient {
         }
 
         val messages = JSONArray()
-            .put(JSONObject().put("role", "system").put("content", SYSTEM_PROMPT))
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
             .put(JSONObject().put("role", "user").put("content", userContent))
+
+        return chat(baseUrl, apiKey, model, messages)
+    }
+
+    fun ask(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        transcript: String,
+        notes: String,
+        summary: String,
+        attendees: List<String>,
+        history: List<Pair<String, String>>,
+        question: String
+    ): String {
+        val systemPrompt = buildString {
+            append(
+                "You answer questions about one specific meeting, using ONLY the meeting " +
+                    "content below. If the answer is not in the meeting, say so briefly. " +
+                    "Be concise.\n\n"
+            )
+            if (attendees.isNotEmpty()) {
+                append("Attendees: ").append(attendees.joinToString(", ")).append("\n\n")
+            }
+            if (summary.isNotBlank()) {
+                append("Summary:\n").append(summary.take(6_000)).append("\n\n")
+            }
+            append("Transcript (lines may be prefixed with the speaker's name):\n")
+            append(transcript.take(40_000))
+            if (notes.isNotBlank()) {
+                append("\n\nUser's notes:\n").append(notes.take(6_000))
+            }
+        }
+
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+        for ((q, a) in history.takeLast(3)) {
+            messages.put(JSONObject().put("role", "user").put("content", q))
+            messages.put(JSONObject().put("role", "assistant").put("content", a))
+        }
+        messages.put(JSONObject().put("role", "user").put("content", question))
+
+        return chat(baseUrl, apiKey, model, messages)
+    }
+
+    private fun chat(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        messages: JSONArray
+    ): String {
+        val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
 
         val body = JSONObject()
             .put("model", model)
@@ -79,7 +136,7 @@ object LlmClient {
                 .getJSONObject("message")
                 .optString("content", "")
             if (content.isBlank()) {
-                throw RuntimeException("LLM returned an empty summary")
+                throw RuntimeException("LLM returned an empty response")
             }
             return content.trim()
         } finally {

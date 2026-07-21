@@ -46,7 +46,29 @@
     <string name="someone_else">Someone else…</string>
     <string name="remove_speaker">Remove speaker</string>
     <string name="speaker_name_hint">Name</string>
-    <string name="tap_to_tag_hint">Tap a transcript line to tag the speaker</string>
+    <string name="tap_to_tag_hint">Tap a line to tag the speaker · long-press to highlight</string>
+
+    <!-- Highlights -->
+    <string name="highlight">Highlight this moment</string>
+    <string name="highlighted_toast">Moment highlighted ★</string>
+    <string name="highlight_pending_toast">Will highlight the next transcribed segment ★</string>
+    <string name="unhighlighted_toast">Highlight removed</string>
+
+    <!-- Ask -->
+    <string name="section_ask">Ask this meeting</string>
+    <string name="ask_hint">Ask a question about this meeting…</string>
+    <string name="ask_send">Send question</string>
+    <string name="ask_requires_llm">Answers need an LLM endpoint. Enable one in Settings (Ollama, Groq, or OpenRouter) to ask questions about this meeting.</string>
+    <string name="ask_thinking">Thinking…</string>
+    <string name="ask_failed">Couldn\'t get an answer: %1$s</string>
+
+    <!-- Summary templates -->
+    <string name="choose_template">Summary style</string>
+    <string name="template_general">General minutes</string>
+    <string name="template_actions">Action items</string>
+    <string name="template_decisions">Decisions &amp; open questions</string>
+    <string name="template_standup">Standup (by person)</string>
+    <string name="template_sales">Sales call report</string>
 
     <!-- Detail -->
     <string name="section_summary">Summary</string>

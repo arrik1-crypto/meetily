@@ -6,7 +6,13 @@ import org.json.JSONObject
 data class TranscriptSegment(
     val timestampMs: Long,
     val text: String,
-    val speaker: String? = null
+    val speaker: String? = null,
+    val highlighted: Boolean = false
+)
+
+data class QaEntry(
+    val question: String,
+    val answer: String
 )
 
 data class Meeting(
@@ -16,7 +22,8 @@ data class Meeting(
     val segments: MutableList<TranscriptSegment> = mutableListOf(),
     var notes: String = "",
     var summary: String = "",
-    var attendees: MutableList<String> = mutableListOf()
+    var attendees: MutableList<String> = mutableListOf(),
+    val qa: MutableList<QaEntry> = mutableListOf()
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -25,6 +32,12 @@ data class Meeting(
     /** Transcript with speaker labels where assigned (used for sharing and LLM summaries). */
     fun transcriptTextWithSpeakers(): String =
         segments.joinToString("\n") { seg ->
+            val speaker = seg.speaker
+            if (speaker.isNullOrBlank()) seg.text else "$speaker: ${seg.text}"
+        }
+
+    fun highlightedTexts(): List<String> =
+        segments.filter { it.highlighted }.map { seg ->
             val speaker = seg.speaker
             if (speaker.isNullOrBlank()) seg.text else "$speaker: ${seg.text}"
         }
@@ -51,9 +64,20 @@ data class Meeting(
             if (!seg.speaker.isNullOrBlank()) {
                 s.put("speaker", seg.speaker)
             }
+            if (seg.highlighted) {
+                s.put("highlighted", true)
+            }
             arr.put(s)
         }
         obj.put("segments", arr)
+        val qaArr = JSONArray()
+        for (entry in qa) {
+            val q = JSONObject()
+            q.put("q", entry.question)
+            q.put("a", entry.answer)
+            qaArr.put(q)
+        }
+        obj.put("qa", qaArr)
         return obj
     }
 
@@ -86,9 +110,19 @@ data class Meeting(
                     TranscriptSegment(
                         timestampMs = s.optLong("t", 0L),
                         text = s.optString("text", ""),
-                        speaker = speaker.ifBlank { null }
+                        speaker = speaker.ifBlank { null },
+                        highlighted = s.optBoolean("highlighted", false)
                     )
                 )
+            }
+            val qaArr = obj.optJSONArray("qa") ?: JSONArray()
+            for (i in 0 until qaArr.length()) {
+                val q = qaArr.getJSONObject(i)
+                val question = q.optString("q", "")
+                val answer = q.optString("a", "")
+                if (question.isNotBlank()) {
+                    meeting.qa.add(QaEntry(question, answer))
+                }
             }
             return meeting
         }

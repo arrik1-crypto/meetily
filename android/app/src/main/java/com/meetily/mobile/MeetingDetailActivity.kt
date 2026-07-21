@@ -11,13 +11,18 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
+import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.QaEntry
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
+import com.meetily.mobile.summarize.SummaryTemplate
+import com.meetily.mobile.summarize.SummaryTemplates
 import java.text.DateFormat
 import java.util.Date
 
@@ -36,6 +41,11 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var notesInput: EditText
     private lateinit var attendeesInput: EditText
     private lateinit var progress: ProgressBar
+    private lateinit var qaList: LinearLayout
+    private lateinit var askInput: EditText
+    private lateinit var askSend: MaterialButton
+    private lateinit var askRow: View
+    private lateinit var askDisabledHint: View
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -58,6 +68,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         notesInput = findViewById(R.id.detailNotes)
         attendeesInput = findViewById(R.id.detailAttendees)
         progress = findViewById(R.id.summaryProgress)
+        qaList = findViewById(R.id.qaList)
+        askInput = findViewById(R.id.askInput)
+        askSend = findViewById(R.id.askSend)
+        askRow = findViewById(R.id.askRow)
+        askDisabledHint = findViewById(R.id.askDisabledHint)
 
         val id = intent.getStringExtra(EXTRA_MEETING_ID)
         meeting = id?.let { store.load(it) }
@@ -76,12 +91,23 @@ class MeetingDetailActivity : AppCompatActivity() {
             .count { it.isNotBlank() }
         metaView.text = getString(R.string.detail_meta, m.segments.size, wordCount)
 
-        findViewById<View>(R.id.generateButton).setOnClickListener { generateSummary() }
+        findViewById<View>(R.id.generateButton).setOnClickListener {
+            chooseTemplateAndSummarize()
+        }
+        askSend.setOnClickListener { sendQuestion() }
 
         renderSummary(m.summary)
         renderTranscript(m)
+        renderQaHistory(m)
         notesInput.setText(m.notes)
         attendeesInput.setText(m.attendeesText())
+    }
+
+    override fun onResume() {
+        super.onResume()
+        val llmReady = settings.useLlm && settings.llmBaseUrl.isNotBlank()
+        askRow.visibility = if (llmReady) View.VISIBLE else View.GONE
+        askDisabledHint.visibility = if (llmReady) View.GONE else View.VISIBLE
     }
 
     private fun renderSummary(summary: String) {
@@ -114,8 +140,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         val inflater = LayoutInflater.from(this)
         for ((index, segment) in m.segments.withIndex()) {
             val line = inflater.inflate(R.layout.item_transcript_line, transcriptList, false)
-            line.findViewById<TextView>(R.id.lineTime).text =
-                timeFormat.format(Date(segment.timestampMs))
+            val timeView = line.findViewById<TextView>(R.id.lineTime)
+            val time = timeFormat.format(Date(segment.timestampMs))
+            timeView.text = if (segment.highlighted) "★ $time" else time
             line.findViewById<TextView>(R.id.lineText).text = segment.text
             val speakerView = line.findViewById<TextView>(R.id.lineSpeaker)
             if (segment.speaker.isNullOrBlank()) {
@@ -124,9 +151,26 @@ class MeetingDetailActivity : AppCompatActivity() {
                 speakerView.text = segment.speaker
                 speakerView.visibility = View.VISIBLE
             }
+            if (segment.highlighted) {
+                line.setBackgroundResource(R.drawable.bg_line_highlight)
+            }
             line.setOnClickListener { assignSpeaker(index) }
+            line.setOnLongClickListener {
+                toggleHighlight(index)
+                true
+            }
             transcriptList.addView(line)
         }
+    }
+
+    private fun toggleHighlight(index: Int) {
+        val m = meeting ?: return
+        if (index !in m.segments.indices) return
+        m.segments[index] = m.segments[index].copy(
+            highlighted = !m.segments[index].highlighted
+        )
+        store.save(m)
+        renderTranscript(m)
     }
 
     private fun assignSpeaker(index: Int) {
@@ -163,7 +207,79 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun generateSummary() {
+    private fun renderQaHistory(m: Meeting) {
+        qaList.removeAllViews()
+        for (entry in m.qa) {
+            addQaView(entry.question, entry.answer)
+        }
+    }
+
+    /** Adds a question/answer pair to the thread; returns the answer view for updating. */
+    private fun addQaView(question: String, answer: String): TextView {
+        val item = LayoutInflater.from(this).inflate(R.layout.item_qa, qaList, false)
+        item.findViewById<TextView>(R.id.qaQuestion).text = question
+        val answerView = item.findViewById<TextView>(R.id.qaAnswer)
+        answerView.text = answer
+        qaList.addView(item)
+        return answerView
+    }
+
+    private fun sendQuestion() {
+        val m = meeting ?: return
+        val question = askInput.text.toString().trim()
+        if (question.isBlank()) return
+        saveEdits()
+
+        askInput.setText("")
+        askSend.isEnabled = false
+        val answerView = addQaView(question, getString(R.string.ask_thinking))
+
+        val baseUrl = settings.llmBaseUrl
+        val apiKey = settings.llmApiKey
+        val model = settings.llmModel
+        val transcript = m.transcriptTextWithSpeakers()
+        val notes = m.notes
+        val summary = m.summary
+        val attendees = m.attendees.toList()
+        val history = m.qa.map { it.question to it.answer }
+
+        Thread {
+            val answer = try {
+                LlmClient.ask(
+                    baseUrl, apiKey, model, transcript, notes, summary,
+                    attendees, history, question
+                )
+            } catch (e: Exception) {
+                getString(R.string.ask_failed, e.message ?: "unknown error")
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                answerView.text = answer
+                askSend.isEnabled = true
+                m.qa.add(QaEntry(question, answer))
+                store.save(m)
+            }
+        }.start()
+    }
+
+    private fun chooseTemplateAndSummarize() {
+        val labels = SummaryTemplates.ALL.map { getString(it.labelRes) }.toTypedArray()
+        val current = SummaryTemplates.ALL
+            .indexOfFirst { it.key == settings.summaryTemplate }
+            .coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.choose_template)
+            .setSingleChoiceItems(labels, current) { dialog, which ->
+                dialog.dismiss()
+                val template = SummaryTemplates.ALL[which]
+                settings.summaryTemplate = template.key
+                generateSummary(template)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun generateSummary(template: SummaryTemplate) {
         val m = meeting ?: return
         saveEdits()
 
@@ -185,16 +301,24 @@ class MeetingDetailActivity : AppCompatActivity() {
         val speakerTranscript = m.transcriptTextWithSpeakers()
         val notes = m.notes
         val attendees = m.attendees.toList()
+        val highlights = m.highlightedTexts()
 
         Thread {
             val result = try {
                 if (useLlm && baseUrl.isNotBlank()) {
-                    LlmClient.summarize(baseUrl, apiKey, model, speakerTranscript, notes, attendees)
+                    LlmClient.summarize(
+                        baseUrl, apiKey, model, speakerTranscript, notes,
+                        attendees, highlights, template
+                    )
                 } else {
-                    ExtractiveSummarizer.summarize(rawTranscript, notes)
+                    ExtractiveSummarizer.summarize(
+                        rawTranscript, notes, highlights, template.extractiveActionsOnly
+                    )
                 }
             } catch (e: Exception) {
-                val fallback = ExtractiveSummarizer.summarize(rawTranscript, notes)
+                val fallback = ExtractiveSummarizer.summarize(
+                    rawTranscript, notes, highlights, template.extractiveActionsOnly
+                )
                 getString(R.string.llm_failed_fallback, e.message ?: "unknown error") +
                     "\n\n" + fallback
             }
@@ -244,7 +368,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_summarize -> {
-                generateSummary()
+                chooseTemplateAndSummarize()
                 true
             }
             R.id.action_share -> {

@@ -29,10 +29,38 @@ object ExtractiveSummarizer {
         RegexOption.IGNORE_CASE
     )
 
-    fun summarize(transcript: String, notes: String): String {
+    fun summarize(
+        transcript: String,
+        notes: String,
+        highlights: List<String> = emptyList(),
+        actionsOnly: Boolean = false
+    ): String {
         val sentences = splitSentences(transcript)
-        if (sentences.isEmpty() && notes.isBlank()) {
+        if (sentences.isEmpty() && notes.isBlank() && highlights.isEmpty()) {
             return "Nothing to summarize yet — the transcript is empty."
+        }
+
+        if (actionsOnly) {
+            val actionItems = sentences.filter { ACTION_PATTERN.containsMatchIn(it) }
+            val builder = StringBuilder()
+            builder.append("ACTION ITEMS (generated on-device)\n\n")
+            if (actionItems.isEmpty()) {
+                builder.append("No action items detected in the transcript.\n")
+            } else {
+                for (item in actionItems) {
+                    builder.append("☐ ").append(item.trim()).append('\n')
+                }
+            }
+            if (highlights.isNotEmpty()) {
+                builder.append("\nHighlighted moments:\n")
+                for (h in highlights) {
+                    builder.append("★ ").append(h.trim()).append('\n')
+                }
+            }
+            if (notes.isNotBlank()) {
+                builder.append("\nYour notes:\n").append(notes.trim()).append('\n')
+            }
+            return builder.toString().trim()
         }
 
         val frequencies = HashMap<String, Int>()
@@ -66,6 +94,13 @@ object ExtractiveSummarizer {
 
         val builder = StringBuilder()
         builder.append("MEETING SUMMARY (generated on-device)\n\n")
+        if (highlights.isNotEmpty()) {
+            builder.append("Highlighted moments:\n")
+            for (h in highlights) {
+                builder.append("★ ").append(h.trim()).append('\n')
+            }
+            builder.append('\n')
+        }
         if (keyPoints.isNotEmpty()) {
             builder.append("Key points:\n")
             for (point in keyPoints) {
