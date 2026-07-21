@@ -49,10 +49,20 @@
             android:textColorHint="?attr/colorOutline"
             android:textSize="14sp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/calendarButton"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:text="@string/from_calendar"
+            android:textColor="?attr/colorPrimary"
+            app:icon="@drawable/ic_calendar"
+            app:iconTint="?attr/colorPrimary" />
+
         <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
             android:background="@drawable/bg_status_pill"
             android:gravity="center_vertical"
             android:orientation="horizontal"

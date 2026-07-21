@@ -22,6 +22,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var offlineSwitch: MaterialSwitch
     private lateinit var muteSoundsSwitch: MaterialSwitch
     private lateinit var whisperSwitch: MaterialSwitch
+    private lateinit var calendarSwitch: MaterialSwitch
     private lateinit var whisperSection: View
     private lateinit var whisperModelStatus: TextView
     private lateinit var modelProgress: LinearProgressIndicator
@@ -47,6 +48,7 @@ class SettingsActivity : AppCompatActivity() {
         offlineSwitch = findViewById(R.id.offlineSwitch)
         muteSoundsSwitch = findViewById(R.id.muteSoundsSwitch)
         whisperSwitch = findViewById(R.id.whisperSwitch)
+        calendarSwitch = findViewById(R.id.calendarSwitch)
         whisperSection = findViewById(R.id.whisperSection)
         whisperModelStatus = findViewById(R.id.whisperModelStatus)
         modelProgress = findViewById(R.id.modelProgress)
@@ -60,6 +62,7 @@ class SettingsActivity : AppCompatActivity() {
         offlineSwitch.isChecked = settings.preferOfflineRecognition
         muteSoundsSwitch.isChecked = settings.muteRecognizerSounds
         whisperSwitch.isChecked = settings.transcriptionEngine == "whisper"
+        calendarSwitch.isChecked = settings.calendarPrefill
         urlInput.setText(settings.llmBaseUrl)
         keyInput.setText(settings.llmApiKey)
         modelInput.setText(settings.llmModel)
@@ -81,6 +84,7 @@ class SettingsActivity : AppCompatActivity() {
             settings.muteRecognizerSounds = muteSoundsSwitch.isChecked
             settings.transcriptionEngine =
                 if (whisperSwitch.isChecked) "whisper" else "system"
+            settings.calendarPrefill = calendarSwitch.isChecked
             settings.llmBaseUrl = urlInput.text.toString().trim()
             settings.llmApiKey = keyInput.text.toString().trim()
             settings.llmModel = modelInput.text.toString().trim()

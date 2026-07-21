@@ -31,6 +31,7 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.CalendarHelper
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
@@ -61,6 +62,8 @@ class RecordingActivity : AppCompatActivity() {
     private lateinit var highlightButton: MaterialButton
     private lateinit var cameraButton: MaterialButton
     private lateinit var finishButton: MaterialButton
+    private lateinit var calendarButton: MaterialButton
+    private lateinit var initialDefaultTitle: String
 
     private val photoFiles = mutableListOf<String>()
     private var pendingPhotoFile: File? = null
@@ -130,6 +133,7 @@ class RecordingActivity : AppCompatActivity() {
         highlightButton = findViewById(R.id.highlightButton)
         cameraButton = findViewById(R.id.cameraButton)
         finishButton = findViewById(R.id.finishButton)
+        calendarButton = findViewById(R.id.calendarButton)
 
         findViewById<MaterialToolbar>(R.id.recordingToolbar).setNavigationOnClickListener {
             confirmDiscard()
@@ -140,17 +144,25 @@ class RecordingActivity : AppCompatActivity() {
             }
         })
 
-        val defaultTitle = getString(
+        initialDefaultTitle = getString(
             R.string.default_meeting_title,
             DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
                 .format(Date(startedAtMs))
         )
-        titleInput.setText(defaultTitle)
+        titleInput.setText(initialDefaultTitle)
 
         pauseButton.setOnClickListener { togglePause() }
         highlightButton.setOnClickListener { highlightNow() }
         cameraButton.setOnClickListener { capturePhoto() }
         finishButton.setOnClickListener { finishAndSave() }
+        calendarButton.setOnClickListener { requestCalendarPrefill(manual = true) }
+
+        if (settings.calendarPrefill &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            loadCalendarEvents(manual = false)
+        }
 
         lastResumeAt = SystemClock.elapsedRealtime()
         timerHandler.post(timerTick)
@@ -298,6 +310,86 @@ class RecordingActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.mic_permission_denied, Toast.LENGTH_LONG).show()
             }
         }
+        if (requestCode == CALENDAR_REQUEST) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                loadCalendarEvents(manual = true)
+            } else {
+                Toast.makeText(this, R.string.calendar_permission_denied, Toast.LENGTH_SHORT)
+                    .show()
+            }
+        }
+    }
+
+    private fun requestCalendarPrefill(manual: Boolean) {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR)
+            == PackageManager.PERMISSION_GRANTED
+        ) {
+            loadCalendarEvents(manual)
+        } else if (manual) {
+            ActivityCompat.requestPermissions(
+                this, arrayOf(Manifest.permission.READ_CALENDAR), CALENDAR_REQUEST
+            )
+        }
+    }
+
+    private fun loadCalendarEvents(manual: Boolean) {
+        Thread {
+            val events = CalendarHelper.findCurrentEvents(this)
+            runOnUiThread {
+                if (destroyed || finishing || savedMeeting) return@runOnUiThread
+                when {
+                    events.isEmpty() -> {
+                        if (manual) {
+                            Toast.makeText(
+                                this, R.string.no_calendar_event, Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                    manual && events.size > 1 -> {
+                        val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
+                        val labels = events.map {
+                            "${it.title} (${timeFormat.format(Date(it.beginMs))})"
+                        }.toTypedArray()
+                        AlertDialog.Builder(this)
+                            .setTitle(R.string.choose_calendar_event)
+                            .setItems(labels) { _, which ->
+                                applyCalendarEvent(events[which], overwriteTitle = true)
+                            }
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .show()
+                    }
+                    else -> applyCalendarEvent(events.first(), overwriteTitle = manual)
+                }
+            }
+        }.start()
+    }
+
+    private fun applyCalendarEvent(
+        event: CalendarHelper.CalendarEvent,
+        overwriteTitle: Boolean
+    ) {
+        Thread {
+            val eventAttendees = CalendarHelper.attendeesFor(this, event.eventId)
+            runOnUiThread {
+                if (destroyed || finishing || savedMeeting) return@runOnUiThread
+                if (overwriteTitle || titleInput.text.toString() == initialDefaultTitle) {
+                    titleInput.setText(event.title)
+                }
+                if (eventAttendees.isNotEmpty()) {
+                    val merged = currentAttendees()
+                    for (name in eventAttendees) {
+                        if (merged.none { it.equals(name, ignoreCase = true) }) {
+                            merged.add(name)
+                        }
+                    }
+                    attendeesInput.setText(merged.joinToString(", "))
+                }
+                Toast.makeText(
+                    this, getString(R.string.calendar_prefilled, event.title),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }.start()
     }
 
     private fun createRecognizer(): SpeechRecognizer {
@@ -635,5 +727,6 @@ class RecordingActivity : AppCompatActivity() {
 
     companion object {
         private const val PERMISSION_REQUEST = 4001
+        private const val CALENDAR_REQUEST = 4002
     }
 }

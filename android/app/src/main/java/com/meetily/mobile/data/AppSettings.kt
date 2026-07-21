@@ -44,4 +44,8 @@ class AppSettings(context: Context) {
     var whisperModel: String
         get() = prefs.getString("whisper_model", "base.en") ?: "base.en"
         set(value) = prefs.edit().putString("whisper_model", value).apply()
+
+    var calendarPrefill: Boolean
+        get() = prefs.getBoolean("calendar_prefill", true)
+        set(value) = prefs.edit().putBoolean("calendar_prefill", value).apply()
 }

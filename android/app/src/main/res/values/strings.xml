@@ -38,6 +38,16 @@
     <string name="whisper_model_missing">Whisper model not downloaded — using system recognition. Download it in Settings.</string>
     <string name="whisper_unavailable">Whisper isn\'t supported on this device — using system recognition.</string>
 
+    <!-- Calendar -->
+    <string name="from_calendar">From calendar</string>
+    <string name="no_calendar_event">No calendar event happening right now</string>
+    <string name="calendar_prefilled">Filled from calendar: %1$s</string>
+    <string name="calendar_permission_denied">Calendar permission denied</string>
+    <string name="choose_calendar_event">Which event is this meeting?</string>
+    <string name="settings_section_meetings">Meetings</string>
+    <string name="setting_calendar">Pre-fill from calendar</string>
+    <string name="setting_calendar_desc">When you start recording during a scheduled event, use its title and guest list automatically. Needs read-only calendar access — the first tap on \"From calendar\" asks for it. Nothing is written to your calendar.</string>
+
     <!-- Recording -->
     <string name="meeting_title_hint">Meeting title</string>
     <string name="default_meeting_title">Meeting %1$s</string>
