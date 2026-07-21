@@ -1,6 +1,8 @@
 package com.meetily.mobile
 
+import android.content.Intent
 import android.graphics.drawable.GradientDrawable
+import android.net.Uri
 import android.os.Bundle
 import android.util.TypedValue
 import android.view.View
@@ -9,6 +11,7 @@ import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -17,6 +20,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.BackupManager
 import com.meetily.mobile.whisper.WhisperModels
 
 class SettingsActivity : AppCompatActivity() {
@@ -38,6 +42,15 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var llmSection: View
 
     private var downloading = false
+
+    private val exportBackup =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
+            uri?.let { writeBackup(it) }
+        }
+    private val importBackup =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            uri?.let { readBackup(it) }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +98,30 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         manageModelsButton.setOnClickListener { showModelDialog() }
+
+        findViewById<View>(R.id.exportBackupButton).setOnClickListener {
+            try {
+                exportBackup.launch(getString(R.string.backup_file_name))
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this, getString(R.string.backup_failed, e.message ?: "no file picker"),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+        findViewById<View>(R.id.importBackupButton).setOnClickListener {
+            try {
+                importBackup.launch("application/zip")
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this, getString(R.string.restore_failed, e.message ?: "no file picker"),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+        findViewById<View>(R.id.privacyLink).setOnClickListener {
+            startActivity(Intent(this, PrivacyActivity::class.java))
+        }
 
         findViewById<View>(R.id.saveButton).setOnClickListener {
             persistAll()
@@ -164,6 +201,35 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateLlmSectionVisibility() {
         llmSection.visibility = if (useLlmSwitch.isChecked) View.VISIBLE else View.GONE
+    }
+
+    private fun writeBackup(uri: Uri) {
+        try {
+            contentResolver.openOutputStream(uri)?.use { BackupManager.export(this, it) }
+                ?: throw RuntimeException("could not open destination")
+            Toast.makeText(this, R.string.backup_done, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this, getString(R.string.backup_failed, e.message ?: "unknown error"),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun readBackup(uri: Uri) {
+        try {
+            val count = contentResolver.openInputStream(uri)?.use {
+                BackupManager.import(this, it)
+            } ?: throw RuntimeException("could not open file")
+            Toast.makeText(
+                this, getString(R.string.restore_done, count), Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this, getString(R.string.restore_failed, e.message ?: "unknown error"),
+                Toast.LENGTH_LONG
+            ).show()
+        }
     }
 
     private fun updateWhisperSection() {

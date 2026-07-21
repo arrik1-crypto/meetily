@@ -52,6 +52,15 @@
             android:exported="false"
             android:parentActivityName=".MainActivity" />
 
+        <activity
+            android:name=".PrivacyActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity" />
+
+        <activity
+            android:name=".OnboardingActivity"
+            android:exported="false" />
+
         <service
             android:name=".RecordingService"
             android:exported="false"

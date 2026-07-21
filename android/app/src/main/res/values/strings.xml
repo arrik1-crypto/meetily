@@ -54,6 +54,27 @@
     <string name="setting_accent_desc">Recolors buttons, highlights, and AI panels across the app, in light and dark mode.</string>
     <string name="accent_wait_download">Wait for the model download to finish before changing colors</string>
     <string name="settings_section_meetings">Meetings</string>
+    <string name="settings_section_data">Data</string>
+    <string name="setting_backup_desc">Back up every meeting and photo to a single .zip you control, or restore from one. Settings (including API keys) are not included.</string>
+    <string name="backup_export">Export backup</string>
+    <string name="backup_import">Restore</string>
+    <string name="backup_done">Backup saved</string>
+    <string name="backup_failed">Backup failed: %1$s</string>
+    <string name="restore_done">Restored %1$d meeting(s)</string>
+    <string name="restore_failed">Restore failed: %1$s</string>
+    <string name="backup_file_name">meetily-backup.zip</string>
+    <string name="privacy_policy">Privacy policy</string>
+    <string name="privacy_policy_body">Meetily records and transcribes your meetings on this device.\n\nWHAT IS STORED\nMeeting audio is transcribed to text; the app saves the transcript, your notes, summaries, attendee names, speaker tags, action items, and any photos you attach. All of this is stored in the app\'s private storage on your device. No account is required.\n\nWHAT LEAVES YOUR DEVICE\nBy default nothing leaves your device. Two optional features send data out, and only when you turn them on:\n\n• LLM summaries and \"Ask this meeting\": if you configure an OpenAI-compatible endpoint (Ollama, Groq, OpenRouter, or another you choose), the transcript, your notes, and attendee names are sent to that endpoint to generate summaries and answers. Data handling is then governed by whoever operates that endpoint. If you run Ollama on your own computer, the data stays on your own network.\n\n• Cloud speech recognition: the default system transcription engine may use your device\'s speech-recognition service, which on many phones is Google\'s and may process audio in the cloud. To keep audio fully on-device, enable on-device Whisper (or your phone\'s offline recognizer).\n\nTRANSCRIPTION ENGINES\nOn-device Whisper runs entirely on your phone; no audio leaves the device. The system engine depends on your device\'s speech service.\n\nCALENDAR\nIf you enable calendar pre-fill, the app reads events and attendees read-only to fill in a meeting\'s title and guest list. It never writes to your calendar and does not upload calendar data.\n\nSHARING AND EXPORT\nWhen you share or export a meeting, you choose where it goes; the app does not send it anywhere on its own.\n\nDELETION\nDeleting a meeting removes its data and photos from the device. Uninstalling the app removes everything.\n\nCONSENT\nRecording people can require their consent depending on where you are. You are responsible for recording lawfully.\n\nThis is a starting-point policy for a self-hosted, on-device app; adapt it for your distribution.</string>
+
+    <string name="onboarding_title">Welcome to Meetily</string>
+    <string name="onboarding_intro">A private meeting recorder that transcribes, takes notes, and summarizes — on your device.</string>
+    <string name="onboarding_points">• Record and transcribe live, even in the background\n• Tag speakers, highlight key moments, snap the whiteboard\n• Summaries and \"ask this meeting\" via a local or your own LLM\n• Fully offline transcription with on-device Whisper\n• Everything stays on your phone unless you choose to share</string>
+    <string name="onboarding_privacy">By default your meetings never leave this device. Optional LLM summaries and cloud speech recognition send data out only when you enable them — see the privacy policy in Settings.</string>
+    <string name="onboarding_start">Get started</string>
+
+    <string name="consent_title">Before you record</string>
+    <string name="consent_message">Recording people can require their consent depending on your location and local laws. Make sure everyone is aware they\'re being recorded. You\'re responsible for recording lawfully.\n\nYour recordings stay on this device unless you share or enable an LLM endpoint.</string>
+    <string name="consent_agree">I understand</string>
     <string name="setting_calendar">Pre-fill from calendar</string>
     <string name="setting_calendar_desc">When you start recording during a scheduled event, use its title and guest list automatically. Needs read-only calendar access — the first tap on \"From calendar\" asks for it. Nothing is written to your calendar.</string>
 

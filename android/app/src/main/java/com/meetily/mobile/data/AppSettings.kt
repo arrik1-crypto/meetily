@@ -52,4 +52,12 @@ class AppSettings(context: Context) {
     var accentColor: String
         get() = prefs.getString("accent_color", "indigo") ?: "indigo"
         set(value) = prefs.edit().putString("accent_color", value).apply()
+
+    var onboardingDone: Boolean
+        get() = prefs.getBoolean("onboarding_done", false)
+        set(value) = prefs.edit().putBoolean("onboarding_done", value).apply()
+
+    var recordingConsent: Boolean
+        get() = prefs.getBoolean("recording_consent", false)
+        set(value) = prefs.edit().putBoolean("recording_consent", value).apply()
 }

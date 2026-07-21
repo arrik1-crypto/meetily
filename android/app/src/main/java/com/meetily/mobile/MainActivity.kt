@@ -36,6 +36,9 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         appliedAccent = ThemeManager.apply(this)
+        if (!AppSettings(this).onboardingDone) {
+            startActivity(Intent(this, OnboardingActivity::class.java))
+        }
         setContentView(R.layout.activity_main)
 
         val toolbar = findViewById<MaterialToolbar>(R.id.topAppBar)

@@ -191,8 +191,25 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         if (svc.active) {
             attachExistingSession(svc)
         } else {
-            ensurePermissionAndStart()
+            maybeConsentThenStart()
         }
+    }
+
+    private fun maybeConsentThenStart() {
+        if (settings.recordingConsent) {
+            ensurePermissionAndStart()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.consent_title)
+            .setMessage(R.string.consent_message)
+            .setCancelable(false)
+            .setPositiveButton(R.string.consent_agree) { _, _ ->
+                settings.recordingConsent = true
+                ensurePermissionAndStart()
+            }
+            .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
+            .show()
     }
 
     private fun attachExistingSession(svc: RecordingService) {

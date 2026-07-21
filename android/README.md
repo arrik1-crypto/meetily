@@ -13,6 +13,8 @@ This is a standalone native Android app (Kotlin). It does **not** depend on the 
 - **Calendar integration** — start recording during a scheduled event and the meeting's title and guest list pre-fill from your calendar (read-only, toggleable, permission asked on first use); a "From calendar" button lets you pick the event manually.
 - **Accent colors** — Settings → Appearance offers six accents (Indigo, Teal, Emerald, Amber, Rose, Graphite) that retint the whole app in light and dark mode.
 - **Background-safe recording** — capture and transcription run in a foreground service with an ongoing notification (pause/stop actions), so recording continues when you switch apps or lock the phone. The meeting is saved incrementally, so an interrupted session (crash, process kill, swipe-away) is recovered on next launch.
+- **Backup & restore** — Settings → Data exports your whole library (meetings + photos) to a single `.zip` you control, and restores from one. API keys are never included.
+- **First-run onboarding, recording-consent notice, and an in-app privacy policy** (Settings → Privacy policy).
 - **Notes** — type notes in a pane below the live transcript during the meeting, or edit them afterwards.
 - **Attendees & speaker tagging** — list attendees for a meeting, then tap any transcript segment (during recording or afterwards) to tag who said it. Speaker names flow into shared exports and LLM summaries. (Automatic diarization isn't possible with Android's recognition service, so tagging is manual.)
 - **Highlights** — a star button while recording marks the current moment; long-press any transcript line afterwards to toggle. Highlighted moments get priority treatment in summaries.
