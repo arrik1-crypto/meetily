@@ -1,7 +1,26 @@
+import java.io.FileInputStream
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
 }
+
+// Release signing is driven by a keystore.properties file or environment
+// variables (set in the release CI workflow from repository secrets). When
+// neither is present, the release build falls back to the debug key so the
+// normal sideload APK build keeps working without any secrets.
+val keystorePropsFile = rootProject.file("keystore.properties")
+val keystoreProps = Properties().apply {
+    if (keystorePropsFile.exists()) load(FileInputStream(keystorePropsFile))
+}
+
+fun signingValue(propKey: String, envKey: String): String? =
+    keystoreProps.getProperty(propKey) ?: System.getenv(envKey)
+
+val releaseStoreFilePath = signingValue("storeFile", "MEETILY_KEYSTORE_FILE")
+val hasReleaseKeystore = releaseStoreFilePath != null &&
+    rootProject.file(releaseStoreFilePath).exists()
 
 android {
     namespace = "com.meetily.mobile"
@@ -32,12 +51,28 @@ android {
         }
     }
 
+    signingConfigs {
+        if (hasReleaseKeystore) {
+            create("release") {
+                storeFile = rootProject.file(releaseStoreFilePath!!)
+                storePassword = signingValue("storePassword", "MEETILY_KEYSTORE_PASSWORD")
+                keyAlias = signingValue("keyAlias", "MEETILY_KEY_ALIAS")
+                keyPassword = signingValue("keyPassword", "MEETILY_KEY_PASSWORD")
+            }
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
-            // Sign with the debug key so the release APK is directly sideloadable.
-            // Replace with a real signing config before any store distribution.
-            signingConfig = signingConfigs.getByName("debug")
+            // Use the real upload key when a keystore is configured (release
+            // workflow); otherwise fall back to the debug key so the normal
+            // sideload APK build stays green without any secrets.
+            signingConfig = if (hasReleaseKeystore) {
+                signingConfigs.getByName("release")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 
@@ -57,4 +92,6 @@ dependencies {
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+
+    testImplementation("junit:junit:4.13.2")
 }

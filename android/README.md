@@ -40,6 +40,28 @@ Requirements: JDK 17+, Android SDK (API 34), NDK 27 + CMake 3.22 (installed auto
 
 ```bash
 cd android
+./gradlew testReleaseUnitTest   # pure-logic unit tests
+./gradlew assembleRelease       # debug-signed sideload APK
+```
+
+## Releasing (signed, Play-ready)
+
+The sideload APK from `assembleRelease` is signed with the debug key. For a real release, provide an upload keystore — the build picks it up automatically:
+
+- **Locally:** create `android/keystore.properties` with `storeFile`, `storePassword`, `keyAlias`, `keyPassword` (this file is gitignored), then run `./gradlew bundleRelease` for a signed `.aab`.
+- **CI:** the `Release Android (signed AAB)` workflow (manual dispatch) builds a signed AAB + APK from repository secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`.
+
+When no keystore is configured the release build falls back to the debug key, so day-to-day CI stays green without secrets.
+
+## Deploying to the Play Store — checklist
+
+- Provide an upload keystore (above) and enable Play App Signing.
+- Complete the Play **Data safety** form. The app stores meetings on-device; data leaves the device only when you enable an LLM endpoint (transcript/notes sent to the endpoint you configure) — declare that.
+- Provide a privacy policy URL (the in-app policy screen text is a starting point).
+- Recording-consent laws vary by jurisdiction; the app shows a one-time consent notice before the first recording, but you are responsible for lawful use.
+
+```bash
+cd android
 ./gradlew assembleRelease
 # APK: app/build/outputs/apk/release/app-release.apk
 ```
