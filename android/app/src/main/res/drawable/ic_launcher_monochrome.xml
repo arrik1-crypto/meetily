@@ -1,9 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  "Recap" mark: circular replay arc with arrowhead, start dot, and a
-  centered waveform. Geometry from the 512-viewport brand SVG, scaled to
-  0.78 around center so nothing crops inside the 66dp adaptive safe zone.
--->
+<!-- Single-color alpha mask for Android 13+ themed icons. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -14,30 +10,19 @@
         android:pivotY="256"
         android:scaleX="0.78"
         android:scaleY="0.78">
-
-        <!-- Replay arc -->
         <path
             android:pathData="M 256,86 A 170,170 0 1 1 109,341"
-            android:strokeColor="#2E86AB"
+            android:strokeColor="#FFFFFF"
             android:strokeLineCap="round"
             android:strokeWidth="34" />
-
-        <!-- Arrowhead (rotated 8° about its anchor, as in the source SVG) -->
         <group
             android:pivotX="109"
             android:pivotY="341"
             android:rotation="8">
             <path
-                android:fillColor="#2E86AB"
+                android:fillColor="#FFFFFF"
                 android:pathData="M 89,306 L 130,329 L 88,353 Z" />
         </group>
-
-        <!-- Start dot -->
-        <path
-            android:fillColor="#E05C1A"
-            android:pathData="M 256,62 a 24,24 0 1 1 0,48 a 24,24 0 1 1 0,-48" />
-
-        <!-- Waveform -->
         <path
             android:pathData="M176,236 L176,276 M216,206 L216,306 M256,172 L256,340 M296,206 L296,306 M336,236 L336,276"
             android:strokeColor="#FFFFFF"
