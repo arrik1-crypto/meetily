@@ -67,6 +67,19 @@
                         android:layout_marginTop="2dp"
                         android:textAppearance="?attr/textAppearanceBodyMedium"
                         android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <EditText
+                        android:id="@+id/detailAttendees"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:background="@null"
+                        android:hint="@string/attendees_hint"
+                        android:importantForAutofill="no"
+                        android:inputType="textCapWords"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textColorHint="?attr/colorOutline"
+                        android:textSize="14sp" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -184,6 +197,15 @@
                 android:textColor="?attr/colorOnSurface"
                 android:textSize="20sp"
                 android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/tagHint"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:text="@string/tap_to_tag_hint"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
 
             <LinearLayout
                 android:id="@+id/transcriptList"

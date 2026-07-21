@@ -24,12 +24,18 @@ object LlmClient {
         apiKey: String,
         model: String,
         transcript: String,
-        notes: String
+        notes: String,
+        attendees: List<String> = emptyList()
     ): String {
         val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
 
         val userContent = buildString {
-            append("Meeting transcript:\n")
+            if (attendees.isNotEmpty()) {
+                append("Meeting attendees: ")
+                append(attendees.joinToString(", "))
+                append("\n\n")
+            }
+            append("Meeting transcript (lines may be prefixed with the speaker's name):\n")
             append(transcript.take(48_000))
             if (notes.isNotBlank()) {
                 append("\n\nMy notes during the meeting:\n")

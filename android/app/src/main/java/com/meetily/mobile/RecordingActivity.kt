@@ -44,6 +44,7 @@ class RecordingActivity : AppCompatActivity() {
     private lateinit var settings: AppSettings
 
     private lateinit var titleInput: EditText
+    private lateinit var attendeesInput: EditText
     private lateinit var statusView: TextView
     private lateinit var elapsedView: TextView
     private lateinit var recordDot: View
@@ -87,6 +88,7 @@ class RecordingActivity : AppCompatActivity() {
         settings = AppSettings(this)
 
         titleInput = findViewById(R.id.titleInput)
+        attendeesInput = findViewById(R.id.attendeesInput)
         statusView = findViewById(R.id.statusView)
         elapsedView = findViewById(R.id.elapsedView)
         recordDot = findViewById(R.id.recordDot)
@@ -346,16 +348,43 @@ class RecordingActivity : AppCompatActivity() {
     private fun appendSegment(text: String) {
         val timestamp = System.currentTimeMillis()
         segments.add(TranscriptSegment(timestamp, text))
+        val index = segments.size - 1
 
         val bubble = LayoutInflater.from(this)
             .inflate(R.layout.item_transcript_segment, transcriptContainer, false)
-        bubble.findViewById<TextView>(R.id.segmentTime).text =
-            DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestamp))
+        val timeView = bubble.findViewById<TextView>(R.id.segmentTime)
+        timeView.text = timeLabel(timestamp, null)
         bubble.findViewById<TextView>(R.id.segmentText).text = text
+        bubble.setOnClickListener { assignSpeaker(index, timeView) }
 
         val partialIndex = transcriptContainer.indexOfChild(partialView)
         transcriptContainer.addView(bubble, if (partialIndex >= 0) partialIndex else -1)
         scrollTranscriptToBottom()
+    }
+
+    private fun timeLabel(timestampMs: Long, speaker: String?): String {
+        val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(timestampMs))
+        return if (speaker.isNullOrBlank()) time else "$time · $speaker"
+    }
+
+    private fun currentAttendees(): MutableList<String> =
+        Meeting.parseAttendees(attendeesInput.text.toString())
+
+    private fun assignSpeaker(index: Int, timeView: TextView) {
+        if (index !in segments.indices) return
+        val segment = segments[index]
+        SpeakerPicker.show(this, currentAttendees(), segment.speaker) { name ->
+            if (index !in segments.indices) return@show
+            segments[index] = segments[index].copy(speaker = name)
+            timeView.text = timeLabel(segments[index].timestampMs, name)
+            if (!name.isNullOrBlank()) {
+                val attendees = currentAttendees()
+                if (attendees.none { it.equals(name, ignoreCase = true) }) {
+                    attendees.add(name)
+                    attendeesInput.setText(attendees.joinToString(", "))
+                }
+            }
+        }
     }
 
     private fun scrollTranscriptToBottom() {
@@ -410,7 +439,8 @@ class RecordingActivity : AppCompatActivity() {
             title = title,
             createdAtMs = startedAtMs,
             segments = segments,
-            notes = notesInput.text.toString()
+            notes = notesInput.text.toString(),
+            attendees = currentAttendees()
         )
         store.save(meeting)
 

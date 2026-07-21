@@ -34,6 +34,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var aiPanel: View
     private lateinit var transcriptList: LinearLayout
     private lateinit var notesInput: EditText
+    private lateinit var attendeesInput: EditText
     private lateinit var progress: ProgressBar
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -55,6 +56,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         aiPanel = findViewById(R.id.aiPanel)
         transcriptList = findViewById(R.id.transcriptList)
         notesInput = findViewById(R.id.detailNotes)
+        attendeesInput = findViewById(R.id.detailAttendees)
         progress = findViewById(R.id.summaryProgress)
 
         val id = intent.getStringExtra(EXTRA_MEETING_ID)
@@ -79,6 +81,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         renderSummary(m.summary)
         renderTranscript(m)
         notesInput.setText(m.notes)
+        attendeesInput.setText(m.attendeesText())
     }
 
     private fun renderSummary(summary: String) {
@@ -94,6 +97,8 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun renderTranscript(m: Meeting) {
         transcriptList.removeAllViews()
+        findViewById<View>(R.id.tagHint).visibility =
+            if (m.segments.isEmpty()) View.GONE else View.VISIBLE
         if (m.segments.isEmpty()) {
             val empty = TextView(this).apply {
                 text = getString(R.string.no_transcript)
@@ -107,32 +112,60 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
         val inflater = LayoutInflater.from(this)
-        for (segment in m.segments) {
+        for ((index, segment) in m.segments.withIndex()) {
             val line = inflater.inflate(R.layout.item_transcript_line, transcriptList, false)
             line.findViewById<TextView>(R.id.lineTime).text =
                 timeFormat.format(Date(segment.timestampMs))
             line.findViewById<TextView>(R.id.lineText).text = segment.text
+            val speakerView = line.findViewById<TextView>(R.id.lineSpeaker)
+            if (segment.speaker.isNullOrBlank()) {
+                speakerView.visibility = View.GONE
+            } else {
+                speakerView.text = segment.speaker
+                speakerView.visibility = View.VISIBLE
+            }
+            line.setOnClickListener { assignSpeaker(index) }
             transcriptList.addView(line)
+        }
+    }
+
+    private fun assignSpeaker(index: Int) {
+        val m = meeting ?: return
+        if (index !in m.segments.indices) return
+        saveEdits()
+        SpeakerPicker.show(this, m.attendees, m.segments[index].speaker) { name ->
+            if (index !in m.segments.indices) return@show
+            m.segments[index] = m.segments[index].copy(speaker = name)
+            if (!name.isNullOrBlank() &&
+                m.attendees.none { it.equals(name, ignoreCase = true) }
+            ) {
+                m.attendees.add(name)
+                attendeesInput.setText(m.attendeesText())
+            }
+            store.save(m)
+            renderTranscript(m)
         }
     }
 
     override fun onPause() {
         super.onPause()
-        saveNotes()
+        saveEdits()
     }
 
-    private fun saveNotes() {
+    private fun saveEdits() {
         val m = meeting ?: return
         val newNotes = notesInput.text.toString()
-        if (newNotes != m.notes) {
+        val newAttendees = Meeting.parseAttendees(attendeesInput.text.toString())
+        if (newNotes != m.notes || newAttendees != m.attendees) {
             m.notes = newNotes
+            m.attendees = newAttendees
             store.save(m)
         }
     }
 
     private fun generateSummary() {
         val m = meeting ?: return
-        saveNotes()
+        saveEdits()
 
         if (m.transcriptText().isBlank() && m.notes.isBlank()) {
             Toast.makeText(this, R.string.nothing_to_summarize, Toast.LENGTH_SHORT).show()
@@ -148,18 +181,20 @@ class MeetingDetailActivity : AppCompatActivity() {
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
-        val transcript = m.transcriptText()
+        val rawTranscript = m.transcriptText()
+        val speakerTranscript = m.transcriptTextWithSpeakers()
         val notes = m.notes
+        val attendees = m.attendees.toList()
 
         Thread {
             val result = try {
                 if (useLlm && baseUrl.isNotBlank()) {
-                    LlmClient.summarize(baseUrl, apiKey, model, transcript, notes)
+                    LlmClient.summarize(baseUrl, apiKey, model, speakerTranscript, notes, attendees)
                 } else {
-                    ExtractiveSummarizer.summarize(transcript, notes)
+                    ExtractiveSummarizer.summarize(rawTranscript, notes)
                 }
             } catch (e: Exception) {
-                val fallback = ExtractiveSummarizer.summarize(transcript, notes)
+                val fallback = ExtractiveSummarizer.summarize(rawTranscript, notes)
                 getString(R.string.llm_failed_fallback, e.message ?: "unknown error") +
                     "\n\n" + fallback
             }
@@ -175,20 +210,23 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun shareMeeting() {
         val m = meeting ?: return
-        saveNotes()
+        saveEdits()
         val text = buildString {
             append(m.title).append('\n')
             append(
                 DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
                     .format(Date(m.createdAtMs))
             ).append("\n\n")
+            if (m.attendees.isNotEmpty()) {
+                append("ATTENDEES\n").append(m.attendeesText()).append("\n\n")
+            }
             if (m.summary.isNotBlank()) {
                 append("SUMMARY\n").append(m.summary).append("\n\n")
             }
             if (m.notes.isNotBlank()) {
                 append("NOTES\n").append(m.notes).append("\n\n")
             }
-            append("TRANSCRIPT\n").append(m.transcriptText())
+            append("TRANSCRIPT\n").append(m.transcriptTextWithSpeakers())
         }
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"

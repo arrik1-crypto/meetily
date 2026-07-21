@@ -22,6 +22,5 @@
         android:layout_marginTop="2dp"
         android:lineSpacingExtra="2dp"
         android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:textColor="?attr/colorOnSurface"
-        android:textIsSelectable="true" />
+        android:textColor="?attr/colorOnSurface" />
 </LinearLayout>
