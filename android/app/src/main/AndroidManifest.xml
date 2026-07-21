@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Needed on Android 11+ so SpeechRecognizer can bind to the device's recognition service -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:usesCleartextTraffic="true"
+        android:theme="@style/Theme.Meetily">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".RecordingActivity"
+            android:exported="false"
+            android:screenOrientation="portrait"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".MeetingDetailActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+    </application>
+
+</manifest>

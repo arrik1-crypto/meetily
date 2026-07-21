@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.Meetily" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">@color/meetily_primary</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorPrimaryContainer">@color/meetily_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/meetily_on_primary_container</item>
+    </style>
+</resources>

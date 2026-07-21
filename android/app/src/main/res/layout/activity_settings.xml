@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/offlineSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/setting_prefer_offline" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/setting_prefer_offline_desc"
+            android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/useLlmSwitch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/setting_use_llm" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="@string/setting_use_llm_desc"
+            android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <LinearLayout
+            android:id="@+id/llmSection"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <EditText
+                android:id="@+id/llmUrlInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:hint="@string/setting_llm_url_hint"
+                android:inputType="textUri"
+                android:importantForAutofill="no" />
+
+            <EditText
+                android:id="@+id/llmModelInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/setting_llm_model_hint"
+                android:inputType="text"
+                android:importantForAutofill="no" />
+
+            <EditText
+                android:id="@+id/llmKeyInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:hint="@string/setting_llm_key_hint"
+                android:inputType="textPassword"
+                android:importantForAutofill="no" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/saveButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="24dp"
+            android:text="@string/save_settings" />
+
+    </LinearLayout>
+</ScrollView>

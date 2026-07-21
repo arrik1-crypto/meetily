@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="16dp">
+
+        <TextView
+            android:id="@+id/detailDate"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceBodySmall" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/section_summary"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+        <ProgressBar
+            android:id="@+id/summaryProgress"
+            style="?android:attr/progressBarStyleHorizontal"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:indeterminate="true"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/detailSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_panel"
+            android:padding="12dp"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textIsSelectable="true" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/section_notes"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+        <EditText
+            android:id="@+id/detailNotes"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_panel"
+            android:gravity="top"
+            android:hint="@string/notes_hint"
+            android:inputType="textMultiLine|textCapSentences"
+            android:minLines="3"
+            android:padding="12dp"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="@string/section_transcript"
+            android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+        <TextView
+            android:id="@+id/detailTranscript"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:background="@drawable/bg_panel"
+            android:padding="12dp"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textIsSelectable="true" />
+
+    </LinearLayout>
+</ScrollView>
