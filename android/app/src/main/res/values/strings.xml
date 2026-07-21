@@ -70,6 +70,26 @@
     <string name="template_standup">Standup (by person)</string>
     <string name="template_sales">Sales call report</string>
 
+    <!-- Action items -->
+    <string name="section_actions">Action items</string>
+    <string name="remove_action_item">Remove this action item?</string>
+
+    <!-- Photos -->
+    <string name="section_photos">Photos</string>
+    <string name="add_photo_camera">Camera</string>
+    <string name="add_photo_gallery">Gallery</string>
+    <string name="photo_added">Photo attached (%1$d)</string>
+    <string name="delete_photo_title">Remove this photo?</string>
+    <string name="no_camera_app">No camera app available</string>
+    <string name="photo_attach_failed">Couldn\'t attach the photo</string>
+
+    <!-- Export -->
+    <string name="export">Export</string>
+    <string name="export_markdown">Markdown (.md)</string>
+    <string name="export_pdf">PDF (.pdf)</string>
+    <string name="export_done">Exported</string>
+    <string name="export_failed">Export failed: %1$s</string>
+
     <!-- Detail -->
     <string name="section_summary">Summary</string>
     <string name="section_notes">Notes</string>

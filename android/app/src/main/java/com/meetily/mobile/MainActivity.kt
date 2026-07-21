@@ -14,6 +14,7 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.PhotoStore
 
 class MainActivity : AppCompatActivity() {
 
@@ -73,6 +74,9 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.delete_meeting_title)
             .setMessage(getString(R.string.delete_meeting_message, meeting.title))
             .setPositiveButton(R.string.delete) { _, _ ->
+                for (photo in meeting.photos) {
+                    PhotoStore.delete(this, photo)
+                }
                 store.delete(meeting.id)
                 refresh()
             }

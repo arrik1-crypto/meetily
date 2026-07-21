@@ -25,7 +25,7 @@ object LlmClient {
     ): String {
         val systemPrompt = "You are a meeting assistant. " + template.llmInstructions +
             " Be concise and factual; incorporate the user's own notes and highlighted " +
-            "moments where relevant."
+            "moments where relevant." + ActionItems.LLM_INSTRUCTIONS
 
         val userContent = buildString {
             if (attendees.isNotEmpty()) {
@@ -53,6 +53,32 @@ object LlmClient {
             .put(JSONObject().put("role", "user").put("content", userContent))
 
         return chat(baseUrl, apiKey, model, messages)
+    }
+
+    fun title(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        transcript: String,
+        notes: String
+    ): String {
+        val messages = JSONArray()
+            .put(
+                JSONObject().put("role", "system").put(
+                    "content",
+                    "Generate a concise 3-6 word title for this meeting. " +
+                        "Return ONLY the title text: no quotes, no trailing punctuation."
+                )
+            )
+            .put(
+                JSONObject().put("role", "user").put(
+                    "content",
+                    "Transcript:\n" + transcript.take(20_000) +
+                        if (notes.isNotBlank()) "\n\nNotes:\n" + notes.take(3_000) else ""
+                )
+            )
+        return chat(baseUrl, apiKey, model, messages)
+            .trim().trim('"', '\'').take(80)
     }
 
     fun ask(

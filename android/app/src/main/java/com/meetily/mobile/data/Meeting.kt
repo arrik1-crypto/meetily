@@ -15,6 +15,12 @@ data class QaEntry(
     val answer: String
 )
 
+data class ActionItem(
+    val task: String,
+    val owner: String? = null,
+    val done: Boolean = false
+)
+
 data class Meeting(
     val id: String,
     var title: String,
@@ -23,7 +29,9 @@ data class Meeting(
     var notes: String = "",
     var summary: String = "",
     var attendees: MutableList<String> = mutableListOf(),
-    val qa: MutableList<QaEntry> = mutableListOf()
+    val qa: MutableList<QaEntry> = mutableListOf(),
+    var actionItems: MutableList<ActionItem> = mutableListOf(),
+    var photos: MutableList<String> = mutableListOf()
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -78,6 +86,20 @@ data class Meeting(
             qaArr.put(q)
         }
         obj.put("qa", qaArr)
+        val actionsArr = JSONArray()
+        for (item in actionItems) {
+            val a = JSONObject()
+            a.put("task", item.task)
+            if (!item.owner.isNullOrBlank()) a.put("owner", item.owner)
+            a.put("done", item.done)
+            actionsArr.put(a)
+        }
+        obj.put("actionItems", actionsArr)
+        val photosArr = JSONArray()
+        for (name in photos) {
+            photosArr.put(name)
+        }
+        obj.put("photos", photosArr)
         return obj
     }
 
@@ -123,6 +145,22 @@ data class Meeting(
                 if (question.isNotBlank()) {
                     meeting.qa.add(QaEntry(question, answer))
                 }
+            }
+            val actionsArr = obj.optJSONArray("actionItems") ?: JSONArray()
+            for (i in 0 until actionsArr.length()) {
+                val a = actionsArr.getJSONObject(i)
+                val task = a.optString("task", "")
+                if (task.isNotBlank()) {
+                    val owner = a.optString("owner", "")
+                    meeting.actionItems.add(
+                        ActionItem(task, owner.ifBlank { null }, a.optBoolean("done", false))
+                    )
+                }
+            }
+            val photosArr = obj.optJSONArray("photos") ?: JSONArray()
+            for (i in 0 until photosArr.length()) {
+                val name = photosArr.optString(i, "")
+                if (name.isNotBlank()) meeting.photos.add(name)
             }
             return meeting
         }

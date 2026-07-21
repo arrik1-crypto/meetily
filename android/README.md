@@ -12,6 +12,10 @@ This is a standalone native Android app (Kotlin). It does **not** depend on the 
 - **Highlights** — a star button while recording marks the current moment; long-press any transcript line afterwards to toggle. Highlighted moments get priority treatment in summaries.
 - **Ask this meeting** — with an LLM endpoint configured, ask free-form questions on the meeting page ("what did we decide about pricing?"); answers come strictly from the transcript, notes, and summary, and the Q&A thread is saved with the meeting.
 - **Summary templates** — choose the summary's shape when generating: General minutes, Action items, Decisions & open questions, Standup by person, or Sales call report.
+- **Structured action items** — summaries also produce a checkable to-do list with owners (from your speaker tags or the LLM); check items off, long-press to remove.
+- **Photo attachments** — snap the whiteboard from the recording screen or add camera/gallery photos on the meeting page; stored privately with the meeting.
+- **Markdown/PDF export** — save any meeting as a .md or .pdf document wherever you choose, including summary, action items, notes, and the timestamped speaker transcript.
+- **Auto-titling** — meetings left with the default title get named from their content after recording (instant on-device heuristic, refined by the LLM when configured).
 - **Summaries**, two ways:
   - **On-device (default, zero config)**: an offline extractive summarizer produces key points and detected action items. No network involved.
   - **LLM (optional)**: point the app at any OpenAI-compatible endpoint — Ollama running on your computer (`http://YOUR_PC_IP:11434/v1`), Groq, OpenRouter, etc. Configure URL, model, and API key in Settings. If the LLM call fails, the app falls back to the on-device summary.

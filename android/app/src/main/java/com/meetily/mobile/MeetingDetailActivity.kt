@@ -1,28 +1,40 @@
 package com.meetily.mobile
 
 import android.content.Intent
+import android.graphics.Paint
+import android.net.Uri
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.imageview.ShapeableImageView
+import com.google.android.material.shape.ShapeAppearanceModel
+import com.meetily.mobile.data.ActionItem
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.QaEntry
+import com.meetily.mobile.export.MeetingExporter
+import com.meetily.mobile.summarize.ActionItems
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
 import com.meetily.mobile.summarize.SummaryTemplate
 import com.meetily.mobile.summarize.SummaryTemplates
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 
@@ -46,6 +58,33 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var askSend: MaterialButton
     private lateinit var askRow: View
     private lateinit var askDisabledHint: View
+
+    private var pendingPhotoFile: File? = null
+    private val takePicture =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+            val file = pendingPhotoFile
+            pendingPhotoFile = null
+            val m = meeting
+            if (success && file != null && file.exists() && file.length() > 0 && m != null) {
+                m.photos.add(file.name)
+                store.save(m)
+                renderPhotos(m)
+            } else {
+                file?.delete()
+            }
+        }
+    private val pickImage =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            uri?.let { importPhoto(it) }
+        }
+    private val exportMd =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
+            uri?.let { writeExport(it, isPdf = false) }
+        }
+    private val exportPdf =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
+            uri?.let { writeExport(it, isPdf = true) }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -95,12 +134,23 @@ class MeetingDetailActivity : AppCompatActivity() {
             chooseTemplateAndSummarize()
         }
         askSend.setOnClickListener { sendQuestion() }
+        findViewById<View>(R.id.addPhotoCamera).setOnClickListener { capturePhoto() }
+        findViewById<View>(R.id.addPhotoGallery).setOnClickListener {
+            try {
+                pickImage.launch("image/*")
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.photo_attach_failed, Toast.LENGTH_SHORT).show()
+            }
+        }
 
         renderSummary(m.summary)
+        renderActionItems(m)
         renderTranscript(m)
         renderQaHistory(m)
+        renderPhotos(m)
         notesInput.setText(m.notes)
         attendeesInput.setText(m.attendeesText())
+        maybeAutoTitle(m)
     }
 
     override fun onResume() {
@@ -207,6 +257,235 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
     }
 
+    private fun maybeAutoTitle(m: Meeting) {
+        val defaultTitle = getString(
+            R.string.default_meeting_title,
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                .format(Date(m.createdAtMs))
+        )
+        if (m.title != defaultTitle || m.transcriptText().isBlank()) return
+
+        val offline = ExtractiveSummarizer.titleFor(m.transcriptText())
+        if (offline.isNotBlank()) {
+            m.title = offline
+            titleView.text = offline
+            store.save(m)
+        }
+        if (settings.useLlm && settings.llmBaseUrl.isNotBlank()) {
+            val baseUrl = settings.llmBaseUrl
+            val apiKey = settings.llmApiKey
+            val model = settings.llmModel
+            val transcript = m.transcriptTextWithSpeakers()
+            val notes = m.notes
+            Thread {
+                try {
+                    val generated = LlmClient.title(baseUrl, apiKey, model, transcript, notes)
+                    if (generated.isNotBlank()) {
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            m.title = generated
+                            titleView.text = generated
+                            store.save(m)
+                        }
+                    }
+                } catch (_: Exception) {
+                    // Offline title already applied; a failed refinement is fine.
+                }
+            }.start()
+        }
+    }
+
+    private fun renderActionItems(m: Meeting) {
+        val header = findViewById<View>(R.id.actionsHeader)
+        val list = findViewById<LinearLayout>(R.id.actionList)
+        list.removeAllViews()
+        val visible = m.actionItems.isNotEmpty()
+        header.visibility = if (visible) View.VISIBLE else View.GONE
+        list.visibility = if (visible) View.VISIBLE else View.GONE
+        if (!visible) return
+        val inflater = LayoutInflater.from(this)
+        for ((index, item) in m.actionItems.withIndex()) {
+            val row = inflater.inflate(R.layout.item_action, list, false)
+            val check = row.findViewById<CheckBox>(R.id.actionCheck)
+            val text = row.findViewById<TextView>(R.id.actionText)
+            val owner = row.findViewById<TextView>(R.id.actionOwner)
+            text.text = item.task
+            applyStrike(text, item.done)
+            check.isChecked = item.done
+            if (item.owner.isNullOrBlank()) {
+                owner.visibility = View.GONE
+            } else {
+                owner.text = item.owner
+                owner.visibility = View.VISIBLE
+            }
+            check.setOnCheckedChangeListener { _, checked ->
+                if (index in m.actionItems.indices) {
+                    m.actionItems[index] = m.actionItems[index].copy(done = checked)
+                    applyStrike(text, checked)
+                    store.save(m)
+                }
+            }
+            row.setOnLongClickListener {
+                confirmRemoveAction(index)
+                true
+            }
+            list.addView(row)
+        }
+    }
+
+    private fun applyStrike(view: TextView, done: Boolean) {
+        view.paintFlags = if (done) {
+            view.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+        } else {
+            view.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+        }
+    }
+
+    private fun confirmRemoveAction(index: Int) {
+        val m = meeting ?: return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.remove_action_item)
+            .setPositiveButton(R.string.delete) { _, _ ->
+                if (index in m.actionItems.indices) {
+                    m.actionItems.removeAt(index)
+                    store.save(m)
+                    renderActionItems(m)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun renderPhotos(m: Meeting) {
+        val strip = findViewById<LinearLayout>(R.id.photoStrip)
+        val scroll = findViewById<View>(R.id.photoScroll)
+        strip.removeAllViews()
+        scroll.visibility = if (m.photos.isEmpty()) View.GONE else View.VISIBLE
+        if (m.photos.isEmpty()) return
+        val density = resources.displayMetrics.density
+        val sizePx = (84 * density).toInt()
+        val marginPx = (8 * density).toInt()
+        val radiusPx = 14 * density
+        for (name in m.photos.toList()) {
+            val file = PhotoStore.fileFor(this, name)
+            val thumb = PhotoStore.decodeSampled(file, 256) ?: continue
+            val image = ShapeableImageView(this).apply {
+                shapeAppearanceModel = ShapeAppearanceModel.builder()
+                    .setAllCornerSizes(radiusPx)
+                    .build()
+                scaleType = ImageView.ScaleType.CENTER_CROP
+                setImageBitmap(thumb)
+                layoutParams = LinearLayout.LayoutParams(sizePx, sizePx).apply {
+                    marginEnd = marginPx
+                }
+                contentDescription = getString(R.string.section_photos)
+                setOnClickListener { showPhoto(file) }
+                setOnLongClickListener {
+                    confirmDeletePhoto(name)
+                    true
+                }
+            }
+            strip.addView(image)
+        }
+    }
+
+    private fun showPhoto(file: File) {
+        val bitmap = PhotoStore.decodeSampled(file, 1400) ?: return
+        val image = ImageView(this).apply {
+            setImageBitmap(bitmap)
+            adjustViewBounds = true
+        }
+        AlertDialog.Builder(this)
+            .setView(image)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
+    }
+
+    private fun confirmDeletePhoto(name: String) {
+        val m = meeting ?: return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.delete_photo_title)
+            .setPositiveButton(R.string.delete) { _, _ ->
+                m.photos.remove(name)
+                PhotoStore.delete(this, name)
+                store.save(m)
+                renderPhotos(m)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun capturePhoto() {
+        val m = meeting ?: return
+        val file = PhotoStore.newPhotoFile(this, m.id)
+        pendingPhotoFile = file
+        try {
+            takePicture.launch(PhotoStore.uriFor(this, file))
+        } catch (_: Exception) {
+            pendingPhotoFile = null
+            file.delete()
+            Toast.makeText(this, R.string.no_camera_app, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun importPhoto(uri: Uri) {
+        val m = meeting ?: return
+        try {
+            val file = PhotoStore.newPhotoFile(this, m.id)
+            contentResolver.openInputStream(uri)?.use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw RuntimeException("cannot open image")
+            m.photos.add(file.name)
+            store.save(m)
+            renderPhotos(m)
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.photo_attach_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun showExportDialog() {
+        val m = meeting ?: return
+        val options = arrayOf(getString(R.string.export_markdown), getString(R.string.export_pdf))
+        AlertDialog.Builder(this)
+            .setTitle(R.string.export)
+            .setItems(options) { _, which ->
+                saveEdits()
+                try {
+                    if (which == 0) {
+                        exportMd.launch(MeetingExporter.suggestedFileName(m, "md"))
+                    } else {
+                        exportPdf.launch(MeetingExporter.suggestedFileName(m, "pdf"))
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this, getString(R.string.export_failed, e.message ?: "no file picker"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun writeExport(uri: Uri, isPdf: Boolean) {
+        val m = meeting ?: return
+        try {
+            contentResolver.openOutputStream(uri)?.use { out ->
+                if (isPdf) {
+                    MeetingExporter.writePdf(m, out)
+                } else {
+                    out.write(MeetingExporter.markdown(m).toByteArray(Charsets.UTF_8))
+                }
+            } ?: throw RuntimeException("could not open destination")
+            Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this, getString(R.string.export_failed, e.message ?: "unknown error"),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
     private fun renderQaHistory(m: Meeting) {
         qaList.removeAllViews()
         for (entry in m.qa) {
@@ -302,14 +581,19 @@ class MeetingDetailActivity : AppCompatActivity() {
         val notes = m.notes
         val attendees = m.attendees.toList()
         val highlights = m.highlightedTexts()
+        val segmentsSnapshot = m.segments.toList()
 
         Thread {
+            var parsedItems: List<ActionItem>? = null
             val result = try {
                 if (useLlm && baseUrl.isNotBlank()) {
-                    LlmClient.summarize(
+                    val raw = LlmClient.summarize(
                         baseUrl, apiKey, model, speakerTranscript, notes,
                         attendees, highlights, template
                     )
+                    val (clean, items) = ActionItems.splitLlmOutput(raw)
+                    parsedItems = items
+                    clean
                 } else {
                     ExtractiveSummarizer.summarize(
                         rawTranscript, notes, highlights, template.extractiveActionsOnly
@@ -322,11 +606,15 @@ class MeetingDetailActivity : AppCompatActivity() {
                 getString(R.string.llm_failed_fallback, e.message ?: "unknown error") +
                     "\n\n" + fallback
             }
+            val finalItems = parsedItems
+                ?: ActionItems.fromMeetingContent(segmentsSnapshot, notes)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 progress.visibility = View.GONE
                 summaryView.text = result
                 m.summary = result
+                m.actionItems = finalItems.toMutableList()
+                renderActionItems(m)
                 store.save(m)
             }
         }.start()
@@ -373,6 +661,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             R.id.action_share -> {
                 shareMeeting()
+                true
+            }
+            R.id.action_export -> {
+                showExportDialog()
                 true
             }
             else -> super.onOptionsItemSelected(item)

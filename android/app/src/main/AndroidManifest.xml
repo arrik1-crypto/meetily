@@ -4,6 +4,10 @@
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <uses-feature
+        android:name="android.hardware.camera.any"
+        android:required="false" />
+
     <!-- Needed on Android 11+ so SpeechRecognizer can bind to the device's recognition service -->
     <queries>
         <intent>
@@ -43,6 +47,16 @@
             android:name=".SettingsActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="com.meetily.mobile.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

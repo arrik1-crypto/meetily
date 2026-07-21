@@ -23,6 +23,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -32,7 +33,9 @@ import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.TranscriptSegment
+import java.io.File
 import java.text.DateFormat
 import java.util.Date
 import java.util.Locale
@@ -54,7 +57,24 @@ class RecordingActivity : AppCompatActivity() {
     private lateinit var notesInput: EditText
     private lateinit var pauseButton: MaterialButton
     private lateinit var highlightButton: MaterialButton
+    private lateinit var cameraButton: MaterialButton
     private lateinit var finishButton: MaterialButton
+
+    private val photoFiles = mutableListOf<String>()
+    private var pendingPhotoFile: File? = null
+    private val takePicture =
+        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+            val file = pendingPhotoFile
+            pendingPhotoFile = null
+            if (success && file != null && file.exists() && file.length() > 0) {
+                photoFiles.add(file.name)
+                Toast.makeText(
+                    this, getString(R.string.photo_added, photoFiles.size), Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                file?.delete()
+            }
+        }
 
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
@@ -101,6 +121,7 @@ class RecordingActivity : AppCompatActivity() {
         notesInput = findViewById(R.id.notesInput)
         pauseButton = findViewById(R.id.pauseButton)
         highlightButton = findViewById(R.id.highlightButton)
+        cameraButton = findViewById(R.id.cameraButton)
         finishButton = findViewById(R.id.finishButton)
 
         findViewById<MaterialToolbar>(R.id.recordingToolbar).setNavigationOnClickListener {
@@ -121,6 +142,7 @@ class RecordingActivity : AppCompatActivity() {
 
         pauseButton.setOnClickListener { togglePause() }
         highlightButton.setOnClickListener { highlightNow() }
+        cameraButton.setOnClickListener { capturePhoto() }
         finishButton.setOnClickListener { finishAndSave() }
 
         lastResumeAt = SystemClock.elapsedRealtime()
@@ -171,8 +193,25 @@ class RecordingActivity : AppCompatActivity() {
             .setTitle(R.string.discard_title)
             .setMessage(R.string.discard_message)
             .setPositiveButton(R.string.keep_recording, null)
-            .setNegativeButton(R.string.discard) { _, _ -> finish() }
+            .setNegativeButton(R.string.discard) { _, _ ->
+                for (name in photoFiles) {
+                    PhotoStore.delete(this, name)
+                }
+                finish()
+            }
             .show()
+    }
+
+    private fun capturePhoto() {
+        val file = PhotoStore.newPhotoFile(this, meetingId)
+        pendingPhotoFile = file
+        try {
+            takePicture.launch(PhotoStore.uriFor(this, file))
+        } catch (_: Exception) {
+            pendingPhotoFile = null
+            file.delete()
+            Toast.makeText(this, R.string.no_camera_app, Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun ensurePermissionAndStart() {
@@ -477,7 +516,8 @@ class RecordingActivity : AppCompatActivity() {
             createdAtMs = startedAtMs,
             segments = segments,
             notes = notesInput.text.toString(),
-            attendees = currentAttendees()
+            attendees = currentAttendees(),
+            photos = photoFiles
         )
         store.save(meeting)
 

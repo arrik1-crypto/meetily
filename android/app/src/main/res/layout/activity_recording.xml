@@ -176,6 +176,17 @@
                 app:strokeColor="?attr/colorOutline" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/cameraButton"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="12dp"
+                android:contentDescription="@string/add_photo_camera"
+                app:icon="@drawable/ic_camera"
+                app:iconTint="?attr/colorOnSurface"
+                app:strokeColor="?attr/colorOutline" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/finishButton"
                 android:layout_width="0dp"
                 android:layout_height="56dp"
