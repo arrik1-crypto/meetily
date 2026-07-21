@@ -35,6 +35,11 @@
     <string name="model_downloaded_label">downloaded</string>
     <string name="status_listening_whisper">Listening (Whisper)</string>
     <string name="status_finishing">Finishing transcription…</string>
+    <string name="rec_channel_name">Recording</string>
+    <string name="notif_recording">Recording in progress</string>
+    <string name="photo_added_short">Photo attached</string>
+    <string name="recording_recovered">Recovered a recording that was interrupted</string>
+    <string name="resume_recording">Recording…</string>
     <string name="whisper_model_missing">Whisper model not downloaded — using system recognition. Download it in Settings.</string>
     <string name="whisper_unavailable">Whisper isn\'t supported on this device — using system recognition.</string>
 

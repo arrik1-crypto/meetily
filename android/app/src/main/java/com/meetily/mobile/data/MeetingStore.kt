@@ -46,4 +46,33 @@ class MeetingStore(context: Context) {
     fun delete(id: String) {
         File(dir, "$id.json").delete()
     }
+
+    // --- Active-recording marker, for crash recovery ---------------------
+    // The recording service writes the in-progress meeting id here and saves
+    // the meeting incrementally. If the process dies mid-recording the marker
+    // survives, so the next launch knows a meeting was interrupted (its data
+    // is already on disk from the incremental saves).
+
+    private val activeMarker = File(dir, ".active")
+
+    fun markActive(id: String) {
+        try {
+            activeMarker.writeText(id)
+        } catch (_: Exception) {
+        }
+    }
+
+    fun clearActive() {
+        activeMarker.delete()
+    }
+
+    fun activeId(): String? {
+        if (!activeMarker.exists()) return null
+        val id = try {
+            activeMarker.readText().trim()
+        } catch (_: Exception) {
+            ""
+        }
+        return id.ifBlank { null }
+    }
 }

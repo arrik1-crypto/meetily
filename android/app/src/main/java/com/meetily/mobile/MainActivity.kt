@@ -9,6 +9,7 @@ import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -27,6 +28,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var emptyState: View
     private lateinit var meetingCount: TextView
     private lateinit var searchInput: EditText
+    private lateinit var fab: ExtendedFloatingActionButton
     private var allMeetings: List<Meeting> = emptyList()
 
     private var appliedAccent: String = ""
@@ -65,8 +67,24 @@ class MainActivity : AppCompatActivity() {
         )
         recycler.adapter = adapter
 
-        findViewById<ExtendedFloatingActionButton>(R.id.fabNewMeeting).setOnClickListener {
+        fab = findViewById(R.id.fabNewMeeting)
+        fab.setOnClickListener {
             startActivity(Intent(this, RecordingActivity::class.java))
+        }
+
+        recoverInterruptedRecording()
+    }
+
+    /**
+     * If a recording was interrupted (process killed mid-session), its meeting
+     * was still saved incrementally. Surface that once and clear the marker.
+     */
+    private fun recoverInterruptedRecording() {
+        if (RecordingService.isRunning) return
+        val id = store.activeId() ?: return
+        store.clearActive()
+        if (store.load(id) != null) {
+            Toast.makeText(this, R.string.recording_recovered, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -76,6 +94,7 @@ class MainActivity : AppCompatActivity() {
             recreate()
             return
         }
+        fab.setText(if (RecordingService.isRunning) R.string.resume_recording else R.string.record)
         refresh()
     }
 
