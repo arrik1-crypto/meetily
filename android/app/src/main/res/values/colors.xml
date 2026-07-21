@@ -21,7 +21,8 @@
     <color name="accent_indigo_container">#EEF0FE</color>
     <color name="accent_indigo_on_container">#3730A3</color>
 
-    <color name="accent_teal">#0D9488</color>
+    <!-- teal-700: teal-600 fails WCAG AA as button fill / text accent -->
+    <color name="accent_teal">#0F766E</color>
     <color name="accent_teal_on">#FFFFFF</color>
     <color name="accent_teal_container">#CCFBF1</color>
     <color name="accent_teal_on_container">#134E4A</color>

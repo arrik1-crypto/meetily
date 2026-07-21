@@ -45,6 +45,11 @@ object WhisperModels {
         dir(context).listFiles()?.forEach { it.delete() }
     }
 
+    /** Removes leftover .part-* files from interrupted downloads. */
+    fun cleanPartials(context: Context) {
+        dir(context).listFiles { f -> f.name.contains(".part-") }?.forEach { it.delete() }
+    }
+
     fun isRuntimeAvailable(): Boolean = WhisperBridge.load()
 
     /**
@@ -57,7 +62,9 @@ object WhisperModels {
         onProgress: (Int) -> Unit
     ) {
         val target = fileFor(context, model)
-        val partial = File(target.absolutePath + ".part")
+        // Unique temp file per invocation so two downloads (e.g. after an
+        // activity recreate orphans one) can never interleave writes.
+        val partial = File(target.absolutePath + ".part-" + System.nanoTime())
         val connection = URL(model.url).openConnection() as HttpURLConnection
         try {
             connection.connectTimeout = 20_000

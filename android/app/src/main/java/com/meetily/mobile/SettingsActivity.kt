@@ -45,6 +45,7 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_settings)
 
         settings = AppSettings(this)
+        WhisperModels.cleanPartials(this)
 
         findViewById<MaterialToolbar>(R.id.settingsToolbar).setNavigationOnClickListener {
             finish()
@@ -108,12 +109,16 @@ class SettingsActivity : AppCompatActivity() {
         val row = findViewById<LinearLayout>(R.id.accentRow)
         row.removeAllViews()
         val density = resources.displayMetrics.density
-        val size = (44 * density).toInt()
-        val margin = (10 * density).toInt()
+        val size = (40 * density).toInt()
+        val margin = (8 * density).toInt()
         val strokeWidth = (2.5f * density).toInt()
         val ringColor = TypedValue().let {
             theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, it, true)
             it.data
+        }
+        val rippleRes = TypedValue().let {
+            theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, it, true)
+            it.resourceId
         }
         for (accent in ThemeManager.ACCENTS) {
             val selected = accent.key == settings.accentColor
@@ -124,9 +129,12 @@ class SettingsActivity : AppCompatActivity() {
             }
             val swatch = ImageView(this).apply {
                 background = circle
+                if (rippleRes != 0) {
+                    foreground = ContextCompat.getDrawable(this@SettingsActivity, rippleRes)
+                }
                 if (selected) {
                     setImageResource(R.drawable.ic_check)
-                    val pad = (10 * density).toInt()
+                    val pad = (9 * density).toInt()
                     setPadding(pad, pad, pad, pad)
                 }
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
@@ -134,9 +142,17 @@ class SettingsActivity : AppCompatActivity() {
                 }
                 contentDescription = accent.key
                 setOnClickListener {
+                    if (downloading) {
+                        // recreate() would orphan the running model download.
+                        Toast.makeText(
+                            this@SettingsActivity, R.string.accent_wait_download,
+                            Toast.LENGTH_SHORT
+                        ).show()
+                        return@setOnClickListener
+                    }
                     if (accent.key != settings.accentColor) {
-                        // Keep any unsaved toggles, then retint the screen live.
-                        persistAll()
+                        // Only the accent is persisted; pending toggles/text
+                        // survive recreate() via view state restoration.
                         settings.accentColor = accent.key
                         recreate()
                     }
