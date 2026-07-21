@@ -103,35 +103,15 @@
             android:textAppearance="?attr/textAppearanceTitleSmall"
             android:textColor="?attr/colorOnSurfaceVariant" />
 
-        <ScrollView
-            android:id="@+id/transcriptScroll"
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/transcriptRecycler"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_marginTop="8dp"
             android:layout_weight="3"
-            android:scrollbars="none">
-
-            <LinearLayout
-                android:id="@+id/transcriptContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingBottom="8dp">
-
-                <TextView
-                    android:id="@+id/partialView"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="6dp"
-                    android:background="@drawable/bg_bubble"
-                    android:paddingHorizontal="12dp"
-                    android:paddingVertical="9dp"
-                    android:textAppearance="?attr/textAppearanceBodyMedium"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textStyle="italic"
-                    android:visibility="gone" />
-            </LinearLayout>
-        </ScrollView>
+            android:clipToPadding="false"
+            android:paddingBottom="8dp"
+            android:scrollbars="none" />
 
         <TextView
             android:layout_width="wrap_content"

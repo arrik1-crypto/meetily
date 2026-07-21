@@ -18,6 +18,9 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.recyclerview.widget.ConcatAdapter
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.imageview.ShapeableImageView
@@ -44,12 +47,18 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var settings: AppSettings
     private var meeting: Meeting? = null
 
+    // The document layout above the transcript lives in one pre-inflated
+    // header view inside a ConcatAdapter; transcript lines are recycled so
+    // multi-hour meetings scroll smoothly.
+    private lateinit var headerView: View
+    private lateinit var transcriptAdapter: TranscriptLinesAdapter
+
     private lateinit var titleView: TextView
     private lateinit var dateView: TextView
     private lateinit var metaView: TextView
     private lateinit var summaryView: TextView
     private lateinit var aiPanel: View
-    private lateinit var transcriptList: LinearLayout
+    private lateinit var tagHint: TextView
     private lateinit var notesInput: EditText
     private lateinit var attendeesInput: EditText
     private lateinit var progress: ProgressBar
@@ -99,20 +108,31 @@ class MeetingDetailActivity : AppCompatActivity() {
         supportActionBar?.title = ""
         toolbar.setNavigationOnClickListener { finish() }
 
-        titleView = findViewById(R.id.detailTitle)
-        dateView = findViewById(R.id.detailDate)
-        metaView = findViewById(R.id.detailMeta)
-        summaryView = findViewById(R.id.detailSummary)
-        aiPanel = findViewById(R.id.aiPanel)
-        transcriptList = findViewById(R.id.transcriptList)
-        notesInput = findViewById(R.id.detailNotes)
-        attendeesInput = findViewById(R.id.detailAttendees)
-        progress = findViewById(R.id.summaryProgress)
-        qaList = findViewById(R.id.qaList)
-        askInput = findViewById(R.id.askInput)
-        askSend = findViewById(R.id.askSend)
-        askRow = findViewById(R.id.askRow)
-        askDisabledHint = findViewById(R.id.askDisabledHint)
+        val recycler = findViewById<RecyclerView>(R.id.detailRecycler)
+        recycler.layoutManager = LinearLayoutManager(this)
+        recycler.itemAnimator = null
+        headerView = LayoutInflater.from(this)
+            .inflate(R.layout.detail_header, recycler, false)
+        transcriptAdapter = TranscriptLinesAdapter(
+            onClick = { index -> assignSpeaker(index) },
+            onLongClick = { index -> toggleHighlight(index) }
+        )
+        recycler.adapter = ConcatAdapter(StaticViewAdapter(headerView), transcriptAdapter)
+
+        titleView = headerView.findViewById(R.id.detailTitle)
+        dateView = headerView.findViewById(R.id.detailDate)
+        metaView = headerView.findViewById(R.id.detailMeta)
+        summaryView = headerView.findViewById(R.id.detailSummary)
+        aiPanel = headerView.findViewById(R.id.aiPanel)
+        tagHint = headerView.findViewById(R.id.tagHint)
+        notesInput = headerView.findViewById(R.id.detailNotes)
+        attendeesInput = headerView.findViewById(R.id.detailAttendees)
+        progress = headerView.findViewById(R.id.summaryProgress)
+        qaList = headerView.findViewById(R.id.qaList)
+        askInput = headerView.findViewById(R.id.askInput)
+        askSend = headerView.findViewById(R.id.askSend)
+        askRow = headerView.findViewById(R.id.askRow)
+        askDisabledHint = headerView.findViewById(R.id.askDisabledHint)
 
         val id = intent.getStringExtra(EXTRA_MEETING_ID)
         meeting = id?.let { store.load(it) }
@@ -131,12 +151,12 @@ class MeetingDetailActivity : AppCompatActivity() {
             .count { it.isNotBlank() }
         metaView.text = getString(R.string.detail_meta, m.segments.size, wordCount)
 
-        findViewById<View>(R.id.generateButton).setOnClickListener {
+        headerView.findViewById<View>(R.id.generateButton).setOnClickListener {
             chooseTemplateAndSummarize()
         }
         askSend.setOnClickListener { sendQuestion() }
-        findViewById<View>(R.id.addPhotoCamera).setOnClickListener { capturePhoto() }
-        findViewById<View>(R.id.addPhotoGallery).setOnClickListener {
+        headerView.findViewById<View>(R.id.addPhotoCamera).setOnClickListener { capturePhoto() }
+        headerView.findViewById<View>(R.id.addPhotoGallery).setOnClickListener {
             try {
                 pickImage.launch("image/*")
             } catch (_: Exception) {
@@ -173,45 +193,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun renderTranscript(m: Meeting) {
-        transcriptList.removeAllViews()
-        findViewById<View>(R.id.tagHint).visibility =
-            if (m.segments.isEmpty()) View.GONE else View.VISIBLE
-        if (m.segments.isEmpty()) {
-            val empty = TextView(this).apply {
-                text = getString(R.string.no_transcript)
-                setTextAppearance(
-                    com.google.android.material.R.style.TextAppearance_Material3_BodyMedium
-                )
-                setTextColor(dateView.currentTextColor)
-            }
-            transcriptList.addView(empty)
-            return
-        }
-        val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
-        val inflater = LayoutInflater.from(this)
-        for ((index, segment) in m.segments.withIndex()) {
-            val line = inflater.inflate(R.layout.item_transcript_line, transcriptList, false)
-            val timeView = line.findViewById<TextView>(R.id.lineTime)
-            val time = timeFormat.format(Date(segment.timestampMs))
-            timeView.text = if (segment.highlighted) "★ $time" else time
-            line.findViewById<TextView>(R.id.lineText).text = segment.text
-            val speakerView = line.findViewById<TextView>(R.id.lineSpeaker)
-            if (segment.speaker.isNullOrBlank()) {
-                speakerView.visibility = View.GONE
-            } else {
-                speakerView.text = segment.speaker
-                speakerView.visibility = View.VISIBLE
-            }
-            if (segment.highlighted) {
-                line.setBackgroundResource(R.drawable.bg_line_highlight)
-            }
-            line.setOnClickListener { assignSpeaker(index) }
-            line.setOnLongClickListener {
-                toggleHighlight(index)
-                true
-            }
-            transcriptList.addView(line)
-        }
+        tagHint.text = getString(
+            if (m.segments.isEmpty()) R.string.no_transcript else R.string.tap_to_tag_hint
+        )
+        transcriptAdapter.submit(m.segments)
     }
 
     private fun toggleHighlight(index: Int) {
@@ -221,7 +206,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             highlighted = !m.segments[index].highlighted
         )
         store.save(m)
-        renderTranscript(m)
+        transcriptAdapter.update(index, m.segments[index])
     }
 
     private fun assignSpeaker(index: Int) {
@@ -238,7 +223,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 attendeesInput.setText(m.attendeesText())
             }
             store.save(m)
-            renderTranscript(m)
+            transcriptAdapter.update(index, m.segments[index])
         }
     }
 
@@ -297,8 +282,8 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun renderActionItems(m: Meeting) {
-        val header = findViewById<View>(R.id.actionsHeader)
-        val list = findViewById<LinearLayout>(R.id.actionList)
+        val header = headerView.findViewById<View>(R.id.actionsHeader)
+        val list = headerView.findViewById<LinearLayout>(R.id.actionList)
         list.removeAllViews()
         val visible = m.actionItems.isNotEmpty()
         header.visibility = if (visible) View.VISIBLE else View.GONE
@@ -358,8 +343,8 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun renderPhotos(m: Meeting) {
-        val strip = findViewById<LinearLayout>(R.id.photoStrip)
-        val scroll = findViewById<View>(R.id.photoScroll)
+        val strip = headerView.findViewById<LinearLayout>(R.id.photoStrip)
+        val scroll = headerView.findViewById<View>(R.id.photoScroll)
         strip.removeAllViews()
         scroll.visibility = if (m.photos.isEmpty()) View.GONE else View.VISIBLE
         if (m.photos.isEmpty()) return

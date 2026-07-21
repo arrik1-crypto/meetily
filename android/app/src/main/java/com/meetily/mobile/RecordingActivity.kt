@@ -15,12 +15,9 @@ import android.os.IBinder
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -29,6 +26,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
@@ -57,9 +56,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private lateinit var statusView: TextView
     private lateinit var elapsedView: TextView
     private lateinit var recordDot: View
-    private lateinit var partialView: TextView
-    private lateinit var transcriptContainer: LinearLayout
-    private lateinit var transcriptScroll: ScrollView
+    private lateinit var transcriptRecycler: RecyclerView
+    private lateinit var transcriptAdapter: LiveTranscriptAdapter
     private lateinit var notesInput: EditText
     private lateinit var pauseButton: MaterialButton
     private lateinit var highlightButton: MaterialButton
@@ -72,9 +70,6 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private var bound = false
     private var attached = false
     private var suppressWatchers = false
-
-    private val segments = mutableListOf<TranscriptSegment>()
-    private val bubbleViews = mutableListOf<View>()
 
     private var pendingPhotoFile: File? = null
     private val takePicture =
@@ -127,9 +122,10 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         statusView = findViewById(R.id.statusView)
         elapsedView = findViewById(R.id.elapsedView)
         recordDot = findViewById(R.id.recordDot)
-        partialView = findViewById(R.id.partialView)
-        transcriptContainer = findViewById(R.id.transcriptContainer)
-        transcriptScroll = findViewById(R.id.transcriptScroll)
+        transcriptRecycler = findViewById(R.id.transcriptRecycler)
+        transcriptAdapter = LiveTranscriptAdapter { index -> assignSpeaker(index) }
+        transcriptRecycler.layoutManager = LinearLayoutManager(this)
+        transcriptRecycler.adapter = transcriptAdapter
         notesInput = findViewById(R.id.notesInput)
         pauseButton = findViewById(R.id.pauseButton)
         highlightButton = findViewById(R.id.highlightButton)
@@ -220,16 +216,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         notesInput.setText(svc.notesValue())
         suppressWatchers = false
 
-        segments.clear()
-        bubbleViews.clear()
-        for (i in transcriptContainer.childCount - 1 downTo 0) {
-            val child = transcriptContainer.getChildAt(i)
-            if (child.id != R.id.partialView) transcriptContainer.removeViewAt(i)
-        }
-        for ((index, segment) in svc.segmentsSnapshot().withIndex()) {
-            addBubble(index, segment)
-        }
-        renderPartial(svc.currentPartial())
+        transcriptAdapter.reset(svc.segmentsSnapshot(), svc.currentPartial())
+        scrollToBottom()
         statusView.text = svc.currentStatusText()
         applyPausedUi(svc.paused)
         startTimer()
@@ -323,17 +311,16 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     // --- Observer callbacks (main thread) --------------------------------
 
     override fun onSegmentAppended(index: Int, segment: TranscriptSegment) {
-        addBubble(index, segment)
+        transcriptAdapter.append(segment)
         scrollToBottom()
     }
 
     override fun onSegmentUpdated(index: Int, segment: TranscriptSegment) {
-        if (index in segments.indices) segments[index] = segment
-        refreshBubble(index)
+        transcriptAdapter.update(index, segment)
     }
 
     override fun onPartial(text: String) {
-        renderPartial(text)
+        transcriptAdapter.setPartial(text)
         if (text.isNotEmpty()) scrollToBottom()
     }
 
@@ -347,53 +334,13 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         openDetail(meetingId)
     }
 
-    // --- Transcript rendering (bubble list) ------------------------------
-
-    private fun addBubble(index: Int, segment: TranscriptSegment) {
-        if (index < segments.size) {
-            segments[index] = segment
-        } else {
-            segments.add(segment)
-        }
-        val bubble = LayoutInflater.from(this)
-            .inflate(R.layout.item_transcript_segment, transcriptContainer, false)
-        bubble.findViewById<TextView>(R.id.segmentText).text = segment.text
-        bubble.setOnClickListener { assignSpeaker(index) }
-        bubbleViews.add(bubble)
-
-        val partialIndex = transcriptContainer.indexOfChild(partialView)
-        transcriptContainer.addView(bubble, if (partialIndex >= 0) partialIndex else -1)
-        refreshBubble(index)
-    }
-
-    private fun refreshBubble(index: Int) {
-        val bubble = bubbleViews.getOrNull(index) ?: return
-        val segment = segments.getOrNull(index) ?: return
-        bubble.setBackgroundResource(
-            if (segment.highlighted) R.drawable.bg_bubble_highlight else R.drawable.bg_bubble
-        )
-        bubble.findViewById<TextView>(R.id.segmentTime).text = timeLabel(segment)
-    }
-
-    private fun timeLabel(segment: TranscriptSegment): String {
-        val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(segment.timestampMs))
-        val star = if (segment.highlighted) "★ " else ""
-        val speaker = segment.speaker
-        return if (speaker.isNullOrBlank()) "$star$time" else "$star$time · $speaker"
-    }
-
-    private fun renderPartial(text: String) {
-        if (text.isBlank()) {
-            partialView.text = ""
-            partialView.visibility = View.GONE
-        } else {
-            partialView.text = text
-            partialView.visibility = View.VISIBLE
-        }
-    }
+    // --- Transcript rendering (recycled list) -----------------------------
 
     private fun scrollToBottom() {
-        transcriptScroll.post { transcriptScroll.fullScroll(ScrollView.FOCUS_DOWN) }
+        val last = transcriptAdapter.itemCount - 1
+        if (last >= 0) {
+            transcriptRecycler.post { transcriptRecycler.scrollToPosition(last) }
+        }
     }
 
     // --- User actions -----------------------------------------------------
@@ -412,8 +359,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private fun assignSpeaker(index: Int) {
         val svc = service ?: return
-        if (index !in segments.indices) return
-        SpeakerPicker.show(this, currentAttendees(), segments[index].speaker) { name ->
+        val segment = transcriptAdapter.segmentAt(index) ?: return
+        SpeakerPicker.show(this, currentAttendees(), segment.speaker) { name ->
             svc.assignSpeaker(index, name)
             if (!name.isNullOrBlank()) {
                 val attendees = currentAttendees()
