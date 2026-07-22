@@ -34,9 +34,8 @@ android {
         versionCode = 17
         versionName = "1.1.0-beta1"
 
-        ndk {
-            abiFilters += listOf("arm64-v8a", "x86_64")
-        }
+        // No ndk.abiFilters here: AGP forbids it alongside ABI splits. The
+        // splits.abi.include list below is the single source of built ABIs.
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DCMAKE_BUILD_TYPE=Release")
