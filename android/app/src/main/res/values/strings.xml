@@ -50,6 +50,33 @@
     <string name="speaker_cluster_label">Speaker %1$d</string>
     <string name="rename_cluster_fmt">Name %1$s everywhere…</string>
 
+    <!-- Capture tuning -->
+    <string name="setting_capture">Capture tuning</string>
+    <string name="setting_capture_desc">How the phone pre-processes the microphone signal, and which input to use. "Far-field" uses the mic tuning meant for filming across a room — often better for a phone on the table. USB and wired mics appear under Input device when connected.</string>
+    <string name="mic_tuning_button">Microphone tuning…</string>
+    <string name="mic_device_button">Input device…</string>
+    <string name="tuning_default">Default (voice recognition)</string>
+    <string name="tuning_farfield">Far-field (camcorder mic)</string>
+    <string name="tuning_raw">Raw (unprocessed)</string>
+    <string name="tuning_raw_unsupported">Raw (unprocessed) — not supported here, will fall back</string>
+    <string name="device_auto">Automatic (recommended)</string>
+    <string name="device_not_connected">%1$s (not connected)</string>
+    <string name="capture_status">Tuning: %1$s\nInput: %2$s</string>
+
+    <!-- Audio import -->
+    <string name="action_import">Import audio</string>
+    <string name="import_title">Import recording</string>
+    <string name="import_status_starting">Preparing…</string>
+    <string name="import_status_running">Transcribing… %1$d%%</string>
+    <string name="import_stopping">Stopping…</string>
+    <string name="import_keep_open">Keep this screen open while the file is transcribed on-device. Long recordings can take several minutes. Cancelling keeps what\'s done so far.</string>
+    <string name="import_needs_whisper">Importing needs the on-device Whisper engine — download a Whisper model in Settings first.</string>
+    <string name="import_wait_recording">Finish the current recording before importing a file.</string>
+    <string name="import_cancelled_partial">Import stopped — the partial transcript was kept.</string>
+    <string name="import_failed">Import failed: %1$s</string>
+    <string name="import_no_audio">Couldn\'t read that file as audio.</string>
+    <string name="import_no_picker">No file picker available on this device.</string>
+
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>
     <string name="no_calendar_event">No calendar event happening right now</string>

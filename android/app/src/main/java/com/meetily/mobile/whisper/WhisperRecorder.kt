@@ -1,6 +1,7 @@
 package com.meetily.mobile.whisper
 
 import android.annotation.SuppressLint
+import android.media.AudioDeviceInfo
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
@@ -19,6 +20,10 @@ import kotlin.math.sqrt
 class WhisperRecorder(
     private val modelPath: String,
     private val language: String?, // null => auto-detect
+    // Capture tuning (see CaptureTuning): how firmware pre-processes the mic
+    // signal, and which physical input to prefer (null = system routing).
+    private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
+    private val preferredDevice: AudioDeviceInfo? = null,
     // Sampled at chunk-cut time so speaker attribution reflects when the
     // words were SPOKEN, not when transcription finishes seconds later.
     private val speakerSupplier: () -> String? = { null },
@@ -68,7 +73,7 @@ class WhisperRecorder(
             )
             val record = try {
                 AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    audioSource,
                     sampleRate,
                     AudioFormat.CHANNEL_IN_MONO,
                     AudioFormat.ENCODING_PCM_FLOAT,
@@ -84,6 +89,13 @@ class WhisperRecorder(
                 record.release()
                 running = false
                 return@Thread
+            }
+            if (preferredDevice != null) {
+                // Best-effort: falls back to system routing if it fails.
+                try {
+                    record.preferredDevice = preferredDevice
+                } catch (_: Throwable) {
+                }
             }
 
             record.startRecording()

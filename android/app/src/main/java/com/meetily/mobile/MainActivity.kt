@@ -2,6 +2,7 @@ package com.meetily.mobile
 
 import android.content.Intent
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.Menu
@@ -32,6 +33,17 @@ class MainActivity : AppCompatActivity() {
     private var allMeetings: List<Meeting> = emptyList()
 
     private var appliedAccent: String = ""
+
+    private val pickAudio =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            if (uri != null) {
+                startActivity(
+                    Intent(this, ImportActivity::class.java)
+                        .setData(uri)
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                )
+            }
+        }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -156,6 +168,15 @@ class MainActivity : AppCompatActivity() {
         return when (item.itemId) {
             R.id.action_settings -> {
                 startActivity(Intent(this, SettingsActivity::class.java))
+                true
+            }
+            R.id.action_import -> {
+                try {
+                    pickAudio.launch("audio/*")
+                } catch (_: Exception) {
+                    Toast.makeText(this, R.string.import_no_picker, Toast.LENGTH_SHORT)
+                        .show()
+                }
                 true
             }
             else -> super.onOptionsItemSelected(item)

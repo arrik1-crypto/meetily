@@ -62,6 +62,21 @@
             android:name=".OnboardingActivity"
             android:exported="false" />
 
+        <!-- Import an audio file (share sheet or in-app picker) and
+             transcribe it offline. Portrait-locked so a rotation can't
+             recreate the activity mid-import. -->
+        <activity
+            android:name=".ImportActivity"
+            android:exported="true"
+            android:screenOrientation="portrait"
+            android:parentActivityName=".MainActivity">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="audio/*" />
+            </intent-filter>
+        </activity>
+
         <service
             android:name=".RecordingService"
             android:exported="false"

@@ -22,6 +22,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.BackupManager
+import com.meetily.mobile.whisper.CaptureTuning
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.WhisperModels
 
@@ -43,6 +44,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var diarizeModelStatus: TextView
     private lateinit var diarizeProgress: LinearProgressIndicator
     private lateinit var manageDiarizeButton: MaterialButton
+    private lateinit var captureStatus: TextView
     private lateinit var urlInput: EditText
     private lateinit var keyInput: EditText
     private lateinit var modelInput: EditText
@@ -115,6 +117,10 @@ class SettingsActivity : AppCompatActivity() {
         manageModelsButton.setOnClickListener { showModelDialog() }
         diarizeSwitch.setOnCheckedChangeListener { _, _ -> updateDiarizeSection() }
         manageDiarizeButton.setOnClickListener { showDiarizeModelDialog() }
+        captureStatus = findViewById(R.id.captureStatus)
+        updateCaptureStatus()
+        findViewById<View>(R.id.micTuningButton).setOnClickListener { showMicTuningDialog() }
+        findViewById<View>(R.id.micDeviceButton).setOnClickListener { showMicDeviceDialog() }
 
         findViewById<View>(R.id.exportBackupButton).setOnClickListener {
             try {
@@ -338,6 +344,73 @@ class SettingsActivity : AppCompatActivity() {
                 } else {
                     startDownload(model.key)
                 }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    // --- Whisper capture tuning -------------------------------------------
+
+    private fun updateCaptureStatus() {
+        val tuning = when (settings.micSource) {
+            CaptureTuning.SOURCE_FARFIELD -> getString(R.string.tuning_farfield)
+            CaptureTuning.SOURCE_RAW -> getString(R.string.tuning_raw)
+            else -> getString(R.string.tuning_default)
+        }
+        val deviceKey = settings.micDevice
+        val device = when {
+            deviceKey == CaptureTuning.DEVICE_AUTO -> getString(R.string.device_auto)
+            else -> {
+                val connected = CaptureTuning.findPreferred(this, deviceKey)
+                if (connected != null) {
+                    CaptureTuning.deviceLabel(connected)
+                } else {
+                    getString(
+                        R.string.device_not_connected,
+                        CaptureTuning.nameFromKey(deviceKey)
+                    )
+                }
+            }
+        }
+        captureStatus.text = getString(R.string.capture_status, tuning, device)
+    }
+
+    private fun showMicTuningDialog() {
+        val rawSupported = CaptureTuning.unprocessedSupported(this)
+        val labels = arrayOf(
+            getString(R.string.tuning_default),
+            getString(R.string.tuning_farfield),
+            if (rawSupported) getString(R.string.tuning_raw)
+            else getString(R.string.tuning_raw_unsupported)
+        )
+        val checked = CaptureTuning.SOURCE_KEYS.indexOf(settings.micSource)
+            .coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.mic_tuning_button)
+            .setSingleChoiceItems(labels, checked) { dialog, which ->
+                settings.micSource = CaptureTuning.SOURCE_KEYS[which]
+                updateCaptureStatus()
+                dialog.dismiss()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showMicDeviceDialog() {
+        val devices = CaptureTuning.inputDevices(this)
+        val labels = mutableListOf(getString(R.string.device_auto))
+        val keys = mutableListOf(CaptureTuning.DEVICE_AUTO)
+        for (device in devices) {
+            labels.add(CaptureTuning.deviceLabel(device))
+            keys.add(CaptureTuning.deviceKey(device))
+        }
+        val checked = keys.indexOf(settings.micDevice).coerceAtLeast(0)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.mic_device_button)
+            .setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->
+                settings.micDevice = keys[which]
+                updateCaptureStatus()
+                dialog.dismiss()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

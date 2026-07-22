@@ -25,6 +25,7 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.TranscriptSegment
+import com.meetily.mobile.whisper.CaptureTuning
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.SherpaEmbedder
 import com.meetily.mobile.whisper.SpeakerClusterer
@@ -560,6 +561,8 @@ class RecordingService : Service() {
         whisperRecorder = WhisperRecorder(
             modelPath = WhisperModels.fileFor(this, model).absolutePath,
             language = if (model.englishOnly) "en" else "auto",
+            audioSource = CaptureTuning.audioSourceFor(this, settings.micSource),
+            preferredDevice = CaptureTuning.findPreferred(this, settings.micDevice),
             speakerSupplier = { activeSpeaker },
             chunkLabeler = labeler,
             onSegment = { text, speaker, clusterId ->

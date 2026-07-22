@@ -54,6 +54,16 @@ class AppSettings(context: Context) {
         get() = prefs.getString("diarization_model", "resnet34-en") ?: "resnet34-en"
         set(value) = prefs.edit().putString("diarization_model", value).apply()
 
+    /** Whisper capture: "recognition" (default), "camcorder", or "unprocessed". */
+    var micSource: String
+        get() = prefs.getString("mic_source", "recognition") ?: "recognition"
+        set(value) = prefs.edit().putString("mic_source", value).apply()
+
+    /** Whisper capture input device key ("auto" = system routing). */
+    var micDevice: String
+        get() = prefs.getString("mic_device", "auto") ?: "auto"
+        set(value) = prefs.edit().putString("mic_device", value).apply()
+
     var calendarPrefill: Boolean
         get() = prefs.getBoolean("calendar_prefill", true)
         set(value) = prefs.edit().putBoolean("calendar_prefill", value).apply()
