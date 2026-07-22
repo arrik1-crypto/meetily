@@ -51,7 +51,7 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit().putBoolean("diarization_enabled", value).apply()
 
     var diarizationModel: String
-        get() = prefs.getString("diarization_model", "titanet-en") ?: "titanet-en"
+        get() = prefs.getString("diarization_model", "resnet34-en") ?: "resnet34-en"
         set(value) = prefs.edit().putString("diarization_model", value).apply()
 
     var calendarPrefill: Boolean

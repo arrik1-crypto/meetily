@@ -18,7 +18,16 @@ data class DiarizationModel(
 
 object DiarizationModels {
 
+    // Ordered by recommendation: first entry is the fallback for unknown keys.
     val ALL: List<DiarizationModel> = listOf(
+        DiarizationModel(
+            "resnet34-en", "WeSpeaker ResNet34 (English, recommended)",
+            "wespeaker_en_voxceleb_resnet34_LM.onnx", 26
+        ),
+        DiarizationModel(
+            "titanet-large-en", "TitaNet large (English, most accurate)",
+            "nemo_en_titanet_large.onnx", 97
+        ),
         DiarizationModel(
             "titanet-en", "TitaNet small (English)",
             "nemo_en_titanet_small.onnx", 40
