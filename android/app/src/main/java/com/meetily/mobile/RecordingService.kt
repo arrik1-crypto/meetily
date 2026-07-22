@@ -77,7 +77,9 @@ class RecordingService : Service() {
     private var pendingHighlight = false
 
     // Sticky speaker: new segments inherit this until it changes. Set from
-    // the chip row, or by tagging the most recent segment.
+    // the chip row, or by tagging the most recent segment. Volatile because
+    // the Whisper audio thread snapshots it at chunk-cut time.
+    @Volatile
     private var activeSpeaker: String? = null
 
     // Metadata edited from the UI, mirrored here so it is saved incrementally.
@@ -218,11 +220,15 @@ class RecordingService : Service() {
         return true
     }
 
-    fun assignSpeaker(index: Int, name: String?) {
+    /**
+     * [makeSticky] is decided by the caller at dialog-open time (was this the
+     * latest segment?), not re-checked here — segments keep arriving while
+     * the picker is open, which would make recency at callback time racy.
+     */
+    fun assignSpeaker(index: Int, name: String?, makeSticky: Boolean) {
         if (index !in segments.indices) return
         segments[index] = segments[index].copy(speaker = name)
-        // Tagging the latest segment makes that speaker sticky for what follows.
-        if (index == segments.size - 1) {
+        if (makeSticky) {
             activeSpeaker = name?.takeIf { it.isNotBlank() }
         }
         observer?.onSegmentUpdated(index, segments[index])
@@ -249,6 +255,15 @@ class RecordingService : Service() {
 
     fun updateAttendees(value: String) {
         attendeesRaw = value
+        // Reconcile the sticky speaker: if their name was renamed or removed,
+        // clear it — otherwise segments keep getting silently tagged with a
+        // name that no chip displays as active.
+        val current = activeSpeaker
+        if (current != null &&
+            Meeting.parseAttendees(value).none { it.equals(current, ignoreCase = true) }
+        ) {
+            activeSpeaker = null
+        }
         scheduleSave()
     }
 
@@ -466,7 +481,10 @@ class RecordingService : Service() {
         whisperRecorder = WhisperRecorder(
             modelPath = WhisperModels.fileFor(this, model).absolutePath,
             language = if (model.englishOnly) "en" else "auto",
-            onSegment = { text -> main.post { if (active) appendSegment(text) } },
+            speakerSupplier = { activeSpeaker },
+            onSegment = { text, speaker ->
+                main.post { if (active) appendSegment(text, speaker) }
+            },
             onProcessingChange = { processing ->
                 main.post {
                     if (active && !finishing && !paused) {
@@ -489,11 +507,11 @@ class RecordingService : Service() {
 
     // --- Shared segment handling -----------------------------------------
 
-    private fun appendSegment(text: String) {
+    private fun appendSegment(text: String, speaker: String? = activeSpeaker) {
         val segment = TranscriptSegment(
             timestampMs = System.currentTimeMillis(),
             text = text,
-            speaker = activeSpeaker,
+            speaker = speaker,
             highlighted = pendingHighlight
         )
         pendingHighlight = false

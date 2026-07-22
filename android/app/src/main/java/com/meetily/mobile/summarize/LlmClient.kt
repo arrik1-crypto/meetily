@@ -127,20 +127,28 @@ object LlmClient {
             .put(JSONObject().put("role", "user").put("content", transcript))
 
         val response = chat(baseUrl, apiKey, model, messages)
-        val start = response.indexOf('[')
+        // Anchor on "[{" so prose brackets ("[high-confidence]") can't hijack
+        // the extraction; fall back to the first '[' for a bare "[]" answer.
+        val start = response.indexOf("[{").takeIf { it >= 0 } ?: response.indexOf('[')
         val end = response.lastIndexOf(']')
         if (start < 0 || end <= start) return emptyList()
-        val arr = JSONArray(response.substring(start, end + 1))
-        val out = mutableListOf<Pair<Int, String>>()
-        for (i in 0 until arr.length()) {
-            val obj = arr.optJSONObject(i) ?: continue
-            val index = obj.optInt("line", -1)
-            val name = obj.optString("speaker", "").trim()
-            if (index >= 0 && name.isNotBlank()) {
-                out.add(index to name)
+        return try {
+            val arr = JSONArray(response.substring(start, end + 1))
+            val out = mutableListOf<Pair<Int, String>>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val index = obj.optInt("line", -1)
+                val name = obj.optString("speaker", "").trim()
+                if (index >= 0 && name.isNotBlank()) {
+                    out.add(index to name)
+                }
             }
+            out
+        } catch (_: Exception) {
+            // Malformed model output reads as "no confident suggestions",
+            // not as an error.
+            emptyList()
         }
-        return out
     }
 
     fun ask(

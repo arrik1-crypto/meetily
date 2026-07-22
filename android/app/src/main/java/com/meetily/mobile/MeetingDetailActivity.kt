@@ -69,6 +69,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var askRow: View
     private lateinit var askDisabledHint: View
 
+    private var suggestDialog: AlertDialog? = null
     private var pendingPhotoFile: File? = null
     private val takePicture =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -231,6 +232,13 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveEdits()
+    }
+
+    override fun onDestroy() {
+        // Avoid a WindowLeaked crash if a config change lands mid-analysis.
+        suggestDialog?.dismiss()
+        suggestDialog = null
+        super.onDestroy()
     }
 
     private fun saveEdits() {
@@ -545,10 +553,13 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         saveEdits()
 
+        // Cancelable: a hung endpoint (up to ~200s of timeouts) must not trap
+        // the screen. Cancel abandons the in-flight result.
         val progressDialog = AlertDialog.Builder(this)
             .setMessage(R.string.suggest_analyzing)
-            .setCancelable(false)
+            .setCancelable(true)
             .create()
+        suggestDialog = progressDialog
         progressDialog.show()
 
         val baseUrl = settings.llmBaseUrl
@@ -567,16 +578,22 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                val canceled = !progressDialog.isShowing
                 progressDialog.dismiss()
+                suggestDialog = null
+                if (canceled) return@runOnUiThread
                 if (error != null) {
                     Toast.makeText(
                         this, getString(R.string.ask_failed, error), Toast.LENGTH_LONG
                     ).show()
                     return@runOnUiThread
                 }
-                val applicable = suggestions.filter { (index, _) ->
-                    index in m.segments.indices && m.segments[index].speaker.isNullOrBlank()
-                }
+                val applicable = suggestions
+                    .distinctBy { it.first }
+                    .filter { (index, _) ->
+                        index in m.segments.indices &&
+                            m.segments[index].speaker.isNullOrBlank()
+                    }
                 if (applicable.isEmpty()) {
                     Toast.makeText(this, R.string.suggest_none, Toast.LENGTH_LONG).show()
                     return@runOnUiThread
@@ -601,10 +618,20 @@ class MeetingDetailActivity : AppCompatActivity() {
         }.trimEnd()
         AlertDialog.Builder(this)
             .setTitle(R.string.suggest_apply_title)
-            .setMessage(getString(R.string.suggest_apply_message, applicable.size, preview))
+            .setMessage(
+                resources.getQuantityString(
+                    R.plurals.suggest_apply_message,
+                    applicable.size, applicable.size, preview
+                )
+            )
             .setPositiveButton(R.string.suggest_apply) { _, _ ->
-                for ((index, name) in applicable) {
+                for ((index, suggested) in applicable) {
                     if (index !in m.segments.indices) continue
+                    // Canonicalize to the existing attendee's casing so the
+                    // transcript never mixes "Bob" and "bob".
+                    val name = m.attendees
+                        .firstOrNull { it.equals(suggested, ignoreCase = true) }
+                        ?: suggested
                     m.segments[index] = m.segments[index].copy(speaker = name)
                     if (m.attendees.none { it.equals(name, ignoreCase = true) }) {
                         m.attendees.add(name)
@@ -614,7 +641,10 @@ class MeetingDetailActivity : AppCompatActivity() {
                 store.save(m)
                 renderTranscript(m)
                 Toast.makeText(
-                    this, getString(R.string.suggest_applied, applicable.size),
+                    this,
+                    resources.getQuantityString(
+                        R.plurals.suggest_applied, applicable.size, applicable.size
+                    ),
                     Toast.LENGTH_SHORT
                 ).show()
             }

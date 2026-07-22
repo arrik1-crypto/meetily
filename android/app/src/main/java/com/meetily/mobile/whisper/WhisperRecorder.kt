@@ -19,7 +19,10 @@ import kotlin.math.sqrt
 class WhisperRecorder(
     private val modelPath: String,
     private val language: String?, // null => auto-detect
-    private val onSegment: (String) -> Unit,
+    // Sampled at chunk-cut time so speaker attribution reflects when the
+    // words were SPOKEN, not when transcription finishes seconds later.
+    private val speakerSupplier: () -> String? = { null },
+    private val onSegment: (String, String?) -> Unit,
     private val onProcessingChange: (Boolean) -> Unit,
     private val onError: (String) -> Unit
 ) {
@@ -94,7 +97,7 @@ class WhisperRecorder(
                 silenceRun = 0f
                 chunkPeakRms = 0f
                 if (peak < minSpeechRms) return // never contained speech
-                submitChunk(audio)
+                submitChunk(audio, speakerSupplier())
             }
 
             while (running) {
@@ -129,7 +132,7 @@ class WhisperRecorder(
         }.apply { start() }
     }
 
-    private fun submitChunk(audio: FloatArray) {
+    private fun submitChunk(audio: FloatArray, speaker: String?) {
         pendingJobs++
         onProcessingChange(true)
         transcriber.execute {
@@ -145,7 +148,7 @@ class WhisperRecorder(
                         ?.trim()
                         .orEmpty()
                     if (text.isNotBlank() && !isNoise(text)) {
-                        onSegment(text)
+                        onSegment(text, speaker)
                     }
                 }
             } catch (e: Throwable) {

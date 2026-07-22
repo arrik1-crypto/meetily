@@ -206,6 +206,14 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             val chip = TextView(this).apply {
                 text = name
                 textSize = 13f
+                gravity = android.view.Gravity.CENTER
+                minHeight = (40 * density).toInt()
+                isSelected = selected
+                contentDescription = if (selected) {
+                    getString(R.string.chip_active_desc, name)
+                } else {
+                    name
+                }
                 setBackgroundResource(
                     if (selected) R.drawable.bg_pill_accent else R.drawable.bg_pill
                 )
@@ -224,7 +232,11 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                     LinearLayout.LayoutParams.WRAP_CONTENT
                 ).apply { marginEnd = margin }
                 setOnClickListener {
-                    service?.setActiveSpeaker(if (selected) null else name)
+                    // Decide from live service state, not state captured at
+                    // build time — the sticky speaker may have changed since.
+                    val nowActive = service?.activeSpeakerValue()
+                    val isActive = name.equals(nowActive, ignoreCase = true)
+                    service?.setActiveSpeaker(if (isActive) null else name)
                     rebuildSpeakerChips()
                 }
             }
@@ -428,8 +440,11 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private fun assignSpeaker(index: Int) {
         val svc = service ?: return
         val segment = transcriptAdapter.segmentAt(index) ?: return
+        // Recency decided now: segments arriving while the dialog is open
+        // must not change whether this tag becomes sticky.
+        val wasLatest = index == svc.segmentsSnapshot().size - 1
         SpeakerPicker.show(this, currentAttendees(), segment.speaker) { name ->
-            svc.assignSpeaker(index, name)
+            svc.assignSpeaker(index, name, makeSticky = wasLatest)
             if (!name.isNullOrBlank()) {
                 val attendees = currentAttendees()
                 if (attendees.none { it.equals(name, ignoreCase = true) }) {
@@ -437,6 +452,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                     attendeesInput.setText(attendees.joinToString(", "))
                 }
             }
+            rebuildSpeakerChips()
         }
     }
 
