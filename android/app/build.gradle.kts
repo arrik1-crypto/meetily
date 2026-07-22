@@ -51,6 +51,26 @@ android {
         }
     }
 
+    // The onnxruntime + sherpa-onnx native libs are large (~24 MB/ABI), so a
+    // universal APK balloons past sideload-friendly sizes. Ship one APK per
+    // ABI instead (phones = arm64-v8a, emulators = x86_64) and compress the
+    // native libs inside the APK. Play releases use the AAB, which splits by
+    // ABI on its own, so this only affects assembleRelease output.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "x86_64")
+            isUniversalApk = false
+        }
+    }
+
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     signingConfigs {
         if (hasReleaseKeystore) {
             create("release") {
