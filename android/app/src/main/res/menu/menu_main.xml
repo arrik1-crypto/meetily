@@ -12,6 +12,10 @@
         android:title="@string/action_import"
         app:showAsAction="always" />
     <item
+        android:id="@+id/action_digest"
+        android:title="@string/digest_title"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_settings"
         android:icon="@drawable/ic_settings"
         android:title="@string/action_settings"

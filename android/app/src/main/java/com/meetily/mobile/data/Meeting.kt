@@ -37,7 +37,9 @@ data class Meeting(
     var actionItems: MutableList<ActionItem> = mutableListOf(),
     var photos: MutableList<String> = mutableListOf(),
     /** Filename in AudioStore when the meeting's audio was kept. */
-    var audioFile: String? = null
+    var audioFile: String? = null,
+    /** Free-form labels for filtering the library ("client-x", "1:1"…). */
+    var tags: MutableList<String> = mutableListOf()
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -115,6 +117,11 @@ data class Meeting(
         if (!audioFile.isNullOrBlank()) {
             obj.put("audioFile", audioFile)
         }
+        if (tags.isNotEmpty()) {
+            val tagsArr = JSONArray()
+            for (tag in tags) tagsArr.put(tag)
+            obj.put("tags", tagsArr)
+        }
         return obj
     }
 
@@ -180,6 +187,11 @@ data class Meeting(
                 if (name.isNotBlank()) meeting.photos.add(name)
             }
             meeting.audioFile = obj.optString("audioFile", "").ifBlank { null }
+            val tagsArr = obj.optJSONArray("tags") ?: JSONArray()
+            for (i in 0 until tagsArr.length()) {
+                val tag = tagsArr.optString(i, "")
+                if (tag.isNotBlank()) meeting.tags.add(tag)
+            }
             return meeting
         }
     }

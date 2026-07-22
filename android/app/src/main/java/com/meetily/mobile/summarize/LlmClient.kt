@@ -224,6 +224,39 @@ object LlmClient {
         return chat(baseUrl, apiKey, model, messages)
     }
 
+    /** Weekly digest across several meetings; blocks as in [askLibrary]. */
+    fun digest(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        contextBlocks: List<Pair<String, String>>
+    ): String {
+        val systemPrompt = buildString {
+            append(
+                "You write a concise weekly digest of the user's meetings from the " +
+                    "records below. Structure it as:\n" +
+                    "THEMES — the 2-4 threads that ran through the week.\n" +
+                    "DECISIONS — what was decided, citing the meeting title.\n" +
+                    "OPEN ACTION ITEMS — grouped by owner.\n" +
+                    "WORTH REVISITING — unresolved questions or follow-ups to schedule.\n" +
+                    "Use only the records; be specific and skip empty sections.\n"
+            )
+            val perBlock = (28_000 / contextBlocks.size.coerceAtLeast(1))
+                .coerceAtLeast(3_000)
+            for ((label, content) in contextBlocks) {
+                append("\n=== MEETING: ").append(label).append(" ===\n")
+                append(content.take(perBlock)).append('\n')
+            }
+        }
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+            .put(
+                JSONObject().put("role", "user")
+                    .put("content", "Write my weekly meeting digest.")
+            )
+        return chat(baseUrl, apiKey, model, messages)
+    }
+
     private fun chat(
         baseUrl: String,
         apiKey: String,

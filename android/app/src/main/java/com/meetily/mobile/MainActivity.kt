@@ -22,6 +22,7 @@ import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
+import com.meetily.mobile.search.MeetingGroups
 
 class MainActivity : AppCompatActivity() {
 
@@ -32,6 +33,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var searchInput: EditText
     private lateinit var fab: ExtendedFloatingActionButton
     private var allMeetings: List<Meeting> = emptyList()
+
+    // Library filters: at most one active — a tag or a recurring series.
+    private var selectedTag: String? = null
+    private var selectedSeriesKey: String? = null
+    private lateinit var filterChips: android.widget.LinearLayout
+    private lateinit var filterChipsScroll: View
 
     private var appliedAccent: String = ""
 
@@ -61,6 +68,8 @@ class MainActivity : AppCompatActivity() {
         store = MeetingStore(this)
         emptyState = findViewById(R.id.emptyState)
         meetingCount = findViewById(R.id.meetingCount)
+        filterChips = findViewById(R.id.filterChips)
+        filterChipsScroll = findViewById(R.id.filterChipsScroll)
         searchInput = findViewById(R.id.searchInput)
         searchInput.addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
@@ -125,19 +134,97 @@ class MainActivity : AppCompatActivity() {
     private fun refresh() {
         allMeetings = store.list()
         searchInput.visibility = if (allMeetings.isEmpty()) View.GONE else View.VISIBLE
+        rebuildFilterChips()
         applyFilter()
+    }
+
+    /** One chip per tag (#tag) and per recurring series (title ×N). */
+    private fun rebuildFilterChips() {
+        val tags = allMeetings.flatMap { it.tags }
+            .groupBy { it.lowercase() }
+            .map { (_, variants) -> variants.first() }
+            .sortedBy { it.lowercase() }
+        val series = MeetingGroups.series(allMeetings)
+        // Drop a stale selection (tag removed, series dissolved).
+        if (selectedTag != null && tags.none { it.equals(selectedTag, true) }) {
+            selectedTag = null
+        }
+        if (selectedSeriesKey != null && series.none { it.key == selectedSeriesKey }) {
+            selectedSeriesKey = null
+        }
+        filterChips.removeAllViews()
+        if (tags.isEmpty() && series.isEmpty()) {
+            filterChipsScroll.visibility = View.GONE
+            return
+        }
+        filterChipsScroll.visibility = View.VISIBLE
+        for (tag in tags) {
+            addFilterChip(
+                label = "#$tag",
+                selected = tag.equals(selectedTag, ignoreCase = true)
+            ) {
+                selectedSeriesKey = null
+                selectedTag = if (tag.equals(selectedTag, true)) null else tag
+                rebuildFilterChips()
+                applyFilter()
+            }
+        }
+        for (s in series) {
+            addFilterChip(
+                label = getString(R.string.series_chip, s.displayName, s.meetings.size),
+                selected = s.key == selectedSeriesKey
+            ) {
+                selectedTag = null
+                selectedSeriesKey = if (s.key == selectedSeriesKey) null else s.key
+                rebuildFilterChips()
+                applyFilter()
+            }
+        }
+    }
+
+    private fun addFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+        val density = resources.displayMetrics.density
+        val chip = TextView(this).apply {
+            text = label
+            maxLines = 1
+            setBackgroundResource(
+                if (selected) R.drawable.bg_pill_accent else R.drawable.bg_pill
+            )
+            setPadding(
+                (14 * density).toInt(), (7 * density).toInt(),
+                (14 * density).toInt(), (7 * density).toInt()
+            )
+            textSize = 13f
+            minHeight = (36 * density).toInt()
+            gravity = android.view.Gravity.CENTER_VERTICAL
+            isSelected = selected
+            setOnClickListener { onClick() }
+        }
+        val params = android.widget.LinearLayout.LayoutParams(
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT,
+            android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+        ).apply { marginEnd = (8 * density).toInt() }
+        filterChips.addView(chip, params)
     }
 
     private fun applyFilter() {
         val query = searchInput.text.toString().trim().lowercase()
-        val filtered = if (query.isBlank()) {
-            allMeetings
-        } else {
-            allMeetings.filter { meeting ->
+        var filtered = allMeetings
+        selectedTag?.let { tag ->
+            filtered = filtered.filter { meeting ->
+                meeting.tags.any { it.equals(tag, ignoreCase = true) }
+            }
+        }
+        selectedSeriesKey?.let { key ->
+            filtered = filtered.filter { MeetingGroups.normalizeTitle(it.title) == key }
+        }
+        if (query.isNotBlank()) {
+            filtered = filtered.filter { meeting ->
                 meeting.title.lowercase().contains(query) ||
                     meeting.notes.lowercase().contains(query) ||
                     meeting.summary.lowercase().contains(query) ||
                     meeting.attendeesText().lowercase().contains(query) ||
+                    meeting.tags.any { it.lowercase().contains(query) } ||
                     meeting.transcriptTextWithSpeakers().lowercase().contains(query)
             }
         }
@@ -145,11 +232,12 @@ class MainActivity : AppCompatActivity() {
         emptyState.visibility = if (allMeetings.isEmpty()) View.VISIBLE else View.GONE
         meetingCount.text = when {
             allMeetings.isEmpty() -> getString(R.string.empty_body)
-            query.isBlank() ->
+            filtered.size != allMeetings.size ->
+                getString(R.string.search_results, filtered.size, allMeetings.size)
+            else ->
                 resources.getQuantityString(
                     R.plurals.meeting_count, allMeetings.size, allMeetings.size
                 )
-            else -> getString(R.string.search_results, filtered.size, allMeetings.size)
         }
     }
 
@@ -182,6 +270,10 @@ class MainActivity : AppCompatActivity() {
             }
             R.id.action_ask_library -> {
                 startActivity(Intent(this, AskLibraryActivity::class.java))
+                true
+            }
+            R.id.action_digest -> {
+                startActivity(Intent(this, DigestActivity::class.java))
                 true
             }
             R.id.action_import -> {

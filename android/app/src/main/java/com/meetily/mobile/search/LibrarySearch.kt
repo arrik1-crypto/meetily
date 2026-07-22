@@ -48,6 +48,7 @@ object LibrarySearch {
             score += 3.0 * damped(
                 countHits(meeting.actionItems.joinToString(" ") { it.task }, terms)
             )
+            score += 4.0 * damped(countHits(meeting.tags.joinToString(" "), terms))
             score += 2.0 * damped(countHits(meeting.notes, terms))
             score += 2.0 * damped(countHits(meeting.attendeesText(), terms))
             score += 1.0 * damped(countHits(meeting.transcriptText(), terms))

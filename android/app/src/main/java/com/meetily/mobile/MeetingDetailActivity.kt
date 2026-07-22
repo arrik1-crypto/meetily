@@ -74,6 +74,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var tagHint: TextView
     private lateinit var notesInput: EditText
     private lateinit var attendeesInput: EditText
+    private lateinit var tagsInput: EditText
     private lateinit var progress: ProgressBar
     private lateinit var qaList: LinearLayout
     private lateinit var askInput: EditText
@@ -141,6 +142,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         tagHint = headerView.findViewById(R.id.tagHint)
         notesInput = headerView.findViewById(R.id.detailNotes)
         attendeesInput = headerView.findViewById(R.id.detailAttendees)
+        tagsInput = headerView.findViewById(R.id.detailTags)
         progress = headerView.findViewById(R.id.summaryProgress)
         qaList = headerView.findViewById(R.id.qaList)
         askInput = headerView.findViewById(R.id.askInput)
@@ -185,6 +187,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         renderPhotos(m)
         notesInput.setText(m.notes)
         attendeesInput.setText(m.attendeesText())
+        tagsInput.setText(m.tags.joinToString(", "))
         setUpPlayer()
         maybeAutoTitle(m)
     }
@@ -303,9 +306,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         val m = meeting ?: return
         val newNotes = notesInput.text.toString()
         val newAttendees = Meeting.parseAttendees(attendeesInput.text.toString())
-        if (newNotes != m.notes || newAttendees != m.attendees) {
+        val newTags = Meeting.parseAttendees(tagsInput.text.toString())
+        if (newNotes != m.notes || newAttendees != m.attendees || newTags != m.tags) {
             m.notes = newNotes
             m.attendees = newAttendees
+            m.tags = newTags
             store.save(m)
         }
     }

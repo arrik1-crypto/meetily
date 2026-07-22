@@ -143,6 +143,17 @@
     <string name="split_button">Split</string>
     <string name="split_invalid">Place the cursor inside the text, with words on both sides.</string>
 
+    <!-- Tags & series -->
+    <string name="tags_hint">Tags (comma-separated: client-x, 1:1…)</string>
+    <string name="series_chip">%1$s ×%2$d</string>
+
+    <!-- Weekly digest -->
+    <string name="digest_title">Weekly digest</string>
+    <string name="digest_empty">No meetings in the last 7 days — the digest will fill in as you record.</string>
+    <string name="digest_unassigned">Unassigned</string>
+    <string name="digest_llm_failed">AI digest unavailable — showing the offline version.</string>
+    <string name="share_digest">Share digest</string>
+
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>
     <string name="no_calendar_event">No calendar event happening right now</string>

@@ -60,6 +60,19 @@
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:textColorHint="?attr/colorOutline"
                 android:textSize="14sp" />
+
+            <EditText
+                android:id="@+id/detailTags"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:background="@null"
+                android:hint="@string/tags_hint"
+                android:importantForAutofill="no"
+                android:inputType="text"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textColorHint="?attr/colorOutline"
+                android:textSize="14sp" />
         </LinearLayout>
     </LinearLayout>
 
