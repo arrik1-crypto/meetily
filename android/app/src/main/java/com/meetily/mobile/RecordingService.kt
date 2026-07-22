@@ -25,8 +25,10 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.TranscriptSegment
+import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.whisper.CaptureTuning
 import com.meetily.mobile.whisper.DiarizationModels
+import com.meetily.mobile.whisper.MeetingAudioWriter
 import com.meetily.mobile.whisper.SherpaEmbedder
 import com.meetily.mobile.whisper.SpeakerClusterer
 import com.meetily.mobile.whisper.WhisperModels
@@ -88,6 +90,8 @@ class RecordingService : Service() {
 
     // Acoustic diarization (Whisper engine only, experimental).
     private var embedder: SherpaEmbedder? = null
+    private var audioWriter: MeetingAudioWriter? = null
+    private var audioFileName: String? = null
     private var clusterer: SpeakerClusterer? = null
     private val clusterNames = mutableMapOf<Int, String>()
 
@@ -164,6 +168,8 @@ class RecordingService : Service() {
         accumulatedMs = 0L
         paused = false
         clusterNames.clear()
+        audioWriter = null
+        audioFileName = null
         title = getString(
             R.string.default_meeting_title,
             DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
@@ -379,6 +385,8 @@ class RecordingService : Service() {
         for (name in photos) {
             PhotoStore.delete(this, name)
         }
+        AudioStore.delete(this, audioFileName)
+        audioFileName = null
         active = false
         isRunning = false
         stopForegroundCompat()
@@ -558,6 +566,18 @@ class RecordingService : Service() {
             }
         }
 
+        if (settings.saveAudio && audioWriter == null) {
+            try {
+                val file = AudioStore.newRecordingFile(this, meetingId)
+                audioWriter = MeetingAudioWriter(file)
+                audioFileName = file.name
+            } catch (_: Throwable) {
+                audioWriter = null
+                audioFileName = null
+            }
+        }
+        val writer = audioWriter
+
         whisperRecorder = WhisperRecorder(
             modelPath = WhisperModels.fileFor(this, model).absolutePath,
             language = if (model.englishOnly) "en" else "auto",
@@ -565,8 +585,11 @@ class RecordingService : Service() {
             preferredDevice = CaptureTuning.findPreferred(this, settings.micDevice),
             speakerSupplier = { activeSpeaker },
             chunkLabeler = labeler,
-            onSegment = { text, speaker, clusterId ->
-                main.post { if (active) appendSegment(text, speaker, clusterId) }
+            frameSink = if (writer != null) {
+                { frame -> writer.write(frame) }
+            } else null,
+            onSegment = { text, speaker, clusterId, audioMs ->
+                main.post { if (active) appendSegment(text, speaker, clusterId, audioMs) }
             },
             onProcessingChange = { processing ->
                 main.post {
@@ -593,7 +616,8 @@ class RecordingService : Service() {
     private fun appendSegment(
         text: String,
         speaker: String? = activeSpeaker,
-        clusterId: Int? = null
+        clusterId: Int? = null,
+        audioMs: Long? = null
     ) {
         // Precedence: manual/sticky speaker > named cluster > anonymous cluster.
         val resolved = speaker ?: clusterId?.let { clusterNames[it] }
@@ -602,7 +626,8 @@ class RecordingService : Service() {
             text = text,
             speaker = resolved,
             highlighted = pendingHighlight,
-            clusterId = clusterId
+            clusterId = clusterId,
+            audioMs = if (audioFileName != null) audioMs else null
         )
         pendingHighlight = false
         segments.add(segment)
@@ -631,6 +656,12 @@ class RecordingService : Service() {
         embedder?.release()
         embedder = null
         clusterer = null
+        // Finalize the audio file off the main thread; ADTS stays playable
+        // regardless, and the player UI checks the file, not this flag.
+        audioWriter?.let { writer ->
+            Thread { writer.finish() }.start()
+        }
+        audioWriter = null
     }
 
     // --- Incremental persistence -----------------------------------------
@@ -665,7 +696,8 @@ class RecordingService : Service() {
         segments = segments.toMutableList(),
         notes = notes,
         attendees = Meeting.parseAttendees(attendeesRaw),
-        photos = photos.toMutableList()
+        photos = photos.toMutableList(),
+        audioFile = audioFileName
     )
 
     // --- Foreground notification -----------------------------------------

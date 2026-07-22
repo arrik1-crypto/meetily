@@ -2,17 +2,22 @@ package com.meetily.mobile
 
 import android.content.Intent
 import android.graphics.Paint
+import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.ProgressBar
+import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -27,6 +32,7 @@ import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.meetily.mobile.data.ActionItem
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
@@ -41,6 +47,7 @@ import com.meetily.mobile.summarize.SummaryTemplates
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
+import java.util.Locale
 
 class MeetingDetailActivity : AppCompatActivity() {
 
@@ -173,6 +180,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         renderPhotos(m)
         notesInput.setText(m.notes)
         attendeesInput.setText(m.attendeesText())
+        setUpPlayer()
         maybeAutoTitle(m)
     }
 
@@ -224,9 +232,13 @@ class MeetingDetailActivity : AppCompatActivity() {
                 attendeesInput.setText(m.attendeesText())
             }
         }
+        val audioMs = segment.audioMs
         SpeakerPicker.show(
             this, m.attendees, segment.speaker,
             clusterLabel = clusterLabel,
+            onPlayFrom = if (audioMs != null && audioFileOrNull() != null) {
+                { playFrom(audioMs) }
+            } else null,
             onRenameCluster = if (clusterId != null) {
                 { name ->
                     for (i in m.segments.indices) {
@@ -252,12 +264,25 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onPause() {
         super.onPause()
         saveEdits()
+        player?.let { p ->
+            if (playerReady && p.isPlaying) {
+                p.pause()
+                playPauseButton.setImageResource(R.drawable.ic_play)
+            }
+        }
     }
 
     override fun onDestroy() {
         // Avoid a WindowLeaked crash if a config change lands mid-analysis.
         suggestDialog?.dismiss()
         suggestDialog = null
+        playerHandler.removeCallbacks(playerTick)
+        playerReady = false
+        try {
+            player?.release()
+        } catch (_: Exception) {
+        }
+        player = null
         super.onDestroy()
     }
 
@@ -870,8 +895,169 @@ class MeetingDetailActivity : AppCompatActivity() {
                 suggestSpeakers()
                 true
             }
+            R.id.action_share_audio -> {
+                shareAudio()
+                true
+            }
+            R.id.action_retranscribe -> {
+                confirmRetranscribe()
+                true
+            }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    // --- Audio playback ----------------------------------------------------
+
+    private var player: MediaPlayer? = null
+    private var playerReady = false
+    private lateinit var playerBar: View
+    private lateinit var playPauseButton: ImageButton
+    private lateinit var playerSeek: SeekBar
+    private lateinit var playerTime: TextView
+    private val playerHandler = Handler(Looper.getMainLooper())
+    private val playerTick = object : Runnable {
+        override fun run() {
+            val p = player ?: return
+            if (playerReady) {
+                updatePlayerUi(p)
+                if (p.isPlaying) playerHandler.postDelayed(this, 500)
+            }
+        }
+    }
+
+    private fun audioFileOrNull(): File? {
+        val m = meeting ?: return null
+        val name = m.audioFile ?: return null
+        val file = AudioStore.fileFor(this, name)
+        return if (file.length() > 0) file else null
+    }
+
+    private fun setUpPlayer() {
+        playerBar = findViewById(R.id.playerBar)
+        playPauseButton = findViewById(R.id.playPauseButton)
+        playerSeek = findViewById(R.id.playerSeek)
+        playerTime = findViewById(R.id.playerTime)
+        if (audioFileOrNull() == null) {
+            playerBar.visibility = View.GONE
+            return
+        }
+        playerBar.visibility = View.VISIBLE
+        playerTime.text = formatClock(0)
+        playPauseButton.setOnClickListener { togglePlayback() }
+        playerSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
+                if (fromUser && playerReady) {
+                    player?.seekTo(value)
+                    player?.let { updatePlayerUi(it) }
+                }
+            }
+
+            override fun onStartTrackingTouch(bar: SeekBar?) {}
+            override fun onStopTrackingTouch(bar: SeekBar?) {}
+        })
+    }
+
+    /** Creates the player on first use; returns null if the file won't play. */
+    private fun ensurePlayer(): MediaPlayer? {
+        player?.let { return it }
+        val file = audioFileOrNull() ?: return null
+        return try {
+            val p = MediaPlayer()
+            p.setDataSource(file.absolutePath)
+            p.prepare()
+            p.setOnCompletionListener {
+                playPauseButton.setImageResource(R.drawable.ic_play)
+                updatePlayerUi(p)
+            }
+            playerReady = true
+            playerSeek.max = p.duration.coerceAtLeast(1)
+            player = p
+            updatePlayerUi(p)
+            p
+        } catch (_: Exception) {
+            playerReady = false
+            player = null
+            Toast.makeText(this, R.string.audio_play_failed, Toast.LENGTH_SHORT).show()
+            null
+        }
+    }
+
+    private fun togglePlayback() {
+        val p = ensurePlayer() ?: return
+        if (p.isPlaying) {
+            p.pause()
+            playPauseButton.setImageResource(R.drawable.ic_play)
+        } else {
+            p.start()
+            playPauseButton.setImageResource(R.drawable.ic_pause)
+            playerHandler.post(playerTick)
+        }
+    }
+
+    private fun playFrom(audioMs: Long) {
+        val p = ensurePlayer() ?: return
+        p.seekTo(audioMs.toInt().coerceIn(0, p.duration))
+        if (!p.isPlaying) {
+            p.start()
+            playPauseButton.setImageResource(R.drawable.ic_pause)
+        }
+        playerHandler.post(playerTick)
+    }
+
+    private fun updatePlayerUi(p: MediaPlayer) {
+        playerSeek.progress = p.currentPosition
+        playerTime.text = getString(
+            R.string.player_time,
+            formatClock(p.currentPosition),
+            formatClock(p.duration)
+        )
+    }
+
+    private fun formatClock(ms: Int): String {
+        val total = ms / 1000
+        val h = total / 3600
+        val m = (total % 3600) / 60
+        val s = total % 60
+        return if (h > 0) {
+            String.format(Locale.US, "%d:%02d:%02d", h, m, s)
+        } else {
+            String.format(Locale.US, "%d:%02d", m, s)
+        }
+    }
+
+    private fun shareAudio() {
+        val file = audioFileOrNull()
+        if (file == null) {
+            Toast.makeText(this, R.string.no_audio_kept, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = if (file.extension == "aac") "audio/aac" else "audio/*"
+            putExtra(Intent.EXTRA_STREAM, AudioStore.uriFor(this@MeetingDetailActivity, file))
+            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(Intent.createChooser(send, getString(R.string.share_audio)))
+    }
+
+    private fun confirmRetranscribe() {
+        val file = audioFileOrNull()
+        if (file == null) {
+            Toast.makeText(this, R.string.no_audio_kept, Toast.LENGTH_SHORT).show()
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.retranscribe)
+            .setMessage(R.string.retranscribe_message)
+            .setPositiveButton(R.string.retranscribe_go) { _, _ ->
+                startActivity(
+                    Intent(this, ImportActivity::class.java)
+                        .setData(AudioStore.uriFor(this, file))
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                )
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     companion object {

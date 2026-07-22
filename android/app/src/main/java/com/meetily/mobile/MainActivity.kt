@@ -18,6 +18,7 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
@@ -152,6 +153,7 @@ class MainActivity : AppCompatActivity() {
                 for (photo in meeting.photos) {
                     PhotoStore.delete(this, photo)
                 }
+                AudioStore.delete(this, meeting.audioFile)
                 store.delete(meeting.id)
                 refresh()
             }

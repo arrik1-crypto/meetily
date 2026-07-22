@@ -319,6 +319,23 @@
                                 app:strokeColor="?attr/colorOutline" />
                         </LinearLayout>
 
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/saveAudioSwitch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:text="@string/setting_save_audio"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/setting_save_audio_desc"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"

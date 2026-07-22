@@ -18,8 +18,47 @@
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/detailRecycler"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:clipToPadding="false"
         android:paddingBottom="48dp"
         android:scrollbars="none" />
+
+    <!-- Audio player bar; visible only when the meeting kept its audio. -->
+    <LinearLayout
+        android:id="@+id/playerBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:elevation="8dp"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="8dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="4dp"
+        android:paddingBottom="4dp"
+        android:visibility="gone">
+
+        <ImageButton
+            android:id="@+id/playPauseButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/play_audio"
+            android:src="@drawable/ic_play"
+            app:tint="?attr/colorPrimary" />
+
+        <SeekBar
+            android:id="@+id/playerSeek"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1" />
+
+        <TextView
+            android:id="@+id/playerTime"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceLabelMedium"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
 </LinearLayout>

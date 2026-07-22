@@ -77,6 +77,19 @@
     <string name="import_no_audio">Couldn\'t read that file as audio.</string>
     <string name="import_no_picker">No file picker available on this device.</string>
 
+    <!-- Meeting audio -->
+    <string name="setting_save_audio">Keep meeting audio</string>
+    <string name="setting_save_audio_desc">Saves a compact recording (about 20 MB per hour) with each meeting so you can replay any moment, share the audio, or re-transcribe later with a better model. Whisper engine only. Audio stays on this device and is included in backups.</string>
+    <string name="play_audio">Play</string>
+    <string name="play_from_here">▶ Play from here</string>
+    <string name="player_time">%1$s / %2$s</string>
+    <string name="share_audio">Share audio…</string>
+    <string name="retranscribe">Re-transcribe audio…</string>
+    <string name="retranscribe_message">Runs this meeting\'s saved audio through transcription again using your current Whisper and speaker models, creating a new meeting. The original meeting is untouched.</string>
+    <string name="retranscribe_go">Re-transcribe</string>
+    <string name="no_audio_kept">No audio was kept for this meeting.</string>
+    <string name="audio_play_failed">Couldn\'t play this meeting\'s audio.</string>
+
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>
     <string name="no_calendar_event">No calendar event happening right now</string>

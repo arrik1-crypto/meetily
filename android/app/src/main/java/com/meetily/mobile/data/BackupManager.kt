@@ -17,18 +17,21 @@ object BackupManager {
 
     private const val MEETINGS = "meetings/"
     private const val PHOTOS = "photos/"
+    private const val AUDIO = "audio/"
 
     fun export(context: Context, out: OutputStream) {
         ZipOutputStream(out).use { zip ->
             addDir(zip, File(context.filesDir, "meetings"), MEETINGS) { it.endsWith(".json") }
             addDir(zip, File(context.filesDir, "photos"), PHOTOS) { true }
+            addDir(zip, File(context.filesDir, "audio"), AUDIO) { true }
         }
     }
 
-    /** Restores meetings + photos from a backup zip. Returns the meeting count. */
+    /** Restores meetings + photos + audio from a backup zip. Returns the meeting count. */
     fun import(context: Context, input: InputStream): Int {
         val meetingsDir = File(context.filesDir, "meetings").apply { mkdirs() }
         val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
+        val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
         var restored = 0
         ZipInputStream(input).use { zip ->
             var entry: ZipEntry? = zip.nextEntry
@@ -42,6 +45,8 @@ object BackupManager {
                             File(meetingsDir, File(name).name)
                         name.startsWith(PHOTOS) ->
                             File(photosDir, File(name).name)
+                        name.startsWith(AUDIO) ->
+                            File(audioDir, File(name).name)
                         else -> null
                     }
                     if (target != null && isUnder(target.parentFile, target)) {

@@ -31,8 +31,8 @@ android {
         applicationId = "com.meetily.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 19
-        versionName = "1.1.0-beta3"
+        versionCode = 20
+        versionName = "1.2.0-beta1"
 
         // No ndk.abiFilters here: AGP forbids it alongside ABI splits. The
         // splits.abi.include list below is the single source of built ABIs.

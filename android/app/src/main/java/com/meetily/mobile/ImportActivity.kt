@@ -75,6 +75,7 @@ class ImportActivity : AppCompatActivity() {
                 val id = AudioFileImporter(this, settings).import(
                     uri = uri,
                     title = name.substringBeforeLast('.').ifBlank { name },
+                    sourceName = name,
                     onProgress = { percent ->
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread

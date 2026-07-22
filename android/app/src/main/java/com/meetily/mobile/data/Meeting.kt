@@ -9,7 +9,9 @@ data class TranscriptSegment(
     val speaker: String? = null,
     val highlighted: Boolean = false,
     /** Acoustic diarization cluster ("Speaker N") when no name is known. */
-    val clusterId: Int? = null
+    val clusterId: Int? = null,
+    /** Offset into the meeting's audio file, for tap-to-play seek. */
+    val audioMs: Long? = null
 )
 
 data class QaEntry(
@@ -33,7 +35,9 @@ data class Meeting(
     var attendees: MutableList<String> = mutableListOf(),
     val qa: MutableList<QaEntry> = mutableListOf(),
     var actionItems: MutableList<ActionItem> = mutableListOf(),
-    var photos: MutableList<String> = mutableListOf()
+    var photos: MutableList<String> = mutableListOf(),
+    /** Filename in AudioStore when the meeting's audio was kept. */
+    var audioFile: String? = null
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -80,6 +84,9 @@ data class Meeting(
             if (seg.clusterId != null) {
                 s.put("cluster", seg.clusterId)
             }
+            if (seg.audioMs != null) {
+                s.put("audioMs", seg.audioMs)
+            }
             arr.put(s)
         }
         obj.put("segments", arr)
@@ -105,6 +112,9 @@ data class Meeting(
             photosArr.put(name)
         }
         obj.put("photos", photosArr)
+        if (!audioFile.isNullOrBlank()) {
+            obj.put("audioFile", audioFile)
+        }
         return obj
     }
 
@@ -139,7 +149,8 @@ data class Meeting(
                         text = s.optString("text", ""),
                         speaker = speaker.ifBlank { null },
                         highlighted = s.optBoolean("highlighted", false),
-                        clusterId = if (s.has("cluster")) s.optInt("cluster") else null
+                        clusterId = if (s.has("cluster")) s.optInt("cluster") else null,
+                        audioMs = if (s.has("audioMs")) s.optLong("audioMs") else null
                     )
                 )
             }
@@ -168,6 +179,7 @@ data class Meeting(
                 val name = photosArr.optString(i, "")
                 if (name.isNotBlank()) meeting.photos.add(name)
             }
+            meeting.audioFile = obj.optString("audioFile", "").ifBlank { null }
             return meeting
         }
     }

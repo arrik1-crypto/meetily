@@ -20,4 +20,12 @@
         android:id="@+id/action_suggest_speakers"
         android:title="@string/suggest_speakers"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/action_share_audio"
+        android:title="@string/share_audio"
+        app:showAsAction="never" />
+    <item
+        android:id="@+id/action_retranscribe"
+        android:title="@string/retranscribe"
+        app:showAsAction="never" />
 </menu>

@@ -30,7 +30,12 @@ class WhisperRecorder(
     // Optional acoustic diarization: given the chunk's raw audio, returns a
     // speaker-cluster id. Invoked on the transcriber thread.
     private val chunkLabeler: ((FloatArray) -> Int?)? = null,
-    private val onSegment: (String, String?, Int?) -> Unit,
+    // Optional tee of every captured (non-paused) frame, e.g. into the
+    // meeting-audio writer. Called on the audio thread; must not block.
+    private val frameSink: ((FloatArray) -> Unit)? = null,
+    // (text, speaker, clusterId, audioMs) — audioMs is the chunk's start
+    // offset within the captured (non-paused) audio timeline.
+    private val onSegment: (String, String?, Int?, Long) -> Unit,
     private val onProcessingChange: (Boolean) -> Unit,
     private val onError: (String) -> Unit
 ) {
@@ -103,16 +108,18 @@ class WhisperRecorder(
             var chunk = FloatArray(0)
             var silenceRun = 0f
             var chunkPeakRms = 0f
+            var capturedSamples = 0L // non-paused samples fed downstream
 
             fun cutChunk() {
                 if (chunk.isEmpty()) return
                 val audio = chunk
                 val peak = chunkPeakRms
+                val startMs = (capturedSamples - chunk.size) * 1000 / sampleRate
                 chunk = FloatArray(0)
                 silenceRun = 0f
                 chunkPeakRms = 0f
                 if (peak < minSpeechRms) return // never contained speech
-                submitChunk(audio, speakerSupplier())
+                submitChunk(audio, speakerSupplier(), startMs)
             }
 
             while (running) {
@@ -125,6 +132,7 @@ class WhisperRecorder(
                     chunkPeakRms = 0f
                     continue
                 }
+                frameSink?.invoke(frame.copyOf(n))
                 val rms = rmsOf(frame, n)
                 chunkPeakRms = max(chunkPeakRms, rms)
                 silenceRun = if (rms < silenceRms) silenceRun + 0.1f else 0f
@@ -132,6 +140,7 @@ class WhisperRecorder(
                 val grown = chunk.copyOf(chunk.size + n)
                 System.arraycopy(frame, 0, grown, chunk.size, n)
                 chunk = grown
+                capturedSamples += n
 
                 val chunkSec = chunk.size.toFloat() / sampleRate
                 if ((chunkSec >= minChunkSec && silenceRun >= endSilenceSec) ||
@@ -147,7 +156,7 @@ class WhisperRecorder(
         }.apply { start() }
     }
 
-    private fun submitChunk(audio: FloatArray, speaker: String?) {
+    private fun submitChunk(audio: FloatArray, speaker: String?, audioMs: Long) {
         pendingJobs++
         onProcessingChange(true)
         transcriber.execute {
@@ -168,7 +177,7 @@ class WhisperRecorder(
                         ?.trim()
                         .orEmpty()
                     if (text.isNotBlank() && !isNoise(text)) {
-                        onSegment(text, speaker, clusterId)
+                        onSegment(text, speaker, clusterId, audioMs)
                     }
                 }
             } catch (e: Throwable) {

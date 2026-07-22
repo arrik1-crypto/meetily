@@ -54,6 +54,11 @@ class AppSettings(context: Context) {
         get() = prefs.getString("diarization_model", "resnet34-en") ?: "resnet34-en"
         set(value) = prefs.edit().putString("diarization_model", value).apply()
 
+    /** Keep meeting audio on-device (Whisper engine only). */
+    var saveAudio: Boolean
+        get() = prefs.getBoolean("save_audio", true)
+        set(value) = prefs.edit().putBoolean("save_audio", value).apply()
+
     /** Whisper capture: "recognition" (default), "camcorder", or "unprocessed". */
     var micSource: String
         get() = prefs.getString("mic_source", "recognition") ?: "recognition"

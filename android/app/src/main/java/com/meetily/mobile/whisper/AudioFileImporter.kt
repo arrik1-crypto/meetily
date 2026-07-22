@@ -3,6 +3,7 @@ package com.meetily.mobile.whisper
 import android.content.Context
 import android.net.Uri
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.TranscriptSegment
@@ -39,6 +40,7 @@ class AudioFileImporter(
     fun import(
         uri: Uri,
         title: String,
+        sourceName: String = title,
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean
     ): String {
@@ -80,6 +82,22 @@ class AudioFileImporter(
             createdAtMs = baseMs
         )
 
+        // Keep a copy of the source audio so playback and later
+        // re-transcription work on imported meetings too.
+        try {
+            val audioCopy = AudioStore.newImportFile(context, meeting.id, sourceName)
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                audioCopy.outputStream().use { input.copyTo(it) }
+            }
+            if (audioCopy.length() > 0) {
+                meeting.audioFile = audioCopy.name
+            } else {
+                audioCopy.delete()
+            }
+        } catch (_: Exception) {
+            meeting.audioFile = null
+        }
+
         // Chunker state (same splitting rules as live recording).
         var chunk = FloatArray(0)
         var silenceRun = 0f
@@ -116,7 +134,10 @@ class AudioFileImporter(
                     timestampMs = baseMs + startSample * 1000 / sampleRate,
                     text = text,
                     speaker = null,
-                    clusterId = clusterId
+                    clusterId = clusterId,
+                    audioMs = if (meeting.audioFile != null) {
+                        startSample * 1000 / sampleRate
+                    } else null
                 )
             )
             store.save(meeting)
@@ -205,11 +226,15 @@ class AudioFileImporter(
             store.save(meeting)
             return meeting.id
         } catch (e: AudioFileDecoder.UnsupportedAudioException) {
-            if (meeting.segments.isEmpty()) store.delete(meeting.id)
+            if (meeting.segments.isEmpty()) {
+                store.delete(meeting.id)
+                AudioStore.delete(context, meeting.audioFile)
+            }
             throw ImportException(e.message ?: "unsupported audio")
         } catch (e: Throwable) {
             if (meeting.segments.isEmpty()) {
                 store.delete(meeting.id)
+                AudioStore.delete(context, meeting.audioFile)
                 throw ImportException(e.message ?: "decode failed")
             }
             // Partial transcript exists — keep it rather than fail the whole
