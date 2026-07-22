@@ -19,7 +19,7 @@ import com.meetily.mobile.whisper.WhisperModels
  * Imports a shared or picked audio file: decodes it on-device, transcribes
  * with Whisper (plus speaker detection when enabled), and opens the
  * resulting meeting. Entry points: the home screen's import action and the
- * system share sheet (audio/*).
+ * system share sheet (audio MIME types).
  */
 class ImportActivity : AppCompatActivity() {
 

@@ -66,8 +66,8 @@ object AudioFileDecoder {
             codec.configure(format, null, null, 0)
             codec.start()
 
-            var sampleRate = format.getInt(MediaFormat.KEY_SAMPLE_RATE)
-            var channels = format.getInt(MediaFormat.KEY_CHANNEL_COUNT)
+            var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
+            var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
             var resampler = Resampler(sampleRate)
 
@@ -132,18 +132,18 @@ object AudioFileDecoder {
                 } else if (outIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED) {
                     val newFormat = codec.outputFormat
                     val newRate = try {
-                        newFormat.getInt(MediaFormat.KEY_SAMPLE_RATE)
+                        newFormat.getInteger(MediaFormat.KEY_SAMPLE_RATE)
                     } catch (_: Exception) {
                         sampleRate
                     }
                     channels = try {
-                        newFormat.getInt(MediaFormat.KEY_CHANNEL_COUNT)
+                        newFormat.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
                     } catch (_: Exception) {
                         channels
                     }
                     pcmEncoding = try {
                         if (newFormat.containsKey(MediaFormat.KEY_PCM_ENCODING)) {
-                            newFormat.getInt(MediaFormat.KEY_PCM_ENCODING)
+                            newFormat.getInteger(MediaFormat.KEY_PCM_ENCODING)
                         } else {
                             AudioFormat.ENCODING_PCM_16BIT
                         }
