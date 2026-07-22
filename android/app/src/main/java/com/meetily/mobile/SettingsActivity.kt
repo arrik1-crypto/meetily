@@ -22,6 +22,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.BackupManager
+import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.WhisperModels
 
 class SettingsActivity : AppCompatActivity() {
@@ -37,6 +38,11 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var whisperModelStatus: TextView
     private lateinit var modelProgress: LinearProgressIndicator
     private lateinit var manageModelsButton: MaterialButton
+    private lateinit var diarizeSwitch: MaterialSwitch
+    private lateinit var diarizeSection: View
+    private lateinit var diarizeModelStatus: TextView
+    private lateinit var diarizeProgress: LinearProgressIndicator
+    private lateinit var manageDiarizeButton: MaterialButton
     private lateinit var urlInput: EditText
     private lateinit var keyInput: EditText
     private lateinit var modelInput: EditText
@@ -60,6 +66,7 @@ class SettingsActivity : AppCompatActivity() {
 
         settings = AppSettings(this)
         WhisperModels.cleanPartials(this)
+        DiarizationModels.cleanPartials(this)
 
         findViewById<MaterialToolbar>(R.id.settingsToolbar).setNavigationOnClickListener {
             finish()
@@ -74,6 +81,11 @@ class SettingsActivity : AppCompatActivity() {
         whisperModelStatus = findViewById(R.id.whisperModelStatus)
         modelProgress = findViewById(R.id.modelProgress)
         manageModelsButton = findViewById(R.id.manageModelsButton)
+        diarizeSwitch = findViewById(R.id.diarizeSwitch)
+        diarizeSection = findViewById(R.id.diarizeSection)
+        diarizeModelStatus = findViewById(R.id.diarizeModelStatus)
+        diarizeProgress = findViewById(R.id.diarizeProgress)
+        manageDiarizeButton = findViewById(R.id.manageDiarizeButton)
         urlInput = findViewById(R.id.llmUrlInput)
         keyInput = findViewById(R.id.llmKeyInput)
         modelInput = findViewById(R.id.llmModelInput)
@@ -83,6 +95,7 @@ class SettingsActivity : AppCompatActivity() {
         offlineSwitch.isChecked = settings.preferOfflineRecognition
         muteSoundsSwitch.isChecked = settings.muteRecognizerSounds
         whisperSwitch.isChecked = settings.transcriptionEngine == "whisper"
+        diarizeSwitch.isChecked = settings.diarizationEnabled
         calendarSwitch.isChecked = settings.calendarPrefill
         urlInput.setText(settings.llmBaseUrl)
         keyInput.setText(settings.llmApiKey)
@@ -100,6 +113,8 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         manageModelsButton.setOnClickListener { showModelDialog() }
+        diarizeSwitch.setOnCheckedChangeListener { _, _ -> updateDiarizeSection() }
+        manageDiarizeButton.setOnClickListener { showDiarizeModelDialog() }
 
         findViewById<View>(R.id.exportBackupButton).setOnClickListener {
             try {
@@ -139,6 +154,7 @@ class SettingsActivity : AppCompatActivity() {
         settings.transcriptionEngine =
             if (whisperSwitch.isChecked) "whisper" else "system"
         settings.calendarPrefill = calendarSwitch.isChecked
+        settings.diarizationEnabled = diarizeSwitch.isChecked
         settings.llmBaseUrl = urlInput.text.toString().trim()
         settings.llmApiKey = keyInput.text.toString().trim()
         settings.llmModel = modelInput.text.toString().trim()
@@ -283,6 +299,17 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             getString(R.string.model_status_missing, model.displayName)
         }
+        updateDiarizeSection()
+    }
+
+    private fun updateDiarizeSection() {
+        diarizeSection.visibility = if (diarizeSwitch.isChecked) View.VISIBLE else View.GONE
+        val model = DiarizationModels.byKey(settings.diarizationModel)
+        diarizeModelStatus.text = if (DiarizationModels.isDownloaded(this, model)) {
+            getString(R.string.model_status_downloaded, model.displayName)
+        } else {
+            getString(R.string.model_status_missing, model.displayName)
+        }
     }
 
     private fun showModelDialog() {
@@ -316,10 +343,88 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
+    private fun showDiarizeModelDialog() {
+        if (downloading) return
+        val labels = DiarizationModels.ALL.map { model ->
+            val state = if (DiarizationModels.isDownloaded(this, model)) {
+                getString(R.string.model_downloaded_label)
+            } else {
+                getString(R.string.model_tap_download)
+            }
+            "${model.displayName} · ${model.approxSizeMb} MB · $state"
+        } + getString(R.string.model_delete_all)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.diarize_manage)
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which >= DiarizationModels.ALL.size) {
+                    DiarizationModels.deleteAll(this)
+                    updateDiarizeSection()
+                    return@setItems
+                }
+                val model = DiarizationModels.ALL[which]
+                settings.diarizationModel = model.key
+                if (DiarizationModels.isDownloaded(this, model)) {
+                    updateDiarizeSection()
+                } else {
+                    startDiarizeDownload(model.key)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun startDiarizeDownload(modelKey: String) {
+        val model = DiarizationModels.byKey(modelKey)
+        downloading = true
+        manageModelsButton.isEnabled = false
+        manageDiarizeButton.isEnabled = false
+        diarizeProgress.visibility = View.VISIBLE
+        diarizeProgress.isIndeterminate = true
+        diarizeModelStatus.text = getString(R.string.model_downloading, model.displayName, 0)
+
+        Thread {
+            try {
+                DiarizationModels.download(this, model) { percent ->
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        diarizeProgress.isIndeterminate = false
+                        diarizeProgress.progress = percent
+                        diarizeModelStatus.text =
+                            getString(R.string.model_downloading, model.displayName, percent)
+                    }
+                }
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    downloading = false
+                    manageModelsButton.isEnabled = true
+                    manageDiarizeButton.isEnabled = true
+                    diarizeProgress.visibility = View.GONE
+                    updateDiarizeSection()
+                }
+            } catch (e: Exception) {
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    downloading = false
+                    manageModelsButton.isEnabled = true
+                    manageDiarizeButton.isEnabled = true
+                    diarizeProgress.visibility = View.GONE
+                    updateDiarizeSection()
+                    Toast.makeText(
+                        this,
+                        getString(R.string.model_download_failed, e.message ?: "network error"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
+    }
+
     private fun startDownload(modelKey: String) {
         val model = WhisperModels.byKey(modelKey)
         downloading = true
         manageModelsButton.isEnabled = false
+        manageDiarizeButton.isEnabled = false
         modelProgress.visibility = View.VISIBLE
         modelProgress.isIndeterminate = true
         whisperModelStatus.text = getString(R.string.model_downloading, model.displayName, 0)
@@ -339,6 +444,7 @@ class SettingsActivity : AppCompatActivity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     downloading = false
                     manageModelsButton.isEnabled = true
+                    manageDiarizeButton.isEnabled = true
                     modelProgress.visibility = View.GONE
                     updateWhisperSection()
                 }
@@ -347,6 +453,7 @@ class SettingsActivity : AppCompatActivity() {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     downloading = false
                     manageModelsButton.isEnabled = true
+                    manageDiarizeButton.isEnabled = true
                     modelProgress.visibility = View.GONE
                     updateWhisperSection()
                     Toast.makeText(

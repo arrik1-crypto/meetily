@@ -25,6 +25,9 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.TranscriptSegment
+import com.meetily.mobile.whisper.DiarizationModels
+import com.meetily.mobile.whisper.SherpaEmbedder
+import com.meetily.mobile.whisper.SpeakerClusterer
 import com.meetily.mobile.whisper.WhisperModels
 import com.meetily.mobile.whisper.WhisperRecorder
 import java.text.DateFormat
@@ -81,6 +84,11 @@ class RecordingService : Service() {
     // the Whisper audio thread snapshots it at chunk-cut time.
     @Volatile
     private var activeSpeaker: String? = null
+
+    // Acoustic diarization (Whisper engine only, experimental).
+    private var embedder: SherpaEmbedder? = null
+    private var clusterer: SpeakerClusterer? = null
+    private val clusterNames = mutableMapOf<Int, String>()
 
     // Metadata edited from the UI, mirrored here so it is saved incrementally.
     private var title = ""
@@ -154,6 +162,7 @@ class RecordingService : Service() {
         lastResumeAt = SystemClock.elapsedRealtime()
         accumulatedMs = 0L
         paused = false
+        clusterNames.clear()
         title = getString(
             R.string.default_meeting_title,
             DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
@@ -241,6 +250,49 @@ class RecordingService : Service() {
 
     fun activeSpeakerValue(): String? = activeSpeaker
 
+    /**
+     * Rename-once: names a diarization cluster, retroactively labeling every
+     * segment in it (that wasn't manually tagged differently) and all future
+     * segments the clusterer assigns to it.
+     */
+    fun renameCluster(clusterId: Int, name: String) {
+        val trimmed = name.trim()
+        if (trimmed.isBlank()) return
+        val old = clusterNames[clusterId]
+        clusterNames[clusterId] = trimmed
+        for (i in segments.indices) {
+            val s = segments[i]
+            if (s.clusterId == clusterId &&
+                (s.speaker.isNullOrBlank() || s.speaker == old)
+            ) {
+                segments[i] = s.copy(speaker = trimmed)
+                observer?.onSegmentUpdated(i, segments[i])
+            }
+        }
+        scheduleSave()
+    }
+
+    /** Fuses clusters the online pass kept apart; run once, at finish. */
+    private fun applyClusterMerge() {
+        val remap = clusterer?.mergePass() ?: return
+        if (remap.isEmpty()) return
+        for ((from, to) in remap) {
+            clusterNames.remove(from)?.let { name ->
+                clusterNames.putIfAbsent(to, name)
+            }
+        }
+        for (i in segments.indices) {
+            val s = segments[i]
+            val to = s.clusterId?.let { remap[it] } ?: continue
+            var updated = s.copy(clusterId = to)
+            if (updated.speaker.isNullOrBlank()) {
+                clusterNames[to]?.let { updated = updated.copy(speaker = it) }
+            }
+            segments[i] = updated
+            observer?.onSegmentUpdated(i, segments[i])
+        }
+    }
+
     fun toggleHighlightAt(index: Int) {
         if (index !in segments.indices) return
         segments[index] = segments[index].copy(highlighted = !segments[index].highlighted)
@@ -300,6 +352,9 @@ class RecordingService : Service() {
     private fun completeFinish(onDone: ((String) -> Unit)?) {
         if (finished) return
         finished = true
+        // All chunks are transcribed by now (finish() barriers on the
+        // transcriber queue), so the merge sees the complete session.
+        applyClusterMerge()
         teardownEngines()
         saveNow()
         store.clearActive()
@@ -478,12 +533,37 @@ class RecordingService : Service() {
     private fun startWhisper() {
         if (whisperRecorder != null) return
         val model = WhisperModels.byKey(settings.whisperModel)
+
+        // Optional acoustic diarization: only when enabled, the model is
+        // downloaded, and the native stack loads. Failure of any piece
+        // degrades silently to plain transcription.
+        var labeler: ((FloatArray) -> Int?)? = null
+        if (settings.diarizationEnabled) {
+            val dModel = DiarizationModels.byKey(settings.diarizationModel)
+            if (DiarizationModels.isDownloaded(this, dModel)) {
+                val created = SherpaEmbedder.create(
+                    DiarizationModels.fileFor(this, dModel).absolutePath
+                )
+                if (created != null) {
+                    embedder = created
+                    val c = SpeakerClusterer()
+                    clusterer = c
+                    labeler = { audio ->
+                        c.assign(
+                            if (audio.size >= MIN_EMBED_SAMPLES) created.embed(audio) else null
+                        )
+                    }
+                }
+            }
+        }
+
         whisperRecorder = WhisperRecorder(
             modelPath = WhisperModels.fileFor(this, model).absolutePath,
             language = if (model.englishOnly) "en" else "auto",
             speakerSupplier = { activeSpeaker },
-            onSegment = { text, speaker ->
-                main.post { if (active) appendSegment(text, speaker) }
+            chunkLabeler = labeler,
+            onSegment = { text, speaker, clusterId ->
+                main.post { if (active) appendSegment(text, speaker, clusterId) }
             },
             onProcessingChange = { processing ->
                 main.post {
@@ -507,12 +587,19 @@ class RecordingService : Service() {
 
     // --- Shared segment handling -----------------------------------------
 
-    private fun appendSegment(text: String, speaker: String? = activeSpeaker) {
+    private fun appendSegment(
+        text: String,
+        speaker: String? = activeSpeaker,
+        clusterId: Int? = null
+    ) {
+        // Precedence: manual/sticky speaker > named cluster > anonymous cluster.
+        val resolved = speaker ?: clusterId?.let { clusterNames[it] }
         val segment = TranscriptSegment(
             timestampMs = System.currentTimeMillis(),
             text = text,
-            speaker = speaker,
-            highlighted = pendingHighlight
+            speaker = resolved,
+            highlighted = pendingHighlight,
+            clusterId = clusterId
         )
         pendingHighlight = false
         segments.add(segment)
@@ -538,6 +625,9 @@ class RecordingService : Service() {
         restoreSystemSounds()
         whisperRecorder?.destroy()
         whisperRecorder = null
+        embedder?.release()
+        embedder = null
+        clusterer = null
     }
 
     // --- Incremental persistence -----------------------------------------
@@ -686,6 +776,8 @@ class RecordingService : Service() {
 
         private const val CHANNEL_ID = "recording"
         private const val NOTIF_ID = 1001
+        // ~1.5 s of 16 kHz audio: shorter chunks embed unreliably.
+        private const val MIN_EMBED_SAMPLES = 24_000
 
         /** True while a recording session is live in this process. */
         @Volatile

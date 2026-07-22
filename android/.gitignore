@@ -12,3 +12,6 @@ keystore.properties
 *.keystore
 *.jks
 upload.keystore
+
+# Prebuilt sherpa-onnx JNI libs, fetched by scripts/fetch_sherpa_libs.sh
+app/src/main/jniLibs/

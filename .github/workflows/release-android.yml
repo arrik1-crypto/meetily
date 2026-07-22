@@ -47,6 +47,9 @@ jobs:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         run: echo "$KEYSTORE_B64" | base64 -d > android/upload.keystore
 
+      - name: Fetch sherpa-onnx native libs
+        run: bash android/scripts/fetch_sherpa_libs.sh
+
       - name: Run unit tests
         working-directory: android
         run: ./gradlew --no-daemon testReleaseUnitTest

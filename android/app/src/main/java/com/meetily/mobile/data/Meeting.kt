@@ -7,7 +7,9 @@ data class TranscriptSegment(
     val timestampMs: Long,
     val text: String,
     val speaker: String? = null,
-    val highlighted: Boolean = false
+    val highlighted: Boolean = false,
+    /** Acoustic diarization cluster ("Speaker N") when no name is known. */
+    val clusterId: Int? = null
 )
 
 data class QaEntry(
@@ -75,6 +77,9 @@ data class Meeting(
             if (seg.highlighted) {
                 s.put("highlighted", true)
             }
+            if (seg.clusterId != null) {
+                s.put("cluster", seg.clusterId)
+            }
             arr.put(s)
         }
         obj.put("segments", arr)
@@ -133,7 +138,8 @@ data class Meeting(
                         timestampMs = s.optLong("t", 0L),
                         text = s.optString("text", ""),
                         speaker = speaker.ifBlank { null },
-                        highlighted = s.optBoolean("highlighted", false)
+                        highlighted = s.optBoolean("highlighted", false),
+                        clusterId = if (s.has("cluster")) s.optInt("cluster") else null
                     )
                 )
             }

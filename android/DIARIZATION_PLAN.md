@@ -1,7 +1,8 @@
 # Acoustic Speaker Diarization — Implementation Plan
 
-Status: **planned** (follows the shipped "diarization-lite" layer: sticky
-speakers, live speaker chips, and LLM speaker suggestions).
+Status: **implemented (experimental)** in v1.1.0-beta1 — Settings → Whisper
+section → "Auto-detect speakers". (Follows the shipped "diarization-lite"
+layer: sticky speakers, live speaker chips, and LLM speaker suggestions.)
 
 ## Goal
 

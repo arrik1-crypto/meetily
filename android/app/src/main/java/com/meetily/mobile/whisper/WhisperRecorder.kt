@@ -22,7 +22,10 @@ class WhisperRecorder(
     // Sampled at chunk-cut time so speaker attribution reflects when the
     // words were SPOKEN, not when transcription finishes seconds later.
     private val speakerSupplier: () -> String? = { null },
-    private val onSegment: (String, String?) -> Unit,
+    // Optional acoustic diarization: given the chunk's raw audio, returns a
+    // speaker-cluster id. Invoked on the transcriber thread.
+    private val chunkLabeler: ((FloatArray) -> Int?)? = null,
+    private val onSegment: (String, String?, Int?) -> Unit,
     private val onProcessingChange: (Boolean) -> Unit,
     private val onError: (String) -> Unit
 ) {
@@ -142,13 +145,18 @@ class WhisperRecorder(
                 } else {
                     audio
                 }
+                val clusterId = try {
+                    chunkLabeler?.invoke(audio)
+                } catch (_: Throwable) {
+                    null
+                }
                 val ptr = contextPtr
                 if (ptr != 0L) {
                     val text = WhisperBridge.transcribe(ptr, padded, language, nThreads)
                         ?.trim()
                         .orEmpty()
                     if (text.isNotBlank() && !isNoise(text)) {
-                        onSegment(text, speaker)
+                        onSegment(text, speaker, clusterId)
                     }
                 }
             } catch (e: Throwable) {

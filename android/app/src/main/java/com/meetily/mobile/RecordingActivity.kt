@@ -443,15 +443,28 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         // Recency decided now: segments arriving while the dialog is open
         // must not change whether this tag becomes sticky.
         val wasLatest = index == svc.segmentsSnapshot().size - 1
-        SpeakerPicker.show(this, currentAttendees(), segment.speaker) { name ->
-            svc.assignSpeaker(index, name, makeSticky = wasLatest)
-            if (!name.isNullOrBlank()) {
-                val attendees = currentAttendees()
-                if (attendees.none { it.equals(name, ignoreCase = true) }) {
-                    attendees.add(name)
-                    attendeesInput.setText(attendees.joinToString(", "))
-                }
+        val clusterId = if (segment.speaker.isNullOrBlank()) segment.clusterId else null
+        val clusterLabel = clusterId?.let { getString(R.string.speaker_cluster_label, it) }
+        val addAttendee: (String) -> Unit = { name ->
+            val attendees = currentAttendees()
+            if (attendees.none { it.equals(name, ignoreCase = true) }) {
+                attendees.add(name)
+                attendeesInput.setText(attendees.joinToString(", "))
             }
+        }
+        SpeakerPicker.show(
+            this, currentAttendees(), segment.speaker,
+            clusterLabel = clusterLabel,
+            onRenameCluster = if (clusterId != null) {
+                { name ->
+                    svc.renameCluster(clusterId, name)
+                    addAttendee(name)
+                    rebuildSpeakerChips()
+                }
+            } else null
+        ) { name ->
+            svc.assignSpeaker(index, name, makeSticky = wasLatest)
+            if (!name.isNullOrBlank()) addAttendee(name)
             rebuildSpeakerChips()
         }
     }

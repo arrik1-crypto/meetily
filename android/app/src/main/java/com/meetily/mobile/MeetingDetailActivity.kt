@@ -215,15 +215,35 @@ class MeetingDetailActivity : AppCompatActivity() {
         val m = meeting ?: return
         if (index !in m.segments.indices) return
         saveEdits()
-        SpeakerPicker.show(this, m.attendees, m.segments[index].speaker) { name ->
-            if (index !in m.segments.indices) return@show
-            m.segments[index] = m.segments[index].copy(speaker = name)
-            if (!name.isNullOrBlank() &&
-                m.attendees.none { it.equals(name, ignoreCase = true) }
-            ) {
+        val segment = m.segments[index]
+        val clusterId = if (segment.speaker.isNullOrBlank()) segment.clusterId else null
+        val clusterLabel = clusterId?.let { getString(R.string.speaker_cluster_label, it) }
+        val addAttendee: (String) -> Unit = { name ->
+            if (m.attendees.none { it.equals(name, ignoreCase = true) }) {
                 m.attendees.add(name)
                 attendeesInput.setText(m.attendeesText())
             }
+        }
+        SpeakerPicker.show(
+            this, m.attendees, segment.speaker,
+            clusterLabel = clusterLabel,
+            onRenameCluster = if (clusterId != null) {
+                { name ->
+                    for (i in m.segments.indices) {
+                        val s = m.segments[i]
+                        if (s.clusterId == clusterId && s.speaker.isNullOrBlank()) {
+                            m.segments[i] = s.copy(speaker = name)
+                        }
+                    }
+                    addAttendee(name)
+                    store.save(m)
+                    renderTranscript(m)
+                }
+            } else null
+        ) { name ->
+            if (index !in m.segments.indices) return@show
+            m.segments[index] = m.segments[index].copy(speaker = name)
+            if (!name.isNullOrBlank()) addAttendee(name)
             store.save(m)
             transcriptAdapter.update(index, m.segments[index])
         }

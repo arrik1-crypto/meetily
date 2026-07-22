@@ -45,6 +45,15 @@ class AppSettings(context: Context) {
         get() = prefs.getString("whisper_model", "base.en") ?: "base.en"
         set(value) = prefs.edit().putString("whisper_model", value).apply()
 
+    /** Acoustic speaker detection (Whisper engine only, experimental). */
+    var diarizationEnabled: Boolean
+        get() = prefs.getBoolean("diarization_enabled", false)
+        set(value) = prefs.edit().putBoolean("diarization_enabled", value).apply()
+
+    var diarizationModel: String
+        get() = prefs.getString("diarization_model", "titanet-en") ?: "titanet-en"
+        set(value) = prefs.edit().putString("diarization_model", value).apply()
+
     var calendarPrefill: Boolean
         get() = prefs.getBoolean("calendar_prefill", true)
         set(value) = prefs.edit().putBoolean("calendar_prefill", value).apply()

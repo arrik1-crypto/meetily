@@ -9,11 +9,25 @@ import com.meetily.mobile.data.TranscriptSegment
 import java.text.DateFormat
 import java.util.Date
 
-internal fun segmentTimeLabel(segment: TranscriptSegment): String {
+/** Display name for a segment: manual tag, else auto cluster ("Speaker N"). */
+internal fun segmentSpeakerDisplay(
+    context: android.content.Context,
+    segment: TranscriptSegment
+): String? {
+    val speaker = segment.speaker
+    if (!speaker.isNullOrBlank()) return speaker
+    val cluster = segment.clusterId ?: return null
+    return context.getString(R.string.speaker_cluster_label, cluster)
+}
+
+internal fun segmentTimeLabel(
+    context: android.content.Context,
+    segment: TranscriptSegment
+): String {
     val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(segment.timestampMs))
     val star = if (segment.highlighted) "★ " else ""
-    val speaker = segment.speaker
-    return if (speaker.isNullOrBlank()) "$star$time" else "$star$time · $speaker"
+    val display = segmentSpeakerDisplay(context, segment)
+    return if (display.isNullOrBlank()) "$star$time" else "$star$time · $display"
 }
 
 /**
@@ -89,7 +103,7 @@ class LiveTranscriptAdapter(
             holder.itemView.setBackgroundResource(
                 if (segment.highlighted) R.drawable.bg_bubble_highlight else R.drawable.bg_bubble
             )
-            holder.time.text = segmentTimeLabel(segment)
+            holder.time.text = segmentTimeLabel(holder.itemView.context, segment)
             holder.text.text = segment.text
             holder.itemView.setOnClickListener {
                 val index = holder.bindingAdapterPosition
@@ -147,10 +161,14 @@ class TranscriptLinesAdapter(
         val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
         val time = timeFormat.format(Date(segment.timestampMs))
         holder.time.text = if (segment.highlighted) "★ $time" else time
-        if (segment.speaker.isNullOrBlank()) {
+        val display = segmentSpeakerDisplay(holder.itemView.context, segment)
+        if (display.isNullOrBlank()) {
             holder.speaker.visibility = View.GONE
         } else {
-            holder.speaker.text = segment.speaker
+            holder.speaker.text = display
+            // Auto-detected cluster labels render dimmed until named.
+            holder.speaker.alpha =
+                if (segment.speaker.isNullOrBlank()) 0.55f else 1f
             holder.speaker.visibility = View.VISIBLE
         }
         holder.text.text = segment.text

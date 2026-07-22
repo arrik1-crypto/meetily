@@ -267,6 +267,57 @@
                             android:textColor="?attr/colorOnSurface"
                             app:cornerRadius="22dp"
                             app:strokeColor="?attr/colorOutline" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/diarizeSwitch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:text="@string/setting_diarize"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/setting_diarize_desc"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        <LinearLayout
+                            android:id="@+id/diarizeSection"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:id="@+id/diarizeModelStatus"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="10dp"
+                                android:textAppearance="?attr/textAppearanceBodyMedium"
+                                android:textColor="?attr/colorOnSurface" />
+
+                            <com.google.android.material.progressindicator.LinearProgressIndicator
+                                android:id="@+id/diarizeProgress"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:visibility="gone"
+                                app:trackCornerRadius="2dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/manageDiarizeButton"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="44dp"
+                                android:layout_marginTop="8dp"
+                                android:text="@string/diarize_manage"
+                                android:textColor="?attr/colorOnSurface"
+                                app:cornerRadius="22dp"
+                                app:strokeColor="?attr/colorOutline" />
+                        </LinearLayout>
                     </LinearLayout>
 
                     <com.google.android.material.materialswitch.MaterialSwitch

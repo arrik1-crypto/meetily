@@ -43,6 +43,13 @@
     <string name="whisper_model_missing">Whisper model not downloaded — using system recognition. Download it in Settings.</string>
     <string name="whisper_unavailable">Whisper isn\'t supported on this device — using system recognition.</string>
 
+    <!-- Acoustic diarization -->
+    <string name="setting_diarize">Auto-detect speakers (experimental)</string>
+    <string name="setting_diarize_desc">Analyzes each Whisper segment\'s voice on-device and groups segments by speaker. Unnamed voices show as "Speaker 1", "Speaker 2"… — tap any segment to name a speaker everywhere at once. Requires a one-time speaker-model download and only works with the Whisper engine.</string>
+    <string name="diarize_manage">Speaker models…</string>
+    <string name="speaker_cluster_label">Speaker %1$d</string>
+    <string name="rename_cluster_fmt">Name %1$s everywhere…</string>
+
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>
     <string name="no_calendar_event">No calendar event happening right now</string>

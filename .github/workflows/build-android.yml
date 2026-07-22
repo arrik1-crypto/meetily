@@ -30,6 +30,9 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      - name: Fetch sherpa-onnx native libs
+        run: bash android/scripts/fetch_sherpa_libs.sh
+
       - name: Run unit tests
         working-directory: android
         run: ./gradlew --no-daemon testReleaseUnitTest
