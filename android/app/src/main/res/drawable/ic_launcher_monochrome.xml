@@ -1,32 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Single-color alpha mask for Android 13+ themed icons. -->
+<!-- Themed-icon layer: the waveform bars as a single-alpha silhouette. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
-    android:viewportWidth="512"
-    android:viewportHeight="512">
-    <group
-        android:pivotX="256"
-        android:pivotY="256"
-        android:scaleX="0.78"
-        android:scaleY="0.78">
-        <path
-            android:pathData="M 256,86 A 170,170 0 1 1 109,341"
-            android:strokeColor="#FFFFFF"
-            android:strokeLineCap="round"
-            android:strokeWidth="34" />
-        <group
-            android:pivotX="109"
-            android:pivotY="341"
-            android:rotation="8">
-            <path
-                android:fillColor="#FFFFFF"
-                android:pathData="M 89,306 L 130,329 L 88,353 Z" />
-        </group>
-        <path
-            android:pathData="M176,236 L176,276 M216,206 L216,306 M256,172 L256,340 M296,206 L296,306 M336,236 L336,276"
-            android:strokeColor="#FFFFFF"
-            android:strokeLineCap="round"
-            android:strokeWidth="26" />
-    </group>
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M39.59,46.34A2.04,2.04 0 0 1 41.62,48.38L41.62,59.62A2.04,2.04 0 0 1 39.59,61.66A2.04,2.04 0 0 1 37.55,59.62L37.55,48.38A2.04,2.04 0 0 1 39.59,46.34Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M46.79,40.08A2.00,2.00 0 0 1 48.80,42.08L48.80,65.92A2.00,2.00 0 0 1 46.79,67.92A2.00,2.00 0 0 1 44.79,65.92L44.79,42.08A2.00,2.00 0 0 1 46.79,40.08Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54.00,34.17A2.04,2.04 0 0 1 56.04,36.21L56.04,71.79A2.04,2.04 0 0 1 54.00,73.83A2.04,2.04 0 0 1 51.96,71.79L51.96,36.21A2.04,2.04 0 0 1 54.00,34.17Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M61.21,42.33A2.00,2.00 0 0 1 63.21,44.33L63.21,63.67A2.00,2.00 0 0 1 61.21,65.67A2.00,2.00 0 0 1 59.20,63.67L59.20,44.33A2.00,2.00 0 0 1 61.21,42.33Z" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M68.41,48.16A2.04,2.04 0 0 1 70.45,50.20L70.45,57.80A2.04,2.04 0 0 1 68.41,59.84A2.04,2.04 0 0 1 66.38,57.80L66.38,50.20A2.04,2.04 0 0 1 68.41,48.16Z" />
 </vector>
