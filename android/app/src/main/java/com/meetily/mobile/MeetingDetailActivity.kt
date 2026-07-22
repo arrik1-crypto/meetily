@@ -37,6 +37,7 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.QaEntry
+import com.meetily.mobile.data.TranscriptSplitter
 import com.meetily.mobile.export.MeetingExporter
 import com.meetily.mobile.summarize.ActionItems
 import com.meetily.mobile.summarize.CustomTemplates
@@ -243,6 +244,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             onPlayFrom = if (audioMs != null && audioFileOrNull() != null) {
                 { playFrom(audioMs) }
             } else null,
+            onEditText = { editSegmentText(index) },
+            onSplit = { showSplitDialog(index) },
             onRenameCluster = if (clusterId != null) {
                 { name ->
                     val tagged = mutableListOf<Int>()
@@ -1048,6 +1051,99 @@ class MeetingDetailActivity : AppCompatActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(send, getString(R.string.share_audio)))
+    }
+
+    // --- Transcript editing -------------------------------------------------
+
+    /** Fix transcription errors in place; clearing all text deletes the line. */
+    private fun editSegmentText(index: Int) {
+        val m = meeting ?: return
+        val segment = m.segments.getOrNull(index) ?: return
+        val input = EditText(this).apply {
+            setText(segment.text)
+            setSelection(segment.text.length)
+        }
+        val container = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.edit_text_title)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                if (index !in m.segments.indices) return@setPositiveButton
+                val newText = input.text.toString().trim()
+                if (newText == segment.text) return@setPositiveButton
+                if (newText.isBlank()) {
+                    confirmDeleteSegment(index)
+                } else {
+                    m.segments[index] = m.segments[index].copy(text = newText)
+                    store.save(m)
+                    transcriptAdapter.update(index, m.segments[index])
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmDeleteSegment(index: Int) {
+        val m = meeting ?: return
+        AlertDialog.Builder(this)
+            .setMessage(R.string.delete_segment_confirm)
+            .setPositiveButton(R.string.delete) { _, _ ->
+                if (index !in m.segments.indices) return@setPositiveButton
+                m.segments.removeAt(index)
+                store.save(m)
+                renderTranscript(m)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /**
+     * Separate overlapping speakers: place the cursor where the second voice
+     * starts and split. The first part keeps its speaker; the second opens
+     * the speaker picker so it can be tagged (and, with audio, feed that
+     * person's voice profile).
+     */
+    private fun showSplitDialog(index: Int) {
+        val m = meeting ?: return
+        val segment = m.segments.getOrNull(index) ?: return
+        val input = EditText(this).apply {
+            setText(segment.text)
+            setSelection(segment.text.length / 2)
+        }
+        val container = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.split_title)
+            .setMessage(R.string.split_instructions)
+            .setView(container)
+            .setPositiveButton(R.string.split_button) { _, _ ->
+                if (index !in m.segments.indices) return@setPositiveButton
+                val parts = TranscriptSplitter.split(
+                    segment = m.segments[index],
+                    next = m.segments.getOrNull(index + 1),
+                    charPos = input.selectionStart,
+                    editedText = input.text.toString()
+                )
+                if (parts == null) {
+                    Toast.makeText(this, R.string.split_invalid, Toast.LENGTH_SHORT).show()
+                    return@setPositiveButton
+                }
+                m.segments[index] = parts.first
+                m.segments.add(index + 1, parts.second)
+                store.save(m)
+                renderTranscript(m)
+                // Tag who said the second half right away.
+                assignSpeaker(index + 1)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     /**

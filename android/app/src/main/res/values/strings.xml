@@ -133,6 +133,16 @@
     <string name="voice_saved">Updated %1$s\'s voiceprint</string>
     <string name="voice_save_failed">Couldn\'t save the voiceprint from this audio.</string>
 
+    <!-- Transcript editing -->
+    <string name="edit_text_action">Edit text…</string>
+    <string name="split_action">Split into two…</string>
+    <string name="edit_text_title">Edit transcript line</string>
+    <string name="delete_segment_confirm">Delete this transcript line?</string>
+    <string name="split_title">Split this line</string>
+    <string name="split_instructions">Place the cursor where the second speaker starts, then tap Split. You can fix the wording here too. The first part keeps its speaker; you\'ll tag the second part next.</string>
+    <string name="split_button">Split</string>
+    <string name="split_invalid">Place the cursor inside the text, with words on both sides.</string>
+
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>
     <string name="no_calendar_event">No calendar event happening right now</string>

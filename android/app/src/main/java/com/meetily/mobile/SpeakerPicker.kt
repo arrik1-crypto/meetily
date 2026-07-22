@@ -24,6 +24,8 @@ object SpeakerPicker {
         clusterLabel: String? = null,
         onRenameCluster: ((String) -> Unit)? = null,
         onPlayFrom: (() -> Unit)? = null,
+        onEditText: (() -> Unit)? = null,
+        onSplit: (() -> Unit)? = null,
         onPicked: (String?) -> Unit
     ) {
         val options = mutableListOf<String>()
@@ -44,6 +46,20 @@ object SpeakerPicker {
         } else {
             renameIndex = -1
         }
+        val editIndex: Int
+        if (onEditText != null) {
+            editIndex = options.size
+            options.add(context.getString(R.string.edit_text_action))
+        } else {
+            editIndex = -1
+        }
+        val splitIndex: Int
+        if (onSplit != null) {
+            splitIndex = options.size
+            options.add(context.getString(R.string.split_action))
+        } else {
+            splitIndex = -1
+        }
         val removeIndex: Int
         if (!currentSpeaker.isNullOrBlank()) {
             removeIndex = options.size
@@ -63,6 +79,8 @@ object SpeakerPicker {
                         promptForName(context) { onPicked(it) }
                     which == renameIndex && onRenameCluster != null ->
                         promptForName(context) { onRenameCluster(it) }
+                    which == editIndex && onEditText != null -> onEditText()
+                    which == splitIndex && onSplit != null -> onSplit()
                     which == removeIndex -> onPicked(null)
                 }
             }
