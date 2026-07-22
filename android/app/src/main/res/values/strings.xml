@@ -134,6 +134,21 @@
     <string name="template_decisions">Decisions &amp; open questions</string>
     <string name="template_standup">Standup (by person)</string>
     <string name="template_sales">Sales call report</string>
+    <string name="template_one_on_one">1:1 meeting</string>
+    <string name="template_interview">Job interview</string>
+    <string name="template_research">User research</string>
+    <string name="template_retro">Retrospective</string>
+    <string name="template_status">Project status</string>
+    <string name="template_email">Follow-up email</string>
+    <string name="template_custom_button">Custom…</string>
+    <string name="template_custom_title">Custom templates</string>
+    <string name="template_new">New template…</string>
+    <string name="template_delete_fmt">Delete \"%1$s\"</string>
+    <string name="template_name_hint">Template name</string>
+    <string name="template_instructions_hint">Instructions, e.g. \"Summarize as a coaching session: goals discussed, obstacles, agreed practice plan.\"</string>
+    <string name="template_fields_required">Name and instructions are both required</string>
+    <string name="template_saved">Template saved</string>
+    <string name="template_deleted">Template deleted</string>
 
     <!-- Action items -->
     <string name="section_actions">Action items</string>

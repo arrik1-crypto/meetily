@@ -33,6 +33,7 @@ import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.QaEntry
 import com.meetily.mobile.export.MeetingExporter
 import com.meetily.mobile.summarize.ActionItems
+import com.meetily.mobile.summarize.CustomTemplates
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
 import com.meetily.mobile.summarize.SummaryTemplate
@@ -528,17 +529,85 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun chooseTemplateAndSummarize() {
-        val labels = SummaryTemplates.ALL.map { getString(it.labelRes) }.toTypedArray()
-        val current = SummaryTemplates.ALL
+        val templates = SummaryTemplates.allWithCustom(this)
+        val labels = templates.map { it.label(this) }.toTypedArray()
+        val current = templates
             .indexOfFirst { it.key == settings.summaryTemplate }
             .coerceAtLeast(0)
         AlertDialog.Builder(this)
             .setTitle(R.string.choose_template)
             .setSingleChoiceItems(labels, current) { dialog, which ->
                 dialog.dismiss()
-                val template = SummaryTemplates.ALL[which]
+                val template = templates[which]
                 settings.summaryTemplate = template.key
                 generateSummary(template)
+            }
+            .setNeutralButton(R.string.template_custom_button) { _, _ ->
+                showCustomTemplateMenu()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showCustomTemplateMenu() {
+        val customs = CustomTemplates.load(this)
+        val items = mutableListOf(getString(R.string.template_new))
+        items.addAll(customs.map { getString(R.string.template_delete_fmt, it.name) })
+        AlertDialog.Builder(this)
+            .setTitle(R.string.template_custom_title)
+            .setItems(items.toTypedArray()) { _, which ->
+                if (which == 0) {
+                    showNewTemplateDialog()
+                } else {
+                    val doomed = customs[which - 1]
+                    CustomTemplates.delete(this, doomed.key)
+                    if (settings.summaryTemplate == doomed.key) {
+                        settings.summaryTemplate = "general"
+                    }
+                    Toast.makeText(this, R.string.template_deleted, Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showNewTemplateDialog() {
+        val density = resources.displayMetrics.density
+        val pad = (20 * density).toInt()
+        val nameInput = EditText(this).apply {
+            hint = getString(R.string.template_name_hint)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+        }
+        val instructionsInput = EditText(this).apply {
+            hint = getString(R.string.template_instructions_hint)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            minLines = 3
+            gravity = android.view.Gravity.TOP
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(nameInput)
+            addView(instructionsInput)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.template_new)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = nameInput.text.toString().trim()
+                val instructions = instructionsInput.text.toString().trim()
+                if (name.isBlank() || instructions.isBlank()) {
+                    Toast.makeText(this, R.string.template_fields_required, Toast.LENGTH_SHORT)
+                        .show()
+                    return@setPositiveButton
+                }
+                val custom = CustomTemplates.add(this, name, instructions)
+                settings.summaryTemplate = custom.key
+                Toast.makeText(this, R.string.template_saved, Toast.LENGTH_SHORT).show()
+                generateSummary(SummaryTemplates.byKey(this, custom.key))
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
