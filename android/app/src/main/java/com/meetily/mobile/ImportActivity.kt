@@ -40,15 +40,23 @@ class ImportActivity : AppCompatActivity() {
             statusView.text = getString(R.string.import_status_running, percent)
         }
 
-        override fun onImportDone(meetingId: String?, wasCancelled: Boolean, error: String?) {
+        override fun onImportDone(
+            meetingId: String?,
+            wasCancelled: Boolean,
+            error: String?,
+            warning: String?
+        ) {
             if (isFinishing || isDestroyed) return
             when {
                 meetingId != null -> {
-                    if (wasCancelled) {
-                        Toast.makeText(
+                    when {
+                        wasCancelled -> Toast.makeText(
                             this@ImportActivity,
                             R.string.import_cancelled_partial,
                             Toast.LENGTH_LONG
+                        ).show()
+                        warning != null -> Toast.makeText(
+                            this@ImportActivity, warning, Toast.LENGTH_LONG
                         ).show()
                     }
                     openDetail(meetingId)

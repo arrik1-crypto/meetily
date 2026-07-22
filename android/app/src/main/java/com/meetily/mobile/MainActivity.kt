@@ -106,11 +106,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.digestButton).setOnClickListener {
             startActivity(Intent(this, DigestActivity::class.java))
         }
-        findViewById<View>(R.id.themeToggle).setOnClickListener {
+        findViewById<View>(R.id.themeToggle).setOnClickListener { v ->
             // Sun shows in dark (tap for daylight); moon shows in light.
             val next = if (isNightNow()) "light" else "dark"
             AppSettings(this).themeMode = next
-            ThemeManager.applyNightMode(next)
+            // Posted: the recreate must not run inside this click dispatch
+            // (see SettingsActivity's theme toggle for the full story).
+            v.post { ThemeManager.applyNightMode(next) }
         }
 
         recoverInterruptedRecording()

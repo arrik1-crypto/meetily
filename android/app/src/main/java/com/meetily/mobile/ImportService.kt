@@ -14,6 +14,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.whisper.AudioFileImporter
@@ -29,8 +30,17 @@ class ImportService : Service() {
     interface Observer {
         fun onImportProgress(percent: Int)
 
-        /** error != null means the import failed outright (nothing kept). */
-        fun onImportDone(meetingId: String?, wasCancelled: Boolean, error: String?)
+        /**
+         * error != null means the import failed outright (nothing kept);
+         * warning != null means it finished but covered only part of the
+         * file (partial transcript kept).
+         */
+        fun onImportDone(
+            meetingId: String?,
+            wasCancelled: Boolean,
+            error: String?,
+            warning: String?
+        )
     }
 
     inner class ImportBinder : Binder() {
@@ -43,7 +53,7 @@ class ImportService : Service() {
             // Late binders catch up immediately.
             if (value != null) {
                 if (done) {
-                    value.onImportDone(resultMeetingId, cancelled, resultError)
+                    value.onImportDone(resultMeetingId, cancelled, resultError, resultWarning)
                 } else {
                     value.onImportProgress(percent)
                 }
@@ -58,6 +68,8 @@ class ImportService : Service() {
     private var done = false
     private var resultMeetingId: String? = null
     private var resultError: String? = null
+    private var resultWarning: String? = null
+    private var wakeLock: PowerManager.WakeLock? = null
     private val main = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder = ImportBinder()
@@ -77,6 +89,19 @@ class ImportService : Service() {
                     .ifBlank { getString(R.string.import_title) }
                 createChannel()
                 startForegroundCompat(buildNotification(0))
+                // A dataSync service keeps the process alive but NOT the CPU:
+                // without this, a long import stalls or dies once the screen
+                // has been off for a while.
+                try {
+                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                    wakeLock = pm.newWakeLock(
+                        PowerManager.PARTIAL_WAKE_LOCK, "meetily:import"
+                    ).apply {
+                        setReferenceCounted(false)
+                        acquire(3 * 60 * 60 * 1000L)
+                    }
+                } catch (_: Exception) {
+                }
                 runImport(uri)
             }
         }
@@ -86,10 +111,10 @@ class ImportService : Service() {
     private fun runImport(uri: Uri) {
         val settings = AppSettings(this)
         Thread {
-            var meetingId: String? = null
+            var result: AudioFileImporter.Result? = null
             var error: String? = null
             try {
-                meetingId = AudioFileImporter(this, settings).import(
+                result = AudioFileImporter(this, settings).import(
                     uri = uri,
                     title = sourceName.substringBeforeLast('.').ifBlank { sourceName },
                     sourceName = sourceName,
@@ -107,22 +132,47 @@ class ImportService : Service() {
             } catch (e: Exception) {
                 error = e.message ?: "unknown error"
             }
-            main.post { finishRun(meetingId, error) }
+            val warning = result?.takeIf { !cancelled && it.truncated }?.let { r ->
+                if (r.totalMs > 0) {
+                    getString(
+                        R.string.import_truncated,
+                        formatMinutes(r.coveredMs), formatMinutes(r.totalMs)
+                    )
+                } else {
+                    getString(R.string.import_stopped_early, formatMinutes(r.coveredMs))
+                }
+            }
+            main.post { finishRun(result?.meetingId, error, warning) }
         }.apply {
             name = "import-service"
             start()
         }
     }
 
-    private fun finishRun(meetingId: String?, error: String?) {
+    private fun finishRun(meetingId: String?, error: String?, warning: String?) {
         done = true
         resultMeetingId = meetingId
         resultError = error
-        observer?.onImportDone(meetingId, cancelled, error)
+        resultWarning = warning
+        try {
+            wakeLock?.release()
+        } catch (_: Exception) {
+        }
+        wakeLock = null
+        observer?.onImportDone(meetingId, cancelled, error, warning)
         stopForegroundCompat()
-        postCompletionNotification(meetingId, error)
+        postCompletionNotification(meetingId, error, warning)
         isRunning = false
         stopSelf()
+    }
+
+    private fun formatMinutes(ms: Long): String {
+        val totalMin = (ms + 30_000) / 60_000
+        return if (totalMin >= 60) {
+            getString(R.string.duration_h_min, totalMin / 60, totalMin % 60)
+        } else {
+            getString(R.string.duration_min, totalMin)
+        }
     }
 
     fun requestCancel() {
@@ -176,15 +226,25 @@ class ImportService : Service() {
         }
     }
 
-    private fun postCompletionNotification(meetingId: String?, error: String?) {
+    private fun postCompletionNotification(
+        meetingId: String?,
+        error: String?,
+        warning: String?
+    ) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setAutoCancel(true)
             .setSilent(true)
         if (meetingId != null) {
-            builder.setContentTitle(getString(R.string.import_done_notif))
-                .setContentText(sourceName)
+            builder.setContentTitle(
+                if (warning != null) getString(R.string.import_incomplete_notif)
+                else getString(R.string.import_done_notif)
+            )
+                .setContentText(warning ?: sourceName)
+                .setStyle(
+                    warning?.let { NotificationCompat.BigTextStyle().bigText(it) }
+                )
                 .setContentIntent(
                     PendingIntent.getActivity(
                         this, 3,

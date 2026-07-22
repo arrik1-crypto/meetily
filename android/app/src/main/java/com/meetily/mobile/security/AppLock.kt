@@ -60,7 +60,11 @@ object AppLock {
         return !unlocked
     }
 
-    private fun applySecureFlag(activity: Activity) {
+    /**
+     * Set/clear FLAG_SECURE on a live window. Used by the tracker at creation
+     * time and by Settings when the toggle changes on-screen.
+     */
+    fun applySecureFlag(activity: Activity) {
         if (AppSettings(activity).secureScreen) {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
@@ -70,21 +74,35 @@ object AppLock {
 
     private class Tracker : Application.ActivityLifecycleCallbacks {
 
+        // FLAG_SECURE is decided once per window, before first draw. It is
+        // deliberately NOT reapplied in onActivityStarted: mutating window
+        // flags during a night-mode recreate storm churns the Surface at the
+        // worst possible moment and has been seen to wedge the window.
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
             applySecureFlag(activity)
         }
 
         override fun onActivityStarted(activity: Activity) {
-            applySecureFlag(activity)
             if (startedCount == 0 && lastAllStoppedAt != 0L &&
                 SystemClock.elapsedRealtime() - lastAllStoppedAt > GRACE_MS
             ) {
                 unlocked = false
             }
             startedCount++
-            if (activity !is LockActivity && shouldLock(activity) && !lockScreenShowing) {
+            if (activity !is LockActivity && !lockScreenShowing && shouldLock(activity)) {
                 lockScreenShowing = true
-                activity.startActivity(Intent(activity, LockActivity::class.java))
+                // Posted so the launch happens after the current lifecycle
+                // transaction, never from inside onStart dispatch (which can
+                // interleave with an AppCompat recreate). If the activity is
+                // being torn down by the time the post runs, stand down — the
+                // next activity start re-runs the gate.
+                activity.window.decorView.post {
+                    if (!activity.isFinishing && !activity.isDestroyed && !unlocked) {
+                        activity.startActivity(Intent(activity, LockActivity::class.java))
+                    } else {
+                        lockScreenShowing = false
+                    }
+                }
             }
         }
 

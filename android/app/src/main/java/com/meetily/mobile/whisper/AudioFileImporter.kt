@@ -24,6 +24,23 @@ class AudioFileImporter(
 ) {
     class ImportException(message: String) : RuntimeException(message)
 
+    /**
+     * Outcome of an import. [stoppedEarly] carries the error message when
+     * decoding or transcription died mid-file and the partial transcript was
+     * kept; [truncated] is also true when the decoder consumed meaningfully
+     * less audio than the container claims to hold.
+     */
+    class Result(
+        val meetingId: String,
+        val coveredMs: Long,
+        val totalMs: Long,
+        val stoppedEarly: String?
+    ) {
+        val truncated: Boolean
+            get() = stoppedEarly != null ||
+                (totalMs > 0 && coveredMs < totalMs - 30_000)
+    }
+
     private val sampleRate = AudioFileDecoder.TARGET_RATE
     private val minChunkSec = 1.6f
     private val maxChunkSec = 28f
@@ -33,9 +50,9 @@ class AudioFileImporter(
     private val frameSize = sampleRate / 10 // 100 ms
 
     /**
-     * Returns the created meeting id (also for cancelled imports, which keep
-     * whatever was transcribed so far). Throws [ImportException] on failure
-     * before any audio was processed.
+     * Returns the created meeting and its audio coverage (also for cancelled
+     * or mid-file-failed imports, which keep whatever was transcribed so
+     * far). Throws [ImportException] only when nothing could be processed.
      */
     fun import(
         uri: Uri,
@@ -43,7 +60,7 @@ class AudioFileImporter(
         sourceName: String = title,
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean
-    ): String {
+    ): Result {
         val model = WhisperModels.byKey(settings.whisperModel)
         if (!WhisperModels.isRuntimeAvailable()) {
             throw ImportException("Whisper runtime unavailable on this device")
@@ -102,6 +119,22 @@ class AudioFileImporter(
         val decodeUri = meeting.audioFile?.let {
             Uri.fromFile(AudioStore.fileFor(context, it))
         } ?: uri
+
+        // Container-reported length, probed up front so a mid-file failure
+        // can still report how much of the recording was covered.
+        var totalMs = -1L
+        try {
+            val mmr = android.media.MediaMetadataRetriever()
+            try {
+                mmr.setDataSource(context, decodeUri)
+                totalMs = mmr.extractMetadata(
+                    android.media.MediaMetadataRetriever.METADATA_KEY_DURATION
+                )?.toLongOrNull() ?: -1L
+            } finally {
+                mmr.release()
+            }
+        } catch (_: Exception) {
+        }
 
         // Chunker state (same splitting rules as live recording).
         var chunk = FloatArray(0)
@@ -250,7 +283,10 @@ class AudioFileImporter(
                 }
             }
             store.save(meeting)
-            return meeting.id
+            if (durationMs > 0) totalMs = durationMs
+            return Result(
+                meeting.id, consumedSamples * 1000 / sampleRate, totalMs, null
+            )
         } catch (e: AudioFileDecoder.UnsupportedAudioException) {
             if (meeting.segments.isEmpty()) {
                 store.delete(meeting.id)
@@ -264,9 +300,14 @@ class AudioFileImporter(
                 throw ImportException(e.message ?: "decode failed")
             }
             // Partial transcript exists — keep it rather than fail the whole
-            // import at the finish line.
+            // import silently; the caller surfaces how far it got.
             store.save(meeting)
-            return meeting.id
+            return Result(
+                meeting.id,
+                consumedSamples * 1000 / sampleRate,
+                totalMs,
+                e.message ?: "decode failed mid-file"
+            )
         } finally {
             WhisperBridge.freeContext(contextPtr)
             embedder?.release()

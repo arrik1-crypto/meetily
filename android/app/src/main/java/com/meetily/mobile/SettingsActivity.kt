@@ -194,6 +194,12 @@ class SettingsActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.app_lock_unavailable, Toast.LENGTH_LONG).show()
             }
         }
+        // Window flags are otherwise only decided at activity creation, so
+        // reflect the toggle on this screen immediately.
+        secureScreenSwitch.setOnCheckedChangeListener { _, checked ->
+            settings.secureScreen = checked
+            AppLock.applySecureFlag(this)
+        }
     }
 
     private var suppressThemeListener = false
@@ -233,7 +239,10 @@ class SettingsActivity : AppCompatActivity() {
                 return@addOnButtonCheckedListener
             }
             settings.themeMode = mode
-            ThemeManager.applyNightMode(mode)
+            // Posted: setDefaultNightMode recreates this activity, and doing
+            // that from inside the toggle-group's checked-change dispatch
+            // (especially with FLAG_SECURE windows) can flicker or wedge.
+            group.post { ThemeManager.applyNightMode(mode) }
         }
     }
 

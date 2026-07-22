@@ -75,6 +75,11 @@
     <string name="import_notif_title">Importing %1$s</string>
     <string name="import_done_notif">Import complete — tap to open</string>
     <string name="import_failed_notif">Import failed</string>
+    <string name="import_incomplete_notif">Import incomplete</string>
+    <string name="import_truncated">Transcribed %1$s of %2$s. The audio was saved — open the meeting and use Re-transcribe (⋮) to try the rest again.</string>
+    <string name="import_stopped_early">Import stopped early (%1$s transcribed). The audio was saved — use Re-transcribe (⋮) on the meeting to try again.</string>
+    <string name="duration_min">%1$d min</string>
+    <string name="duration_h_min">%1$d h %2$d min</string>
     <string name="import_needs_whisper">Importing needs the on-device Whisper engine — download a Whisper model in Settings first.</string>
     <string name="import_wait_recording">Finish the current recording before importing a file.</string>
     <string name="import_cancelled_partial">Import stopped — the partial transcript was kept.</string>
