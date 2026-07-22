@@ -31,8 +31,8 @@ android {
         applicationId = "com.meetily.mobile"
         minSdk = 26
         targetSdk = 34
-        versionCode = 13
-        versionName = "1.0.0-rc3"
+        versionCode = 14
+        versionName = "1.0.0-rc4"
 
         ndk {
             abiFilters += listOf("arm64-v8a", "x86_64")

@@ -1,6 +1,7 @@
 package com.meetily.mobile
 
 import android.app.Activity
+import androidx.appcompat.app.AppCompatDelegate
 import com.meetily.mobile.data.AppSettings
 
 /**
@@ -29,5 +30,19 @@ object ThemeManager {
         val key = AppSettings(activity).accentColor
         activity.theme.applyStyle(byKey(key).overlayRes, true)
         return key
+    }
+
+    /**
+     * Applies the light/dark preference process-wide. Started activities are
+     * recreated automatically when the effective mode changes.
+     */
+    fun applyNightMode(mode: String) {
+        AppCompatDelegate.setDefaultNightMode(
+            when (mode) {
+                "light" -> AppCompatDelegate.MODE_NIGHT_NO
+                "dark" -> AppCompatDelegate.MODE_NIGHT_YES
+                else -> AppCompatDelegate.MODE_NIGHT_FOLLOW_SYSTEM
+            }
+        )
     }
 }

@@ -17,6 +17,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
@@ -90,6 +91,7 @@ class SettingsActivity : AppCompatActivity() {
         updateLlmSectionVisibility()
         updateWhisperSection()
         buildAccentRow()
+        setUpThemeToggle()
         useLlmSwitch.setOnCheckedChangeListener { _, _ -> updateLlmSectionVisibility() }
         whisperSwitch.setOnCheckedChangeListener { _, checked ->
             updateWhisperSection()
@@ -140,6 +142,47 @@ class SettingsActivity : AppCompatActivity() {
         settings.llmBaseUrl = urlInput.text.toString().trim()
         settings.llmApiKey = keyInput.text.toString().trim()
         settings.llmModel = modelInput.text.toString().trim()
+    }
+
+    private var suppressThemeListener = false
+
+    private fun setUpThemeToggle() {
+        val toggle = findViewById<MaterialButtonToggleGroup>(R.id.themeToggle)
+        suppressThemeListener = true
+        toggle.check(
+            when (settings.themeMode) {
+                "light" -> R.id.themeLight
+                "dark" -> R.id.themeDark
+                else -> R.id.themeSystem
+            }
+        )
+        suppressThemeListener = false
+        toggle.addOnButtonCheckedListener { group, checkedId, isChecked ->
+            if (!isChecked || suppressThemeListener) return@addOnButtonCheckedListener
+            val mode = when (checkedId) {
+                R.id.themeLight -> "light"
+                R.id.themeDark -> "dark"
+                else -> "system"
+            }
+            if (mode == settings.themeMode) return@addOnButtonCheckedListener
+            if (downloading) {
+                // A night-mode change recreates this screen, which would
+                // orphan the running model download — same guard as accents.
+                Toast.makeText(this, R.string.theme_wait_download, Toast.LENGTH_SHORT).show()
+                suppressThemeListener = true
+                group.check(
+                    when (settings.themeMode) {
+                        "light" -> R.id.themeLight
+                        "dark" -> R.id.themeDark
+                        else -> R.id.themeSystem
+                    }
+                )
+                suppressThemeListener = false
+                return@addOnButtonCheckedListener
+            }
+            settings.themeMode = mode
+            ThemeManager.applyNightMode(mode)
+        }
     }
 
     private fun buildAccentRow() {

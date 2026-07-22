@@ -53,6 +53,11 @@ class AppSettings(context: Context) {
         get() = prefs.getString("accent_color", "indigo") ?: "indigo"
         set(value) = prefs.edit().putString("accent_color", value).apply()
 
+    /** "system" (follow device), "light", or "dark". */
+    var themeMode: String
+        get() = prefs.getString("theme_mode", "system") ?: "system"
+        set(value) = prefs.edit().putString("theme_mode", value).apply()
+
     var onboardingDone: Boolean
         get() = prefs.getBoolean("onboarding_done", false)
         set(value) = prefs.edit().putBoolean("onboarding_done", value).apply()
