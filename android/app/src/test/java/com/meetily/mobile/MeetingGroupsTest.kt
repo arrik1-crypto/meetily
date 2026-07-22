@@ -40,7 +40,7 @@ class MeetingGroupsTest {
     @Test
     fun seriesDisplayNameIsTheShortestVariant() {
         val meetings = listOf(
-            meeting("a", "Design crit 5/2 extended session"),
+            meeting("a", "Design Crit 5/2 (Friday)"),
             meeting("b", "Design crit")
         )
         assertEquals("Design crit", MeetingGroups.series(meetings).first().displayName)
