@@ -100,9 +100,11 @@ class LiveTranscriptAdapter(
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         if (holder is SegmentHolder) {
             val segment = segments[position]
-            holder.itemView.setBackgroundResource(
-                if (segment.highlighted) R.drawable.bg_bubble_highlight else R.drawable.bg_bubble
-            )
+            if (segment.highlighted) {
+                holder.itemView.setBackgroundResource(R.drawable.bg_line_highlight)
+            } else {
+                holder.itemView.background = null
+            }
             holder.time.text = segmentTimeLabel(holder.itemView.context, segment)
             holder.text.text = segment.text
             holder.itemView.setOnClickListener {

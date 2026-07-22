@@ -21,18 +21,29 @@
         android:orientation="vertical"
         android:paddingHorizontal="20dp">
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.14"
+            android:text="@string/now_recording"
+            android:textAllCaps="true"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="11sp" />
+
         <EditText
             android:id="@+id/titleInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
             android:background="@null"
+            android:fontFamily="@font/source_serif4"
             android:hint="@string/meeting_title_hint"
             android:importantForAutofill="no"
             android:inputType="textCapSentences"
             android:maxLines="2"
             android:textColor="?attr/colorOnSurface"
             android:textColorHint="?attr/colorOutline"
-            android:textSize="24sp"
+            android:textSize="25sp"
             android:textStyle="bold" />
 
         <EditText
@@ -60,39 +71,51 @@
             app:iconTint="?attr/colorPrimary" />
 
         <LinearLayout
-            android:layout_width="wrap_content"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:background="@drawable/bg_status_pill"
+            android:layout_marginTop="10dp"
             android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingHorizontal="14dp"
-            android:paddingVertical="8dp">
+            android:orientation="horizontal">
 
-            <View
-                android:id="@+id/recordDot"
-                android:layout_width="8dp"
-                android:layout_height="8dp"
-                android:background="@drawable/bg_record_dot" />
-
-            <TextView
-                android:id="@+id/statusView"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginStart="8dp"
-                android:text="@string/status_starting"
-                android:textAppearance="?attr/textAppearanceLabelMedium"
-                android:textColor="?attr/colorOnSurfaceVariant" />
-
+            <!-- Big press timer, magenta on-air pill beside it. -->
             <TextView
                 android:id="@+id/elapsedView"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:fontFamily="@font/source_serif4"
+                android:text="@string/elapsed_zero"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="52sp"
+                android:textStyle="bold" />
+
+            <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:layout_marginStart="10dp"
-                android:text="@string/elapsed_zero"
-                android:textAppearance="?attr/textAppearanceLabelMedium"
-                android:textColor="?attr/colorOnSurface"
-                android:textStyle="bold" />
+                android:background="@drawable/bg_rec_pill"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingHorizontal="11dp"
+                android:paddingVertical="6dp">
+
+                <View
+                    android:id="@+id/recordDot"
+                    android:layout_width="7dp"
+                    android:layout_height="7dp"
+                    android:background="@drawable/bg_record_dot" />
+
+                <TextView
+                    android:id="@+id/statusView"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="7dp"
+                    android:letterSpacing="0.1"
+                    android:text="@string/status_starting"
+                    android:textAllCaps="true"
+                    android:textColor="@color/rec_pill_on"
+                    android:textSize="10.5sp"
+                    android:textStyle="bold" />
+            </LinearLayout>
         </LinearLayout>
 
         <HorizontalScrollView
@@ -200,7 +223,7 @@
                 android:text="@string/finish_save"
                 android:textColor="?attr/colorOnPrimary"
                 app:backgroundTint="?attr/colorPrimary"
-                app:cornerRadius="28dp"
+                app:cornerRadius="4dp"
                 app:icon="@drawable/ic_check"
                 app:iconTint="?attr/colorOnPrimary" />
         </LinearLayout>

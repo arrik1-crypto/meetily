@@ -1,26 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content"
+    android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="6dp"
-    android:background="@drawable/bg_bubble"
-    android:orientation="vertical"
-    android:paddingHorizontal="12dp"
-    android:paddingVertical="9dp">
+    android:layout_marginBottom="14dp"
+    android:orientation="vertical">
 
     <TextView
         android:id="@+id/segmentTime"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:textAppearance="?attr/textAppearanceLabelSmall"
-        android:textColor="?attr/colorOnSurfaceVariant" />
+        android:letterSpacing="0.14"
+        android:textAllCaps="true"
+        android:textColor="@color/accent_deep"
+        android:textSize="10.5sp"
+        android:textStyle="bold" />
 
     <TextView
         android:id="@+id/segmentText"
-        android:layout_width="wrap_content"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="2dp"
-        android:lineSpacingExtra="2dp"
-        android:textAppearance="?attr/textAppearanceBodyMedium"
-        android:textColor="?attr/colorOnSurface" />
+        android:layout_marginTop="4dp"
+        android:lineSpacingMultiplier="1.4"
+        android:textColor="?attr/colorOnSurface"
+        android:textSize="15.5sp" />
 </LinearLayout>

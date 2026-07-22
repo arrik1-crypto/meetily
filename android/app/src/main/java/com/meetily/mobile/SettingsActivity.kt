@@ -2,13 +2,10 @@ package com.meetily.mobile
 
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.View
 import android.widget.EditText
-import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
@@ -109,7 +106,7 @@ class SettingsActivity : AppCompatActivity() {
 
         updateLlmSectionVisibility()
         updateWhisperSection()
-        buildAccentRow()
+
         setUpThemeToggle()
         useLlmSwitch.setOnCheckedChangeListener { _, _ -> updateLlmSectionVisibility() }
         whisperSwitch.setOnCheckedChangeListener { _, checked ->
@@ -212,63 +209,6 @@ class SettingsActivity : AppCompatActivity() {
             }
             settings.themeMode = mode
             ThemeManager.applyNightMode(mode)
-        }
-    }
-
-    private fun buildAccentRow() {
-        val row = findViewById<LinearLayout>(R.id.accentRow)
-        row.removeAllViews()
-        val density = resources.displayMetrics.density
-        val size = (40 * density).toInt()
-        val margin = (8 * density).toInt()
-        val strokeWidth = (2.5f * density).toInt()
-        val ringColor = TypedValue().let {
-            theme.resolveAttribute(com.google.android.material.R.attr.colorOnSurface, it, true)
-            it.data
-        }
-        val rippleRes = TypedValue().let {
-            theme.resolveAttribute(android.R.attr.selectableItemBackgroundBorderless, it, true)
-            it.resourceId
-        }
-        for (accent in ThemeManager.ACCENTS) {
-            val selected = accent.key == settings.accentColor
-            val circle = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(ContextCompat.getColor(this@SettingsActivity, accent.swatchColorRes))
-                if (selected) setStroke(strokeWidth, ringColor)
-            }
-            val swatch = ImageView(this).apply {
-                background = circle
-                if (rippleRes != 0) {
-                    foreground = ContextCompat.getDrawable(this@SettingsActivity, rippleRes)
-                }
-                if (selected) {
-                    setImageResource(R.drawable.ic_check)
-                    val pad = (9 * density).toInt()
-                    setPadding(pad, pad, pad, pad)
-                }
-                layoutParams = LinearLayout.LayoutParams(size, size).apply {
-                    marginEnd = margin
-                }
-                contentDescription = accent.key
-                setOnClickListener {
-                    if (downloading) {
-                        // recreate() would orphan the running model download.
-                        Toast.makeText(
-                            this@SettingsActivity, R.string.accent_wait_download,
-                            Toast.LENGTH_SHORT
-                        ).show()
-                        return@setOnClickListener
-                    }
-                    if (accent.key != settings.accentColor) {
-                        // Only the accent is persisted; pending toggles/text
-                        // survive recreate() via view state restoration.
-                        settings.accentColor = accent.key
-                        recreate()
-                    }
-                }
-            }
-            row.addView(swatch)
         }
     }
 

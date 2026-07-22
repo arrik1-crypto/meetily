@@ -1,46 +1,21 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#141312</color>
-    <color name="ink">#F5F5F4</color>
-    <color name="ink_soft">#A8A29E</color>
-    <color name="surface_soft">#23211F</color>
-    <color name="line">#2E2B29</color>
-    <color name="line_strong">#44403C</color>
+    <!-- Broadsheet night edition: deep ink ground, paper-white serif,
+         cyan lifted to its 400 step for text-size contrast on dark. -->
+    <color name="bg">#2D2B2B</color>
+    <color name="ink">#F3F2F2</color>
+    <color name="ink_soft">#BAB6B6</color>
+    <color name="surface_soft">#444141</color>
+    <color name="line">#605D5D</color>
+    <color name="line_strong">#7D7979</color>
 
-    <color name="accent">#A5B4FC</color>
-    <color name="accent_on">#1E1B4B</color>
-    <color name="accent_container">#312E81</color>
-    <color name="accent_on_container">#E0E7FF</color>
+    <color name="accent">#0088B0</color>
+    <color name="accent_on">#FFFFFF</color>
+    <color name="accent_container">#004961</color>
+    <color name="accent_on_container">#CBEEFF</color>
+    <color name="accent_deep">#62C5EE</color>
 
-    <color name="record_red">#F87171</color>
-
-    <color name="accent_indigo">#A5B4FC</color>
-    <color name="accent_indigo_on">#1E1B4B</color>
-    <color name="accent_indigo_container">#312E81</color>
-    <color name="accent_indigo_on_container">#E0E7FF</color>
-
-    <color name="accent_teal">#5EEAD4</color>
-    <color name="accent_teal_on">#042F2E</color>
-    <color name="accent_teal_container">#115E59</color>
-    <color name="accent_teal_on_container">#CCFBF1</color>
-
-    <color name="accent_rose">#FDA4AF</color>
-    <color name="accent_rose_on">#4C0519</color>
-    <color name="accent_rose_container">#9F1239</color>
-    <color name="accent_rose_on_container">#FFE4E6</color>
-
-    <color name="accent_amber">#FCD34D</color>
-    <color name="accent_amber_on">#451A03</color>
-    <color name="accent_amber_container">#92400E</color>
-    <color name="accent_amber_on_container">#FEF3C7</color>
-
-    <color name="accent_emerald">#6EE7B7</color>
-    <color name="accent_emerald_on">#022C22</color>
-    <color name="accent_emerald_container">#065F46</color>
-    <color name="accent_emerald_on_container">#D1FAE5</color>
-
-    <color name="accent_graphite">#D1D5DB</color>
-    <color name="accent_graphite_on">#1F2937</color>
-    <color name="accent_graphite_container">#4B5563</color>
-    <color name="accent_graphite_on_container">#F9FAFB</color>
+    <color name="record_red">#FF90B1</color>
+    <color name="rec_pill_bg">#4B1528</color>
+    <color name="rec_pill_on">#FFDEE6</color>
 </resources>

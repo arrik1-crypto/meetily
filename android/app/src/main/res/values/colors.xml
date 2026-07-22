@@ -1,51 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Editorial palette: warm near-white canvas, near-black ink, indigo AI accent -->
-    <color name="bg">#FAFAF9</color>
-    <color name="ink">#1C1917</color>
-    <color name="ink_soft">#78716C</color>
-    <color name="surface_soft">#F1F0EE</color>
-    <color name="line">#E7E5E4</color>
-    <color name="line_strong">#D6D3D1</color>
+    <!--
+      Broadsheet palette (day edition): newsprint set for the web — paper
+      ground, near-black ink, cyan as the one interactive color, magenta
+      reserved for the recording state. Values come from the design system's
+      token sheet; the night edition overrides live in values-night.
+    -->
+    <color name="bg">#F3F2F2</color>
+    <color name="ink">#201E1D</color>
+    <color name="ink_soft">#7D7979</color>
+    <color name="surface_soft">#EAE9E9</color>
+    <color name="line">#D7D3D3</color>
+    <color name="line_strong">#BAB6B6</color>
 
-    <color name="accent">#4F46E5</color>
+    <!-- Cyan: base for fills, deep step for text-size accents/links. -->
+    <color name="accent">#0088B0</color>
     <color name="accent_on">#FFFFFF</color>
-    <color name="accent_container">#EEF0FE</color>
-    <color name="accent_on_container">#3730A3</color>
+    <color name="accent_container">#CBEEFF</color>
+    <color name="accent_on_container">#004961</color>
+    <color name="accent_deep">#006786</color>
 
-    <color name="record_red">#DC2626</color>
-
-    <!-- Selectable accents (light variants; night overrides in values-night) -->
-    <color name="accent_indigo">#4F46E5</color>
-    <color name="accent_indigo_on">#FFFFFF</color>
-    <color name="accent_indigo_container">#EEF0FE</color>
-    <color name="accent_indigo_on_container">#3730A3</color>
-
-    <!-- teal-700: teal-600 fails WCAG AA as button fill / text accent -->
-    <color name="accent_teal">#0F766E</color>
-    <color name="accent_teal_on">#FFFFFF</color>
-    <color name="accent_teal_container">#CCFBF1</color>
-    <color name="accent_teal_on_container">#134E4A</color>
-
-    <color name="accent_rose">#E11D48</color>
-    <color name="accent_rose_on">#FFFFFF</color>
-    <color name="accent_rose_container">#FFE4E6</color>
-    <color name="accent_rose_on_container">#881337</color>
-
-    <color name="accent_amber">#B45309</color>
-    <color name="accent_amber_on">#FFFFFF</color>
-    <color name="accent_amber_container">#FEF3C7</color>
-    <color name="accent_amber_on_container">#78350F</color>
-
-    <color name="accent_emerald">#047857</color>
-    <color name="accent_emerald_on">#FFFFFF</color>
-    <color name="accent_emerald_container">#D1FAE5</color>
-    <color name="accent_emerald_on_container">#064E3B</color>
-
-    <color name="accent_graphite">#374151</color>
-    <color name="accent_graphite_on">#FFFFFF</color>
-    <color name="accent_graphite_container">#E5E7EB</color>
-    <color name="accent_graphite_on_container">#111827</color>
+    <!-- Magenta: the rare second spot color — recording state only. -->
+    <color name="record_red">#D6006C</color>
+    <color name="rec_pill_bg">#FFDEE6</color>
+    <color name="rec_pill_on">#790E3D</color>
 
     <color name="white">#FFFFFF</color>
 </resources>

@@ -2,35 +2,19 @@ package com.meetily.mobile
 
 import android.app.Activity
 import androidx.appcompat.app.AppCompatDelegate
-import com.meetily.mobile.data.AppSettings
 
 /**
- * Applies the user's chosen accent as a theme overlay before setContentView.
- * All accent usage in the app flows through ?attr/colorPrimary and the
- * primary-container roles, so one overlay retints every screen consistently
- * in light and dark mode.
+ * Broadsheet is the single app identity — paper/ink/cyan in the day
+ * edition, deep ink ground at night — so there is no per-user accent any
+ * more. This object remains the one place activities touch theming:
+ * [apply] is the pre-setContentView hook (currently the base theme needs
+ * no per-activity work) and [applyNightMode] switches editions.
  */
 object ThemeManager {
 
-    data class Accent(val key: String, val overlayRes: Int, val swatchColorRes: Int)
-
-    val ACCENTS: List<Accent> = listOf(
-        Accent("indigo", R.style.ThemeOverlay_Meetily_Indigo, R.color.accent_indigo),
-        Accent("teal", R.style.ThemeOverlay_Meetily_Teal, R.color.accent_teal),
-        Accent("emerald", R.style.ThemeOverlay_Meetily_Emerald, R.color.accent_emerald),
-        Accent("amber", R.style.ThemeOverlay_Meetily_Amber, R.color.accent_amber),
-        Accent("rose", R.style.ThemeOverlay_Meetily_Rose, R.color.accent_rose),
-        Accent("graphite", R.style.ThemeOverlay_Meetily_Graphite, R.color.accent_graphite)
-    )
-
-    fun byKey(key: String): Accent = ACCENTS.firstOrNull { it.key == key } ?: ACCENTS.first()
-
     /** Call in every Activity.onCreate BEFORE setContentView. */
-    fun apply(activity: Activity): String {
-        val key = AppSettings(activity).accentColor
-        activity.theme.applyStyle(byKey(key).overlayRes, true)
-        return key
-    }
+    @Suppress("UNUSED_PARAMETER")
+    fun apply(activity: Activity): String = ""
 
     /**
      * Applies the light/dark preference process-wide. Started activities are

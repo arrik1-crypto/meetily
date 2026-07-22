@@ -1,11 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="wrap_content"
+    android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="6dp"
-    android:background="@drawable/bg_bubble"
-    android:paddingHorizontal="12dp"
-    android:paddingVertical="9dp"
-    android:textAppearance="?attr/textAppearanceBodyMedium"
+    android:layout_marginBottom="14dp"
+    android:lineSpacingMultiplier="1.4"
     android:textColor="?attr/colorOnSurfaceVariant"
+    android:textSize="15.5sp"
     android:textStyle="italic" />

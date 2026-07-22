@@ -154,6 +154,10 @@
     <string name="digest_llm_failed">AI digest unavailable — showing the offline version.</string>
     <string name="share_digest">Share digest</string>
 
+    <!-- Broadsheet chrome -->
+    <string name="on_device">🔒 On device</string>
+    <string name="now_recording">Now recording</string>
+
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>
     <string name="no_calendar_event">No calendar event happening right now</string>

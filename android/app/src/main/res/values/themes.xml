@@ -1,51 +1,58 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      Editorial document look: neutral warm-white surfaces, near-black text,
-      thin outlines, indigo reserved for AI/primary actions. Dark mode comes
-      from the values-night color overrides, so one theme definition suffices.
+      Broadsheet: newsprint set for the web. The serif IS the chrome — the
+      whole Material type scale is re-pointed at Source Serif 4, and the
+      color roles carry paper/ink/cyan (magenta stays a per-view spot color
+      for the recording state, never a theme role).
     -->
-    <!-- Accent overlays: applied on top of Theme.Meetily by ThemeManager. -->
-    <style name="ThemeOverlay.Meetily.Indigo" parent="">
-        <item name="colorPrimary">@color/accent_indigo</item>
-        <item name="colorOnPrimary">@color/accent_indigo_on</item>
-        <item name="colorPrimaryContainer">@color/accent_indigo_container</item>
-        <item name="colorOnPrimaryContainer">@color/accent_indigo_on_container</item>
+    <style name="TextAppearance.Broadsheet.DisplaySmall" parent="TextAppearance.Material3.DisplaySmall">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
     </style>
-
-    <style name="ThemeOverlay.Meetily.Teal" parent="">
-        <item name="colorPrimary">@color/accent_teal</item>
-        <item name="colorOnPrimary">@color/accent_teal_on</item>
-        <item name="colorPrimaryContainer">@color/accent_teal_container</item>
-        <item name="colorOnPrimaryContainer">@color/accent_teal_on_container</item>
+    <style name="TextAppearance.Broadsheet.HeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
     </style>
-
-    <style name="ThemeOverlay.Meetily.Rose" parent="">
-        <item name="colorPrimary">@color/accent_rose</item>
-        <item name="colorOnPrimary">@color/accent_rose_on</item>
-        <item name="colorPrimaryContainer">@color/accent_rose_container</item>
-        <item name="colorOnPrimaryContainer">@color/accent_rose_on_container</item>
+    <style name="TextAppearance.Broadsheet.HeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
     </style>
-
-    <style name="ThemeOverlay.Meetily.Amber" parent="">
-        <item name="colorPrimary">@color/accent_amber</item>
-        <item name="colorOnPrimary">@color/accent_amber_on</item>
-        <item name="colorPrimaryContainer">@color/accent_amber_container</item>
-        <item name="colorOnPrimaryContainer">@color/accent_amber_on_container</item>
+    <style name="TextAppearance.Broadsheet.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
     </style>
-
-    <style name="ThemeOverlay.Meetily.Emerald" parent="">
-        <item name="colorPrimary">@color/accent_emerald</item>
-        <item name="colorOnPrimary">@color/accent_emerald_on</item>
-        <item name="colorPrimaryContainer">@color/accent_emerald_container</item>
-        <item name="colorOnPrimaryContainer">@color/accent_emerald_on_container</item>
+    <style name="TextAppearance.Broadsheet.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
     </style>
-
-    <style name="ThemeOverlay.Meetily.Graphite" parent="">
-        <item name="colorPrimary">@color/accent_graphite</item>
-        <item name="colorOnPrimary">@color/accent_graphite_on</item>
-        <item name="colorPrimaryContainer">@color/accent_graphite_container</item>
-        <item name="colorOnPrimaryContainer">@color/accent_graphite_on_container</item>
+    <style name="TextAppearance.Broadsheet.TitleSmall" parent="TextAppearance.Material3.TitleSmall">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
+    </style>
+    <style name="TextAppearance.Broadsheet.BodyLarge" parent="TextAppearance.Material3.BodyLarge">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
+    </style>
+    <style name="TextAppearance.Broadsheet.BodyMedium" parent="TextAppearance.Material3.BodyMedium">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
+    </style>
+    <style name="TextAppearance.Broadsheet.BodySmall" parent="TextAppearance.Material3.BodySmall">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
+    </style>
+    <style name="TextAppearance.Broadsheet.LabelLarge" parent="TextAppearance.Material3.LabelLarge">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
+    </style>
+    <style name="TextAppearance.Broadsheet.LabelMedium" parent="TextAppearance.Material3.LabelMedium">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
+    </style>
+    <style name="TextAppearance.Broadsheet.LabelSmall" parent="TextAppearance.Material3.LabelSmall">
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="android:fontFamily">@font/source_serif4</item>
     </style>
 
     <style name="Theme.Meetily" parent="Theme.Material3.DayNight.NoActionBar">
@@ -62,5 +69,25 @@
         <item name="colorOnSecondaryContainer">@color/ink</item>
         <item name="colorOutline">@color/line_strong</item>
         <item name="colorOutlineVariant">@color/line</item>
+        <item name="colorSurfaceContainerLowest">@color/bg</item>
+        <item name="colorSurfaceContainerLow">@color/bg</item>
+        <item name="colorSurfaceContainer">@color/surface_soft</item>
+        <item name="colorSurfaceContainerHigh">@color/surface_soft</item>
+        <item name="colorSurfaceContainerHighest">@color/surface_soft</item>
+
+        <item name="android:fontFamily">@font/source_serif4</item>
+        <item name="fontFamily">@font/source_serif4</item>
+        <item name="textAppearanceDisplaySmall">@style/TextAppearance.Broadsheet.DisplaySmall</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Broadsheet.HeadlineSmall</item>
+        <item name="textAppearanceHeadlineMedium">@style/TextAppearance.Broadsheet.HeadlineMedium</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Broadsheet.TitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Broadsheet.TitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.Broadsheet.TitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.Broadsheet.BodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Broadsheet.BodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.Broadsheet.BodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.Broadsheet.LabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/TextAppearance.Broadsheet.LabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/TextAppearance.Broadsheet.LabelSmall</item>
     </style>
 </resources>

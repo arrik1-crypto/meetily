@@ -16,7 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
@@ -31,7 +31,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var emptyState: View
     private lateinit var meetingCount: TextView
     private lateinit var searchInput: EditText
-    private lateinit var fab: ExtendedFloatingActionButton
+    private lateinit var recordButton: MaterialButton
     private var allMeetings: List<Meeting> = emptyList()
 
     // Library filters: at most one active — a tag or a recurring series.
@@ -92,9 +92,16 @@ class MainActivity : AppCompatActivity() {
         )
         recycler.adapter = adapter
 
-        fab = findViewById(R.id.fabNewMeeting)
-        fab.setOnClickListener {
+        recordButton = findViewById(R.id.recordButton)
+        recordButton.setOnClickListener {
             startActivity(Intent(this, RecordingActivity::class.java))
+        }
+        findViewById<View>(R.id.importButton).setOnClickListener {
+            try {
+                pickAudio.launch("audio/*")
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.import_no_picker, Toast.LENGTH_SHORT).show()
+            }
         }
 
         recoverInterruptedRecording()
@@ -127,7 +134,12 @@ class MainActivity : AppCompatActivity() {
             recreate()
             return
         }
-        fab.setText(if (RecordingService.isRunning) R.string.resume_recording else R.string.record)
+        recordButton.setText(
+            if (RecordingService.isRunning) R.string.resume_recording else R.string.record
+        )
+        findViewById<TextView>(R.id.datelineDate).text =
+            java.text.DateFormat.getDateInstance(java.text.DateFormat.FULL)
+                .format(java.util.Date())
         refresh()
     }
 
