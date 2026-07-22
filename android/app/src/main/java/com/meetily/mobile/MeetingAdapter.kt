@@ -128,7 +128,7 @@ class MeetingAdapter(
                 val h = holder as ItemHolder
                 h.time.text = row.time
                 h.title.text = row.meeting.title
-                h.meta.text = row.meta
+                h.meta.text = "${row.time} · ${row.meta}"
                 h.itemView.setOnClickListener { onClick(row.meeting) }
                 h.itemView.setOnLongClickListener {
                     onLongClick(row.meeting)

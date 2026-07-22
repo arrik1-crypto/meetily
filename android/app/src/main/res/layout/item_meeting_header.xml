@@ -13,17 +13,17 @@
         android:layout_width="0dp"
         android:layout_height="wrap_content"
         android:layout_weight="1"
-        android:letterSpacing="0.14"
+        android:letterSpacing="0.1"
         android:textAllCaps="true"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:textSize="11sp"
+        android:textColor="@color/tx4"
+        android:textSize="10sp"
         android:textStyle="bold" />
 
     <TextView
         android:id="@+id/sectionCount"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:letterSpacing="0.08"
-        android:textColor="?attr/colorOnSurfaceVariant"
-        android:textSize="11sp" />
+        android:letterSpacing="0.06"
+        android:textColor="@color/tx4"
+        android:textSize="10sp" />
 </LinearLayout>

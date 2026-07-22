@@ -5,7 +5,7 @@
     android:background="?attr/selectableItemBackground"
     android:orientation="vertical"
     android:paddingHorizontal="20dp"
-    android:paddingVertical="9dp">
+    android:paddingVertical="8dp">
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -18,10 +18,11 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
-            android:letterSpacing="0.14"
-            android:textAllCaps="true"
-            android:textColor="@color/accent_deep"
-            android:textSize="10.5sp"
+            android:background="@drawable/bg_chip_tag"
+            android:paddingHorizontal="6dp"
+            android:paddingVertical="3dp"
+            android:textColor="@color/chip_tx"
+            android:textSize="10sp"
             android:textStyle="bold"
             android:visibility="gone" />
 
@@ -29,8 +30,8 @@
             android:id="@+id/lineTime"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="10.5sp" />
+            android:textColor="@color/brd2"
+            android:textSize="10sp" />
     </LinearLayout>
 
     <TextView
@@ -39,6 +40,6 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="3dp"
         android:lineSpacingMultiplier="1.4"
-        android:textColor="?attr/colorOnSurface"
-        android:textSize="15.5sp" />
+        android:textColor="@color/tx2"
+        android:textSize="13.5sp" />
 </LinearLayout>

@@ -1,21 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Broadsheet night edition: deep ink ground, paper-white serif,
-         cyan lifted to its 400 step for text-size contrast on dark. -->
-    <color name="bg">#2D2B2B</color>
-    <color name="ink">#F3F2F2</color>
-    <color name="ink_soft">#BAB6B6</color>
-    <color name="surface_soft">#444141</color>
-    <color name="line">#605D5D</color>
-    <color name="line_strong">#7D7979</color>
+    <!-- Nocturne (dark) — the design's hero theme. -->
+    <color name="bg">#161826</color>
+    <color name="bg_hi">#20223A</color>
+    <color name="ink">#E9E9ED</color>          <!-- tx1 -->
+    <color name="tx2">#CFD3E5</color>
+    <color name="ink_soft">#9397AB</color>     <!-- tx3 -->
+    <color name="tx4">#75798C</color>
+    <color name="surface">#1D1F2C</color>      <!-- srf -->
+    <color name="surface_soft">#232532</color> <!-- srf2 -->
+    <color name="chip">#2B2741</color>
+    <color name="chip_tx">#D2CEFD</color>
+    <color name="edge">#2E3140</color>
+    <color name="line">#2E3140</color>
+    <color name="line_strong">#3F424D</color>  <!-- brd -->
+    <color name="brd2">#595D6C</color>
 
-    <color name="accent">#0088B0</color>
-    <color name="accent_on">#FFFFFF</color>
-    <color name="accent_container">#004961</color>
-    <color name="accent_on_container">#CBEEFF</color>
-    <color name="accent_deep">#62C5EE</color>
+    <color name="accent">#B5ABFC</color>       <!-- acc1 -->
+    <color name="accent_on">#161826</color>
+    <color name="accent_container">#2B2741</color>
+    <color name="accent_on_container">#D2CEFD</color>
+    <color name="accent_deep">#B5ABFC</color>
+    <color name="accm">#968AE0</color>
+    <color name="acc_line">#9184D9</color>
+    <color name="accd">#796CBF</color>
+    <color name="tglon">#423A6A</color>
 
-    <color name="record_red">#FF90B1</color>
-    <color name="rec_pill_bg">#4B1528</color>
-    <color name="rec_pill_on">#FFDEE6</color>
+    <color name="orb_a">#2C2F4A</color>
+    <color name="orb_b">#1B1D2E</color>
+
+    <color name="record_red">#9184D9</color>
+    <color name="rec_pill_bg">#2B2741</color>
+    <color name="rec_pill_on">#D2CEFD</color>
 </resources>

@@ -2,8 +2,8 @@
 <TextView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_marginBottom="14dp"
+    android:layout_marginBottom="12dp"
     android:lineSpacingMultiplier="1.4"
-    android:textColor="?attr/colorOnSurfaceVariant"
-    android:textSize="15.5sp"
+    android:textColor="@color/tx4"
+    android:textSize="13.5sp"
     android:textStyle="italic" />

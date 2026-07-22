@@ -1,22 +1,20 @@
 package com.meetily.mobile
 
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import android.text.Editable
 import android.text.TextWatcher
-import android.view.Menu
-import android.view.MenuItem
 import android.view.View
 import android.widget.EditText
+import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
@@ -31,7 +29,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var emptyState: View
     private lateinit var meetingCount: TextView
     private lateinit var searchInput: EditText
-    private lateinit var recordButton: MaterialButton
+    private lateinit var orbCaption: TextView
     private var allMeetings: List<Meeting> = emptyList()
 
     // Library filters: at most one active — a tag or a recurring series.
@@ -61,10 +59,6 @@ class MainActivity : AppCompatActivity() {
         }
         setContentView(R.layout.activity_main)
 
-        val toolbar = findViewById<MaterialToolbar>(R.id.topAppBar)
-        setSupportActionBar(toolbar)
-        supportActionBar?.title = ""
-
         store = MeetingStore(this)
         emptyState = findViewById(R.id.emptyState)
         meetingCount = findViewById(R.id.meetingCount)
@@ -92,8 +86,8 @@ class MainActivity : AppCompatActivity() {
         )
         recycler.adapter = adapter
 
-        recordButton = findViewById(R.id.recordButton)
-        recordButton.setOnClickListener {
+        orbCaption = findViewById(R.id.orbCaption)
+        findViewById<View>(R.id.recordOrb).setOnClickListener {
             startActivity(Intent(this, RecordingActivity::class.java))
         }
         findViewById<View>(R.id.importButton).setOnClickListener {
@@ -102,6 +96,21 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Exception) {
                 Toast.makeText(this, R.string.import_no_picker, Toast.LENGTH_SHORT).show()
             }
+        }
+        findViewById<View>(R.id.settingsButton).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<View>(R.id.askButton).setOnClickListener {
+            startActivity(Intent(this, AskLibraryActivity::class.java))
+        }
+        findViewById<View>(R.id.digestButton).setOnClickListener {
+            startActivity(Intent(this, DigestActivity::class.java))
+        }
+        findViewById<View>(R.id.themeToggle).setOnClickListener {
+            // Sun shows in dark (tap for daylight); moon shows in light.
+            val next = if (isNightNow()) "light" else "dark"
+            AppSettings(this).themeMode = next
+            ThemeManager.applyNightMode(next)
         }
 
         recoverInterruptedRecording()
@@ -134,12 +143,13 @@ class MainActivity : AppCompatActivity() {
             recreate()
             return
         }
-        recordButton.setText(
-            if (RecordingService.isRunning) R.string.resume_recording else R.string.record
+        orbCaption.setText(
+            if (RecordingService.isRunning) R.string.orb_recording_caption
+            else R.string.tap_to_record
         )
-        findViewById<TextView>(R.id.datelineDate).text =
-            java.text.DateFormat.getDateInstance(java.text.DateFormat.FULL)
-                .format(java.util.Date())
+        findViewById<ImageButton>(R.id.themeToggle).setImageResource(
+            if (isNightNow()) R.drawable.ic_sun else R.drawable.ic_moon
+        )
         refresh()
     }
 
@@ -269,37 +279,9 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    override fun onCreateOptionsMenu(menu: Menu): Boolean {
-        menuInflater.inflate(R.menu.menu_main, menu)
-        return true
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        return when (item.itemId) {
-            R.id.action_settings -> {
-                startActivity(Intent(this, SettingsActivity::class.java))
-                true
-            }
-            R.id.action_ask_library -> {
-                startActivity(Intent(this, AskLibraryActivity::class.java))
-                true
-            }
-            R.id.action_digest -> {
-                startActivity(Intent(this, DigestActivity::class.java))
-                true
-            }
-            R.id.action_import -> {
-                try {
-                    pickAudio.launch("audio/*")
-                } catch (_: Exception) {
-                    Toast.makeText(this, R.string.import_no_picker, Toast.LENGTH_SHORT)
-                        .show()
-                }
-                true
-            }
-            else -> super.onOptionsItemSelected(item)
-        }
-    }
+    private fun isNightNow(): Boolean =
+        resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
+            Configuration.UI_MODE_NIGHT_YES
 
     companion object {
         const val ACTION_IMPORT_PICK = "com.meetily.mobile.ACTION_IMPORT_PICK"

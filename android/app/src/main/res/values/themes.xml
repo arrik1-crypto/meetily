@@ -6,53 +6,53 @@
       color roles carry paper/ink/cyan (magenta stays a per-view spot color
       for the recording state, never a theme role).
     -->
-    <style name="TextAppearance.Broadsheet.DisplaySmall" parent="TextAppearance.Material3.DisplaySmall">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.DisplaySmall" parent="TextAppearance.Material3.DisplaySmall">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.HeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.HeadlineSmall" parent="TextAppearance.Material3.HeadlineSmall">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.HeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.HeadlineMedium" parent="TextAppearance.Material3.HeadlineMedium">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.TitleMedium" parent="TextAppearance.Material3.TitleMedium">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.TitleSmall" parent="TextAppearance.Material3.TitleSmall">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.TitleSmall" parent="TextAppearance.Material3.TitleSmall">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.BodyLarge" parent="TextAppearance.Material3.BodyLarge">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.BodyLarge" parent="TextAppearance.Material3.BodyLarge">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.BodyMedium" parent="TextAppearance.Material3.BodyMedium">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.BodyMedium" parent="TextAppearance.Material3.BodyMedium">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.BodySmall" parent="TextAppearance.Material3.BodySmall">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.BodySmall" parent="TextAppearance.Material3.BodySmall">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.LabelLarge" parent="TextAppearance.Material3.LabelLarge">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.LabelLarge" parent="TextAppearance.Material3.LabelLarge">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.LabelMedium" parent="TextAppearance.Material3.LabelMedium">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.LabelMedium" parent="TextAppearance.Material3.LabelMedium">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
-    <style name="TextAppearance.Broadsheet.LabelSmall" parent="TextAppearance.Material3.LabelSmall">
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="android:fontFamily">@font/source_serif4</item>
+    <style name="TextAppearance.Nocturne.LabelSmall" parent="TextAppearance.Material3.LabelSmall">
+        <item name="fontFamily">@font/inter</item>
+        <item name="android:fontFamily">@font/inter</item>
     </style>
 
     <style name="Theme.Meetily" parent="Theme.Material3.DayNight.NoActionBar">
@@ -75,19 +75,19 @@
         <item name="colorSurfaceContainerHigh">@color/surface_soft</item>
         <item name="colorSurfaceContainerHighest">@color/surface_soft</item>
 
-        <item name="android:fontFamily">@font/source_serif4</item>
-        <item name="fontFamily">@font/source_serif4</item>
-        <item name="textAppearanceDisplaySmall">@style/TextAppearance.Broadsheet.DisplaySmall</item>
-        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Broadsheet.HeadlineSmall</item>
-        <item name="textAppearanceHeadlineMedium">@style/TextAppearance.Broadsheet.HeadlineMedium</item>
-        <item name="textAppearanceTitleLarge">@style/TextAppearance.Broadsheet.TitleLarge</item>
-        <item name="textAppearanceTitleMedium">@style/TextAppearance.Broadsheet.TitleMedium</item>
-        <item name="textAppearanceTitleSmall">@style/TextAppearance.Broadsheet.TitleSmall</item>
-        <item name="textAppearanceBodyLarge">@style/TextAppearance.Broadsheet.BodyLarge</item>
-        <item name="textAppearanceBodyMedium">@style/TextAppearance.Broadsheet.BodyMedium</item>
-        <item name="textAppearanceBodySmall">@style/TextAppearance.Broadsheet.BodySmall</item>
-        <item name="textAppearanceLabelLarge">@style/TextAppearance.Broadsheet.LabelLarge</item>
-        <item name="textAppearanceLabelMedium">@style/TextAppearance.Broadsheet.LabelMedium</item>
-        <item name="textAppearanceLabelSmall">@style/TextAppearance.Broadsheet.LabelSmall</item>
+        <item name="android:fontFamily">@font/inter</item>
+        <item name="fontFamily">@font/inter</item>
+        <item name="textAppearanceDisplaySmall">@style/TextAppearance.Nocturne.DisplaySmall</item>
+        <item name="textAppearanceHeadlineSmall">@style/TextAppearance.Nocturne.HeadlineSmall</item>
+        <item name="textAppearanceHeadlineMedium">@style/TextAppearance.Nocturne.HeadlineMedium</item>
+        <item name="textAppearanceTitleLarge">@style/TextAppearance.Nocturne.TitleLarge</item>
+        <item name="textAppearanceTitleMedium">@style/TextAppearance.Nocturne.TitleMedium</item>
+        <item name="textAppearanceTitleSmall">@style/TextAppearance.Nocturne.TitleSmall</item>
+        <item name="textAppearanceBodyLarge">@style/TextAppearance.Nocturne.BodyLarge</item>
+        <item name="textAppearanceBodyMedium">@style/TextAppearance.Nocturne.BodyMedium</item>
+        <item name="textAppearanceBodySmall">@style/TextAppearance.Nocturne.BodySmall</item>
+        <item name="textAppearanceLabelLarge">@style/TextAppearance.Nocturne.LabelLarge</item>
+        <item name="textAppearanceLabelMedium">@style/TextAppearance.Nocturne.LabelMedium</item>
+        <item name="textAppearanceLabelSmall">@style/TextAppearance.Nocturne.LabelSmall</item>
     </style>
 </resources>

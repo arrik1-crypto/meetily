@@ -1,29 +1,43 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!--
-      Broadsheet palette (day edition): newsprint set for the web — paper
-      ground, near-black ink, cyan as the one interactive color, magenta
-      reserved for the recording state. Values come from the design system's
-      token sheet; the night edition overrides live in values-night.
+      Nocturne design system — "Daylight blue" light palette. The dark
+      Nocturne palette (the design's hero theme) lives in values-night.
+      Token names follow the handoff: bg/srf/srf2 grounds, tx1..tx4 text
+      ramp, acc* accent ramp, chip/chiptx speaker chips, edge/brd borders.
     -->
-    <color name="bg">#F3F2F2</color>
-    <color name="ink">#201E1D</color>
-    <color name="ink_soft">#7D7979</color>
-    <color name="surface_soft">#EAE9E9</color>
-    <color name="line">#D7D3D3</color>
-    <color name="line_strong">#BAB6B6</color>
+    <color name="bg">#F4F6FB</color>
+    <color name="bg_hi">#E3EBFA</color>
+    <color name="ink">#17233F</color>          <!-- tx1 -->
+    <color name="tx2">#33415F</color>
+    <color name="ink_soft">#5C6A8A</color>     <!-- tx3 -->
+    <color name="tx4">#7B87A1</color>
+    <color name="surface">#FFFFFF</color>      <!-- srf -->
+    <color name="surface_soft">#E9EEF8</color> <!-- srf2 -->
+    <color name="chip">#DCE8FD</color>
+    <color name="chip_tx">#1D4ED8</color>
+    <color name="edge">#DFE5F2</color>
+    <color name="line">#DFE5F2</color>
+    <color name="line_strong">#C6D1E8</color>  <!-- brd -->
+    <color name="brd2">#93A5C8</color>
 
-    <!-- Cyan: base for fills, deep step for text-size accents/links. -->
-    <color name="accent">#0088B0</color>
-    <color name="accent_on">#FFFFFF</color>
-    <color name="accent_container">#CBEEFF</color>
-    <color name="accent_on_container">#004961</color>
-    <color name="accent_deep">#006786</color>
+    <color name="accent">#2F6FE4</color>       <!-- acc1 -->
+    <color name="accent_on">#F4F6FB</color>
+    <color name="accent_container">#DCE8FD</color>
+    <color name="accent_on_container">#1D4ED8</color>
+    <color name="accent_deep">#2F6FE4</color>  <!-- text-size accent = acc1 -->
+    <color name="accm">#3D7CF0</color>
+    <color name="acc_line">#3B82F6</color>
+    <color name="accd">#6EA3F8</color>
+    <color name="tglon">#C9DCFF</color>
 
-    <!-- Magenta: the rare second spot color — recording state only. -->
-    <color name="record_red">#D6006C</color>
-    <color name="rec_pill_bg">#FFDEE6</color>
-    <color name="rec_pill_on">#790E3D</color>
+    <color name="orb_a">#FFFFFF</color>
+    <color name="orb_b">#DCE7FA</color>
+
+    <!-- Recording accent (the design keeps recording in the accent ramp). -->
+    <color name="record_red">#3B82F6</color>
+    <color name="rec_pill_bg">#DCE8FD</color>
+    <color name="rec_pill_on">#1D4ED8</color>
 
     <color name="white">#FFFFFF</color>
 </resources>

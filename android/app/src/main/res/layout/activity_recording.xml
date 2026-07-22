@@ -3,14 +3,14 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="?android:attr/colorBackground"
+    android:background="@drawable/bg_record_radial"
     android:orientation="vertical">
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/recordingToolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
-        android:background="?android:attr/colorBackground"
+        android:background="@android:color/transparent"
         app:navigationContentDescription="@string/discard"
         app:navigationIcon="@drawable/ic_chevron_left"
         app:title="" />
@@ -21,29 +21,18 @@
         android:orientation="vertical"
         android:paddingHorizontal="20dp">
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:letterSpacing="0.14"
-            android:text="@string/now_recording"
-            android:textAllCaps="true"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="11sp" />
-
         <EditText
             android:id="@+id/titleInput"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
             android:background="@null"
-            android:fontFamily="@font/source_serif4"
             android:hint="@string/meeting_title_hint"
             android:importantForAutofill="no"
             android:inputType="textCapSentences"
             android:maxLines="2"
             android:textColor="?attr/colorOnSurface"
-            android:textColorHint="?attr/colorOutline"
-            android:textSize="25sp"
+            android:textColorHint="@color/tx4"
+            android:textSize="22sp"
             android:textStyle="bold" />
 
         <EditText
@@ -77,31 +66,27 @@
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <!-- Big press timer, magenta on-air pill beside it. -->
+            <!-- Nocturne timer: light weight, tabular, wide tracking. -->
             <TextView
                 android:id="@+id/elapsedView"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:fontFamily="@font/source_serif4"
+                android:letterSpacing="0.04"
                 android:text="@string/elapsed_zero"
                 android:textColor="?attr/colorOnSurface"
-                android:textSize="52sp"
-                android:textStyle="bold" />
+                android:textSize="44sp" />
 
             <LinearLayout
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:background="@drawable/bg_rec_pill"
                 android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:paddingHorizontal="11dp"
-                android:paddingVertical="6dp">
+                android:orientation="horizontal">
 
                 <View
                     android:id="@+id/recordDot"
-                    android:layout_width="7dp"
-                    android:layout_height="7dp"
+                    android:layout_width="6dp"
+                    android:layout_height="6dp"
                     android:background="@drawable/bg_record_dot" />
 
                 <TextView
@@ -109,12 +94,9 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="7dp"
-                    android:letterSpacing="0.1"
                     android:text="@string/status_starting"
-                    android:textAllCaps="true"
-                    android:textColor="@color/rec_pill_on"
-                    android:textSize="10.5sp"
-                    android:textStyle="bold" />
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
 
@@ -216,16 +198,17 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/finishButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
                 android:layout_width="0dp"
                 android:layout_height="56dp"
                 android:layout_marginStart="12dp"
                 android:layout_weight="1"
                 android:text="@string/finish_save"
-                android:textColor="?attr/colorOnPrimary"
-                app:backgroundTint="?attr/colorPrimary"
-                app:cornerRadius="4dp"
+                android:textColor="@color/chip_tx"
+                app:cornerRadius="28dp"
                 app:icon="@drawable/ic_check"
-                app:iconTint="?attr/colorOnPrimary" />
+                app:iconTint="?attr/colorPrimary"
+                app:strokeColor="@color/acc_line" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

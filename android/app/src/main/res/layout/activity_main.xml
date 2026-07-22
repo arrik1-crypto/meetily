@@ -4,103 +4,127 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="?android:attr/colorBackground"
-    android:orientation="vertical">
+    android:orientation="vertical"
+    android:paddingHorizontal="24dp"
+    android:paddingTop="14dp">
 
-    <!-- Slim toolbar carries only the actions; the masthead is the title. -->
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/topAppBar"
-        android:layout_width="match_parent"
-        android:layout_height="44dp"
-        android:background="?android:attr/colorBackground"
-        app:title="" />
-
-    <TextView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:fontFamily="@font/source_serif4"
-        android:gravity="center"
-        android:text="@string/app_name"
-        android:textColor="?attr/colorOnSurface"
-        android:textSize="38sp"
-        android:textStyle="bold" />
-
-    <!-- Dateline rail: thick-thin head pair around the date. -->
+    <!-- Header: brand + tagline, theme toggle, ask, digest, settings. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginHorizontal="26dp"
-        android:layout_marginTop="14dp"
-        android:orientation="vertical">
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="3dp"
-            android:background="?attr/colorOnSurface" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
+        <TextView
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingVertical="8dp">
+            android:text="@string/app_name"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="17sp"
+            android:textStyle="bold" />
 
-            <TextView
-                android:id="@+id/datelineDate"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:letterSpacing="0.12"
-                android:textAllCaps="true"
-                android:textColor="?attr/colorOnSurface"
-                android:textSize="10.5sp" />
+        <TextView
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:layout_weight="1"
+            android:text="@string/private_by_design"
+            android:textColor="@color/tx4"
+            android:textSize="11sp" />
 
-            <TextView
-                android:id="@+id/datelineBadge"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:letterSpacing="0.12"
-                android:text="@string/on_device"
-                android:textAllCaps="true"
-                android:textColor="@color/accent_deep"
-                android:textSize="10.5sp" />
-        </LinearLayout>
+        <ImageButton
+            android:id="@+id/themeToggle"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/theme_toggle"
+            android:src="@drawable/ic_sun"
+            app:tint="?attr/colorOnSurfaceVariant" />
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="?attr/colorOnSurface" />
+        <ImageButton
+            android:id="@+id/askButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/ask_library_title"
+            android:src="@drawable/ic_sparkle"
+            app:tint="?attr/colorOnSurfaceVariant" />
+
+        <ImageButton
+            android:id="@+id/digestButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/digest_title"
+            android:src="@drawable/ic_clock"
+            app:tint="?attr/colorOnSurfaceVariant" />
+
+        <ImageButton
+            android:id="@+id/settingsButton"
+            android:layout_width="44dp"
+            android:layout_height="44dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/action_settings"
+            android:src="@drawable/ic_settings"
+            app:tint="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
-    <!-- Search: italic hint over a hairline, no box. -->
+    <!-- Record orb. -->
+    <FrameLayout
+        android:id="@+id/recordOrb"
+        android:layout_width="118dp"
+        android:layout_height="118dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="26dp"
+        android:background="@drawable/orb">
+
+        <ImageView
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:layout_gravity="center"
+            android:importantForAccessibility="no"
+            android:src="@drawable/ic_mic"
+            app:tint="?attr/colorPrimary" />
+    </FrameLayout>
+
+    <TextView
+        android:id="@+id/orbCaption"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="16dp"
+        android:text="@string/tap_to_record"
+        android:textColor="?attr/colorOnSurfaceVariant"
+        android:textSize="12sp" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="22dp"
+        android:background="@drawable/hairline_gradient" />
+
+    <!-- Search + filters keep their function, dressed as Nocturne inputs. -->
     <EditText
         android:id="@+id/searchInput"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginHorizontal="26dp"
-        android:layout_marginTop="10dp"
-        android:background="@null"
+        android:layout_marginTop="14dp"
+        android:background="@drawable/bg_field"
         android:hint="@string/search_hint"
         android:imeOptions="actionSearch"
         android:importantForAutofill="no"
         android:inputType="text"
         android:maxLines="1"
-        android:paddingVertical="8dp"
+        android:paddingHorizontal="14dp"
+        android:paddingVertical="10dp"
         android:textColor="?attr/colorOnSurface"
-        android:textColorHint="?attr/colorOnSurfaceVariant"
-        android:textSize="14.5sp"
-        android:textStyle="italic" />
-
-    <View
-        android:layout_width="match_parent"
-        android:layout_height="1dp"
-        android:layout_marginHorizontal="26dp"
-        android:background="?attr/colorOutlineVariant" />
+        android:textColorHint="@color/tx4"
+        android:textSize="13sp" />
 
     <HorizontalScrollView
         android:id="@+id/filterChipsScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingHorizontal="26dp"
         android:paddingTop="10dp"
         android:scrollbars="none"
         android:visibility="gone">
@@ -122,8 +146,8 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:clipToPadding="false"
-            android:paddingTop="6dp"
-            android:paddingBottom="24dp"
+            android:paddingTop="4dp"
+            android:paddingBottom="16dp"
             android:scrollbars="none" />
 
         <LinearLayout
@@ -150,8 +174,7 @@
                 android:gravity="center"
                 android:text="@string/empty_body"
                 android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textStyle="italic" />
+                android:textColor="@color/tx4" />
         </LinearLayout>
 
         <TextView
@@ -161,39 +184,19 @@
             android:visibility="gone" />
     </FrameLayout>
 
-    <!-- Bottom press bar: full-width record action + import. -->
-    <LinearLayout
+    <!-- Outlined import pill; recording starts from the orb. -->
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/importButton"
+        style="@style/Widget.Material3.Button.OutlinedButton"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="26dp"
-        android:paddingEnd="14dp"
-        android:paddingTop="10dp"
-        android:paddingBottom="12dp">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/recordButton"
-            android:layout_width="0dp"
-            android:layout_height="54dp"
-            android:layout_weight="1"
-            android:fontFamily="@font/source_serif4"
-            android:text="@string/record"
-            android:textColor="?attr/colorOnPrimary"
-            android:textSize="16.5sp"
-            app:backgroundTint="?attr/colorPrimary"
-            app:cornerRadius="4dp"
-            app:icon="@drawable/ic_mic"
-            app:iconGravity="textStart"
-            app:iconTint="?attr/colorOnPrimary" />
-
-        <ImageButton
-            android:id="@+id/importButton"
-            android:layout_width="52dp"
-            android:layout_height="52dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/action_import"
-            android:src="@drawable/ic_download"
-            app:tint="@color/accent_deep" />
-    </LinearLayout>
+        android:layout_height="46dp"
+        android:layout_marginBottom="12dp"
+        android:text="@string/import_pill"
+        android:textColor="@color/tx2"
+        android:textSize="13sp"
+        app:cornerRadius="23dp"
+        app:icon="@drawable/ic_download"
+        app:iconGravity="textStart"
+        app:iconTint="?attr/colorPrimary"
+        app:strokeColor="?attr/colorOutline" />
 </LinearLayout>
