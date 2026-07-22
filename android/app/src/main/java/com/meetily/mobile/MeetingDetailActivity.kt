@@ -44,6 +44,10 @@ import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
 import com.meetily.mobile.summarize.SummaryTemplate
 import com.meetily.mobile.summarize.SummaryTemplates
+import com.meetily.mobile.whisper.AudioWindowExtractor
+import com.meetily.mobile.whisper.DiarizationModels
+import com.meetily.mobile.whisper.SherpaEmbedder
+import com.meetily.mobile.whisper.VoiceProfileStore
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -241,15 +245,18 @@ class MeetingDetailActivity : AppCompatActivity() {
             } else null,
             onRenameCluster = if (clusterId != null) {
                 { name ->
+                    val tagged = mutableListOf<Int>()
                     for (i in m.segments.indices) {
                         val s = m.segments[i]
                         if (s.clusterId == clusterId && s.speaker.isNullOrBlank()) {
                             m.segments[i] = s.copy(speaker = name)
+                            tagged.add(i)
                         }
                     }
                     addAttendee(name)
                     store.save(m)
                     renderTranscript(m)
+                    promptVoiceprintUpdate(name, tagged)
                 }
             } else null
         ) { name ->
@@ -258,6 +265,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (!name.isNullOrBlank()) addAttendee(name)
             store.save(m)
             transcriptAdapter.update(index, m.segments[index])
+            if (!name.isNullOrBlank()) {
+                promptVoiceprintUpdate(name, listOf(index))
+            }
         }
     }
 
@@ -1038,6 +1048,64 @@ class MeetingDetailActivity : AppCompatActivity() {
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
         startActivity(Intent.createChooser(send, getString(R.string.share_audio)))
+    }
+
+    /**
+     * After-the-fact voiceprint learning: when a segment (or whole cluster)
+     * gets tagged with a name and the meeting kept its audio, offer to feed
+     * those exact audio windows into the person's voice profile so future
+     * meetings label them automatically.
+     */
+    private fun promptVoiceprintUpdate(name: String, segmentIndices: List<Int>) {
+        val m = meeting ?: return
+        val file = audioFileOrNull() ?: return
+        val dModel = DiarizationModels.byKey(settings.diarizationModel)
+        if (!DiarizationModels.isDownloaded(this, dModel)) return
+        // Window = this segment's offset up to the next segment's offset.
+        val windows = segmentIndices.mapNotNull { idx ->
+            val segment = m.segments.getOrNull(idx) ?: return@mapNotNull null
+            val start = segment.audioMs ?: return@mapNotNull null
+            val end = m.segments.drop(idx + 1).firstNotNullOfOrNull { it.audioMs }
+                ?.takeIf { it > start }
+                ?: (start + 8_000L)
+            start to end
+        }.take(3)
+        if (windows.isEmpty()) return
+
+        AlertDialog.Builder(this)
+            .setMessage(getString(R.string.voice_save_prompt, name))
+            .setPositiveButton(R.string.voice_save_yes) { _, _ ->
+                val modelPath = DiarizationModels.fileFor(this, dModel).absolutePath
+                Thread {
+                    var added = 0
+                    val embedder = SherpaEmbedder.create(modelPath)
+                    if (embedder != null) {
+                        try {
+                            for ((start, end) in windows) {
+                                val pcm = AudioWindowExtractor
+                                    .extract(this, file, start, end) ?: continue
+                                val embedding = embedder.embed(pcm) ?: continue
+                                if (VoiceProfileStore.addSample(this, name, embedding)) {
+                                    added++
+                                }
+                            }
+                        } finally {
+                            embedder.release()
+                        }
+                    }
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        Toast.makeText(
+                            this,
+                            if (added > 0) getString(R.string.voice_saved, name)
+                            else getString(R.string.voice_save_failed),
+                            Toast.LENGTH_SHORT
+                        ).show()
+                    }
+                }.start()
+            }
+            .setNegativeButton(R.string.voice_save_no, null)
+            .show()
     }
 
     private fun confirmRetranscribe() {

@@ -116,6 +116,15 @@ class SpeakerClusterer(
     @Synchronized
     fun clusterCount(): Int = clusters.size
 
+    /** Ids of all live clusters (for profile matching at session end). */
+    @Synchronized
+    fun clusterIds(): List<Int> = clusters.map { it.id }
+
+    /** Normalized centroid of one cluster, or null if unknown/empty. */
+    @Synchronized
+    fun centroidOf(id: Int): FloatArray? =
+        clusters.firstOrNull { it.id == id }?.centroid()
+
     companion object {
         private fun dot(a: FloatArray, b: FloatArray): Float {
             var sum = 0f

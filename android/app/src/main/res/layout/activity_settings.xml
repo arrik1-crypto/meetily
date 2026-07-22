@@ -319,6 +319,41 @@
                                 app:strokeColor="?attr/colorOutline" />
                         </LinearLayout>
 
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:text="@string/setting_voices"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/setting_voices_desc"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        <TextView
+                            android:id="@+id/voicesStatus"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="10dp"
+                            android:textAppearance="?attr/textAppearanceBodyMedium"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/manageVoicesButton"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="44dp"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/manage_voices"
+                            android:textColor="?attr/colorOnSurface"
+                            app:cornerRadius="22dp"
+                            app:strokeColor="?attr/colorOutline" />
+
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/saveAudioSwitch"
                             android:layout_width="match_parent"

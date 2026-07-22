@@ -29,6 +29,8 @@ import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.whisper.CaptureTuning
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.MeetingAudioWriter
+import com.meetily.mobile.whisper.VoiceProfile
+import com.meetily.mobile.whisper.VoiceProfileStore
 import com.meetily.mobile.whisper.SherpaEmbedder
 import com.meetily.mobile.whisper.SpeakerClusterer
 import com.meetily.mobile.whisper.WhisperModels
@@ -92,6 +94,7 @@ class RecordingService : Service() {
     private var embedder: SherpaEmbedder? = null
     private var audioWriter: MeetingAudioWriter? = null
     private var audioFileName: String? = null
+    private var voiceProfiles: List<VoiceProfile> = emptyList()
     private var clusterer: SpeakerClusterer? = null
     private val clusterNames = mutableMapOf<Int, String>()
 
@@ -265,18 +268,36 @@ class RecordingService : Service() {
     fun renameCluster(clusterId: Int, name: String) {
         val trimmed = name.trim()
         if (trimmed.isBlank()) return
+        applyClusterName(clusterId, trimmed)
+        scheduleSave()
+    }
+
+    /** Names a cluster and retroactively relabels its untagged segments. */
+    private fun applyClusterName(clusterId: Int, name: String) {
         val old = clusterNames[clusterId]
-        clusterNames[clusterId] = trimmed
+        if (old == name) return
+        clusterNames[clusterId] = name
         for (i in segments.indices) {
             val s = segments[i]
             if (s.clusterId == clusterId &&
                 (s.speaker.isNullOrBlank() || s.speaker == old)
             ) {
-                segments[i] = s.copy(speaker = trimmed)
+                segments[i] = s.copy(speaker = name)
                 observer?.onSegmentUpdated(i, segments[i])
             }
         }
-        scheduleSave()
+    }
+
+    /**
+     * Saves the cluster's voice as [name]'s profile so future meetings label
+     * this speaker automatically. Returns false if the cluster has no usable
+     * centroid.
+     */
+    fun saveVoiceProfileFromCluster(clusterId: Int, name: String): Boolean {
+        val centroid = clusterer?.centroidOf(clusterId) ?: return false
+        val saved = VoiceProfileStore.addSample(this, name, centroid)
+        if (saved) voiceProfiles = VoiceProfileStore.load(this)
+        return saved
     }
 
     /** Fuses clusters the online pass kept apart; run once, at finish. */
@@ -557,6 +578,7 @@ class RecordingService : Service() {
                     embedder = created
                     val c = SpeakerClusterer()
                     clusterer = c
+                    voiceProfiles = VoiceProfileStore.load(this)
                     labeler = { audio ->
                         c.assign(
                             if (audio.size >= MIN_EMBED_SAMPLES) created.embed(audio) else null
@@ -619,6 +641,14 @@ class RecordingService : Service() {
         clusterId: Int? = null,
         audioMs: Long? = null
     ) {
+        // Unknown cluster: see if its voice matches a saved profile — this is
+        // how known people get named from their first sentence.
+        if (clusterId != null && !clusterNames.containsKey(clusterId) &&
+            voiceProfiles.isNotEmpty()
+        ) {
+            VoiceProfileStore.match(voiceProfiles, clusterer?.centroidOf(clusterId))
+                ?.let { name -> applyClusterName(clusterId, name) }
+        }
         // Precedence: manual/sticky speaker > named cluster > anonymous cluster.
         val resolved = speaker ?: clusterId?.let { clusterNames[it] }
         val segment = TranscriptSegment(

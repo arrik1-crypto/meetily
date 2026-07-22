@@ -3,6 +3,10 @@
 Status: **implemented (experimental)** in v1.1.0-beta1 — Settings → Whisper
 section → "Auto-detect speakers". (Follows the shipped "diarization-lite"
 layer: sticky speakers, live speaker chips, and LLM speaker suggestions.)
+v1.2.0-beta3 added the final layer: **voice profiles** — persistent named
+voiceprints (enrolled, saved from renamed clusters, or learned from
+after-the-fact transcript tags via the saved audio) that auto-name known
+speakers across all future meetings and imports.
 
 ## Goal
 

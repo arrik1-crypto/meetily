@@ -460,6 +460,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                     svc.renameCluster(clusterId, name)
                     addAttendee(name)
                     rebuildSpeakerChips()
+                    promptSaveVoiceprint(clusterId, name)
                 }
             } else null
         ) { name ->
@@ -467,6 +468,24 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             if (!name.isNullOrBlank()) addAttendee(name)
             rebuildSpeakerChips()
         }
+    }
+
+    /** Offer to keep this cluster's voice so future meetings auto-name it. */
+    private fun promptSaveVoiceprint(clusterId: Int, name: String) {
+        val svc = service ?: return
+        AlertDialog.Builder(this)
+            .setMessage(getString(R.string.voice_save_prompt, name))
+            .setPositiveButton(R.string.voice_save_yes) { _, _ ->
+                val saved = svc.saveVoiceProfileFromCluster(clusterId, name)
+                Toast.makeText(
+                    this,
+                    if (saved) getString(R.string.voice_saved, name)
+                    else getString(R.string.voice_save_failed),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton(R.string.voice_save_no, null)
+            .show()
     }
 
     private fun capturePhoto() {

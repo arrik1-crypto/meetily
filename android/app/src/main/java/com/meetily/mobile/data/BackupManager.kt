@@ -19,11 +19,19 @@ object BackupManager {
     private const val PHOTOS = "photos/"
     private const val AUDIO = "audio/"
 
+    private const val VOICES = "voice_profiles.json"
+
     fun export(context: Context, out: OutputStream) {
         ZipOutputStream(out).use { zip ->
             addDir(zip, File(context.filesDir, "meetings"), MEETINGS) { it.endsWith(".json") }
             addDir(zip, File(context.filesDir, "photos"), PHOTOS) { true }
             addDir(zip, File(context.filesDir, "audio"), AUDIO) { true }
+            val voices = File(context.filesDir, VOICES)
+            if (voices.isFile) {
+                zip.putNextEntry(ZipEntry(VOICES))
+                voices.inputStream().use { it.copyTo(zip) }
+                zip.closeEntry()
+            }
         }
     }
 
@@ -47,6 +55,8 @@ object BackupManager {
                             File(photosDir, File(name).name)
                         name.startsWith(AUDIO) ->
                             File(audioDir, File(name).name)
+                        name == VOICES ->
+                            File(context.filesDir, VOICES)
                         else -> null
                     }
                     if (target != null && isUnder(target.parentFile, target)) {

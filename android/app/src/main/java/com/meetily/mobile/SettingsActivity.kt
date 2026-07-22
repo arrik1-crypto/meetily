@@ -1,6 +1,7 @@
 package com.meetily.mobile
 
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
@@ -24,6 +25,7 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.BackupManager
 import com.meetily.mobile.whisper.CaptureTuning
 import com.meetily.mobile.whisper.DiarizationModels
+import com.meetily.mobile.whisper.VoiceProfileStore
 import com.meetily.mobile.whisper.WhisperModels
 
 class SettingsActivity : AppCompatActivity() {
@@ -45,6 +47,7 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var diarizeProgress: LinearProgressIndicator
     private lateinit var manageDiarizeButton: MaterialButton
     private lateinit var captureStatus: TextView
+    private lateinit var voicesStatus: TextView
     private lateinit var urlInput: EditText
     private lateinit var keyInput: EditText
     private lateinit var modelInput: EditText
@@ -122,6 +125,9 @@ class SettingsActivity : AppCompatActivity() {
         updateCaptureStatus()
         findViewById<View>(R.id.micTuningButton).setOnClickListener { showMicTuningDialog() }
         findViewById<View>(R.id.micDeviceButton).setOnClickListener { showMicDeviceDialog() }
+        voicesStatus = findViewById(R.id.voicesStatus)
+        updateVoicesStatus()
+        findViewById<View>(R.id.manageVoicesButton).setOnClickListener { showVoicesDialog() }
 
         findViewById<View>(R.id.exportBackupButton).setOnClickListener {
             try {
@@ -349,6 +355,159 @@ class SettingsActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    // --- Voice profiles -----------------------------------------------------
+
+    private fun updateVoicesStatus() {
+        val count = VoiceProfileStore.load(this).size
+        voicesStatus.text = getString(R.string.voices_status, count)
+    }
+
+    private fun showVoicesDialog() {
+        val profiles = VoiceProfileStore.load(this)
+        val labels = mutableListOf(getString(R.string.enroll_voice))
+        for (profile in profiles) {
+            labels.add(getString(R.string.voice_row, profile.name, profile.samples))
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.setting_voices)
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which == 0) {
+                    startEnrollment()
+                } else {
+                    confirmDeleteVoice(profiles[which - 1].name)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmDeleteVoice(name: String) {
+        AlertDialog.Builder(this)
+            .setMessage(getString(R.string.voice_delete_confirm, name))
+            .setPositiveButton(R.string.delete) { _, _ ->
+                VoiceProfileStore.delete(this, name)
+                updateVoicesStatus()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun startEnrollment() {
+        if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED
+        ) {
+            Toast.makeText(this, R.string.enroll_needs_mic, Toast.LENGTH_LONG).show()
+            return
+        }
+        val dModel = DiarizationModels.byKey(settings.diarizationModel)
+        if (!DiarizationModels.isDownloaded(this, dModel)) {
+            Toast.makeText(this, R.string.enroll_needs_model, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (RecordingService.isRunning) {
+            Toast.makeText(this, R.string.enroll_wait_recording, Toast.LENGTH_LONG).show()
+            return
+        }
+        val input = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            hint = getString(R.string.voice_name_hint)
+        }
+        val container = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.enroll_voice)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isNotBlank()) recordEnrollment(name)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** Records up to 15 s of speech and saves it as [name]'s voiceprint. */
+    private fun recordEnrollment(name: String) {
+        val dModel = DiarizationModels.byKey(settings.diarizationModel)
+        val modelPath = DiarizationModels.fileFor(this, dModel).absolutePath
+        val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(getString(R.string.enroll_title, name))
+            .setMessage(R.string.enroll_instructions)
+            .setCancelable(false)
+            .setPositiveButton(R.string.enroll_stop) { _, _ -> stopped.set(true) }
+            .show()
+
+        Thread {
+            var saved = false
+            try {
+                val sampleRate = 16_000
+                val minBuffer = android.media.AudioRecord.getMinBufferSize(
+                    sampleRate,
+                    android.media.AudioFormat.CHANNEL_IN_MONO,
+                    android.media.AudioFormat.ENCODING_PCM_FLOAT
+                )
+                val record = android.media.AudioRecord(
+                    android.media.MediaRecorder.AudioSource.VOICE_RECOGNITION,
+                    sampleRate,
+                    android.media.AudioFormat.CHANNEL_IN_MONO,
+                    android.media.AudioFormat.ENCODING_PCM_FLOAT,
+                    maxOf(minBuffer, sampleRate * 4)
+                )
+                if (record.state == android.media.AudioRecord.STATE_INITIALIZED) {
+                    record.startRecording()
+                    val audio = FloatArray(sampleRate * 15)
+                    val frame = FloatArray(sampleRate / 10)
+                    var filled = 0
+                    while (!stopped.get() && filled < audio.size) {
+                        val n = record.read(
+                            frame, 0, frame.size,
+                            android.media.AudioRecord.READ_BLOCKING
+                        )
+                        if (n <= 0) continue
+                        val count = minOf(n, audio.size - filled)
+                        System.arraycopy(frame, 0, audio, filled, count)
+                        filled += count
+                    }
+                    record.stop()
+                    record.release()
+                    if (filled >= sampleRate * 3) { // at least 3 s of speech
+                        val embedder = com.meetily.mobile.whisper.SherpaEmbedder
+                            .create(modelPath)
+                        if (embedder != null) {
+                            try {
+                                embedder.embed(audio.copyOf(filled))?.let { embedding ->
+                                    saved = VoiceProfileStore
+                                        .addSample(this, name, embedding)
+                                }
+                            } finally {
+                                embedder.release()
+                            }
+                        }
+                    }
+                }
+            } catch (_: Throwable) {
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                try {
+                    dialog.dismiss()
+                } catch (_: Exception) {
+                }
+                updateVoicesStatus()
+                Toast.makeText(
+                    this,
+                    if (saved) getString(R.string.voice_saved, name)
+                    else getString(R.string.enroll_failed),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }.start()
     }
 
     // --- Whisper capture tuning -------------------------------------------

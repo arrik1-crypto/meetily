@@ -228,6 +228,27 @@ class AudioFileImporter(
                     meeting.segments[i] = s.copy(clusterId = to)
                 }
             }
+            // Name clusters whose voices match saved profiles.
+            val c = clusterer
+            if (c != null) {
+                val profiles = VoiceProfileStore.load(context)
+                if (profiles.isNotEmpty()) {
+                    val names = mutableMapOf<Int, String>()
+                    for (id in c.clusterIds()) {
+                        VoiceProfileStore.match(profiles, c.centroidOf(id))
+                            ?.let { names[id] = it }
+                    }
+                    if (names.isNotEmpty()) {
+                        for (i in meeting.segments.indices) {
+                            val s = meeting.segments[i]
+                            val name = s.clusterId?.let { names[it] } ?: continue
+                            if (s.speaker.isNullOrBlank()) {
+                                meeting.segments[i] = s.copy(speaker = name)
+                            }
+                        }
+                    }
+                }
+            }
             store.save(meeting)
             return meeting.id
         } catch (e: AudioFileDecoder.UnsupportedAudioException) {

@@ -111,6 +111,28 @@
     <string name="ask_matches_only">Here\'s where your meetings touch on that (configure an AI endpoint in Settings for a written answer):</string>
     <string name="ask_llm_failed">The AI endpoint couldn\'t be reached — showing the matching moments instead:</string>
 
+    <!-- Voice profiles -->
+    <string name="setting_voices">Voice profiles</string>
+    <string name="setting_voices_desc">Saved voiceprints let Recap name known speakers automatically in every meeting — from their first sentence, no tapping. Add a voice here, save one when you name a detected speaker, or tag transcript lines after the fact in meetings that kept their audio. Stored only on this device; included in backups.</string>
+    <string name="voices_status">Saved voices: %1$d</string>
+    <string name="manage_voices">Saved voices…</string>
+    <string name="enroll_voice">＋ Add a voice…</string>
+    <string name="voice_row">%1$s · %2$d samples</string>
+    <string name="voice_delete_confirm">Delete %1$s\'s voiceprint?</string>
+    <string name="voice_name_hint">Whose voice is this?</string>
+    <string name="enroll_title">Recording %1$s\'s voice</string>
+    <string name="enroll_instructions">Speak naturally for 10–15 seconds — normal sentences, normal volume, the phone at a comfortable distance. Recording stops automatically.</string>
+    <string name="enroll_stop">Done</string>
+    <string name="enroll_failed">Couldn\'t save that voiceprint — try again with at least a few seconds of clear speech.</string>
+    <string name="enroll_needs_mic">Microphone access hasn\'t been granted yet — record one meeting first.</string>
+    <string name="enroll_needs_model">Download a speaker model first (Settings → Speaker models…).</string>
+    <string name="enroll_wait_recording">Finish the current recording before enrolling a voice.</string>
+    <string name="voice_save_prompt">Save %1$s\'s voice so future meetings name them automatically?</string>
+    <string name="voice_save_yes">Save voice</string>
+    <string name="voice_save_no">Not now</string>
+    <string name="voice_saved">Updated %1$s\'s voiceprint</string>
+    <string name="voice_save_failed">Couldn\'t save the voiceprint from this audio.</string>
+
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>
     <string name="no_calendar_event">No calendar event happening right now</string>
