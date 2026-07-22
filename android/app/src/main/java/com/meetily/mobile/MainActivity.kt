@@ -150,6 +150,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.themeToggle).setImageResource(
             if (isNightNow()) R.drawable.ic_sun else R.drawable.ic_moon
         )
+        startIdleGlow()
         refresh()
     }
 
@@ -282,6 +283,33 @@ class MainActivity : AppCompatActivity() {
     private fun isNightNow(): Boolean =
         resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK ==
             Configuration.UI_MODE_NIGHT_YES
+
+    // Gentle 4s idle pulse on the orb's glow halo (paused off-screen).
+    private var glowAnimator: android.animation.ValueAnimator? = null
+
+    private fun startIdleGlow() {
+        if (glowAnimator != null) return
+        val glow = findViewById<View>(R.id.orbGlow)
+        glowAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 2000
+            repeatMode = android.animation.ValueAnimator.REVERSE
+            repeatCount = android.animation.ValueAnimator.INFINITE
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Float
+                glow.alpha = 0.5f + 0.4f * value
+                val scale = 0.96f + 0.08f * value
+                glow.scaleX = scale
+                glow.scaleY = scale
+            }
+            start()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        glowAnimator?.cancel()
+        glowAnimator = null
+    }
 
     companion object {
         const val ACTION_IMPORT_PICK = "com.meetily.mobile.ACTION_IMPORT_PICK"

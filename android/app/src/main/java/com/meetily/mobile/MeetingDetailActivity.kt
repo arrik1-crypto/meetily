@@ -180,6 +180,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
         }
 
+        setUpTabs()
         renderSummary(m.summary)
         renderActionItems(m)
         renderTranscript(m)
@@ -214,7 +215,72 @@ class MeetingDetailActivity : AppCompatActivity() {
         tagHint.text = getString(
             if (m.segments.isEmpty()) R.string.no_transcript else R.string.tap_to_tag_hint
         )
-        transcriptAdapter.submit(m.segments)
+        // Transcript lines belong to the Transcript tab only.
+        tagHint.visibility = if (onTranscriptTab) View.VISIBLE else View.GONE
+        transcriptAdapter.submit(if (onTranscriptTab) m.segments else emptyList())
+    }
+
+    // --- Summary | Transcript segmented tabs --------------------------------
+
+    private var onTranscriptTab = false
+
+    private fun setUpTabs() {
+        headerView.findViewById<View>(R.id.tabSummary).setOnClickListener { switchTab(false) }
+        headerView.findViewById<View>(R.id.tabTranscript).setOnClickListener { switchTab(true) }
+        applyTabState()
+    }
+
+    private fun switchTab(transcript: Boolean) {
+        if (onTranscriptTab == transcript) return
+        onTranscriptTab = transcript
+        applyTabState()
+        meeting?.let { renderTranscript(it) }
+    }
+
+    private fun applyTabState() {
+        val tabSummary = headerView.findViewById<TextView>(R.id.tabSummary)
+        val tabTranscript = headerView.findViewById<TextView>(R.id.tabTranscript)
+        val content = headerView.findViewById<View>(R.id.summaryTabContent)
+        val active = themeColor(com.google.android.material.R.attr.colorOnPrimary)
+        val inactive = themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant)
+        if (onTranscriptTab) {
+            tabSummary.setBackgroundResource(0)
+            tabTranscript.setBackgroundResource(R.drawable.bg_tab_active)
+            tabSummary.setTextColor(inactive)
+            tabTranscript.setTextColor(active)
+            content.visibility = View.GONE
+        } else {
+            tabSummary.setBackgroundResource(R.drawable.bg_tab_active)
+            tabTranscript.setBackgroundResource(0)
+            tabSummary.setTextColor(active)
+            tabTranscript.setTextColor(inactive)
+            content.visibility = View.VISIBLE
+        }
+    }
+
+    private fun themeColor(attr: Int): Int {
+        val value = android.util.TypedValue()
+        theme.resolveAttribute(attr, value, true)
+        return value.data
+    }
+
+    /** The design's staggered fade-up after a summary (re)generates. */
+    private fun revealSummarySections() {
+        val sections = listOf<View>(
+            summaryView,
+            headerView.findViewById(R.id.actionsHeader),
+            headerView.findViewById(R.id.actionList)
+        )
+        val rise = 14f * resources.displayMetrics.density
+        var delay = 0L
+        for (view in sections) {
+            if (view.visibility != View.VISIBLE) continue
+            view.alpha = 0f
+            view.translationY = rise
+            view.animate().alpha(1f).translationY(0f)
+                .setDuration(450).setStartDelay(delay).start()
+            delay += 250
+        }
     }
 
     private fun toggleHighlight(index: Int) {
@@ -858,6 +924,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 m.actionItems = finalItems.toMutableList()
                 renderActionItems(m)
                 store.save(m)
+                revealSummarySections()
             }
         }.start()
     }

@@ -30,6 +30,9 @@
     <color name="orb_b">#1B1D2E</color>
 
     <color name="record_red">#9184D9</color>
+    <color name="accdd">#5D5294</color>
+    <color name="glow">#479184D9</color>
+    <color name="glow_soft">#209184D9</color>
     <color name="rec_pill_bg">#2B2741</color>
     <color name="rec_pill_on">#D2CEFD</color>
 </resources>

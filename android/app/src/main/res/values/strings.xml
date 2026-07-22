@@ -162,6 +162,8 @@
     <string name="orb_recording_caption">Recording — tap to return</string>
     <string name="theme_toggle">Switch theme</string>
     <string name="import_pill">Import a recording</string>
+    <string name="tab_summary">Summary</string>
+    <string name="tab_transcript">Transcript</string>
 
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>

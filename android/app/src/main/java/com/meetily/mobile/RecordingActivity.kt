@@ -622,13 +622,45 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private fun applyPausedUi(paused: Boolean) {
         if (paused) {
             stopPulse()
+            stopGlow()
+            findViewById<EqBarsView>(R.id.eqBars).setPaused(true)
             pauseButton.setIconResource(R.drawable.ic_play)
             pauseButton.contentDescription = getString(R.string.resume)
         } else {
             startPulse()
+            startGlow()
+            findViewById<EqBarsView>(R.id.eqBars).setPaused(false)
             pauseButton.setIconResource(R.drawable.ic_pause)
             pauseButton.contentDescription = getString(R.string.pause)
         }
+    }
+
+    // Breathing orb glow (the design's 3.2s box-shadow keyframe, done with
+    // alpha + scale on the radial-gradient halo behind the orb).
+    private var glowAnimator: ValueAnimator? = null
+
+    private fun startGlow() {
+        if (glowAnimator != null) return
+        val glow = findViewById<View>(R.id.recOrbGlow)
+        glowAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 1600
+            repeatMode = ValueAnimator.REVERSE
+            repeatCount = ValueAnimator.INFINITE
+            addUpdateListener { animator ->
+                val value = animator.animatedValue as Float
+                glow.alpha = 0.55f + 0.45f * value
+                val scale = 0.94f + 0.12f * value
+                glow.scaleX = scale
+                glow.scaleY = scale
+            }
+            start()
+        }
+    }
+
+    private fun stopGlow() {
+        glowAnimator?.cancel()
+        glowAnimator = null
+        findViewById<View>(R.id.recOrbGlow).alpha = 0.35f
     }
 
     private fun startPulse() {
@@ -662,6 +694,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     override fun onDestroy() {
         handler.removeCallbacks(timerTick)
         stopPulse()
+        stopGlow()
         if (bound) {
             service?.clearObserver(this)
             unbindService(connection)

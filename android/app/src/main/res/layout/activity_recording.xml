@@ -62,41 +62,83 @@
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="8dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
-            <!-- Nocturne timer: light weight, tabular, wide tracking. -->
-            <TextView
-                android:id="@+id/elapsedView"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:letterSpacing="0.04"
-                android:text="@string/elapsed_zero"
-                android:textColor="?attr/colorOnSurface"
-                android:textSize="44sp" />
-
-            <LinearLayout
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+            <!-- Breathing orb beside the timer. -->
+            <FrameLayout
+                android:layout_width="112dp"
+                android:layout_height="112dp">
 
                 <View
-                    android:id="@+id/recordDot"
-                    android:layout_width="6dp"
-                    android:layout_height="6dp"
-                    android:background="@drawable/bg_record_dot" />
+                    android:id="@+id/recOrbGlow"
+                    android:layout_width="112dp"
+                    android:layout_height="112dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/orb_glow" />
 
+                <FrameLayout
+                    android:layout_width="82dp"
+                    android:layout_height="82dp"
+                    android:layout_gravity="center"
+                    android:background="@drawable/orb">
+
+                    <ImageView
+                        android:layout_width="26dp"
+                        android:layout_height="26dp"
+                        android:layout_gravity="center"
+                        android:importantForAccessibility="no"
+                        android:src="@drawable/ic_mic"
+                        app:tint="?attr/colorPrimary" />
+                </FrameLayout>
+            </FrameLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="10dp"
+                android:layout_weight="1"
+                android:orientation="vertical">
+
+                <!-- Nocturne timer: light weight, tabular, wide tracking. -->
                 <TextView
-                    android:id="@+id/statusView"
+                    android:id="@+id/elapsedView"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="7dp"
-                    android:text="@string/status_starting"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="12sp" />
+                    android:letterSpacing="0.04"
+                    android:text="@string/elapsed_zero"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textSize="40sp" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <View
+                        android:id="@+id/recordDot"
+                        android:layout_width="6dp"
+                        android:layout_height="6dp"
+                        android:background="@drawable/bg_record_dot" />
+
+                    <TextView
+                        android:id="@+id/statusView"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="7dp"
+                        android:text="@string/status_starting"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <com.meetily.mobile.EqBarsView
+                    android:id="@+id/eqBars"
+                    android:layout_width="match_parent"
+                    android:layout_height="30dp"
+                    android:layout_marginTop="8dp" />
             </LinearLayout>
         </LinearLayout>
 

@@ -69,22 +69,35 @@
             app:tint="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
-    <!-- Record orb. -->
+    <!-- Record orb with its idle glow halo. -->
     <FrameLayout
-        android:id="@+id/recordOrb"
-        android:layout_width="118dp"
-        android:layout_height="118dp"
+        android:layout_width="150dp"
+        android:layout_height="150dp"
         android:layout_gravity="center_horizontal"
-        android:layout_marginTop="26dp"
-        android:background="@drawable/orb">
+        android:layout_marginTop="12dp">
 
-        <ImageView
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+        <View
+            android:id="@+id/orbGlow"
+            android:layout_width="150dp"
+            android:layout_height="150dp"
             android:layout_gravity="center"
-            android:importantForAccessibility="no"
-            android:src="@drawable/ic_mic"
-            app:tint="?attr/colorPrimary" />
+            android:background="@drawable/orb_glow" />
+
+        <FrameLayout
+            android:id="@+id/recordOrb"
+            android:layout_width="118dp"
+            android:layout_height="118dp"
+            android:layout_gravity="center"
+            android:background="@drawable/orb">
+
+            <ImageView
+                android:layout_width="36dp"
+                android:layout_height="36dp"
+                android:layout_gravity="center"
+                android:importantForAccessibility="no"
+                android:src="@drawable/ic_mic"
+                app:tint="?attr/colorPrimary" />
+        </FrameLayout>
     </FrameLayout>
 
     <TextView

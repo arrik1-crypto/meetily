@@ -76,6 +76,47 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Nocturne segmented tabs: Summary | Transcript. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/bg_tab_track"
+        android:orientation="horizontal"
+        android:padding="3dp">
+
+        <TextView
+            android:id="@+id/tabSummary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:background="@drawable/bg_tab_active"
+            android:gravity="center"
+            android:paddingVertical="6dp"
+            android:text="@string/tab_summary"
+            android:textColor="?attr/colorOnPrimary"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tabTranscript"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:paddingVertical="6dp"
+            android:text="@string/tab_transcript"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/summaryTabContent"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -327,6 +368,8 @@
         android:textColor="?attr/colorOnSurface"
         android:textSize="20sp"
         android:textStyle="bold" />
+
+    </LinearLayout>
 
     <TextView
         android:id="@+id/tagHint"

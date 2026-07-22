@@ -39,5 +39,9 @@
     <color name="rec_pill_bg">#DCE8FD</color>
     <color name="rec_pill_on">#1D4ED8</color>
 
+    <color name="accdd">#9CC0FB</color>
+    <color name="glow">#4D3B82F6</color>
+    <color name="glow_soft">#243B82F6</color>
+
     <color name="white">#FFFFFF</color>
 </resources>
