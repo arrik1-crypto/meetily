@@ -16,4 +16,8 @@
         android:icon="@drawable/ic_download"
         android:title="@string/export"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/action_suggest_speakers"
+        android:title="@string/suggest_speakers"
+        app:showAsAction="never" />
 </menu>

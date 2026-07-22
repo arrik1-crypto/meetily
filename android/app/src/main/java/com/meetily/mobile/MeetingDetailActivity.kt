@@ -528,6 +528,100 @@ class MeetingDetailActivity : AppCompatActivity() {
         }.start()
     }
 
+    /**
+     * LLM-based speaker attribution from conversational context. Applies only
+     * to untagged lines, never overwriting manual tags, and always behind an
+     * explicit confirmation with a preview.
+     */
+    private fun suggestSpeakers() {
+        val m = meeting ?: return
+        if (!settings.useLlm || settings.llmBaseUrl.isBlank()) {
+            Toast.makeText(this, R.string.suggest_requires_llm, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (m.segments.isEmpty()) {
+            Toast.makeText(this, R.string.no_transcript, Toast.LENGTH_SHORT).show()
+            return
+        }
+        saveEdits()
+
+        val progressDialog = AlertDialog.Builder(this)
+            .setMessage(R.string.suggest_analyzing)
+            .setCancelable(false)
+            .create()
+        progressDialog.show()
+
+        val baseUrl = settings.llmBaseUrl
+        val apiKey = settings.llmApiKey
+        val model = settings.llmModel
+        val lines = m.segments.map { it.text to it.speaker }
+        val attendees = m.attendees.toList()
+
+        Thread {
+            var error: String? = null
+            val suggestions = try {
+                LlmClient.suggestSpeakers(baseUrl, apiKey, model, lines, attendees)
+            } catch (e: Exception) {
+                error = e.message ?: "unknown error"
+                emptyList()
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                progressDialog.dismiss()
+                if (error != null) {
+                    Toast.makeText(
+                        this, getString(R.string.ask_failed, error), Toast.LENGTH_LONG
+                    ).show()
+                    return@runOnUiThread
+                }
+                val applicable = suggestions.filter { (index, _) ->
+                    index in m.segments.indices && m.segments[index].speaker.isNullOrBlank()
+                }
+                if (applicable.isEmpty()) {
+                    Toast.makeText(this, R.string.suggest_none, Toast.LENGTH_LONG).show()
+                    return@runOnUiThread
+                }
+                confirmSpeakerSuggestions(m, applicable)
+            }
+        }.start()
+    }
+
+    private fun confirmSpeakerSuggestions(m: Meeting, applicable: List<Pair<Int, String>>) {
+        val preview = buildString {
+            for ((index, name) in applicable.take(5)) {
+                val text = m.segments[index].text
+                append("“")
+                append(text.take(40))
+                if (text.length > 40) append("…")
+                append("” → ").append(name).append('\n')
+            }
+            if (applicable.size > 5) {
+                append("…")
+            }
+        }.trimEnd()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.suggest_apply_title)
+            .setMessage(getString(R.string.suggest_apply_message, applicable.size, preview))
+            .setPositiveButton(R.string.suggest_apply) { _, _ ->
+                for ((index, name) in applicable) {
+                    if (index !in m.segments.indices) continue
+                    m.segments[index] = m.segments[index].copy(speaker = name)
+                    if (m.attendees.none { it.equals(name, ignoreCase = true) }) {
+                        m.attendees.add(name)
+                    }
+                }
+                attendeesInput.setText(m.attendeesText())
+                store.save(m)
+                renderTranscript(m)
+                Toast.makeText(
+                    this, getString(R.string.suggest_applied, applicable.size),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     private fun chooseTemplateAndSummarize() {
         val templates = SummaryTemplates.allWithCustom(this)
         val labels = templates.map { it.label(this) }.toTypedArray()
@@ -720,6 +814,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             R.id.action_export -> {
                 showExportDialog()
+                true
+            }
+            R.id.action_suggest_speakers -> {
+                suggestSpeakers()
                 true
             }
             else -> super.onOptionsItemSelected(item)

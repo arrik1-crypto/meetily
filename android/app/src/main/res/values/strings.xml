@@ -107,6 +107,14 @@
 
     <!-- Attendees & speakers -->
     <string name="attendees_hint">Attendees (comma separated)</string>
+    <string name="suggest_speakers">Suggest speakers (AI)</string>
+    <string name="suggest_requires_llm">Speaker suggestions need an LLM endpoint — enable one in Settings.</string>
+    <string name="suggest_analyzing">Analyzing who said what…</string>
+    <string name="suggest_none">No confident speaker suggestions found. Tag a few lines manually to give it anchors, then try again.</string>
+    <string name="suggest_apply_title">Apply speaker suggestions?</string>
+    <string name="suggest_apply_message">%1$d untagged lines will be labeled. Your manual tags are never changed.\n\n%2$s</string>
+    <string name="suggest_apply">Apply</string>
+    <string name="suggest_applied">Labeled %1$d lines</string>
     <string name="assign_speaker_title">Who said this?</string>
     <string name="someone_else">Someone else…</string>
     <string name="remove_speaker">Remove speaker</string>

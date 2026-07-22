@@ -81,6 +81,68 @@ object LlmClient {
             .trim().trim('"', '\'').take(80)
     }
 
+    /**
+     * Content-based speaker attribution: asks the LLM to label untagged
+     * transcript lines from conversational context (names addressed,
+     * self-references, role cues). Already-tagged lines are shown as anchors
+     * and must not be relabeled. Returns (lineIndex, speakerName) pairs.
+     */
+    fun suggestSpeakers(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        lines: List<Pair<String, String?>>,
+        attendees: List<String>
+    ): List<Pair<Int, String>> {
+        val systemPrompt = buildString {
+            append(
+                "You attribute meeting transcript lines to speakers using conversational " +
+                    "context: names people address each other by, self-references like " +
+                    "\"I'll take that\", and role cues. Reply with ONLY a JSON array; each " +
+                    "element is {\"line\": <0-based line number>, \"speaker\": \"<name>\"}. " +
+                    "Include only lines you can attribute with high confidence; skip all " +
+                    "others. Lines that already show a speaker in [brackets] are ground " +
+                    "truth anchors — never relabel them."
+            )
+            if (attendees.isNotEmpty()) {
+                append(" Use exactly these attendee names where possible: ")
+                append(attendees.joinToString(", "))
+                append(".")
+            }
+        }
+        val transcript = buildString {
+            append("Transcript:\n")
+            for ((i, line) in lines.withIndex()) {
+                val (text, speaker) = line
+                if (speaker.isNullOrBlank()) {
+                    append("$i: $text\n")
+                } else {
+                    append("$i [$speaker]: $text\n")
+                }
+            }
+        }.take(48_000)
+
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+            .put(JSONObject().put("role", "user").put("content", transcript))
+
+        val response = chat(baseUrl, apiKey, model, messages)
+        val start = response.indexOf('[')
+        val end = response.lastIndexOf(']')
+        if (start < 0 || end <= start) return emptyList()
+        val arr = JSONArray(response.substring(start, end + 1))
+        val out = mutableListOf<Pair<Int, String>>()
+        for (i in 0 until arr.length()) {
+            val obj = arr.optJSONObject(i) ?: continue
+            val index = obj.optInt("line", -1)
+            val name = obj.optString("speaker", "").trim()
+            if (index >= 0 && name.isNotBlank()) {
+                out.add(index to name)
+            }
+        }
+        return out
+    }
+
     fun ask(
         baseUrl: String,
         apiKey: String,

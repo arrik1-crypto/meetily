@@ -76,6 +76,10 @@ class RecordingService : Service() {
     private val segments = mutableListOf<TranscriptSegment>()
     private var pendingHighlight = false
 
+    // Sticky speaker: new segments inherit this until it changes. Set from
+    // the chip row, or by tagging the most recent segment.
+    private var activeSpeaker: String? = null
+
     // Metadata edited from the UI, mirrored here so it is saved incrementally.
     private var title = ""
     private var attendeesRaw = ""
@@ -217,9 +221,19 @@ class RecordingService : Service() {
     fun assignSpeaker(index: Int, name: String?) {
         if (index !in segments.indices) return
         segments[index] = segments[index].copy(speaker = name)
+        // Tagging the latest segment makes that speaker sticky for what follows.
+        if (index == segments.size - 1) {
+            activeSpeaker = name?.takeIf { it.isNotBlank() }
+        }
         observer?.onSegmentUpdated(index, segments[index])
         scheduleSave()
     }
+
+    fun setActiveSpeaker(name: String?) {
+        activeSpeaker = name?.takeIf { it.isNotBlank() }
+    }
+
+    fun activeSpeakerValue(): String? = activeSpeaker
 
     fun toggleHighlightAt(index: Int) {
         if (index !in segments.indices) return
@@ -479,6 +493,7 @@ class RecordingService : Service() {
         val segment = TranscriptSegment(
             timestampMs = System.currentTimeMillis(),
             text = text,
+            speaker = activeSpeaker,
             highlighted = pendingHighlight
         )
         pendingHighlight = false

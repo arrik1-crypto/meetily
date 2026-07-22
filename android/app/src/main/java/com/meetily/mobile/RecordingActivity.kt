@@ -15,9 +15,11 @@ import android.os.IBinder
 import android.os.Looper
 import android.text.Editable
 import android.text.TextWatcher
+import android.util.TypedValue
 import android.view.View
 import android.view.WindowManager
 import android.widget.EditText
+import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
@@ -58,6 +60,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private lateinit var recordDot: View
     private lateinit var transcriptRecycler: RecyclerView
     private lateinit var transcriptAdapter: LiveTranscriptAdapter
+    private lateinit var speakerChipScroll: View
+    private lateinit var speakerChipRow: LinearLayout
     private lateinit var notesInput: EditText
     private lateinit var pauseButton: MaterialButton
     private lateinit var highlightButton: MaterialButton
@@ -126,6 +130,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         transcriptAdapter = LiveTranscriptAdapter { index -> assignSpeaker(index) }
         transcriptRecycler.layoutManager = LinearLayoutManager(this)
         transcriptRecycler.adapter = transcriptAdapter
+        speakerChipScroll = findViewById(R.id.speakerChipScroll)
+        speakerChipRow = findViewById(R.id.speakerChipRow)
         notesInput = findViewById(R.id.notesInput)
         pauseButton = findViewById(R.id.pauseButton)
         highlightButton = findViewById(R.id.highlightButton)
@@ -168,8 +174,68 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private fun installWatchers() {
         titleInput.addTextChangedListener(simpleWatcher { service?.updateTitle(it) })
-        attendeesInput.addTextChangedListener(simpleWatcher { service?.updateAttendees(it) })
+        attendeesInput.addTextChangedListener(
+            simpleWatcher {
+                service?.updateAttendees(it)
+                rebuildSpeakerChips()
+            }
+        )
         notesInput.addTextChangedListener(simpleWatcher { service?.updateNotes(it) })
+    }
+
+    /**
+     * One-tap live tagging: tap an attendee chip when they start talking and
+     * every following segment is theirs until another chip (or the same one,
+     * to clear) is tapped. The sticky state lives in the service.
+     */
+    private fun rebuildSpeakerChips() {
+        val names = currentAttendees()
+        speakerChipRow.removeAllViews()
+        if (names.isEmpty()) {
+            speakerChipScroll.visibility = View.GONE
+            return
+        }
+        speakerChipScroll.visibility = View.VISIBLE
+        val active = service?.activeSpeakerValue()
+        val density = resources.displayMetrics.density
+        val padH = (12 * density).toInt()
+        val padV = (6 * density).toInt()
+        val margin = (8 * density).toInt()
+        for (name in names) {
+            val selected = name.equals(active, ignoreCase = true)
+            val chip = TextView(this).apply {
+                text = name
+                textSize = 13f
+                setBackgroundResource(
+                    if (selected) R.drawable.bg_pill_accent else R.drawable.bg_pill
+                )
+                setTextColor(
+                    themeColor(
+                        if (selected) {
+                            com.google.android.material.R.attr.colorOnPrimaryContainer
+                        } else {
+                            com.google.android.material.R.attr.colorOnSurfaceVariant
+                        }
+                    )
+                )
+                setPadding(padH, padV, padH, padV)
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginEnd = margin }
+                setOnClickListener {
+                    service?.setActiveSpeaker(if (selected) null else name)
+                    rebuildSpeakerChips()
+                }
+            }
+            speakerChipRow.addView(chip)
+        }
+    }
+
+    private fun themeColor(attr: Int): Int {
+        val value = TypedValue()
+        theme.resolveAttribute(attr, value, true)
+        return value.data
     }
 
     private fun simpleWatcher(onChange: (String) -> Unit) = object : TextWatcher {
@@ -220,6 +286,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         scrollToBottom()
         statusView.text = svc.currentStatusText()
         applyPausedUi(svc.paused)
+        rebuildSpeakerChips()
         startTimer()
     }
 
@@ -240,6 +307,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             }
         }
         RecordingService.start(this)
+        rebuildSpeakerChips()
         startTimer()
 
         if (settings.calendarPrefill &&
