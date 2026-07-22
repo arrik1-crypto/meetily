@@ -72,6 +72,7 @@ class DigestActivity : AppCompatActivity() {
                     settings.llmBaseUrl,
                     settings.llmApiKey,
                     settings.llmModel,
+                    settings.localOnlyLlm,
                     WeeklyDigest.contextBlocks(meetings, formatDate)
                 )
             } catch (_: Exception) {

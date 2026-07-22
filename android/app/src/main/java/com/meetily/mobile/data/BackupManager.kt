@@ -1,9 +1,11 @@
 package com.meetily.mobile.data
 
 import android.content.Context
+import com.meetily.mobile.security.BackupCrypto
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.PushbackInputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -12,6 +14,9 @@ import java.util.zip.ZipOutputStream
  * Whole-library backup: a single .zip containing every meeting JSON and every
  * photo. Import merges into the current library (existing ids are overwritten).
  * Settings — which can hold LLM API keys — are deliberately excluded.
+ *
+ * Backups can optionally be passphrase-encrypted ([exportEncrypted]); import
+ * sniffs the header and handles both formats.
  */
 object BackupManager {
 
@@ -35,8 +40,49 @@ object BackupManager {
         }
     }
 
-    /** Restores meetings + photos + audio from a backup zip. Returns the meeting count. */
-    fun import(context: Context, input: InputStream): Int {
+    /** [export], AES-256-GCM-encrypted under [passphrase]. */
+    fun exportEncrypted(context: Context, out: OutputStream, passphrase: CharArray) {
+        export(context, BackupCrypto.encryptingStream(passphrase, out))
+    }
+
+    /** True when the stream at [uri]-like [input] starts with the encrypted-backup magic. */
+    fun sniffEncrypted(input: InputStream): Boolean {
+        val header = ByteArray(BackupCrypto.MAGIC.size)
+        var got = 0
+        while (got < header.size) {
+            val n = input.read(header, got, header.size - got)
+            if (n < 0) break
+            got += n
+        }
+        return got == header.size && BackupCrypto.isEncryptedHeader(header)
+    }
+
+    /**
+     * Restores meetings + photos + audio from a backup, plain or encrypted.
+     * Returns the meeting count. Throws [BackupCrypto.WrongPassphraseException]
+     * for a bad passphrase, and IllegalStateException when the backup is
+     * encrypted but no passphrase was supplied.
+     */
+    fun import(context: Context, input: InputStream, passphrase: CharArray? = null): Int {
+        val pushback = PushbackInputStream(input, BackupCrypto.MAGIC.size)
+        val header = ByteArray(BackupCrypto.MAGIC.size)
+        var got = 0
+        while (got < header.size) {
+            val n = pushback.read(header, got, header.size - got)
+            if (n < 0) break
+            got += n
+        }
+        val stream = if (got == header.size && BackupCrypto.isEncryptedHeader(header)) {
+            checkNotNull(passphrase) { "This backup is encrypted; a passphrase is required." }
+            BackupCrypto.decryptingStream(passphrase, pushback)
+        } else {
+            pushback.unread(header, 0, got)
+            pushback
+        }
+        return importZip(context, stream)
+    }
+
+    private fun importZip(context: Context, input: InputStream): Int {
         val meetingsDir = File(context.filesDir, "meetings").apply { mkdirs() }
         val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
         val audioDir = File(context.filesDir, "audio").apply { mkdirs() }

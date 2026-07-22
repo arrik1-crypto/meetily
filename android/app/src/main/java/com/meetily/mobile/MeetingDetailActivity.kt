@@ -399,11 +399,12 @@ class MeetingDetailActivity : AppCompatActivity() {
             val baseUrl = settings.llmBaseUrl
             val apiKey = settings.llmApiKey
             val model = settings.llmModel
+            val localOnly = settings.localOnlyLlm
             val transcript = m.transcriptTextWithSpeakers()
             val notes = m.notes
             Thread {
                 try {
-                    val generated = LlmClient.title(baseUrl, apiKey, model, transcript, notes)
+                    val generated = LlmClient.title(baseUrl, apiKey, model, localOnly, transcript, notes)
                     if (generated.isNotBlank()) {
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
@@ -640,6 +641,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
+        val localOnly = settings.localOnlyLlm
         val transcript = m.transcriptTextWithSpeakers()
         val notes = m.notes
         val summary = m.summary
@@ -649,7 +651,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         Thread {
             val answer = try {
                 LlmClient.ask(
-                    baseUrl, apiKey, model, transcript, notes, summary,
+                    baseUrl, apiKey, model, localOnly, transcript, notes, summary,
                     attendees, history, question
                 )
             } catch (e: Exception) {
@@ -694,13 +696,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
+        val localOnly = settings.localOnlyLlm
         val lines = m.segments.map { it.text to it.speaker }
         val attendees = m.attendees.toList()
 
         Thread {
             var error: String? = null
             val suggestions = try {
-                LlmClient.suggestSpeakers(baseUrl, apiKey, model, lines, attendees)
+                LlmClient.suggestSpeakers(baseUrl, apiKey, model, localOnly, lines, attendees)
             } catch (e: Exception) {
                 error = e.message ?: "unknown error"
                 emptyList()
@@ -884,6 +887,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
+        val localOnly = settings.localOnlyLlm
         val rawTranscript = m.transcriptText()
         val speakerTranscript = m.transcriptTextWithSpeakers()
         val notes = m.notes
@@ -896,7 +900,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             val result = try {
                 if (useLlm && baseUrl.isNotBlank()) {
                     val raw = LlmClient.summarize(
-                        baseUrl, apiKey, model, speakerTranscript, notes,
+                        baseUrl, apiKey, model, localOnly, speakerTranscript, notes,
                         attendees, highlights, template
                     )
                     val (clean, items) = ActionItems.splitLlmOutput(raw)

@@ -82,6 +82,21 @@ class AppSettings(context: Context) {
         get() = prefs.getString("theme_mode", "system") ?: "system"
         set(value) = prefs.edit().putString("theme_mode", value).apply()
 
+    /** Only allow LLM endpoints on loopback / private networks. */
+    var localOnlyLlm: Boolean
+        get() = prefs.getBoolean("local_only_llm", true)
+        set(value) = prefs.edit().putBoolean("local_only_llm", value).apply()
+
+    /** Require biometric / device credential to open the app. */
+    var appLock: Boolean
+        get() = prefs.getBoolean("app_lock", false)
+        set(value) = prefs.edit().putBoolean("app_lock", value).apply()
+
+    /** FLAG_SECURE: block screenshots and the recents-switcher preview. */
+    var secureScreen: Boolean
+        get() = prefs.getBoolean("secure_screen", false)
+        set(value) = prefs.edit().putBoolean("secure_screen", value).apply()
+
     var onboardingDone: Boolean
         get() = prefs.getBoolean("onboarding_done", false)
         set(value) = prefs.edit().putBoolean("onboarding_done", value).apply()

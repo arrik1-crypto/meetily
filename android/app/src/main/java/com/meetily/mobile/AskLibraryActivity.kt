@@ -76,6 +76,7 @@ class AskLibraryActivity : AppCompatActivity() {
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
+        val localOnly = settings.localOnlyLlm
 
         Thread {
             val hits = LibrarySearch.search(store.list(), question)
@@ -103,7 +104,7 @@ class AskLibraryActivity : AppCompatActivity() {
                         }
                         label to content
                     }
-                    answer = LlmClient.askLibrary(baseUrl, apiKey, model, blocks, question)
+                    answer = LlmClient.askLibrary(baseUrl, apiKey, model, localOnly, blocks, question)
                 } catch (_: Exception) {
                     llmFailed = true
                 }

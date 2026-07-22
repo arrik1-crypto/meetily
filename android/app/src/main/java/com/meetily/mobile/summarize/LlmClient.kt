@@ -1,5 +1,6 @@
 package com.meetily.mobile.summarize
 
+import com.meetily.mobile.security.EndpointGuard
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -17,6 +18,7 @@ object LlmClient {
         baseUrl: String,
         apiKey: String,
         model: String,
+        localOnly: Boolean,
         transcript: String,
         notes: String,
         attendees: List<String> = emptyList(),
@@ -52,13 +54,14 @@ object LlmClient {
             .put(JSONObject().put("role", "system").put("content", systemPrompt))
             .put(JSONObject().put("role", "user").put("content", userContent))
 
-        return chat(baseUrl, apiKey, model, messages)
+        return chat(baseUrl, apiKey, model, messages, localOnly)
     }
 
     fun title(
         baseUrl: String,
         apiKey: String,
         model: String,
+        localOnly: Boolean,
         transcript: String,
         notes: String
     ): String {
@@ -77,7 +80,7 @@ object LlmClient {
                         if (notes.isNotBlank()) "\n\nNotes:\n" + notes.take(3_000) else ""
                 )
             )
-        return chat(baseUrl, apiKey, model, messages)
+        return chat(baseUrl, apiKey, model, messages, localOnly)
             .trim().trim('"', '\'').take(80)
     }
 
@@ -91,6 +94,7 @@ object LlmClient {
         baseUrl: String,
         apiKey: String,
         model: String,
+        localOnly: Boolean,
         lines: List<Pair<String, String?>>,
         attendees: List<String>
     ): List<Pair<Int, String>> {
@@ -126,7 +130,7 @@ object LlmClient {
             .put(JSONObject().put("role", "system").put("content", systemPrompt))
             .put(JSONObject().put("role", "user").put("content", transcript))
 
-        val response = chat(baseUrl, apiKey, model, messages)
+        val response = chat(baseUrl, apiKey, model, messages, localOnly)
         // Anchor on "[{" so prose brackets ("[high-confidence]") can't hijack
         // the extraction; fall back to the first '[' for a bare "[]" answer.
         val start = response.indexOf("[{").takeIf { it >= 0 } ?: response.indexOf('[')
@@ -155,6 +159,7 @@ object LlmClient {
         baseUrl: String,
         apiKey: String,
         model: String,
+        localOnly: Boolean,
         transcript: String,
         notes: String,
         summary: String,
@@ -189,7 +194,7 @@ object LlmClient {
         }
         messages.put(JSONObject().put("role", "user").put("content", question))
 
-        return chat(baseUrl, apiKey, model, messages)
+        return chat(baseUrl, apiKey, model, messages, localOnly)
     }
 
     /**
@@ -201,6 +206,7 @@ object LlmClient {
         baseUrl: String,
         apiKey: String,
         model: String,
+        localOnly: Boolean,
         contextBlocks: List<Pair<String, String>>,
         question: String
     ): String {
@@ -221,7 +227,7 @@ object LlmClient {
         val messages = JSONArray()
             .put(JSONObject().put("role", "system").put("content", systemPrompt))
             .put(JSONObject().put("role", "user").put("content", question))
-        return chat(baseUrl, apiKey, model, messages)
+        return chat(baseUrl, apiKey, model, messages, localOnly)
     }
 
     /** Weekly digest across several meetings; blocks as in [askLibrary]. */
@@ -229,6 +235,7 @@ object LlmClient {
         baseUrl: String,
         apiKey: String,
         model: String,
+        localOnly: Boolean,
         contextBlocks: List<Pair<String, String>>
     ): String {
         val systemPrompt = buildString {
@@ -254,15 +261,17 @@ object LlmClient {
                 JSONObject().put("role", "user")
                     .put("content", "Write my weekly meeting digest.")
             )
-        return chat(baseUrl, apiKey, model, messages)
+        return chat(baseUrl, apiKey, model, messages, localOnly)
     }
 
     private fun chat(
         baseUrl: String,
         apiKey: String,
         model: String,
-        messages: JSONArray
+        messages: JSONArray,
+        localOnly: Boolean
     ): String {
+        EndpointGuard.check(baseUrl, localOnly)
         val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
 
         val body = JSONObject()

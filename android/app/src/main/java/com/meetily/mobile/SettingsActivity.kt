@@ -20,6 +20,8 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.BackupManager
+import com.meetily.mobile.security.AppLock
+import com.meetily.mobile.security.BackupCrypto
 import com.meetily.mobile.whisper.CaptureTuning
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.VoiceProfileStore
@@ -51,10 +53,19 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var llmSection: View
 
     private var downloading = false
+    private var pendingPassphrase: CharArray? = null
 
     private val exportBackup =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
-            uri?.let { writeBackup(it) }
+            uri?.let { writeBackup(it, null) }
+        }
+    private val exportBackupEncrypted =
+        registerForActivityResult(
+            ActivityResultContracts.CreateDocument("application/octet-stream")
+        ) { uri ->
+            val pass = pendingPassphrase
+            pendingPassphrase = null
+            if (uri != null && pass != null) writeBackup(uri, pass)
         }
     private val importBackup =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -126,19 +137,11 @@ class SettingsActivity : AppCompatActivity() {
         updateVoicesStatus()
         findViewById<View>(R.id.manageVoicesButton).setOnClickListener { showVoicesDialog() }
 
-        findViewById<View>(R.id.exportBackupButton).setOnClickListener {
-            try {
-                exportBackup.launch(getString(R.string.backup_file_name))
-            } catch (e: Exception) {
-                Toast.makeText(
-                    this, getString(R.string.backup_failed, e.message ?: "no file picker"),
-                    Toast.LENGTH_LONG
-                ).show()
-            }
-        }
+        findViewById<View>(R.id.exportBackupButton).setOnClickListener { showExportChoice() }
         findViewById<View>(R.id.importBackupButton).setOnClickListener {
             try {
-                importBackup.launch("application/zip")
+                // "*/*" so encrypted .recapbak backups show up alongside zips.
+                importBackup.launch("*/*")
             } catch (e: Exception) {
                 Toast.makeText(
                     this, getString(R.string.restore_failed, e.message ?: "no file picker"),
@@ -146,6 +149,8 @@ class SettingsActivity : AppCompatActivity() {
                 ).show()
             }
         }
+
+        setUpSecuritySection()
         findViewById<View>(R.id.privacyLink).setOnClickListener {
             startActivity(Intent(this, PrivacyActivity::class.java))
         }
@@ -169,6 +174,26 @@ class SettingsActivity : AppCompatActivity() {
         settings.llmBaseUrl = urlInput.text.toString().trim()
         settings.llmApiKey = keyInput.text.toString().trim()
         settings.llmModel = modelInput.text.toString().trim()
+        settings.localOnlyLlm = findViewById<MaterialSwitch>(R.id.localOnlySwitch).isChecked
+        settings.appLock = findViewById<MaterialSwitch>(R.id.appLockSwitch).isChecked
+        settings.secureScreen = findViewById<MaterialSwitch>(R.id.secureScreenSwitch).isChecked
+    }
+
+    // --- Security -----------------------------------------------------------
+
+    private fun setUpSecuritySection() {
+        val appLockSwitch = findViewById<MaterialSwitch>(R.id.appLockSwitch)
+        val secureScreenSwitch = findViewById<MaterialSwitch>(R.id.secureScreenSwitch)
+        val localOnlySwitch = findViewById<MaterialSwitch>(R.id.localOnlySwitch)
+        appLockSwitch.isChecked = settings.appLock
+        secureScreenSwitch.isChecked = settings.secureScreen
+        localOnlySwitch.isChecked = settings.localOnlyLlm
+        appLockSwitch.setOnCheckedChangeListener { _, checked ->
+            if (checked && !AppLock.canUseLock(this)) {
+                appLockSwitch.isChecked = false
+                Toast.makeText(this, R.string.app_lock_unavailable, Toast.LENGTH_LONG).show()
+            }
+        }
     }
 
     private var suppressThemeListener = false
@@ -216,33 +241,158 @@ class SettingsActivity : AppCompatActivity() {
         llmSection.visibility = if (useLlmSwitch.isChecked) View.VISIBLE else View.GONE
     }
 
-    private fun writeBackup(uri: Uri) {
-        try {
-            contentResolver.openOutputStream(uri)?.use { BackupManager.export(this, it) }
-                ?: throw RuntimeException("could not open destination")
-            Toast.makeText(this, R.string.backup_done, Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(
-                this, getString(R.string.backup_failed, e.message ?: "unknown error"),
-                Toast.LENGTH_LONG
-            ).show()
+    private fun showExportChoice() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.backup_encrypt_title)
+            .setMessage(R.string.backup_encrypt_message)
+            .setPositiveButton(R.string.backup_encrypt_yes) { _, _ -> promptExportPassphrase() }
+            .setNegativeButton(R.string.backup_plain) { _, _ ->
+                try {
+                    exportBackup.launch(getString(R.string.backup_file_name))
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this, getString(R.string.backup_failed, e.message ?: "no file picker"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+            .show()
+    }
+
+    private fun promptExportPassphrase() {
+        val pass = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = getString(R.string.backup_passphrase_hint)
         }
+        val repeat = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = getString(R.string.backup_passphrase_repeat_hint)
+        }
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+            addView(pass)
+            addView(repeat)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.backup_encrypt_yes)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val p = pass.text.toString()
+                when {
+                    p.length < 6 -> Toast.makeText(
+                        this, R.string.backup_passphrase_short, Toast.LENGTH_LONG
+                    ).show()
+                    p != repeat.text.toString() -> Toast.makeText(
+                        this, R.string.backup_passphrase_mismatch, Toast.LENGTH_LONG
+                    ).show()
+                    else -> {
+                        pendingPassphrase = p.toCharArray()
+                        try {
+                            exportBackupEncrypted.launch(getString(R.string.backup_enc_file_name))
+                        } catch (e: Exception) {
+                            pendingPassphrase = null
+                            Toast.makeText(
+                                this,
+                                getString(R.string.backup_failed, e.message ?: "no file picker"),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun writeBackup(uri: Uri, passphrase: CharArray?) {
+        Thread {
+            val error = try {
+                contentResolver.openOutputStream(uri)?.use {
+                    if (passphrase != null) {
+                        BackupManager.exportEncrypted(this, it, passphrase)
+                    } else {
+                        BackupManager.export(this, it)
+                    }
+                } ?: throw RuntimeException("could not open destination")
+                null
+            } catch (e: Exception) {
+                e.message ?: "unknown error"
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (error == null) {
+                    Toast.makeText(this, R.string.backup_done, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(
+                        this, getString(R.string.backup_failed, error), Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
     }
 
     private fun readBackup(uri: Uri) {
-        try {
-            val count = contentResolver.openInputStream(uri)?.use {
-                BackupManager.import(this, it)
-            } ?: throw RuntimeException("could not open file")
-            Toast.makeText(
-                this, getString(R.string.restore_done, count), Toast.LENGTH_LONG
-            ).show()
+        val encrypted = try {
+            contentResolver.openInputStream(uri)?.use { BackupManager.sniffEncrypted(it) }
+                ?: false
         } catch (e: Exception) {
-            Toast.makeText(
-                this, getString(R.string.restore_failed, e.message ?: "unknown error"),
-                Toast.LENGTH_LONG
-            ).show()
+            false
         }
+        if (encrypted) promptRestorePassphrase(uri) else doRestore(uri, null)
+    }
+
+    private fun promptRestorePassphrase(uri: Uri) {
+        val pass = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
+            hint = getString(R.string.backup_passphrase_hint)
+        }
+        val container = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, 0, pad, 0)
+            addView(pass)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.restore_passphrase_title)
+            .setMessage(R.string.restore_passphrase_message)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                doRestore(uri, pass.text.toString().toCharArray())
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun doRestore(uri: Uri, passphrase: CharArray?) {
+        Thread {
+            var count = 0
+            val error = try {
+                count = contentResolver.openInputStream(uri)?.use {
+                    BackupManager.import(this, it, passphrase)
+                } ?: throw RuntimeException("could not open file")
+                null
+            } catch (e: BackupCrypto.WrongPassphraseException) {
+                getString(R.string.restore_wrong_passphrase)
+            } catch (e: Exception) {
+                e.message ?: "unknown error"
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (error == null) {
+                    Toast.makeText(
+                        this, getString(R.string.restore_done, count), Toast.LENGTH_LONG
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        this, getString(R.string.restore_failed, error), Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.start()
     }
 
     private fun updateWhisperSection() {
