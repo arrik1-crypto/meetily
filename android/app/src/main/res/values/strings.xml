@@ -69,7 +69,12 @@
     <string name="import_status_starting">Preparing…</string>
     <string name="import_status_running">Transcribing… %1$d%%</string>
     <string name="import_stopping">Stopping…</string>
-    <string name="import_keep_open">Keep this screen open while the file is transcribed on-device. Long recordings can take several minutes. Cancelling keeps what\'s done so far.</string>
+    <string name="import_keep_open">Transcription runs in the background — you can leave this screen or lock the phone. A notification shows progress; you\'ll be notified when it\'s done. Cancelling keeps what\'s done so far.</string>
+    <string name="import_busy">Another import is already running — showing its progress.</string>
+    <string name="import_channel_name">Imports</string>
+    <string name="import_notif_title">Importing %1$s</string>
+    <string name="import_done_notif">Import complete — tap to open</string>
+    <string name="import_failed_notif">Import failed</string>
     <string name="import_needs_whisper">Importing needs the on-device Whisper engine — download a Whisper model in Settings first.</string>
     <string name="import_wait_recording">Finish the current recording before importing a file.</string>
     <string name="import_cancelled_partial">Import stopped — the partial transcript was kept.</string>
@@ -89,6 +94,22 @@
     <string name="retranscribe_go">Re-transcribe</string>
     <string name="no_audio_kept">No audio was kept for this meeting.</string>
     <string name="audio_play_failed">Couldn\'t play this meeting\'s audio.</string>
+
+    <!-- Quick-record entry points -->
+    <string name="shortcut_record">Record</string>
+    <string name="shortcut_record_long">Record a meeting</string>
+    <string name="shortcut_import">Import audio</string>
+    <string name="shortcut_import_long">Import an audio file</string>
+    <string name="tile_record">Record meeting</string>
+
+    <!-- Ask your library -->
+    <string name="ask_library_title">Ask your library</string>
+    <string name="ask_library_hint">Ask across all meetings…</string>
+    <string name="ask_library_hint_text">Ask a question across every meeting you\'ve recorded — "what did we decide about the vendor contract?", "when did we last discuss hiring?". Answers cite their source meetings; without an AI endpoint configured you get the matching moments directly.</string>
+    <string name="ask_sources">Source meetings</string>
+    <string name="ask_no_matches">No meetings match that question — try different words.</string>
+    <string name="ask_matches_only">Here\'s where your meetings touch on that (configure an AI endpoint in Settings for a written answer):</string>
+    <string name="ask_llm_failed">The AI endpoint couldn\'t be reached — showing the matching moments instead:</string>
 
     <!-- Calendar -->
     <string name="from_calendar">From calendar</string>

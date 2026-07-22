@@ -89,6 +89,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         recoverInterruptedRecording()
+
+        if (intent?.action == ACTION_IMPORT_PICK && savedInstanceState == null) {
+            try {
+                pickAudio.launch("audio/*")
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.import_no_picker, Toast.LENGTH_SHORT).show()
+            }
+        }
     }
 
     /**
@@ -172,6 +180,10 @@ class MainActivity : AppCompatActivity() {
                 startActivity(Intent(this, SettingsActivity::class.java))
                 true
             }
+            R.id.action_ask_library -> {
+                startActivity(Intent(this, AskLibraryActivity::class.java))
+                true
+            }
             R.id.action_import -> {
                 try {
                     pickAudio.launch("audio/*")
@@ -183,5 +195,9 @@ class MainActivity : AppCompatActivity() {
             }
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    companion object {
+        const val ACTION_IMPORT_PICK = "com.meetily.mobile.ACTION_IMPORT_PICK"
     }
 }

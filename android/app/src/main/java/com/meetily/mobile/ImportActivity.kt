@@ -1,54 +1,116 @@
 package com.meetily.mobile
 
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.IBinder
 import android.provider.OpenableColumns
-import android.view.WindowManager
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
-import com.meetily.mobile.whisper.AudioFileImporter
 import com.meetily.mobile.whisper.WhisperModels
 
 /**
- * Imports a shared or picked audio file: decodes it on-device, transcribes
- * with Whisper (plus speaker detection when enabled), and opens the
- * resulting meeting. Entry points: the home screen's import action and the
- * system share sheet (audio MIME types).
+ * Thin observer over ImportService: starts an import for a shared or picked
+ * audio file, shows progress, and opens the meeting when done. The service
+ * keeps working if this screen (or the whole app UI) goes away.
  */
 class ImportActivity : AppCompatActivity() {
 
     private lateinit var statusView: TextView
     private lateinit var progress: LinearProgressIndicator
+    private lateinit var fileNameView: TextView
 
-    @Volatile private var cancelled = false
+    private var service: ImportService? = null
+    private var bound = false
     private var opened = false
+
+    private val observer = object : ImportService.Observer {
+        override fun onImportProgress(percent: Int) {
+            if (isFinishing || isDestroyed) return
+            progress.isIndeterminate = percent == 0
+            progress.progress = percent
+            statusView.text = getString(R.string.import_status_running, percent)
+        }
+
+        override fun onImportDone(meetingId: String?, wasCancelled: Boolean, error: String?) {
+            if (isFinishing || isDestroyed) return
+            when {
+                meetingId != null -> {
+                    if (wasCancelled) {
+                        Toast.makeText(
+                            this@ImportActivity,
+                            R.string.import_cancelled_partial,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    openDetail(meetingId)
+                }
+                else -> {
+                    Toast.makeText(
+                        this@ImportActivity,
+                        getString(R.string.import_failed, error ?: "unknown error"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                    finish()
+                }
+            }
+        }
+    }
+
+    private val connection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val svc = (binder as? ImportService.ImportBinder)?.service ?: return
+            service = svc
+            if (svc.sourceName.isNotBlank()) {
+                fileNameView.text = svc.sourceName
+            }
+            svc.observer = observer
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            service = null
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_import)
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         findViewById<MaterialToolbar>(R.id.importToolbar).setNavigationOnClickListener {
-            cancelled = true
+            finish() // import keeps running in the service
         }
         statusView = findViewById(R.id.importStatus)
         progress = findViewById(R.id.importProgress)
+        fileNameView = findViewById(R.id.importFileName)
         findViewById<android.view.View>(R.id.importCancelButton).setOnClickListener {
-            cancelled = true
+            service?.requestCancel()
+                ?: startService(
+                    Intent(this, ImportService::class.java).setAction(ImportService.ACTION_CANCEL)
+                )
             statusView.text = getString(R.string.import_stopping)
         }
 
         val uri = incomingUri()
         if (uri == null) {
-            Toast.makeText(this, R.string.import_no_audio, Toast.LENGTH_LONG).show()
-            finish()
+            // Reopened from the progress notification: just observe.
+            if (ImportService.isRunning) {
+                bindService(
+                    Intent(this, ImportService::class.java), connection, Context.BIND_AUTO_CREATE
+                )
+                bound = true
+            } else {
+                Toast.makeText(this, R.string.import_no_audio, Toast.LENGTH_LONG).show()
+                finish()
+            }
             return
         }
 
@@ -66,48 +128,30 @@ class ImportActivity : AppCompatActivity() {
             finish()
             return
         }
+        if (ImportService.isRunning) {
+            Toast.makeText(this, R.string.import_busy, Toast.LENGTH_LONG).show()
+            bindService(
+                Intent(this, ImportService::class.java), connection, Context.BIND_AUTO_CREATE
+            )
+            bound = true
+            return
+        }
 
         val name = displayName(uri)
-        findViewById<TextView>(R.id.importFileName).text = name
+        fileNameView.text = name
 
-        Thread {
-            try {
-                val id = AudioFileImporter(this, settings).import(
-                    uri = uri,
-                    title = name.substringBeforeLast('.').ifBlank { name },
-                    sourceName = name,
-                    onProgress = { percent ->
-                        runOnUiThread {
-                            if (isFinishing || isDestroyed) return@runOnUiThread
-                            progress.isIndeterminate = false
-                            progress.progress = percent
-                            statusView.text =
-                                getString(R.string.import_status_running, percent)
-                        }
-                    },
-                    cancelled = { cancelled }
-                )
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    if (cancelled) {
-                        Toast.makeText(
-                            this, R.string.import_cancelled_partial, Toast.LENGTH_LONG
-                        ).show()
-                    }
-                    openDetail(id)
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    Toast.makeText(
-                        this,
-                        getString(R.string.import_failed, e.message ?: "unknown error"),
-                        Toast.LENGTH_LONG
-                    ).show()
-                    finish()
-                }
-            }
-        }.start()
+        val start = Intent(this, ImportService::class.java)
+            .setAction(ImportService.ACTION_START)
+            .setData(uri)
+            .putExtra(ImportService.EXTRA_NAME, name)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(start)
+        } else {
+            startService(start)
+        }
+        bindService(Intent(this, ImportService::class.java), connection, Context.BIND_AUTO_CREATE)
+        bound = true
     }
 
     private fun incomingUri(): Uri? {
@@ -148,13 +192,13 @@ class ImportActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        // Stops the worker on real teardown; partial transcript stays saved.
-        cancelled = true
+        service?.let { if (it.observer === observer) it.observer = null }
+        if (bound) {
+            try {
+                unbindService(connection)
+            } catch (_: Exception) {
+            }
+        }
         super.onDestroy()
-    }
-
-    override fun onBackPressed() {
-        cancelled = true
-        super.onBackPressed()
     }
 }

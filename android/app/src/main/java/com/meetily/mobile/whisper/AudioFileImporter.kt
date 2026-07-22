@@ -83,7 +83,9 @@ class AudioFileImporter(
         )
 
         // Keep a copy of the source audio so playback and later
-        // re-transcription work on imported meetings too.
+        // re-transcription work on imported meetings too. Decoding also runs
+        // from this copy: the caller's content-URI grant can be revoked once
+        // the sharing activity goes away, but our own file cannot.
         try {
             val audioCopy = AudioStore.newImportFile(context, meeting.id, sourceName)
             context.contentResolver.openInputStream(uri)?.use { input ->
@@ -97,6 +99,9 @@ class AudioFileImporter(
         } catch (_: Exception) {
             meeting.audioFile = null
         }
+        val decodeUri = meeting.audioFile?.let {
+            Uri.fromFile(AudioStore.fileFor(context, it))
+        } ?: uri
 
         // Chunker state (same splitting rules as live recording).
         var chunk = FloatArray(0)
@@ -176,7 +181,7 @@ class AudioFileImporter(
         try {
             val durationMs = AudioFileDecoder.decode(
                 context,
-                uri,
+                decodeUri,
                 onPcm = { pcm ->
                     // Re-frame into fixed 100 ms windows for the RMS logic.
                     var data = pcm

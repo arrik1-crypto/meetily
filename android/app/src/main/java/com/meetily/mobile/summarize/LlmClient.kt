@@ -192,6 +192,38 @@ object LlmClient {
         return chat(baseUrl, apiKey, model, messages)
     }
 
+    /**
+     * Answers a question against several meetings at once. Each context block
+     * is (label, content) where the label carries the meeting title + date;
+     * the model is instructed to cite which meeting each claim came from.
+     */
+    fun askLibrary(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        contextBlocks: List<Pair<String, String>>,
+        question: String
+    ): String {
+        val systemPrompt = buildString {
+            append(
+                "You answer questions using ONLY the meeting records below. " +
+                    "Cite the meeting (by its title and date) for every claim, " +
+                    "e.g. (Team sync, Jul 3). If the records don't contain the " +
+                    "answer, say so briefly. Be concise.\n"
+            )
+            val perBlock = (30_000 / contextBlocks.size.coerceAtLeast(1))
+                .coerceAtLeast(4_000)
+            for ((label, content) in contextBlocks) {
+                append("\n=== MEETING: ").append(label).append(" ===\n")
+                append(content.take(perBlock)).append("\n")
+            }
+        }
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+            .put(JSONObject().put("role", "user").put("content", question))
+        return chat(baseUrl, apiKey, model, messages)
+    }
+
     private fun chat(
         baseUrl: String,
         apiKey: String,

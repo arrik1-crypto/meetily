@@ -1,7 +1,8 @@
 # Next Feature Round — Plan
 
-Status: **planned** (follows v1.2.0's audio recording + synced playback tier).
-Three candidates, in recommended build order.
+Status: **implemented** in v1.2.0-beta2 (all three below shipped: launcher
+shortcuts + QS tile, ImportService background imports, and Ask-your-library
+with LibrarySearch retrieval + cited LLM answers / no-LLM fallback).
 
 ## 1. Ask across all meetings
 
