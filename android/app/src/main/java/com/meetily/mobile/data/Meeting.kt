@@ -27,6 +27,12 @@ data class ActionItem(
     val remindAtMs: Long? = null
 )
 
+/** A file attached to a meeting: stored filename + original display name. */
+data class Attachment(
+    val file: String,
+    val name: String
+)
+
 /**
  * A topical chapter within the transcript. Anchored by wall-clock start time
  * (not segment index) so transcript edits and splits can't orphan it: the
@@ -55,7 +61,9 @@ data class Meeting(
     /** Detected topic chapters, ordered by startMs. */
     val chapters: MutableList<Chapter> = mutableListOf(),
     /** On-device OCR text per attached photo (filename → extracted text). */
-    val photoTexts: MutableMap<String, String> = mutableMapOf()
+    val photoTexts: MutableMap<String, String> = mutableMapOf(),
+    /** Arbitrary file attachments (see AttachmentStore). */
+    val attachmentsList: MutableList<Attachment> = mutableListOf()
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -153,6 +161,15 @@ data class Meeting(
             for ((name, text) in photoTexts) photoTextsObj.put(name, text)
             obj.put("photoTexts", photoTextsObj)
         }
+        if (attachmentsList.isNotEmpty()) {
+            val attachArr = JSONArray()
+            for (attachment in attachmentsList) {
+                attachArr.put(
+                    JSONObject().put("f", attachment.file).put("n", attachment.name)
+                )
+            }
+            obj.put("attachments", attachArr)
+        }
         return obj
     }
 
@@ -241,6 +258,16 @@ data class Meeting(
                 for (key in photoTextsObj.keys()) {
                     val text = photoTextsObj.optString(key, "")
                     if (text.isNotBlank()) meeting.photoTexts[key] = text
+                }
+            }
+            val attachArr = obj.optJSONArray("attachments") ?: JSONArray()
+            for (i in 0 until attachArr.length()) {
+                val a = attachArr.getJSONObject(i)
+                val file = a.optString("f", "")
+                if (file.isNotBlank()) {
+                    meeting.attachmentsList.add(
+                        Attachment(file, a.optString("n", file))
+                    )
                 }
             }
             return meeting

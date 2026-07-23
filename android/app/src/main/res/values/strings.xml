@@ -96,6 +96,22 @@
     <string name="topics_redetect">↻ Detect again</string>
     <string name="topics_remove">✕ Remove topic markers</string>
 
+    <string name="notes_edit">Edit notes</string>
+    <string name="notes_done">Done</string>
+    <string name="notes_hint_rich">Notes — use the toolbar for **bold**, lists, and checklists</string>
+    <string name="fmt_bold">B</string>
+    <string name="fmt_italic">I</string>
+    <string name="fmt_heading">H</string>
+    <string name="fmt_bullet">• List</string>
+    <string name="fmt_check">☑ Check</string>
+
+    <string name="section_files">Files</string>
+    <string name="attach_file">Attach file</string>
+    <string name="attach_failed">Couldn\'t attach that file.</string>
+    <string name="attachment_missing">That file is no longer on this device.</string>
+    <string name="attachment_no_app">No app on this device can open that file type.</string>
+    <string name="attachment_remove_confirm">Remove “%1$s” from this meeting? The stored copy is deleted.</string>
+
     <string name="widget_record">Record</string>
     <string name="widget_import">Import</string>
     <string name="widget_description">One-tap meeting recording and audio import.</string>

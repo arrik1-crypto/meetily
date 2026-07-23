@@ -32,6 +32,8 @@ import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.shape.ShapeAppearanceModel
 import com.meetily.mobile.data.ActionItem
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.Attachment
+import com.meetily.mobile.data.AttachmentStore
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
@@ -40,6 +42,8 @@ import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.QaEntry
 import com.meetily.mobile.data.TranscriptSplitter
 import com.meetily.mobile.export.MeetingExporter
+import com.meetily.mobile.notes.NotesMarkdown
+import com.meetily.mobile.notes.NotesRenderer
 import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.summarize.ActionItems
 import com.meetily.mobile.summarize.CustomTemplates
@@ -104,6 +108,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     private val pickImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             uri?.let { importPhoto(it) }
+        }
+    private val pickAttachment =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            uri?.let { importAttachment(it) }
         }
     private val exportMd =
         registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
@@ -183,6 +191,14 @@ class MeetingDetailActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.photo_attach_failed, Toast.LENGTH_SHORT).show()
             }
         }
+        headerView.findViewById<View>(R.id.addFileButton).setOnClickListener {
+            try {
+                pickAttachment.launch("*/*")
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.attach_failed, Toast.LENGTH_SHORT).show()
+            }
+        }
+        setUpNotesEditor()
 
         setUpTabs()
         renderSummary(m.summary)
@@ -191,7 +207,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         renderQaHistory(m)
         renderPhotos(m)
         backfillPhotoOcr(m)
+        renderAttachments(m)
         notesInput.setText(m.notes)
+        setNotesMode(viewMode = m.notes.isNotBlank())
         attendeesInput.setText(m.attendeesText())
         tagsInput.setText(m.tags.joinToString(", "))
         setUpPlayer()
@@ -1454,6 +1472,211 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
+
+    // --- Rich notes ----------------------------------------------------------
+
+    private fun setUpNotesEditor() {
+        headerView.findViewById<View>(R.id.editNotesButton).setOnClickListener {
+            setNotesMode(viewMode = false)
+            notesInput.requestFocus()
+        }
+        headerView.findViewById<View>(R.id.doneNotesButton).setOnClickListener {
+            val m = meeting ?: return@setOnClickListener
+            m.notes = notesInput.text.toString()
+            store.save(m)
+            setNotesMode(viewMode = m.notes.isNotBlank())
+        }
+        headerView.findViewById<View>(R.id.fmtBold).setOnClickListener {
+            wrapSelection("**", "**")
+        }
+        headerView.findViewById<View>(R.id.fmtItalic).setOnClickListener {
+            wrapSelection("*", "*")
+        }
+        headerView.findViewById<View>(R.id.fmtHeading).setOnClickListener {
+            prefixCurrentLine("## ")
+        }
+        headerView.findViewById<View>(R.id.fmtBullet).setOnClickListener {
+            prefixCurrentLine("- ")
+        }
+        headerView.findViewById<View>(R.id.fmtCheck).setOnClickListener {
+            prefixCurrentLine("- [ ] ")
+        }
+    }
+
+    private fun setNotesMode(viewMode: Boolean) {
+        headerView.findViewById<View>(R.id.notesViewMode).visibility =
+            if (viewMode) View.VISIBLE else View.GONE
+        headerView.findViewById<View>(R.id.notesEditMode).visibility =
+            if (viewMode) View.GONE else View.VISIBLE
+        if (viewMode) meeting?.let { renderNotes(it) }
+    }
+
+    private fun renderNotes(m: Meeting) {
+        val container = headerView.findViewById<LinearLayout>(R.id.notesRendered)
+        NotesRenderer.render(container, m.notes) { line ->
+            m.notes = NotesMarkdown.toggleCheck(m.notes, line)
+            notesInput.setText(m.notes)
+            store.save(m)
+            renderNotes(m)
+        }
+    }
+
+    private fun wrapSelection(prefix: String, suffix: String) {
+        val rawStart = notesInput.selectionStart.coerceAtLeast(0)
+        val rawEnd = notesInput.selectionEnd.coerceAtLeast(0)
+        val start = minOf(rawStart, rawEnd)
+        val end = maxOf(rawStart, rawEnd)
+        notesInput.text.insert(end, suffix)
+        notesInput.text.insert(start, prefix)
+        notesInput.setSelection(start + prefix.length, end + prefix.length)
+    }
+
+    private fun prefixCurrentLine(prefix: String) {
+        val pos = notesInput.selectionStart.coerceAtLeast(0)
+        val text = notesInput.text.toString()
+        val lineStart = text.lastIndexOf('\n', pos - 1) + 1
+        notesInput.text.insert(lineStart, prefix)
+    }
+
+    // --- File attachments ----------------------------------------------------
+
+    private fun importAttachment(uri: Uri) {
+        val m = meeting ?: return
+        try {
+            val display = attachmentDisplayName(uri)
+            val file = AttachmentStore.newFile(this, m.id, display)
+            contentResolver.openInputStream(uri)?.use { input ->
+                file.outputStream().use { output -> input.copyTo(output) }
+            } ?: throw RuntimeException("cannot open file")
+            if (file.length() <= 0) {
+                file.delete()
+                throw RuntimeException("empty file")
+            }
+            m.attachmentsList.add(Attachment(file.name, display))
+            store.save(m)
+            renderAttachments(m)
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.attach_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun attachmentDisplayName(uri: Uri): String {
+        try {
+            contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+                val index =
+                    cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                if (index >= 0 && cursor.moveToFirst()) {
+                    val name = cursor.getString(index)
+                    if (!name.isNullOrBlank()) return name
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return uri.lastPathSegment?.substringAfterLast('/') ?: getString(R.string.section_files)
+    }
+
+    private fun renderAttachments(m: Meeting) {
+        val list = headerView.findViewById<LinearLayout>(R.id.attachmentList)
+        list.removeAllViews()
+        for (attachment in m.attachmentsList.toList()) {
+            val file = AttachmentStore.fileFor(this, attachment.file)
+            val row = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+                setPadding(0, dp(8), 0, dp(8))
+                setBackgroundResource(
+                    android.R.attr.selectableItemBackground.let { attr ->
+                        val tv = android.util.TypedValue()
+                        theme.resolveAttribute(attr, tv, true)
+                        tv.resourceId
+                    }
+                )
+            }
+            val icon = ImageView(this).apply {
+                setImageResource(R.drawable.ic_attach_file)
+                imageTintList = android.content.res.ColorStateList.valueOf(
+                    themeColor(com.google.android.material.R.attr.colorPrimary)
+                )
+                layoutParams = LinearLayout.LayoutParams(dp(20), dp(20))
+            }
+            val label = TextView(this).apply {
+                text = attachment.name
+                textSize = 15f
+                setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurface))
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.MIDDLE
+                layoutParams = LinearLayout.LayoutParams(
+                    0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f
+                ).apply { marginStart = dp(10) }
+            }
+            val size = TextView(this).apply {
+                text = formatFileSize(file.length())
+                textSize = 12f
+                setTextColor(
+                    themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant)
+                )
+                layoutParams = LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT,
+                    LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { marginStart = dp(10) }
+            }
+            row.addView(icon)
+            row.addView(label)
+            row.addView(size)
+            row.setOnClickListener { openAttachment(attachment) }
+            row.setOnLongClickListener {
+                confirmRemoveAttachment(attachment)
+                true
+            }
+            list.addView(row)
+        }
+    }
+
+    private fun openAttachment(attachment: Attachment) {
+        val file = AttachmentStore.fileFor(this, attachment.file)
+        if (!file.exists()) {
+            Toast.makeText(this, R.string.attachment_missing, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val uri = AttachmentStore.uriFor(this, file)
+        val mime = contentResolver.getType(uri)
+            ?: android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(
+                file.extension.lowercase()
+            )
+            ?: "*/*"
+        try {
+            startActivity(
+                Intent(Intent.ACTION_VIEW)
+                    .setDataAndType(uri, mime)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            )
+        } catch (_: Exception) {
+            Toast.makeText(this, R.string.attachment_no_app, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun confirmRemoveAttachment(attachment: Attachment) {
+        val m = meeting ?: return
+        AlertDialog.Builder(this)
+            .setMessage(getString(R.string.attachment_remove_confirm, attachment.name))
+            .setPositiveButton(R.string.delete) { _, _ ->
+                m.attachmentsList.remove(attachment)
+                AttachmentStore.delete(this, attachment.file)
+                store.save(m)
+                renderAttachments(m)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun formatFileSize(bytes: Long): String = when {
+        bytes >= 1024 * 1024 -> "%.1f MB".format(bytes / 1048576.0)
+        bytes >= 1024 -> "%d KB".format(bytes / 1024)
+        else -> "$bytes B"
+    }
+
+    private fun dp(value: Int): Int =
+        (value * resources.displayMetrics.density).toInt()
 
     // --- Topic chapters ------------------------------------------------------
 

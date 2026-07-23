@@ -23,6 +23,7 @@ object BackupManager {
     private const val MEETINGS = "meetings/"
     private const val PHOTOS = "photos/"
     private const val AUDIO = "audio/"
+    private const val ATTACHMENTS = "attachments/"
 
     private const val VOICES = "voice_profiles.json"
 
@@ -31,6 +32,7 @@ object BackupManager {
             addDir(zip, File(context.filesDir, "meetings"), MEETINGS) { it.endsWith(".json") }
             addDir(zip, File(context.filesDir, "photos"), PHOTOS) { true }
             addDir(zip, File(context.filesDir, "audio"), AUDIO) { true }
+            addDir(zip, File(context.filesDir, "attachments"), ATTACHMENTS) { true }
             val voices = File(context.filesDir, VOICES)
             if (voices.isFile) {
                 zip.putNextEntry(ZipEntry(VOICES))
@@ -86,6 +88,7 @@ object BackupManager {
         val meetingsDir = File(context.filesDir, "meetings").apply { mkdirs() }
         val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
         val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
+        val attachmentsDir = File(context.filesDir, "attachments").apply { mkdirs() }
         var restored = 0
         ZipInputStream(input).use { zip ->
             var entry: ZipEntry? = zip.nextEntry
@@ -101,6 +104,8 @@ object BackupManager {
                             File(photosDir, File(name).name)
                         name.startsWith(AUDIO) ->
                             File(audioDir, File(name).name)
+                        name.startsWith(ATTACHMENTS) ->
+                            File(attachmentsDir, File(name).name)
                         name == VOICES ->
                             File(context.filesDir, VOICES)
                         else -> null
