@@ -183,6 +183,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         cameraButton.setOnClickListener { capturePhoto() }
         finishButton.setOnClickListener { finishAndSave() }
         calendarButton.setOnClickListener { requestCalendarPrefill(manual = true) }
+        findViewById<View>(R.id.catchUpButton).setOnClickListener { showCatchUp() }
 
         startPulse()
 
@@ -461,6 +462,73 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     }
 
     // --- User actions -----------------------------------------------------
+
+    // --- Live catch-up ------------------------------------------------------
+
+    private var catchUpRunning = false
+
+    /**
+     * "Catch me up": summarizes the meeting so far into a bottom sheet.
+     * Uses the configured LLM when available (portrait-locked screen, so no
+     * rotation can kill the run); otherwise the instant extractive
+     * summarizer — a late joiner gets an answer either way.
+     */
+    private fun showCatchUp() {
+        if (catchUpRunning) return
+        val segments = service?.segmentsSnapshot().orEmpty()
+        val transcript = segments.joinToString("\n") { seg ->
+            val speaker = seg.speaker
+            if (speaker.isNullOrBlank()) seg.text else "$speaker: ${seg.text}"
+        }
+        if (transcript.isBlank()) {
+            Toast.makeText(this, R.string.catch_up_empty, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val sheet = com.google.android.material.bottomsheet.BottomSheetDialog(this)
+        val content = layoutInflater.inflate(R.layout.sheet_catch_up, null)
+        sheet.setContentView(content)
+        val body = content.findViewById<TextView>(R.id.catchUpText)
+        val progress = content.findViewById<View>(R.id.catchUpProgress)
+        // Dismissing mid-request re-arms the button immediately; the orphaned
+        // thread's result is discarded via the isShowing check below.
+        sheet.setOnDismissListener { catchUpRunning = false }
+        sheet.show()
+
+        val useLlm = settings.useLlm && settings.llmConfigured
+        if (!useLlm) {
+            progress.visibility = View.GONE
+            body.text = extractiveCatchUp(transcript)
+            return
+        }
+        catchUpRunning = true
+        Thread {
+            val result = try {
+                com.meetily.mobile.summarize.LlmClient.catchUp(
+                    settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
+                    settings.localOnlyLlm, transcript
+                )
+            } catch (_: Exception) {
+                extractiveCatchUp(transcript)
+            }
+            runOnUiThread {
+                catchUpRunning = false
+                if (isFinishing || isDestroyed || !sheet.isShowing) return@runOnUiThread
+                progress.visibility = View.GONE
+                body.text = result
+            }
+        }.apply {
+            name = "catch-up"
+            start()
+        }
+    }
+
+    private fun extractiveCatchUp(transcript: String): String = try {
+        com.meetily.mobile.summarize.ExtractiveSummarizer.summarize(
+            transcript.takeLast(12_000), "", emptyList(), false
+        )
+    } catch (_: Exception) {
+        getString(R.string.catch_up_empty)
+    }
 
     private fun onHighlightClicked() {
         val toggled = service?.requestHighlight() ?: return

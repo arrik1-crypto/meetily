@@ -82,7 +82,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            val notification = NotificationCompat.Builder(context, CHANNEL_NUDGES)
+            val builder = NotificationCompat.Builder(context, CHANNEL_NUDGES)
                 .setSmallIcon(R.drawable.ic_mic)
                 .setContentTitle(
                     context.getString(R.string.nudge_notif_title, event.title)
@@ -91,11 +91,42 @@ class ReminderReceiver : BroadcastReceiver() {
                 .setContentIntent(record)
                 .setAutoCancel(true)
                 .setTimeoutAfter(20 * 60_000L)
-                .build()
-            notify(context, 9002, notification)
+            // When this event matches a known recurring series, offer a
+            // pre-meeting brief: last time's outcomes + open items.
+            if (hasSeriesHistory(context, event.title)) {
+                val brief = PendingIntent.getActivity(
+                    context,
+                    9003,
+                    Intent(context, com.meetily.mobile.PreMeetingBriefActivity::class.java)
+                        .putExtra(
+                            com.meetily.mobile.PreMeetingBriefActivity.EXTRA_QUERY,
+                            event.title
+                        )
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+                builder.addAction(
+                    R.drawable.ic_sparkle,
+                    context.getString(R.string.nudge_prep_action),
+                    brief
+                )
+            }
+            notify(context, 9002, builder.build())
         } finally {
             // Keep the chain alive no matter what this firing decided.
             Reminders.scheduleNextCalendarNudge(context)
+        }
+    }
+
+    /** True when the library holds at least one past meeting of this series. */
+    private fun hasSeriesHistory(context: Context, eventTitle: String): Boolean {
+        return try {
+            val key = com.meetily.mobile.search.MeetingGroups.normalizeTitle(eventTitle)
+            key.isNotBlank() && MeetingStore(context).list().any {
+                com.meetily.mobile.search.MeetingGroups.normalizeTitle(it.title) == key
+            }
+        } catch (_: Exception) {
+            false
         }
     }
 

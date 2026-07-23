@@ -98,14 +98,22 @@ class MeetingDetailActivity : AppCompatActivity() {
         override fun onSummaryProgress(meetingId: String, percent: Int, stage: String) {
             if (isFinishing || isDestroyed) return
             if (meetingId != meeting?.id) return
+            // Notes-enhancement progress lives in the notification + home
+            // banner; only summary runs take over the summary section UI.
+            if (SummaryService.currentMode == SummaryService.MODE_NOTES) return
             showSummarizingUi()
             summaryView.text = stage
             setSummaryProgress(percent)
         }
 
-        override fun onSummaryDone(meetingId: String) {
+        override fun onSummaryDone(meetingId: String, failed: Boolean) {
             if (isFinishing || isDestroyed) return
-            if (meetingId == meeting?.id) refreshSummaryFromStore(reveal = true)
+            if (meetingId != meeting?.id) return
+            if (SummaryService.currentMode == SummaryService.MODE_NOTES) {
+                if (!failed) refreshNotesFromStore()
+            } else {
+                refreshSummaryFromStore(reveal = true)
+            }
         }
     }
 
@@ -152,12 +160,16 @@ class MeetingDetailActivity : AppCompatActivity() {
         val m = meeting ?: return
         if (SummaryService.isRunning && SummaryService.currentMeetingId == m.id) {
             // Coming back (or rotating) mid-generation: restore progress UI
-            // and reattach to the run.
-            showSummarizingUi()
+            // and reattach to the run. (Notes runs show no summary-section
+            // UI; the observer refreshes notes when they land.)
+            if (SummaryService.currentMode != SummaryService.MODE_NOTES) {
+                showSummarizingUi()
+            }
             bindSummaryService()
         } else {
             // A generation may have finished while this screen was away.
             refreshSummaryFromStore(reveal = false)
+            refreshNotesFromStore()
         }
     }
 
@@ -218,6 +230,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     private val exportPdf =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
             uri?.let { writeExport(it, isPdf = true) }
+        }
+    private val exportIcs =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/calendar")) { uri ->
+            uri?.let { writeActionItemsIcs(it) }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -315,11 +331,60 @@ class MeetingDetailActivity : AppCompatActivity() {
         attendeesInput.setText(m.attendeesText())
         tagsInput.setText(m.tags.joinToString(", "))
         setUpPlayer()
+        renderStats(m)
         maybeAutoTitle(m)
+    }
+
+    /** Conversation insights: talk-time bars + monologue/questions/pace line. */
+    private fun renderStats(m: Meeting) {
+        val stats = com.meetily.mobile.summarize.MeetingStats.compute(m.segments)
+            ?: return
+        val header = headerView.findViewById<TextView>(R.id.statsHeader)
+        val list = headerView.findViewById<LinearLayout>(R.id.statsList)
+        val footer = headerView.findViewById<TextView>(R.id.statsFooter)
+        header.visibility = View.VISIBLE
+        list.visibility = View.VISIBLE
+        footer.visibility = View.VISIBLE
+        list.removeAllViews()
+        val inflater = LayoutInflater.from(this)
+        for (share in stats.shares.take(8)) {
+            val row = inflater.inflate(R.layout.item_stat_speaker, list, false)
+            row.findViewById<TextView>(R.id.statSpeakerName).text =
+                if (share.name == com.meetily.mobile.summarize.MeetingStats.UNATTRIBUTED) {
+                    getString(R.string.stats_unattributed)
+                } else {
+                    share.name
+                }
+            row.findViewById<TextView>(R.id.statSpeakerDetail).text = getString(
+                R.string.stats_share_detail,
+                share.percent, formatClock(share.ms.toInt()), share.turns
+            )
+            val bar = row.findViewById<
+                com.google.android.material.progressindicator.LinearProgressIndicator
+            >(R.id.statSpeakerBar)
+            bar.progress = share.percent
+            list.addView(row)
+        }
+        footer.text = buildString {
+            val monologue = stats.longestMonologueSpeaker
+            if (monologue != null) {
+                append(
+                    getString(
+                        R.string.stats_monologue,
+                        monologue, formatClock(stats.longestMonologueMs.toInt())
+                    )
+                )
+                append("   ")
+            }
+            append(getString(R.string.stats_questions, stats.questionCount))
+            append("   ")
+            append(getString(R.string.stats_pace, stats.wordsPerMinute))
+        }
     }
 
     override fun onResume() {
         super.onResume()
+        syncNotesButtons()
         val llmReady = settings.useLlm && settings.llmConfigured
         askRow.visibility = if (llmReady) View.VISIBLE else View.GONE
         askDisabledHint.visibility = if (llmReady) View.GONE else View.VISIBLE
@@ -443,6 +508,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             } else null,
             onEditText = { editSegmentText(index) },
             onSplit = { showSplitDialog(index) },
+            onShareClip = if (audioMs != null && audioFileOrNull() != null) {
+                { shareClip(index) }
+            } else null,
             onRenameCluster = if (clusterId != null) {
                 { name ->
                     val tagged = mutableListOf<Int>()
@@ -841,16 +909,30 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun showExportDialog() {
         val m = meeting ?: return
-        val options = arrayOf(getString(R.string.export_markdown), getString(R.string.export_pdf))
+        val options = arrayOf(
+            getString(R.string.export_markdown),
+            getString(R.string.export_pdf),
+            getString(R.string.export_actions_ics),
+            getString(R.string.export_actions_text)
+        )
         AlertDialog.Builder(this)
             .setTitle(R.string.export)
             .setItems(options) { _, which ->
                 saveEdits()
                 try {
-                    if (which == 0) {
-                        exportMd.launch(MeetingExporter.suggestedFileName(m, "md"))
-                    } else {
-                        exportPdf.launch(MeetingExporter.suggestedFileName(m, "pdf"))
+                    when (which) {
+                        0 -> exportMd.launch(MeetingExporter.suggestedFileName(m, "md"))
+                        1 -> exportPdf.launch(MeetingExporter.suggestedFileName(m, "pdf"))
+                        2 -> {
+                            if (openActionItems(m).isEmpty()) {
+                                Toast.makeText(
+                                    this, R.string.no_action_items, Toast.LENGTH_SHORT
+                                ).show()
+                            } else {
+                                exportIcs.launch(MeetingExporter.suggestedFileName(m, "ics"))
+                            }
+                        }
+                        else -> shareActionItemsText(m)
                     }
                 } catch (e: Exception) {
                     Toast.makeText(
@@ -861,6 +943,45 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun openActionItems(m: Meeting): List<com.meetily.mobile.export.TaskExport.Item> =
+        m.actionItems.filter { !it.done }.map {
+            com.meetily.mobile.export.TaskExport.Item(
+                it.task, it.owner, it.remindAtMs, m.title
+            )
+        }
+
+    private fun writeActionItemsIcs(uri: Uri) {
+        val m = meeting ?: return
+        try {
+            val ics = com.meetily.mobile.export.TaskExport.ics(
+                openActionItems(m), System.currentTimeMillis()
+            )
+            contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(ics.toByteArray(Charsets.UTF_8))
+            } ?: throw RuntimeException("could not open destination")
+            Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this, getString(R.string.export_failed, e.message ?: "unknown error"),
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private fun shareActionItemsText(m: Meeting) {
+        val items = openActionItems(m)
+        if (items.isEmpty()) {
+            Toast.makeText(this, R.string.no_action_items, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.actions_share_subject, m.title))
+            putExtra(Intent.EXTRA_TEXT, com.meetily.mobile.export.TaskExport.text(items))
+        }
+        startActivity(Intent.createChooser(send, getString(R.string.export_actions_text)))
     }
 
     private fun writeExport(uri: Uri, isPdf: Boolean) {
@@ -1227,6 +1348,15 @@ class MeetingDetailActivity : AppCompatActivity() {
                 topicsAction()
                 true
             }
+            R.id.action_pre_brief -> {
+                meeting?.let {
+                    startActivity(
+                        Intent(this, PreMeetingBriefActivity::class.java)
+                            .putExtra(PreMeetingBriefActivity.EXTRA_QUERY, it.title)
+                    )
+                }
+                true
+            }
             R.id.action_retranscribe -> {
                 confirmRetranscribe()
                 true
@@ -1243,15 +1373,74 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var playPauseButton: ImageButton
     private lateinit var playerSeek: SeekBar
     private lateinit var playerTime: TextView
+    private lateinit var playerSpeedButton: TextView
+    private lateinit var skipSilenceButton: ImageButton
+    private var playbackSpeed = 1.0f
+    private var skipSilence = false
+
+    /** Speech spans over the audio timeline; built lazily for skip-silence. */
+    private val speechSpans: List<com.meetily.mobile.whisper.SpeechSpans.Span> by lazy {
+        com.meetily.mobile.whisper.SpeechSpans.build(meeting?.segments ?: emptyList())
+    }
+
     private val playerHandler = Handler(Looper.getMainLooper())
     private val playerTick = object : Runnable {
         override fun run() {
             val p = player ?: return
             if (playerReady) {
+                if (skipSilence && p.isPlaying) {
+                    val target = com.meetily.mobile.whisper.SpeechSpans.skipTarget(
+                        p.currentPosition.toLong(), speechSpans
+                    )
+                    if (target != null && target < p.duration) {
+                        p.seekTo(target.toInt())
+                    }
+                }
                 updatePlayerUi(p)
-                if (p.isPlaying) playerHandler.postDelayed(this, 500)
+                if (p.isPlaying) playerHandler.postDelayed(this, 400)
             }
         }
+    }
+
+    /** Applies the persisted speed to an actively playing player (API 23+). */
+    private fun applyPlaybackSpeed(p: MediaPlayer) {
+        try {
+            p.playbackParams = p.playbackParams.setSpeed(playbackSpeed)
+        } catch (_: Exception) {
+            // Some codecs refuse non-1x; playback continues at normal speed.
+        }
+    }
+
+    private fun cyclePlaybackSpeed() {
+        val steps = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 0.5f)
+        val at = steps.indexOfFirst { kotlin.math.abs(it - playbackSpeed) < 0.01f }
+        playbackSpeed = steps[(at + 1).mod(steps.size)]
+        settings.playbackSpeed = playbackSpeed
+        renderSpeedLabel()
+        player?.let { if (it.isPlaying) applyPlaybackSpeed(it) }
+    }
+
+    private fun renderSpeedLabel() {
+        val label = if (playbackSpeed == playbackSpeed.toInt().toFloat()) {
+            playbackSpeed.toInt().toString()
+        } else {
+            String.format(Locale.US, "%.2f", playbackSpeed)
+                .trimEnd('0').trimEnd('.')
+        }
+        playerSpeedButton.text = "$label×"
+    }
+
+    private fun renderSkipSilence() {
+        skipSilenceButton.alpha = if (skipSilence) 1.0f else 0.45f
+        skipSilenceButton.setColorFilter(
+            themeColor(
+                if (skipSilence) {
+                    com.google.android.material.R.attr.colorPrimary
+                } else {
+                    com.google.android.material.R.attr.colorOnSurfaceVariant
+                }
+            )
+        )
     }
 
     private fun audioFileOrNull(): File? {
@@ -1266,12 +1455,30 @@ class MeetingDetailActivity : AppCompatActivity() {
         playPauseButton = findViewById(R.id.playPauseButton)
         playerSeek = findViewById(R.id.playerSeek)
         playerTime = findViewById(R.id.playerTime)
+        playerSpeedButton = findViewById(R.id.playerSpeed)
+        skipSilenceButton = findViewById(R.id.skipSilenceButton)
         if (audioFileOrNull() == null) {
             playerBar.visibility = View.GONE
             return
         }
         playerBar.visibility = View.VISIBLE
         playerTime.text = formatClock(0)
+        playbackSpeed = settings.playbackSpeed
+        renderSpeedLabel()
+        playerSpeedButton.setOnClickListener { cyclePlaybackSpeed() }
+        skipSilence = settings.skipSilence && speechSpans.isNotEmpty()
+        renderSkipSilence()
+        skipSilenceButton.setOnClickListener {
+            if (speechSpans.isEmpty()) {
+                // No word/offset data (edited or system-recognizer lines).
+                Toast.makeText(this, R.string.skip_silence_unavailable, Toast.LENGTH_SHORT)
+                    .show()
+                return@setOnClickListener
+            }
+            skipSilence = !skipSilence
+            settings.skipSilence = skipSilence
+            renderSkipSilence()
+        }
         playPauseButton.setOnClickListener { togglePlayback() }
         playerSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
@@ -1318,6 +1525,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             playPauseButton.setImageResource(R.drawable.ic_play)
         } else {
             p.start()
+            applyPlaybackSpeed(p)
             playPauseButton.setImageResource(R.drawable.ic_pause)
             playerHandler.post(playerTick)
         }
@@ -1328,6 +1536,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         p.seekTo(audioMs.toInt().coerceIn(0, p.duration))
         if (!p.isPlaying) {
             p.start()
+            applyPlaybackSpeed(p)
             playPauseButton.setImageResource(R.drawable.ic_pause)
         }
         playerHandler.post(playerTick)
@@ -1351,6 +1560,54 @@ class MeetingDetailActivity : AppCompatActivity() {
             String.format(Locale.US, "%d:%02d:%02d", h, m, s)
         } else {
             String.format(Locale.US, "%d:%02d", m, s)
+        }
+    }
+
+    /**
+     * Cuts the tapped line's moment (with a second of lead-in/out) into a
+     * small WAV and hands it to the share sheet.
+     */
+    private fun shareClip(index: Int) {
+        val m = meeting ?: return
+        val segment = m.segments.getOrNull(index) ?: return
+        val audioMs = segment.audioMs ?: return
+        val source = audioFileOrNull() ?: return
+        // Word stamps are chunk-relative: the speech ends at audioMs +
+        // last-word start (+ tail), not at audioMs + duration-from-first-word.
+        val words = segment.words
+        val start = (audioMs - 1_000L).coerceAtLeast(0)
+        val end = if (!words.isNullOrEmpty()) {
+            audioMs + words.last().ms + 1_600L
+        } else {
+            audioMs + com.meetily.mobile.summarize.MeetingStats
+                .estimateDurationMs(segment.text, null) + 1_000L
+        }
+        Toast.makeText(this, R.string.clip_preparing, Toast.LENGTH_SHORT).show()
+        Thread {
+            val clip = com.meetily.mobile.export.ClipExporter
+                .export(this, source, start, end)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (clip == null) {
+                    Toast.makeText(this, R.string.clip_failed, Toast.LENGTH_SHORT).show()
+                    return@runOnUiThread
+                }
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "audio/wav"
+                    putExtra(
+                        Intent.EXTRA_STREAM,
+                        AudioStore.uriFor(this@MeetingDetailActivity, clip)
+                    )
+                    putExtra(Intent.EXTRA_TEXT, "“" + segment.text.take(400) + "”")
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(
+                    Intent.createChooser(send, getString(R.string.share_clip_action))
+                )
+            }
+        }.apply {
+            name = "clip-export"
+            start()
         }
     }
 
@@ -1542,8 +1799,21 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     // --- Rich notes ----------------------------------------------------------
 
+    /** True while a notes enhancement is running for THIS meeting. */
+    private fun notesEnhanceActive(): Boolean =
+        SummaryService.isRunning &&
+            SummaryService.currentMode == SummaryService.MODE_NOTES &&
+            SummaryService.currentMeetingId == meeting?.id
+
     private fun setUpNotesEditor() {
         headerView.findViewById<View>(R.id.editNotesButton).setOnClickListener {
+            // Editing during an active enhancement would race the service's
+            // save and silently discard the enhanced notes — block it.
+            if (notesEnhanceActive()) {
+                Toast.makeText(this, R.string.notes_enhance_wait, Toast.LENGTH_SHORT)
+                    .show()
+                return@setOnClickListener
+            }
             setNotesMode(viewMode = false)
             notesInput.requestFocus()
         }
@@ -1568,6 +1838,12 @@ class MeetingDetailActivity : AppCompatActivity() {
         headerView.findViewById<View>(R.id.fmtCheck).setOnClickListener {
             prefixCurrentLine("- [ ] ")
         }
+        headerView.findViewById<View>(R.id.enhanceNotesButton).setOnClickListener {
+            startNotesEnhance()
+        }
+        headerView.findViewById<View>(R.id.revertNotesButton).setOnClickListener {
+            revertEnhancedNotes()
+        }
     }
 
     private fun setNotesMode(viewMode: Boolean) {
@@ -1576,6 +1852,62 @@ class MeetingDetailActivity : AppCompatActivity() {
         headerView.findViewById<View>(R.id.notesEditMode).visibility =
             if (viewMode) View.GONE else View.VISIBLE
         if (viewMode) meeting?.let { renderNotes(it) }
+        syncNotesButtons()
+    }
+
+    /** Enhance is offered when there are notes + transcript + an LLM; revert
+     *  appears once an enhancement has something to roll back to. */
+    private fun syncNotesButtons() {
+        val m = meeting ?: return
+        val canEnhance = settings.useLlm && settings.llmConfigured &&
+            m.notes.isNotBlank() && m.segments.isNotEmpty()
+        headerView.findViewById<View>(R.id.enhanceNotesButton).visibility =
+            if (canEnhance) View.VISIBLE else View.GONE
+        headerView.findViewById<View>(R.id.revertNotesButton).visibility =
+            if (m.notesOriginal.isNotBlank()) View.VISIBLE else View.GONE
+    }
+
+    /** Hands the enhancement run to SummaryService (survives navigation). */
+    private fun startNotesEnhance() {
+        val m = meeting ?: return
+        saveEdits()
+        if (m.notes.isBlank()) return
+        if (SummaryService.isRunning) {
+            Toast.makeText(this, R.string.summary_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        SummaryService.start(
+            this, m.id, settings.summaryTemplate, SummaryService.MODE_NOTES
+        )
+        bindSummaryService()
+        Toast.makeText(this, R.string.notes_enhance_started, Toast.LENGTH_LONG).show()
+    }
+
+    private fun revertEnhancedNotes() {
+        val m = meeting ?: return
+        if (m.notesOriginal.isBlank()) return
+        m.notes = m.notesOriginal
+        m.notesOriginal = ""
+        store.save(m)
+        notesInput.setText(m.notes)
+        renderNotes(m)
+        syncNotesButtons()
+        Toast.makeText(this, R.string.notes_reverted, Toast.LENGTH_SHORT).show()
+    }
+
+    /** Pulls notes written by a background enhancement into this screen. */
+    private fun refreshNotesFromStore() {
+        val m = meeting ?: return
+        val saved = store.load(m.id) ?: return
+        if (saved.notes == m.notes && saved.notesOriginal == m.notesOriginal) return
+        // Don't clobber an in-progress manual edit.
+        if (headerView.findViewById<View>(R.id.notesEditMode).visibility == View.VISIBLE) {
+            return
+        }
+        m.notes = saved.notes
+        m.notesOriginal = saved.notesOriginal
+        notesInput.setText(m.notes)
+        setNotesMode(viewMode = m.notes.isNotBlank())
     }
 
     private fun renderNotes(m: Meeting) {

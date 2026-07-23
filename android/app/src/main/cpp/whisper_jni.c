@@ -39,7 +39,8 @@ Java_com_meetily_mobile_whisper_WhisperBridge_freeContext(
 JNIEXPORT jstring JNICALL
 Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
         JNIEnv *env, jobject thiz, jlong ptr, jfloatArray samples,
-        jstring language, jint n_threads, jboolean translate) {
+        jstring language, jint n_threads, jboolean translate,
+        jstring prompt) {
     (void) thiz;
     struct whisper_context *ctx = (struct whisper_context *) (intptr_t) ptr;
     if (ctx == NULL || samples == NULL) return NULL;
@@ -67,11 +68,23 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
             params.language = lang;
         }
     }
+    /* Custom vocabulary: condition the decoder on a glossary of the user's
+     * names/jargon so ambiguous audio resolves toward them. */
+    const char *prompt_chars = NULL;
+    if (prompt != NULL) {
+        prompt_chars = (*env)->GetStringUTFChars(env, prompt, NULL);
+        if (prompt_chars != NULL && prompt_chars[0] != '\0') {
+            params.initial_prompt = prompt_chars;
+        }
+    }
 
     int ret = whisper_full(ctx, params, pcm, (int) n_samples);
     (*env)->ReleaseFloatArrayElements(env, samples, pcm, JNI_ABORT);
     if (lang != NULL) {
         (*env)->ReleaseStringUTFChars(env, language, lang);
+    }
+    if (prompt_chars != NULL) {
+        (*env)->ReleaseStringUTFChars(env, prompt, prompt_chars);
     }
     if (ret != 0) {
         LOGE("whisper_full failed: %d", ret);
@@ -115,7 +128,8 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
 JNIEXPORT jstring JNICALL
 Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
         JNIEnv *env, jobject thiz, jlong ptr, jfloatArray samples,
-        jstring language, jint n_threads, jboolean translate) {
+        jstring language, jint n_threads, jboolean translate,
+        jstring prompt) {
     (void) thiz;
     struct whisper_context *ctx = (struct whisper_context *) (intptr_t) ptr;
     if (ctx == NULL || samples == NULL) return NULL;
@@ -144,11 +158,21 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
             params.language = lang;
         }
     }
+    const char *prompt_chars = NULL;
+    if (prompt != NULL) {
+        prompt_chars = (*env)->GetStringUTFChars(env, prompt, NULL);
+        if (prompt_chars != NULL && prompt_chars[0] != '\0') {
+            params.initial_prompt = prompt_chars;
+        }
+    }
 
     int ret = whisper_full(ctx, params, pcm, (int) n_samples);
     (*env)->ReleaseFloatArrayElements(env, samples, pcm, JNI_ABORT);
     if (lang != NULL) {
         (*env)->ReleaseStringUTFChars(env, language, lang);
+    }
+    if (prompt_chars != NULL) {
+        (*env)->ReleaseStringUTFChars(env, prompt, prompt_chars);
     }
     if (ret != 0) {
         LOGE("whisper_full failed: %d", ret);

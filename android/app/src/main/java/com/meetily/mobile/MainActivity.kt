@@ -122,15 +122,21 @@ class MainActivity : AppCompatActivity() {
                 if (percent < 0) "" else getString(R.string.percent_fmt, percent)
         }
 
-        override fun onSummaryDone(meetingId: String) {
+        override fun onSummaryDone(meetingId: String, failed: Boolean) {
             if (isFinishing || isDestroyed) return
             summaryBanner.visibility = View.GONE
-            // currentTitle is still set when observers hear about the finish.
+            // currentTitle/currentMode are still set when observers hear
+            // about the finish.
             val title = SummaryService.currentTitle
+            val notesMode = SummaryService.currentMode == SummaryService.MODE_NOTES
             Toast.makeText(
                 this@MainActivity,
-                if (title.isBlank()) getString(R.string.summary_ready_plain)
-                else getString(R.string.summary_ready_toast, title),
+                when {
+                    notesMode && failed -> getString(R.string.notes_failed_notif)
+                    notesMode -> getString(R.string.notes_done_notif)
+                    title.isBlank() -> getString(R.string.summary_ready_plain)
+                    else -> getString(R.string.summary_ready_toast, title)
+                },
                 Toast.LENGTH_SHORT
             ).show()
             refresh() // summary badge/preview on the meeting card updates

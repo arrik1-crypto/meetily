@@ -22,6 +22,8 @@ class WhisperRecorder(
     private val language: String?, // null => auto-detect
     /** Whisper translate task: any spoken language comes out as English text. */
     private val translate: Boolean = false,
+    /** Custom-vocabulary glossary (see Vocab.promptFor); null = none. */
+    private val vocabPrompt: String? = null,
     // Capture tuning (see CaptureTuning): how firmware pre-processes the mic
     // signal, and which physical input to prefer (null = system routing).
     private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -190,7 +192,7 @@ class WhisperRecorder(
                 val ptr = contextPtr
                 if (ptr != 0L) {
                     val raw = WhisperBridge.transcribeWords(
-                        ptr, padded, language, nThreads, translate
+                        ptr, padded, language, nThreads, translate, vocabPrompt
                     )
                     val (text, words) = WhisperBridge.parseWords(raw)
                     if (text.isNotBlank() && !isNoise(text)) {

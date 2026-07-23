@@ -37,8 +37,12 @@ class SummaryService : Service() {
         /** [percent] is -1 while progress is indeterminate. */
         fun onSummaryProgress(meetingId: String, percent: Int, stage: String)
 
-        /** The summary (or its fallback text) is already saved when this fires. */
-        fun onSummaryDone(meetingId: String)
+        /**
+         * The result is already saved when this fires. [failed] is true when
+         * a notes-enhancement run changed nothing (summary runs always
+         * produce at least the extractive fallback).
+         */
+        fun onSummaryDone(meetingId: String, failed: Boolean)
     }
 
     inner class SummaryBinder : Binder() {
@@ -72,10 +76,14 @@ class SummaryService : Service() {
         val templateKey = intent.getStringExtra(EXTRA_TEMPLATE).orEmpty()
         if (isRunning || meetingId.isBlank()) return START_NOT_STICKY
         isRunning = true
+        currentMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_SUMMARY
         currentMeetingId = meetingId
         currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
         percent = -1
-        stage = getString(R.string.summarizing)
+        stage = getString(
+            if (currentMode == MODE_NOTES) R.string.enhancing_notes
+            else R.string.summarizing
+        )
         createChannel()
         startForegroundCompat()
         try {
@@ -88,8 +96,65 @@ class SummaryService : Service() {
             }
         } catch (_: Exception) {
         }
-        runGeneration(meetingId, templateKey)
+        if (currentMode == MODE_NOTES) {
+            runNotesEnhance(meetingId)
+        } else {
+            runGeneration(meetingId, templateKey)
+        }
         return START_NOT_STICKY
+    }
+
+    /**
+     * Notes-enhancement run (same lifecycle as a summary run): expands the
+     * user's rough notes with transcript context via the configured LLM,
+     * keeping the pre-enhancement notes on the meeting for revert.
+     */
+    private fun runNotesEnhance(meetingId: String) {
+        val store = MeetingStore(this)
+        val settings = AppSettings(this)
+        Thread {
+            val meeting = store.load(meetingId)
+            if (meeting == null || meeting.notes.isBlank()) {
+                main.post { finishRun(meetingId, failed = meeting != null) }
+                return@Thread
+            }
+            LocalLlm.stageListener = { section, total ->
+                if (total > 0) {
+                    setProgress(
+                        progressPercent(section, total),
+                        getString(R.string.summary_stage_condense, section, total)
+                    )
+                } else {
+                    setProgress(88, getString(R.string.notes_stage_writing))
+                }
+            }
+            var failed = false
+            try {
+                val enhanced = LlmClient.enhanceNotes(
+                    settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
+                    settings.localOnlyLlm,
+                    meeting.notes, meeting.transcriptTextWithSpeakers()
+                )
+                if (enhanced.isBlank()) throw RuntimeException("empty result")
+                // Fresh copy: the user may have edited elsewhere meanwhile.
+                val target = store.load(meetingId) ?: meeting
+                // Keep the OLDEST original across repeat enhancements, so
+                // Revert always restores the user's own notes.
+                if (target.notesOriginal.isBlank()) {
+                    target.notesOriginal = target.notes
+                }
+                target.notes = enhanced.trim()
+                store.save(target)
+            } catch (_: Exception) {
+                failed = true // original notes stay untouched
+            } finally {
+                LocalLlm.stageListener = null
+            }
+            main.post { finishRun(meetingId, failed) }
+        }.apply {
+            name = "notes-enhance-service"
+            start()
+        }
     }
 
     private fun runGeneration(meetingId: String, templateKey: String) {
@@ -176,20 +241,21 @@ class SummaryService : Service() {
         }
     }
 
-    private fun finishRun(meetingId: String) {
+    private fun finishRun(meetingId: String, failed: Boolean = false) {
         try {
             wakeLock?.release()
         } catch (_: Exception) {
         }
         wakeLock = null
-        observers.forEach { it.onSummaryDone(meetingId) }
+        observers.forEach { it.onSummaryDone(meetingId, failed) }
         stopForegroundCompat()
         // Always announce completion — on-device runs take minutes, and the
         // user asked to see the finish from anywhere.
-        postDoneNotification(meetingId)
+        postDoneNotification(meetingId, failed)
         isRunning = false
         currentMeetingId = ""
         currentTitle = ""
+        currentMode = MODE_SUMMARY
         percent = -1
         stopSelf()
     }
@@ -213,8 +279,15 @@ class SummaryService : Service() {
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_sparkle)
             .setContentTitle(
-                if (currentTitle.isBlank()) getString(R.string.summary_notif_title)
-                else getString(R.string.summary_notif_title_named, currentTitle)
+                when {
+                    currentMode == MODE_NOTES && currentTitle.isNotBlank() ->
+                        getString(R.string.notes_notif_title_named, currentTitle)
+                    currentMode == MODE_NOTES ->
+                        getString(R.string.enhancing_notes)
+                    currentTitle.isNotBlank() ->
+                        getString(R.string.summary_notif_title_named, currentTitle)
+                    else -> getString(R.string.summary_notif_title)
+                }
             )
             .setContentText(text)
             .setProgress(100, percent.coerceAtLeast(0), percent < 0)
@@ -231,11 +304,16 @@ class SummaryService : Service() {
         }
     }
 
-    private fun postDoneNotification(meetingId: String) {
+    private fun postDoneNotification(meetingId: String, failed: Boolean) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val title = when {
+            currentMode == MODE_NOTES && failed -> getString(R.string.notes_failed_notif)
+            currentMode == MODE_NOTES -> getString(R.string.notes_done_notif)
+            else -> getString(R.string.summary_done_notif)
+        }
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_sparkle)
-            .setContentTitle(getString(R.string.summary_done_notif))
+            .setContentTitle(title)
             .setAutoCancel(true)
             .setSilent(true)
             .setContentIntent(openMeetingIntent(meetingId, 7))
@@ -292,6 +370,10 @@ class SummaryService : Service() {
         @Volatile var currentTitle = ""
             private set
 
+        /** What the current run produces: a summary or enhanced notes. */
+        @Volatile var currentMode = MODE_SUMMARY
+            private set
+
         /** Condensation covers 0-85%; section N reports as it starts. */
         fun progressPercent(section: Int, total: Int): Int =
             if (total <= 0) -1 else ((section - 1) * 85 / total).coerceIn(0, 85)
@@ -299,15 +381,24 @@ class SummaryService : Service() {
         const val ACTION_START = "com.meetily.mobile.summary.START"
         const val EXTRA_MEETING_ID = "meeting_id"
         const val EXTRA_TEMPLATE = "template"
+        const val EXTRA_MODE = "mode"
+        const val MODE_SUMMARY = "summary"
+        const val MODE_NOTES = "notes"
         private const val CHANNEL_ID = "summary"
         private const val NOTIF_ID = 50
         private const val NOTIF_DONE_ID = 51
 
-        fun start(context: Context, meetingId: String, templateKey: String) {
+        fun start(
+            context: Context,
+            meetingId: String,
+            templateKey: String,
+            mode: String = MODE_SUMMARY
+        ) {
             val intent = Intent(context, SummaryService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_MEETING_ID, meetingId)
                 .putExtra(EXTRA_TEMPLATE, templateKey)
+                .putExtra(EXTRA_MODE, mode)
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
         }
     }

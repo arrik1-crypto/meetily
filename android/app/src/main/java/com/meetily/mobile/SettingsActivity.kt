@@ -233,6 +233,7 @@ class SettingsActivity : AppCompatActivity() {
         whisperSwitch.isChecked = settings.transcriptionEngine == "whisper"
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
+        findViewById<android.widget.EditText>(R.id.vocabInput).setText(settings.customVocab)
         findViewById<MaterialSwitch>(R.id.saveAudioSwitch).isChecked = settings.saveAudio
         calendarSwitch.isChecked = settings.calendarPrefill
         setUpNudgeSwitch()
@@ -301,6 +302,8 @@ class SettingsActivity : AppCompatActivity() {
         settings.diarizationEnabled = diarizeSwitch.isChecked
         settings.whisperTranslate =
             findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
+        settings.customVocab =
+            findViewById<android.widget.EditText>(R.id.vocabInput).text.toString().trim()
         settings.saveAudio = findViewById<MaterialSwitch>(R.id.saveAudioSwitch).isChecked
         settings.llmBaseUrl = urlInput.text.toString().trim()
         settings.llmApiKey = keyInput.text.toString().trim()

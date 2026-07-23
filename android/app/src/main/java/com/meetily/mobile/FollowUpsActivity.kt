@@ -8,10 +8,12 @@ import android.view.View
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.export.TaskExport
 import com.meetily.mobile.reminders.Reminders
 import java.text.DateFormat
 import java.util.Date
@@ -27,6 +29,14 @@ class FollowUpsActivity : AppCompatActivity() {
     private lateinit var list: LinearLayout
     private lateinit var emptyView: TextView
 
+    private val exportIcs = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.CreateDocument(
+            "text/calendar"
+        )
+    ) { uri ->
+        if (uri != null) writeIcs(uri)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
@@ -34,8 +44,87 @@ class FollowUpsActivity : AppCompatActivity() {
         store = MeetingStore(this)
         list = findViewById(R.id.followUpList)
         emptyView = findViewById(R.id.followUpEmpty)
-        findViewById<MaterialToolbar>(R.id.followUpsToolbar).setNavigationOnClickListener {
-            finish()
+        val toolbar = findViewById<MaterialToolbar>(R.id.followUpsToolbar)
+        toolbar.setNavigationOnClickListener { finish() }
+        toolbar.inflateMenu(R.menu.menu_followups)
+        toolbar.setOnMenuItemClickListener { item ->
+            if (item.itemId == R.id.action_export_tasks) {
+                showExportChoices()
+                true
+            } else {
+                false
+            }
+        }
+    }
+
+    // --- Export / handoff to task apps --------------------------------------
+
+    private fun openItems(): List<TaskExport.Item> {
+        val out = mutableListOf<TaskExport.Item>()
+        for (meeting in store.list()) {
+            for (item in meeting.actionItems) {
+                if (item.done) continue
+                out.add(
+                    TaskExport.Item(item.task, item.owner, item.remindAtMs, meeting.title)
+                )
+            }
+        }
+        return out
+    }
+
+    private fun showExportChoices() {
+        if (openItems().isEmpty()) {
+            Toast.makeText(this, R.string.no_action_items, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val options = arrayOf(
+            getString(R.string.export_actions_text),
+            getString(R.string.export_actions_ics)
+        )
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.export_actions_title)
+            .setItems(options) { _, which ->
+                if (which == 0) {
+                    shareText()
+                } else {
+                    try {
+                        exportIcs.launch("recap-followups.ics")
+                    } catch (e: Exception) {
+                        Toast.makeText(
+                            this,
+                            getString(R.string.export_failed, e.message ?: "no file picker"),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun shareText() {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, getString(R.string.followups_title))
+            putExtra(Intent.EXTRA_TEXT, TaskExport.text(openItems()))
+        }
+        startActivity(
+            Intent.createChooser(send, getString(R.string.export_actions_text))
+        )
+    }
+
+    private fun writeIcs(uri: android.net.Uri) {
+        try {
+            val ics = TaskExport.ics(openItems(), System.currentTimeMillis())
+            contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(ics.toByteArray(Charsets.UTF_8))
+            } ?: throw RuntimeException("could not open destination")
+            Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this, getString(R.string.export_failed, e.message ?: "unknown error"),
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 

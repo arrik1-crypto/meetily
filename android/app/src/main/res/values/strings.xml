@@ -107,6 +107,65 @@
     <string name="summary_busy">A summary is already being generated.</string>
     <string name="summary_banner_untitled">Generating summary…</string>
 
+    <!-- Notes enhancement (Granola-style) -->
+    <string name="notes_enhance">Enhance</string>
+    <string name="notes_revert">Revert</string>
+    <string name="enhancing_notes">Enhancing notes</string>
+    <string name="notes_notif_title_named">Enhancing notes — “%1$s”</string>
+    <string name="notes_stage_writing">Writing the notes…</string>
+    <string name="notes_done_notif">Notes enhanced — tap to open</string>
+    <string name="notes_failed_notif">Notes enhancement failed — your notes are unchanged</string>
+    <string name="notes_enhance_started">Enhancing in the background — watch the notification or home banner.</string>
+    <string name="notes_reverted">Restored your original notes</string>
+    <string name="notes_enhance_wait">Notes are being enhanced — editing unlocks when it finishes.</string>
+
+    <!-- Live catch-up -->
+    <string name="catch_up">Catch me up</string>
+    <string name="catch_up_title">Catch me up</string>
+    <string name="catch_up_empty">Nothing transcribed yet.</string>
+
+    <!-- Playback speed + skip silence -->
+    <string name="skip_silence">Skip silence</string>
+    <string name="skip_silence_unavailable">Skip silence needs a Whisper transcript with audio timings.</string>
+
+    <!-- Conversation insights -->
+    <string name="insights_title">Insights</string>
+    <string name="stats_unattributed">Unattributed</string>
+    <string name="stats_share_detail">%1$d%% · %2$s · %3$d turns</string>
+    <string name="stats_monologue">Longest monologue: %1$s, %2$s.</string>
+    <string name="stats_questions">Questions asked: %1$d.</string>
+    <string name="stats_pace">Pace: %1$d wpm (estimated).</string>
+
+    <!-- Pre-meeting brief -->
+    <string name="pre_brief_title">Pre-meeting brief</string>
+    <string name="pre_brief_empty">No past meetings match this one, so there\'s nothing to brief from yet.</string>
+    <string name="pre_brief_generate">Brief me</string>
+    <string name="pre_brief_last_time">Last time</string>
+    <string name="pre_brief_last_fmt">%1$s · %2$s</string>
+    <string name="pre_brief_open_items">Open items from this series</string>
+    <string name="pre_brief_no_summary">No summary was saved for this meeting — open it to generate one.</string>
+    <string name="nudge_prep_action">Prep brief</string>
+    <plurals name="pre_brief_meta">
+        <item quantity="one">%d past meeting in this series</item>
+        <item quantity="other">%d past meetings in this series</item>
+    </plurals>
+
+    <!-- Audio clips -->
+    <string name="share_clip_action">Share clip…</string>
+    <string name="clip_preparing">Preparing clip…</string>
+    <string name="clip_failed">Couldn\'t cut a clip from this audio.</string>
+
+    <!-- Action-item export -->
+    <string name="export_actions_title">Export follow-ups</string>
+    <string name="export_actions_ics">Action items → calendar/tasks file (.ics)</string>
+    <string name="export_actions_text">Action items → share as text</string>
+    <string name="no_action_items">No open action items.</string>
+    <string name="actions_share_subject">Action items — %1$s</string>
+
+    <!-- Custom vocabulary -->
+    <string name="setting_vocab_hint">Custom vocabulary</string>
+    <string name="setting_vocab_desc">Names, acronyms, and jargon Whisper should recognize — comma separated (e.g. “Meetily, OKR, Anneke”). Applies to new recordings and imports.</string>
+
     <string name="engine_endpoint">Private endpoint</string>
     <string name="engine_local">On-device</string>
     <string name="engine_local_desc">Runs a small language model entirely on this phone — no endpoint, no network, ever. Expect slower answers than a server, and give long meetings a minute: the model reads the transcript before it writes. Larger models answer better and slower.</string>

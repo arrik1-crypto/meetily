@@ -89,6 +89,22 @@ class AppSettings(context: Context) {
         get() = prefs.getString("mic_device", "auto") ?: "auto"
         set(value) = prefs.edit().putString("mic_device", value).apply()
 
+    /** Custom vocabulary (names/jargon), comma or newline separated; biases
+     *  Whisper transcription via its initial prompt (see Vocab.promptFor). */
+    var customVocab: String
+        get() = prefs.getString("custom_vocab", "") ?: ""
+        set(value) = prefs.edit().putString("custom_vocab", value).apply()
+
+    /** Meeting playback speed multiplier (0.5-3.0). */
+    var playbackSpeed: Float
+        get() = prefs.getFloat("playback_speed", 1.0f)
+        set(value) = prefs.edit().putFloat("playback_speed", value).apply()
+
+    /** Skip non-speech stretches during meeting playback. */
+    var skipSilence: Boolean
+        get() = prefs.getBoolean("skip_silence", false)
+        set(value) = prefs.edit().putBoolean("skip_silence", value).apply()
+
     /** Notify "meeting is starting — record?" at calendar event starts. */
     var meetingNudges: Boolean
         get() = prefs.getBoolean("meeting_nudges", false)

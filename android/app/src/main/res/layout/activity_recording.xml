@@ -238,6 +238,18 @@
                 app:iconTint="?attr/colorOnSurface"
                 app:strokeColor="?attr/colorOutline" />
 
+            <!-- Live "catch me up": summarize the meeting so far. -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/catchUpButton"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                android:layout_width="56dp"
+                android:layout_height="56dp"
+                android:layout_marginStart="12dp"
+                android:contentDescription="@string/catch_up"
+                app:icon="@drawable/ic_sparkle"
+                app:iconTint="?attr/colorOnSurface"
+                app:strokeColor="?attr/colorOutline" />
+
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/finishButton"
                 style="@style/Widget.Material3.Button.OutlinedButton"

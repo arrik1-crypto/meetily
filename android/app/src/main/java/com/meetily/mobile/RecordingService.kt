@@ -614,6 +614,7 @@ class RecordingService : Service() {
             modelPath = WhisperModels.fileFor(this, model).absolutePath,
             language = if (model.englishOnly) "en" else "auto",
             translate = settings.whisperTranslate && !model.englishOnly,
+            vocabPrompt = com.meetily.mobile.whisper.Vocab.promptFor(settings.customVocab),
             audioSource = CaptureTuning.audioSourceFor(this, settings.micSource),
             preferredDevice = CaptureTuning.findPreferred(this, settings.micDevice),
             recordFactory = if (deviceAudioMode && Build.VERSION.SDK_INT >= 29) {

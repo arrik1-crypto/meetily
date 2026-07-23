@@ -107,6 +107,11 @@
             android:parentActivityName=".MainActivity" />
 
         <activity
+            android:name=".PreMeetingBriefActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
+        <activity
             android:name=".AskLibraryActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />

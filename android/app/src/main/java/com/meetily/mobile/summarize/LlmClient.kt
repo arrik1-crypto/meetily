@@ -281,6 +281,110 @@ object LlmClient {
         return chat(baseUrl, apiKey, model, messages, localOnly)
     }
 
+    /**
+     * Granola-style note enhancement: expands the user's rough in-meeting
+     * notes into complete notes, using the transcript for the details the
+     * user didn't have time to type. The user's structure and voice win;
+     * the transcript only fills in.
+     */
+    fun enhanceNotes(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        localOnly: Boolean,
+        notes: String,
+        transcript: String
+    ): String {
+        val systemPrompt =
+            "You polish a user's rough meeting notes into complete notes, using the " +
+                "meeting transcript as context. Keep the user's structure, ordering, " +
+                "and voice — expand their bullets, never replace them with your own " +
+                "outline. Complete half-sentences, expand abbreviations, and fill in " +
+                "the specifics the transcript provides (names, numbers, dates, " +
+                "decisions). Where the transcript adds real substance to one of the " +
+                "user's points, add a short indented sub-bullet. Keep Markdown " +
+                "formatting; preserve checklist lines (- [ ] / - [x]) as checklists. " +
+                "Never invent content found in neither the notes nor the transcript. " +
+                "Reply with ONLY the enhanced notes."
+        val userContent = buildString {
+            append("My rough notes:\n")
+            append(notes.take(8_000))
+            append("\n\nMeeting transcript (lines may be prefixed with the speaker's name):\n")
+            append(transcript.take(48_000))
+        }
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+            .put(JSONObject().put("role", "user").put("content", userContent))
+        return chat(baseUrl, apiKey, model, messages, localOnly)
+    }
+
+    /**
+     * Live "catch me up": a terse mid-meeting summary a late joiner can scan.
+     * Map-reduce is off and the input pre-trimmed to the most recent stretch,
+     * so the on-device engine answers in one pass — this runs while the
+     * meeting is still happening and latency matters more than coverage.
+     */
+    fun catchUp(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        localOnly: Boolean,
+        transcript: String
+    ): String {
+        val systemPrompt =
+            "A meeting is in progress and the user needs to catch up fast. From the " +
+                "transcript so far, reply with 4-8 short bullets: the CURRENT topic " +
+                "first, then key decisions, open questions, and action items so far. " +
+                "Terse lines, no preamble, no headings."
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+            .put(
+                JSONObject().put("role", "user").put(
+                    "content",
+                    "Transcript so far (most recent last):\n" + transcript.takeLast(9_000)
+                )
+            )
+        return chat(baseUrl, apiKey, model, messages, localOnly, allowMapReduce = false)
+    }
+
+    /**
+     * Pre-meeting brief for a recurring series: what happened last time and
+     * what to walk in ready for. Blocks as in [askLibrary], newest first.
+     */
+    fun preBrief(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        localOnly: Boolean,
+        seriesName: String,
+        contextBlocks: List<Pair<String, String>>
+    ): String {
+        val systemPrompt = buildString {
+            append(
+                "You prepare the user for the upcoming \"" + seriesName.take(120) +
+                    "\" meeting using records of its past occurrences below. " +
+                    "Structure the brief as:\n" +
+                    "LAST TIME — the key outcomes of the most recent occurrence.\n" +
+                    "OPEN ITEMS — unresolved action items and questions, grouped by owner.\n" +
+                    "SUGGESTED AGENDA — 3-5 concrete items to raise today.\n" +
+                    "Use only the records; be specific and concise.\n"
+            )
+            val perBlock = (28_000 / contextBlocks.size.coerceAtLeast(1))
+                .coerceAtLeast(3_000)
+            for ((label, content) in contextBlocks) {
+                append("\n=== MEETING: ").append(label).append(" ===\n")
+                append(content.take(perBlock)).append('\n')
+            }
+        }
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+            .put(
+                JSONObject().put("role", "user")
+                    .put("content", "Write my pre-meeting brief.")
+            )
+        return chat(baseUrl, apiKey, model, messages, localOnly)
+    }
+
     /** Weekly digest across several meetings; blocks as in [askLibrary]. */
     fun digest(
         baseUrl: String,

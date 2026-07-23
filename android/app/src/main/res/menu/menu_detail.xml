@@ -25,6 +25,10 @@
         android:title="@string/topics_title"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_pre_brief"
+        android:title="@string/pre_brief_title"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_share_audio"
         android:title="@string/share_audio"
         app:showAsAction="never" />

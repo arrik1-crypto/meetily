@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorOnSurface">
+    <!-- Fast-forward over a flat (silent) waveform line -->
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,5.5v11l7.5,-5.5L4,5.5z M12.5,5.5v11L20,11L12.5,5.5z" />
+    <path
+        android:fillColor="#FFFFFFFF"
+        android:pathData="M4,19.2h16v1.6H4z" />
+</vector>

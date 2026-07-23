@@ -27,7 +27,9 @@ object WhisperBridge {
         samples: FloatArray,
         language: String?,
         nThreads: Int,
-        translate: Boolean
+        translate: Boolean,
+        /** Custom-vocabulary glossary fed as whisper's initial prompt. */
+        prompt: String?
     ): String?
 
     /**
@@ -39,7 +41,8 @@ object WhisperBridge {
         samples: FloatArray,
         language: String?,
         nThreads: Int,
-        translate: Boolean
+        translate: Boolean,
+        prompt: String?
     ): String?
 
     /** Decodes [transcribeWords] output into (full text, word timings). */

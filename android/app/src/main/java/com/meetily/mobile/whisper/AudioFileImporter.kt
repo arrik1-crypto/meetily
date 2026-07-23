@@ -165,7 +165,8 @@ class AudioFileImporter(
                 audio
             }
             val raw = WhisperBridge.transcribeWords(
-                contextPtr, padded, language, nThreads, translate
+                contextPtr, padded, language, nThreads, translate,
+                Vocab.promptFor(settings.customVocab)
             )
             val (text, words) = WhisperBridge.parseWords(raw)
             if (text.isBlank() || isNoise(text)) return

@@ -57,6 +57,8 @@ data class Meeting(
     val createdAtMs: Long,
     val segments: MutableList<TranscriptSegment> = mutableListOf(),
     var notes: String = "",
+    /** Pre-enhancement notes, kept so "Enhance notes" is always revertable. */
+    var notesOriginal: String = "",
     var summary: String = "",
     var attendees: MutableList<String> = mutableListOf(),
     val qa: MutableList<QaEntry> = mutableListOf(),
@@ -98,6 +100,9 @@ data class Meeting(
         obj.put("title", title)
         obj.put("createdAtMs", createdAtMs)
         obj.put("notes", notes)
+        if (notesOriginal.isNotEmpty()) {
+            obj.put("notesOriginal", notesOriginal)
+        }
         obj.put("summary", summary)
         val attendeesArr = JSONArray()
         for (name in attendees) {
@@ -203,6 +208,7 @@ data class Meeting(
                 title = obj.optString("title", "Untitled meeting"),
                 createdAtMs = obj.optLong("createdAtMs", 0L),
                 notes = obj.optString("notes", ""),
+                notesOriginal = obj.optString("notesOriginal", ""),
                 summary = obj.optString("summary", "")
             )
             val attendeesArr = obj.optJSONArray("attendees") ?: JSONArray()
