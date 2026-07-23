@@ -44,7 +44,25 @@ Java_com_meetily_mobile_llm_LlamaBridge_initModel(
     cparams.n_batch = 512;
     cparams.n_threads = n_threads > 0 ? n_threads : 4;
     cparams.n_threads_batch = n_threads > 0 ? n_threads : 4;
+
+    /*
+     * Quantize the KV cache to q8_0: at 4096 ctx on a 7-9B model this frees
+     * roughly half a gigabyte versus fp16, which is the difference between
+     * surviving and being LMK-killed on 12 GB phones. Flash attention is
+     * required for a quantized V cache. If any model/device combination
+     * rejects this configuration, fall back to default fp16 KV below.
+     */
+    cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+    cparams.type_k = GGML_TYPE_Q8_0;
+    cparams.type_v = GGML_TYPE_Q8_0;
     struct llama_context *ctx = llama_init_from_model(model, cparams);
+    if (ctx == NULL) {
+        LOGI("q8_0 KV + flash-attn rejected; retrying with default cache");
+        cparams.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+        cparams.type_k = GGML_TYPE_F16;
+        cparams.type_v = GGML_TYPE_F16;
+        ctx = llama_init_from_model(model, cparams);
+    }
     if (ctx == NULL) {
         LOGE("failed to create context");
         llama_model_free(model);
