@@ -92,6 +92,63 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // --- Summary progress banner (mirrors SummaryService state) -------------
+
+    private lateinit var summaryBanner: View
+    private lateinit var summaryBannerName: TextView
+    private lateinit var summaryBannerPct: TextView
+    private lateinit var summaryBannerBar:
+        com.google.android.material.progressindicator.LinearProgressIndicator
+    private var summaryService: SummaryService? = null
+    private var summaryBound = false
+
+    private val summaryObserver = object : SummaryService.Observer {
+        override fun onSummaryProgress(meetingId: String, percent: Int, stage: String) {
+            if (isFinishing || isDestroyed) return
+            summaryBanner.visibility = View.VISIBLE
+            summaryBannerName.text = SummaryService.currentTitle.ifBlank {
+                getString(R.string.summary_banner_untitled)
+            }
+            val wantIndeterminate = percent < 0
+            if (summaryBannerBar.isIndeterminate != wantIndeterminate) {
+                // Material indicators refuse an in-place mode switch while
+                // visible, so blink the bar around the change.
+                summaryBannerBar.visibility = View.INVISIBLE
+                summaryBannerBar.isIndeterminate = wantIndeterminate
+                summaryBannerBar.visibility = View.VISIBLE
+            }
+            if (!wantIndeterminate) summaryBannerBar.progress = percent
+            summaryBannerPct.text =
+                if (percent < 0) "" else getString(R.string.percent_fmt, percent)
+        }
+
+        override fun onSummaryDone(meetingId: String) {
+            if (isFinishing || isDestroyed) return
+            summaryBanner.visibility = View.GONE
+            // currentTitle is still set when observers hear about the finish.
+            val title = SummaryService.currentTitle
+            Toast.makeText(
+                this@MainActivity,
+                if (title.isBlank()) getString(R.string.summary_ready_plain)
+                else getString(R.string.summary_ready_toast, title),
+                Toast.LENGTH_SHORT
+            ).show()
+            refresh() // summary badge/preview on the meeting card updates
+        }
+    }
+
+    private val summaryConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val svc = (binder as? SummaryService.SummaryBinder)?.service ?: return
+            summaryService = svc
+            svc.addObserver(summaryObserver)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            summaryService = null
+        }
+    }
+
     override fun onStart() {
         super.onStart()
         if (ImportService.isRunning) {
@@ -103,6 +160,16 @@ class MainActivity : AppCompatActivity() {
             importBound = true
         } else {
             importBanner.visibility = View.GONE
+        }
+        if (SummaryService.isRunning) {
+            bindService(
+                Intent(this, SummaryService::class.java),
+                summaryConnection,
+                Context.BIND_AUTO_CREATE
+            )
+            summaryBound = true
+        } else {
+            summaryBanner.visibility = View.GONE
         }
     }
 
@@ -116,6 +183,15 @@ class MainActivity : AppCompatActivity() {
             importBound = false
         }
         importService = null
+        summaryService?.removeObserver(summaryObserver)
+        if (summaryBound) {
+            try {
+                unbindService(summaryConnection)
+            } catch (_: Exception) {
+            }
+            summaryBound = false
+        }
+        summaryService = null
         super.onStop()
     }
 
@@ -179,6 +255,19 @@ class MainActivity : AppCompatActivity() {
         importBannerBar = findViewById(R.id.importBannerBar)
         importBanner.setOnClickListener {
             startActivity(Intent(this, ImportActivity::class.java))
+        }
+        summaryBanner = findViewById(R.id.summaryBanner)
+        summaryBannerName = findViewById(R.id.summaryBannerName)
+        summaryBannerPct = findViewById(R.id.summaryBannerPct)
+        summaryBannerBar = findViewById(R.id.summaryBannerBar)
+        summaryBanner.setOnClickListener {
+            val id = SummaryService.currentMeetingId
+            if (id.isNotBlank()) {
+                startActivity(
+                    Intent(this, MeetingDetailActivity::class.java)
+                        .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, id)
+                )
+            }
         }
         findViewById<View>(R.id.importButton).setOnClickListener {
             if (ImportService.isRunning) {

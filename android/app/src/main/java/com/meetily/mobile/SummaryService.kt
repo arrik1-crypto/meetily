@@ -34,7 +34,8 @@ import com.meetily.mobile.summarize.SummaryTemplates
 class SummaryService : Service() {
 
     interface Observer {
-        fun onSummaryStage(stage: String)
+        /** [percent] is -1 while progress is indeterminate. */
+        fun onSummaryProgress(meetingId: String, percent: Int, stage: String)
 
         /** The summary (or its fallback text) is already saved when this fires. */
         fun onSummaryDone(meetingId: String)
@@ -44,13 +45,22 @@ class SummaryService : Service() {
         val service: SummaryService get() = this@SummaryService
     }
 
-    var observer: Observer? = null
-        set(value) {
-            field = value
-            if (value != null && isRunning) value.onSummaryStage(stage)
-        }
+    private val observers = java.util.concurrent.CopyOnWriteArraySet<Observer>()
+
+    /** Registers [observer]; catches it up with the current state. */
+    fun addObserver(observer: Observer) {
+        observers.add(observer)
+        if (isRunning) observer.onSummaryProgress(currentMeetingId, percent, stage)
+    }
+
+    fun removeObserver(observer: Observer) {
+        observers.remove(observer)
+    }
 
     @Volatile private var stage = ""
+
+    @Volatile var percent = -1
+        private set
     private var wakeLock: PowerManager.WakeLock? = null
     private val main = Handler(Looper.getMainLooper())
 
@@ -63,6 +73,8 @@ class SummaryService : Service() {
         if (isRunning || meetingId.isBlank()) return START_NOT_STICKY
         isRunning = true
         currentMeetingId = meetingId
+        currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
+        percent = -1
         stage = getString(R.string.summarizing)
         createChannel()
         startForegroundCompat()
@@ -96,9 +108,18 @@ class SummaryService : Service() {
             val notes = meeting.notes + photoTextBlock(meeting)
             val highlights = meeting.highlightedTexts()
 
-            // Map-reduce progress from the local engine surfaces as stages.
-            LocalLlm.stageListener = { done, total ->
-                setStage(getString(R.string.summary_stage_condense, done, total))
+            // Map-reduce progress from the local engine surfaces as stages:
+            // sections map onto 0-85%, the final write sits near the end,
+            // and everything else stays indeterminate.
+            LocalLlm.stageListener = { section, total ->
+                if (total > 0) {
+                    setProgress(
+                        progressPercent(section, total),
+                        getString(R.string.summary_stage_condense, section, total)
+                    )
+                } else {
+                    setProgress(88, getString(R.string.summary_stage_writing))
+                }
             }
             var parsedItems: List<com.meetily.mobile.data.ActionItem>? = null
             val result = try {
@@ -142,11 +163,14 @@ class SummaryService : Service() {
         }
     }
 
-    private fun setStage(text: String) {
+    private fun setProgress(newPercent: Int, text: String) {
+        percent = newPercent
         stage = text
         main.post {
             if (isRunning) {
-                observer?.onSummaryStage(text)
+                observers.forEach {
+                    it.onSummaryProgress(currentMeetingId, newPercent, text)
+                }
                 updateNotification(text)
             }
         }
@@ -158,12 +182,15 @@ class SummaryService : Service() {
         } catch (_: Exception) {
         }
         wakeLock = null
-        val watched = observer != null
-        observer?.onSummaryDone(meetingId)
+        observers.forEach { it.onSummaryDone(meetingId) }
         stopForegroundCompat()
-        if (!watched) postDoneNotification(meetingId)
+        // Always announce completion — on-device runs take minutes, and the
+        // user asked to see the finish from anywhere.
+        postDoneNotification(meetingId)
         isRunning = false
         currentMeetingId = ""
+        currentTitle = ""
+        percent = -1
         stopSelf()
     }
 
@@ -185,8 +212,12 @@ class SummaryService : Service() {
     private fun buildNotification(text: String): Notification =
         NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_sparkle)
-            .setContentTitle(getString(R.string.summary_notif_title))
+            .setContentTitle(
+                if (currentTitle.isBlank()) getString(R.string.summary_notif_title)
+                else getString(R.string.summary_notif_title_named, currentTitle)
+            )
             .setContentText(text)
+            .setProgress(100, percent.coerceAtLeast(0), percent < 0)
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openMeetingIntent(currentMeetingId, 6))
@@ -257,6 +288,13 @@ class SummaryService : Service() {
 
         @Volatile var currentMeetingId = ""
             private set
+
+        @Volatile var currentTitle = ""
+            private set
+
+        /** Condensation covers 0-85%; section N reports as it starts. */
+        fun progressPercent(section: Int, total: Int): Int =
+            if (total <= 0) -1 else ((section - 1) * 85 / total).coerceIn(0, 85)
 
         const val ACTION_START = "com.meetily.mobile.summary.START"
         const val EXTRA_MEETING_ID = "meeting_id"

@@ -49,6 +49,7 @@ This is a standalone native Android app (Kotlin). It does **not** depend on the 
 - **Summaries**, two ways:
   - **On-device (default, zero config)**: an offline extractive summarizer produces key points and detected action items. No network involved.
   - **LLM (optional)**: point the app at any OpenAI-compatible endpoint — Ollama running on your computer (`http://YOUR_PC_IP:11434/v1`), Groq, OpenRouter, etc. Configure URL, model, and API key in Settings. If the LLM call fails, the app falls back to the on-device summary.
+- **Background summarization with live progress** — generating a summary runs in a foreground service, so it survives rotation, navigation, and the screen turning off. Progress is visible everywhere: a banner on the home screen (tap to open the meeting), a real progress bar in the notification shade (map-reduce sections count up; "writing the summary" near the end), and a "Summary ready" notification when it finishes.
 - **Local storage** — meetings are JSON files in the app's private storage. Nothing is uploaded anywhere unless you enable the LLM option.
 - **Share/export** — share a meeting (summary + notes + transcript) as text to any app.
 

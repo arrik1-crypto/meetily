@@ -34,7 +34,11 @@ object LocalLlm {
             "action items with their owners, key facts and numbers, and what " +
             "was discussed. No preamble, no commentary."
 
-    /** (sectionsDone, sectionsTotal) during a map-reduce condense pass. */
+    /**
+     * Progress during long generations: (section, totalSections) while
+     * condensing a long transcript, then (0, 0) once as "writing the final
+     * summary". Not invoked at all for short single-pass generations.
+     */
     @Volatile
     var stageListener: ((Int, Int) -> Unit)? = null
 
@@ -87,6 +91,7 @@ object LocalLlm {
                     pairs = pairs.toMutableList().also {
                         it[longest] = it[longest].first to condensed
                     }
+                    stageListener?.invoke(0, 0)
                 }
             }
 

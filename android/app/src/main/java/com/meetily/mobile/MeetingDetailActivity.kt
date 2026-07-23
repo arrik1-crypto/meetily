@@ -95,16 +95,31 @@ class MeetingDetailActivity : AppCompatActivity() {
     private var summaryBound = false
 
     private val summaryObserver = object : SummaryService.Observer {
-        override fun onSummaryStage(stage: String) {
+        override fun onSummaryProgress(meetingId: String, percent: Int, stage: String) {
             if (isFinishing || isDestroyed) return
+            if (meetingId != meeting?.id) return
             showSummarizingUi()
             summaryView.text = stage
+            setSummaryProgress(percent)
         }
 
         override fun onSummaryDone(meetingId: String) {
             if (isFinishing || isDestroyed) return
             if (meetingId == meeting?.id) refreshSummaryFromStore(reveal = true)
         }
+    }
+
+    /** Switches the header bar between indeterminate (-1) and a real percent. */
+    private fun setSummaryProgress(percent: Int) {
+        val wantIndeterminate = percent < 0
+        if (progress.isIndeterminate != wantIndeterminate) {
+            // Material indicators refuse an in-place mode switch while visible.
+            val wasVisible = progress.visibility == View.VISIBLE
+            progress.visibility = View.GONE
+            progress.isIndeterminate = wantIndeterminate
+            if (wasVisible) progress.visibility = View.VISIBLE
+        }
+        if (!wantIndeterminate) progress.progress = percent
     }
 
     private val summaryConnection = object : android.content.ServiceConnection {
@@ -114,7 +129,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         ) {
             val svc = (binder as? SummaryService.SummaryBinder)?.service ?: return
             summaryService = svc
-            svc.observer = summaryObserver
+            svc.addObserver(summaryObserver)
         }
 
         override fun onServiceDisconnected(name: android.content.ComponentName?) {
@@ -147,7 +162,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
-        summaryService?.let { if (it.observer === summaryObserver) it.observer = null }
+        summaryService?.removeObserver(summaryObserver)
         if (summaryBound) {
             try {
                 unbindService(summaryConnection)
@@ -1139,6 +1154,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             return
         }
         showSummarizingUi()
+        setSummaryProgress(-1)
         // Generation lives in SummaryService: it survives rotation and
         // navigation, saves the result itself, and this screen just observes.
         SummaryService.start(this, m.id, template.key)
