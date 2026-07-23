@@ -20,6 +20,47 @@ object CalendarHelper {
     )
 
     /**
+     * The next event starting more than a minute from now (within 24 h), for
+     * the "meeting is starting — record?" nudge chain. Requires READ_CALENDAR.
+     */
+    fun nextUpcomingEvent(context: Context): CalendarEvent? {
+        val now = System.currentTimeMillis()
+        val windowStart = now + 60_000L
+        val windowEnd = now + 24L * 60 * 60 * 1000
+
+        val uriBuilder = CalendarContract.Instances.CONTENT_URI.buildUpon()
+        ContentUris.appendId(uriBuilder, windowStart)
+        ContentUris.appendId(uriBuilder, windowEnd)
+
+        val projection = arrayOf(
+            CalendarContract.Instances.EVENT_ID,
+            CalendarContract.Instances.TITLE,
+            CalendarContract.Instances.BEGIN,
+            CalendarContract.Instances.END,
+            CalendarContract.Instances.ALL_DAY
+        )
+        try {
+            context.contentResolver.query(
+                uriBuilder.build(), projection, null, null,
+                CalendarContract.Instances.BEGIN + " ASC"
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    if (cursor.getInt(4) != 0) continue // all-day
+                    val title = cursor.getString(1)?.trim().orEmpty()
+                    if (title.isBlank()) continue
+                    val begin = cursor.getLong(2)
+                    if (begin <= now) continue
+                    return CalendarEvent(
+                        cursor.getLong(0), title, begin, cursor.getLong(3)
+                    )
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return null
+    }
+
+    /**
      * Events overlapping now (already running, or starting within 15 min),
      * sorted by how close their start is to now. Requires READ_CALENDAR.
      */

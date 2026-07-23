@@ -50,6 +50,9 @@ object LibrarySearch {
             )
             score += 4.0 * damped(countHits(meeting.tags.joinToString(" "), terms))
             score += 2.0 * damped(countHits(meeting.notes, terms))
+            score += 2.0 * damped(
+                countHits(meeting.photoTexts.values.joinToString(" "), terms)
+            )
             score += 2.0 * damped(countHits(meeting.attendeesText(), terms))
             score += 1.0 * damped(countHits(meeting.transcriptText(), terms))
             if (score <= 0.0) continue

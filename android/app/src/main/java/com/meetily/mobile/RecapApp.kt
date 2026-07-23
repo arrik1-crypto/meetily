@@ -12,5 +12,8 @@ class RecapApp : Application() {
         // App lock + FLAG_SECURE are enforced from lifecycle callbacks so
         // every activity is covered, including quick-tile entry points.
         AppLock.install(this)
+        // Re-arm reminder/nudge alarms from persisted state (alarms are lost
+        // on process death and app updates).
+        Thread { com.meetily.mobile.reminders.Reminders.rescheduleAll(this) }.start()
     }
 }

@@ -22,7 +22,9 @@ data class QaEntry(
 data class ActionItem(
     val task: String,
     val owner: String? = null,
-    val done: Boolean = false
+    val done: Boolean = false,
+    /** When set, a reminder notification fires at this wall-clock time. */
+    val remindAtMs: Long? = null
 )
 
 /**
@@ -51,7 +53,9 @@ data class Meeting(
     /** Free-form labels for filtering the library ("client-x", "1:1"…). */
     var tags: MutableList<String> = mutableListOf(),
     /** Detected topic chapters, ordered by startMs. */
-    val chapters: MutableList<Chapter> = mutableListOf()
+    val chapters: MutableList<Chapter> = mutableListOf(),
+    /** On-device OCR text per attached photo (filename → extracted text). */
+    val photoTexts: MutableMap<String, String> = mutableMapOf()
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -118,6 +122,7 @@ data class Meeting(
             a.put("task", item.task)
             if (!item.owner.isNullOrBlank()) a.put("owner", item.owner)
             a.put("done", item.done)
+            if (item.remindAtMs != null) a.put("remindAt", item.remindAtMs)
             actionsArr.put(a)
         }
         obj.put("actionItems", actionsArr)
@@ -142,6 +147,11 @@ data class Meeting(
                 )
             }
             obj.put("chapters", chaptersArr)
+        }
+        if (photoTexts.isNotEmpty()) {
+            val photoTextsObj = JSONObject()
+            for ((name, text) in photoTexts) photoTextsObj.put(name, text)
+            obj.put("photoTexts", photoTextsObj)
         }
         return obj
     }
@@ -198,7 +208,12 @@ data class Meeting(
                 if (task.isNotBlank()) {
                     val owner = a.optString("owner", "")
                     meeting.actionItems.add(
-                        ActionItem(task, owner.ifBlank { null }, a.optBoolean("done", false))
+                        ActionItem(
+                            task,
+                            owner.ifBlank { null },
+                            a.optBoolean("done", false),
+                            if (a.has("remindAt")) a.optLong("remindAt") else null
+                        )
                     )
                 }
             }
@@ -219,6 +234,13 @@ data class Meeting(
                 val title = c.optString("title", "")
                 if (title.isNotBlank()) {
                     meeting.chapters.add(Chapter(title, c.optLong("t", 0L)))
+                }
+            }
+            val photoTextsObj = obj.optJSONObject("photoTexts")
+            if (photoTextsObj != null) {
+                for (key in photoTextsObj.keys()) {
+                    val text = photoTextsObj.optString(key, "")
+                    if (text.isNotBlank()) meeting.photoTexts[key] = text
                 }
             }
             return meeting

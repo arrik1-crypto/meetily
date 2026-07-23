@@ -75,6 +75,11 @@ class AppSettings(context: Context) {
         get() = prefs.getString("mic_device", "auto") ?: "auto"
         set(value) = prefs.edit().putString("mic_device", value).apply()
 
+    /** Notify "meeting is starting — record?" at calendar event starts. */
+    var meetingNudges: Boolean
+        get() = prefs.getBoolean("meeting_nudges", false)
+        set(value) = prefs.edit().putBoolean("meeting_nudges", value).apply()
+
     var calendarPrefill: Boolean
         get() = prefs.getBoolean("calendar_prefill", true)
         set(value) = prefs.edit().putBoolean("calendar_prefill", value).apply()

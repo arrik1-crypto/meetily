@@ -96,6 +96,25 @@
     <string name="topics_redetect">↻ Detect again</string>
     <string name="topics_remove">✕ Remove topic markers</string>
 
+    <string name="widget_record">Record</string>
+    <string name="widget_import">Import</string>
+    <string name="widget_description">One-tap meeting recording and audio import.</string>
+
+    <string name="reminders_channel_name">Action-item reminders</string>
+    <string name="reminder_notif_from">From: %1$s</string>
+    <string name="reminder_set">Remind me…</string>
+    <string name="reminder_change">Change reminder…</string>
+    <string name="reminder_cancel">Cancel reminder</string>
+    <string name="reminder_past">That time has already passed.</string>
+    <string name="reminder_set_toast">Reminder set for %1$s.</string>
+
+    <string name="nudges_channel_name">Meeting nudges</string>
+    <string name="setting_nudges">Suggest recording at meeting start</string>
+    <string name="setting_nudges_desc">When a calendar event begins, a notification offers to start recording. Needs calendar access; nothing is recorded until you tap.</string>
+    <string name="nudge_notif_title">“%1$s” is starting</string>
+    <string name="nudge_notif_body">Tap to record it with Recap.</string>
+    <string name="nudges_need_calendar">Meeting nudges need calendar access.</string>
+
     <string name="setting_translate">Translate to English</string>
     <string name="setting_translate_desc">Transcribe speech in any language as English text. Needs a multilingual model — models marked "English" ignore this.</string>
     <string name="import_needs_whisper">Importing needs the on-device Whisper engine — download a Whisper model in Settings first.</string>

@@ -25,6 +25,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.BackupManager
 import com.meetily.mobile.security.AppLock
+import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.security.BackupCrypto
 import com.meetily.mobile.whisper.CaptureTuning
 import com.meetily.mobile.whisper.DiarizationModels
@@ -217,6 +218,7 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
         findViewById<MaterialSwitch>(R.id.saveAudioSwitch).isChecked = settings.saveAudio
         calendarSwitch.isChecked = settings.calendarPrefill
+        setUpNudgeSwitch()
         urlInput.setText(settings.llmBaseUrl)
         keyInput.setText(settings.llmApiKey)
         modelInput.setText(settings.llmModel)
@@ -263,6 +265,8 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.saveButton).setOnClickListener {
             persistAll()
+            // Nudge/reminder alarms depend on the just-saved settings.
+            Thread { Reminders.rescheduleAll(applicationContext) }.start()
             Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
             finish()
         }
@@ -275,6 +279,7 @@ class SettingsActivity : AppCompatActivity() {
         settings.transcriptionEngine =
             if (whisperSwitch.isChecked) "whisper" else "system"
         settings.calendarPrefill = calendarSwitch.isChecked
+        settings.meetingNudges = findViewById<MaterialSwitch>(R.id.nudgeSwitch).isChecked
         settings.diarizationEnabled = diarizeSwitch.isChecked
         settings.whisperTranslate =
             findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
@@ -285,6 +290,38 @@ class SettingsActivity : AppCompatActivity() {
         settings.localOnlyLlm = findViewById<MaterialSwitch>(R.id.localOnlySwitch).isChecked
         settings.appLock = findViewById<MaterialSwitch>(R.id.appLockSwitch).isChecked
         settings.secureScreen = findViewById<MaterialSwitch>(R.id.secureScreenSwitch).isChecked
+    }
+
+    private val nudgePermissions =
+        registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { grants ->
+            if (grants[android.Manifest.permission.READ_CALENDAR] != true) {
+                findViewById<MaterialSwitch>(R.id.nudgeSwitch).isChecked = false
+                Toast.makeText(this, R.string.nudges_need_calendar, Toast.LENGTH_LONG).show()
+            }
+        }
+
+    private fun setUpNudgeSwitch() {
+        val nudgeSwitch = findViewById<MaterialSwitch>(R.id.nudgeSwitch)
+        nudgeSwitch.isChecked = settings.meetingNudges
+        nudgeSwitch.setOnCheckedChangeListener { _, checked ->
+            if (!checked) return@setOnCheckedChangeListener
+            val wanted = mutableListOf(android.Manifest.permission.READ_CALENDAR)
+            if (android.os.Build.VERSION.SDK_INT >= 33) {
+                wanted.add(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+            val missing = wanted.filter {
+                ContextCompat.checkSelfPermission(this, it) !=
+                    PackageManager.PERMISSION_GRANTED
+            }
+            if (missing.isNotEmpty()) {
+                try {
+                    nudgePermissions.launch(missing.toTypedArray())
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     // --- Security -----------------------------------------------------------

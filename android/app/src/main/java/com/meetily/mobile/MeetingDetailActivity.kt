@@ -35,10 +35,12 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.PhotoOcr
 import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.QaEntry
 import com.meetily.mobile.data.TranscriptSplitter
 import com.meetily.mobile.export.MeetingExporter
+import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.summarize.ActionItems
 import com.meetily.mobile.summarize.CustomTemplates
 import com.meetily.mobile.summarize.ExtractiveSummarizer
@@ -94,6 +96,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 m.photos.add(file.name)
                 store.save(m)
                 renderPhotos(m)
+                ocrPhoto(m, file.name)
             } else {
                 file?.delete()
             }
@@ -187,6 +190,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         renderTranscript(m)
         renderQaHistory(m)
         renderPhotos(m)
+        backfillPhotoOcr(m)
         notesInput.setText(m.notes)
         attendeesInput.setText(m.attendeesText())
         tagsInput.setText(m.tags.joinToString(", "))
@@ -441,21 +445,42 @@ class MeetingDetailActivity : AppCompatActivity() {
             text.text = item.task
             applyStrike(text, item.done)
             check.isChecked = item.done
-            if (item.owner.isNullOrBlank()) {
+            val remindAt = item.remindAtMs
+            val ownerLine = buildString {
+                if (!item.owner.isNullOrBlank()) append(item.owner)
+                if (remindAt != null && !item.done) {
+                    if (isNotEmpty()) append(" · ")
+                    append("⏰ ")
+                    append(
+                        DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                            .format(Date(remindAt))
+                    )
+                }
+            }
+            if (ownerLine.isEmpty()) {
                 owner.visibility = View.GONE
             } else {
-                owner.text = item.owner
+                owner.text = ownerLine
                 owner.visibility = View.VISIBLE
             }
             check.setOnCheckedChangeListener { _, checked ->
                 if (index in m.actionItems.indices) {
-                    m.actionItems[index] = m.actionItems[index].copy(done = checked)
+                    val updated = m.actionItems[index].copy(done = checked)
+                    m.actionItems[index] = updated
                     applyStrike(text, checked)
                     store.save(m)
+                    val at = updated.remindAtMs
+                    if (at != null) {
+                        if (checked) {
+                            Reminders.cancelActionItem(this, m.id, updated.task)
+                        } else if (at > System.currentTimeMillis()) {
+                            Reminders.scheduleActionItem(this, m.id, updated.task, at)
+                        }
+                    }
                 }
             }
             row.setOnLongClickListener {
-                confirmRemoveAction(index)
+                showActionItemOptions(index)
                 true
             }
             list.addView(row)
@@ -470,13 +495,109 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
     }
 
+    private fun showActionItemOptions(index: Int) {
+        val m = meeting ?: return
+        val item = m.actionItems.getOrNull(index) ?: return
+        val options = mutableListOf(
+            getString(
+                if (item.remindAtMs != null) R.string.reminder_change
+                else R.string.reminder_set
+            )
+        )
+        val hasReminder = item.remindAtMs != null
+        if (hasReminder) options.add(getString(R.string.reminder_cancel))
+        options.add(getString(R.string.remove_action_item))
+        AlertDialog.Builder(this)
+            .setTitle(item.task.take(120))
+            .setItems(options.toTypedArray()) { _, which ->
+                when {
+                    which == 0 -> pickReminderTime(index)
+                    hasReminder && which == 1 -> clearReminder(index)
+                    else -> confirmRemoveAction(index)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun pickReminderTime(index: Int) {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            requestPermissions(
+                arrayOf(android.Manifest.permission.POST_NOTIFICATIONS), 71
+            )
+        }
+        val cal = java.util.Calendar.getInstance().apply {
+            add(java.util.Calendar.HOUR_OF_DAY, 1)
+            set(java.util.Calendar.MINUTE, 0)
+        }
+        android.app.DatePickerDialog(
+            this,
+            { _, year, month, day ->
+                android.app.TimePickerDialog(
+                    this,
+                    { _, hour, minute ->
+                        cal.set(year, month, day, hour, minute, 0)
+                        cal.set(java.util.Calendar.MILLISECOND, 0)
+                        setReminder(index, cal.timeInMillis)
+                    },
+                    cal.get(java.util.Calendar.HOUR_OF_DAY),
+                    cal.get(java.util.Calendar.MINUTE),
+                    android.text.format.DateFormat.is24HourFormat(this)
+                ).show()
+            },
+            cal.get(java.util.Calendar.YEAR),
+            cal.get(java.util.Calendar.MONTH),
+            cal.get(java.util.Calendar.DAY_OF_MONTH)
+        ).show()
+    }
+
+    private fun setReminder(index: Int, atMs: Long) {
+        val m = meeting ?: return
+        if (index !in m.actionItems.indices) return
+        if (atMs <= System.currentTimeMillis()) {
+            Toast.makeText(this, R.string.reminder_past, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val item = m.actionItems[index].copy(remindAtMs = atMs, done = false)
+        m.actionItems[index] = item
+        store.save(m)
+        Reminders.scheduleActionItem(this, m.id, item.task, atMs)
+        renderActionItems(m)
+        Toast.makeText(
+            this,
+            getString(
+                R.string.reminder_set_toast,
+                DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
+                    .format(Date(atMs))
+            ),
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
+    private fun clearReminder(index: Int) {
+        val m = meeting ?: return
+        if (index !in m.actionItems.indices) return
+        val item = m.actionItems[index]
+        Reminders.cancelActionItem(this, m.id, item.task)
+        m.actionItems[index] = item.copy(remindAtMs = null)
+        store.save(m)
+        renderActionItems(m)
+    }
+
     private fun confirmRemoveAction(index: Int) {
         val m = meeting ?: return
         AlertDialog.Builder(this)
             .setTitle(R.string.remove_action_item)
             .setPositiveButton(R.string.delete) { _, _ ->
                 if (index in m.actionItems.indices) {
-                    m.actionItems.removeAt(index)
+                    val removed = m.actionItems.removeAt(index)
+                    if (removed.remindAtMs != null) {
+                        Reminders.cancelActionItem(this, m.id, removed.task)
+                    }
                     store.save(m)
                     renderActionItems(m)
                 }
@@ -536,6 +657,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setTitle(R.string.delete_photo_title)
             .setPositiveButton(R.string.delete) { _, _ ->
                 m.photos.remove(name)
+                m.photoTexts.remove(name)
                 PhotoStore.delete(this, name)
                 store.save(m)
                 renderPhotos(m)
@@ -567,9 +689,34 @@ class MeetingDetailActivity : AppCompatActivity() {
             m.photos.add(file.name)
             store.save(m)
             renderPhotos(m)
+            ocrPhoto(m, file.name)
         } catch (_: Exception) {
             Toast.makeText(this, R.string.photo_attach_failed, Toast.LENGTH_SHORT).show()
         }
+    }
+
+    /** Extracts photo text on-device; feeds search and LLM summary context. */
+    private fun ocrPhoto(m: Meeting, name: String) {
+        val file = PhotoStore.fileFor(this, name)
+        if (!file.exists()) return
+        PhotoOcr.extract(this, file) { text ->
+            if (text != null && name in m.photos) {
+                m.photoTexts[name] = text
+                store.save(m)
+            }
+        }
+    }
+
+    private fun backfillPhotoOcr(m: Meeting) {
+        for (name in m.photos) {
+            if (!m.photoTexts.containsKey(name)) ocrPhoto(m, name)
+        }
+    }
+
+    private fun photoTextBlock(m: Meeting): String {
+        if (m.photoTexts.isEmpty()) return ""
+        return "\n\n[Text captured from attached photos and whiteboards]\n" +
+            m.photoTexts.values.joinToString("\n---\n").take(4_000)
     }
 
     private fun showExportDialog() {
@@ -894,7 +1041,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         val localOnly = settings.localOnlyLlm
         val rawTranscript = m.transcriptText()
         val speakerTranscript = m.transcriptTextWithSpeakers()
-        val notes = m.notes
+        val notes = m.notes + photoTextBlock(m)
         val attendees = m.attendees.toList()
         val highlights = m.highlightedTexts()
         val segmentsSnapshot = m.segments.toList()
