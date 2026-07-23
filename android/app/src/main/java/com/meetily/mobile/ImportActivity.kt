@@ -123,8 +123,8 @@ class ImportActivity : AppCompatActivity() {
         }
 
         val settings = AppSettings(this)
-        val whisperReady = WhisperModels.isRuntimeAvailable() &&
-            WhisperModels.isDownloaded(this, WhisperModels.byKey(settings.whisperModel))
+        val downloaded = WhisperModels.ALL.filter { WhisperModels.isDownloaded(this, it) }
+        val whisperReady = WhisperModels.isRuntimeAvailable() && downloaded.isNotEmpty()
         if (!whisperReady) {
             Toast.makeText(this, R.string.import_needs_whisper, Toast.LENGTH_LONG).show()
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -148,10 +148,41 @@ class ImportActivity : AppCompatActivity() {
         val name = displayName(uri)
         fileNameView.text = name
 
+        // One downloaded model: nothing to choose. Otherwise ask which model
+        // should transcribe THIS file (heavier models suit imports better
+        // than live capture, so the per-run choice matters here).
+        if (downloaded.size == 1) {
+            startImport(uri, name, downloaded.first().key)
+        } else {
+            val preselect = downloaded
+                .indexOfFirst { it.key == settings.whisperModel }
+                .coerceAtLeast(0)
+            var chosen = preselect
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle(R.string.import_choose_model)
+                .setSingleChoiceItems(
+                    downloaded.map { model ->
+                        getString(
+                            R.string.import_model_label, model.displayName, model.sizeMb
+                        )
+                    }.toTypedArray(),
+                    preselect
+                ) { _, which -> chosen = which }
+                .setPositiveButton(R.string.import_transcribe_go) { _, _ ->
+                    startImport(uri, name, downloaded[chosen].key)
+                }
+                .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
+                .setOnCancelListener { finish() }
+                .show()
+        }
+    }
+
+    private fun startImport(uri: Uri, name: String, modelKey: String) {
         val start = Intent(this, ImportService::class.java)
             .setAction(ImportService.ACTION_START)
             .setData(uri)
             .putExtra(ImportService.EXTRA_NAME, name)
+            .putExtra(ImportService.EXTRA_MODEL, modelKey)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(start)

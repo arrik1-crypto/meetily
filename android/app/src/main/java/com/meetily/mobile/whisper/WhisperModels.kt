@@ -23,7 +23,24 @@ object WhisperModels {
         WhisperModel("tiny", "Tiny (multilingual)", "ggml-tiny.bin", 75, false),
         WhisperModel("base.en", "Base (English)", "ggml-base.en.bin", 142, true),
         WhisperModel("base", "Base (multilingual)", "ggml-base.bin", 142, false),
-        WhisperModel("small.en", "Small (English, slower)", "ggml-small.en.bin", 466, true)
+        // Quantized (q5_1/q5_0) models: ~2.5x smaller than full precision
+        // with near-identical accuracy — the practical sweet spot on phones.
+        WhisperModel(
+            "small.en-q5_1", "Small Q (English, compact)",
+            "ggml-small.en-q5_1.bin", 181, true
+        ),
+        WhisperModel(
+            "small-q5_1", "Small Q (multilingual, compact)",
+            "ggml-small-q5_1.bin", 181, false
+        ),
+        WhisperModel("small.en", "Small (English, slower)", "ggml-small.en.bin", 466, true),
+        WhisperModel("small", "Small (multilingual, slower)", "ggml-small.bin", 466, false),
+        // Near-flagship accuracy; realistic for imports/re-transcription,
+        // slow for live use on most phones.
+        WhisperModel(
+            "large-v3-turbo-q5_0", "Large v3 Turbo Q (best accuracy, slow)",
+            "ggml-large-v3-turbo-q5_0.bin", 547, false
+        )
     )
 
     fun byKey(key: String): WhisperModel =

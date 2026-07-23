@@ -162,6 +162,11 @@
     <string name="no_action_items">No open action items.</string>
     <string name="actions_share_subject">Action items — %1$s</string>
 
+    <!-- Import model picker -->
+    <string name="import_choose_model">Transcribe with which model?</string>
+    <string name="import_model_label">%1$s · %2$d MB</string>
+    <string name="import_transcribe_go">Transcribe</string>
+
     <!-- Custom vocabulary -->
     <string name="setting_vocab_hint">Custom vocabulary</string>
     <string name="setting_vocab_desc">Names, acronyms, and jargon Whisper should recognize — comma separated (e.g. “Meetily, OKR, Anneke”). Applies to new recordings and imports.</string>

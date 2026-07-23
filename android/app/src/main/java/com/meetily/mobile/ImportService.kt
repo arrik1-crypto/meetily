@@ -66,6 +66,9 @@ class ImportService : Service() {
     var sourceName: String = ""
         private set
 
+    /** Per-run model override (see ImportActivity's picker); null = default. */
+    private var modelKey: String? = null
+
     @Volatile private var cancelled = false
     @Volatile private var percent = 0
     private var done = false
@@ -90,6 +93,7 @@ class ImportService : Service() {
                 isRunning = true
                 sourceName = intent.getStringExtra(EXTRA_NAME).orEmpty()
                     .ifBlank { getString(R.string.import_title) }
+                modelKey = intent.getStringExtra(EXTRA_MODEL)
                 createChannel()
                 startForegroundCompat(buildNotification(0))
                 // A dataSync service keeps the process alive but NOT the CPU:
@@ -121,6 +125,7 @@ class ImportService : Service() {
                     uri = uri,
                     title = sourceName.substringBeforeLast('.').ifBlank { sourceName },
                     sourceName = sourceName,
+                    modelKey = modelKey,
                     onProgress = { p ->
                         percent = p
                         main.post {
@@ -294,6 +299,7 @@ class ImportService : Service() {
         const val ACTION_START = "com.meetily.mobile.import.START"
         const val ACTION_CANCEL = "com.meetily.mobile.import.CANCEL"
         const val EXTRA_NAME = "source_name"
+        const val EXTRA_MODEL = "model_key"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45

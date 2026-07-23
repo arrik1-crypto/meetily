@@ -58,10 +58,12 @@ class AudioFileImporter(
         uri: Uri,
         title: String,
         sourceName: String = title,
+        /** Model for THIS run; null = the default from Settings. */
+        modelKey: String? = null,
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean
     ): Result {
-        val model = WhisperModels.byKey(settings.whisperModel)
+        val model = WhisperModels.byKey(modelKey ?: settings.whisperModel)
         if (!WhisperModels.isRuntimeAvailable()) {
             throw ImportException("Whisper runtime unavailable on this device")
         }
