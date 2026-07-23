@@ -24,6 +24,8 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.BackupManager
+import com.meetily.mobile.llm.LocalLlm
+import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.security.AppLock
 import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.security.BackupCrypto
@@ -88,7 +90,15 @@ class SettingsActivity : AppCompatActivity() {
             downloading = true
             manageModelsButton.isEnabled = false
             manageDiarizeButton.isEnabled = false
-            if (kind == ModelDownloadService.KIND_DIARIZE) {
+            if (kind == ModelDownloadService.KIND_LLM) {
+                val model = LocalLlmModels.byKey(key)
+                val bar = findViewById<LinearProgressIndicator>(R.id.localLlmProgress)
+                bar.visibility = View.VISIBLE
+                bar.isIndeterminate = percent == 0
+                bar.progress = percent
+                findViewById<TextView>(R.id.localLlmStatus).text =
+                    getString(R.string.model_downloading, model.displayName, percent)
+            } else if (kind == ModelDownloadService.KIND_DIARIZE) {
                 val model = DiarizationModels.byKey(key)
                 diarizeProgress.visibility = View.VISIBLE
                 diarizeProgress.isIndeterminate = percent == 0
@@ -117,7 +127,10 @@ class SettingsActivity : AppCompatActivity() {
             manageDiarizeButton.isEnabled = true
             modelProgress.visibility = View.GONE
             diarizeProgress.visibility = View.GONE
+            findViewById<LinearProgressIndicator>(R.id.localLlmProgress).visibility =
+                View.GONE
             updateWhisperSection()
+            updateLocalLlmStatus()
             if (error != null) {
                 Toast.makeText(
                     this@SettingsActivity,
@@ -158,7 +171,10 @@ class SettingsActivity : AppCompatActivity() {
             manageDiarizeButton.isEnabled = true
             modelProgress.visibility = View.GONE
             diarizeProgress.visibility = View.GONE
+            findViewById<LinearProgressIndicator>(R.id.localLlmProgress).visibility =
+                View.GONE
             updateWhisperSection()
+            updateLocalLlmStatus()
         }
     }
 
@@ -185,6 +201,7 @@ class SettingsActivity : AppCompatActivity() {
             // Never sweep .part files while the download service is mid-write.
             WhisperModels.cleanPartials(this)
             DiarizationModels.cleanPartials(this)
+            LocalLlmModels.cleanPartials(this)
         }
 
         findViewById<MaterialToolbar>(R.id.settingsToolbar).setNavigationOnClickListener {
@@ -224,6 +241,7 @@ class SettingsActivity : AppCompatActivity() {
         modelInput.setText(settings.llmModel)
 
         updateLlmSectionVisibility()
+        setUpLlmEngine()
         updateWhisperSection()
 
         setUpThemeToggle()
@@ -322,6 +340,84 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    // --- AI engine (endpoint vs on-device) ----------------------------------
+
+    private fun setUpLlmEngine() {
+        val toggle = findViewById<MaterialButtonToggleGroup>(R.id.llmEngineToggle)
+        toggle.check(
+            if (settings.llmEngine == "local") R.id.engineLocal else R.id.engineEndpoint
+        )
+        applyEngineVisibility()
+        toggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            settings.llmEngine =
+                if (checkedId == R.id.engineLocal) "local" else "endpoint"
+            applyEngineVisibility()
+        }
+        findViewById<View>(R.id.manageLlmButton).setOnClickListener {
+            showLlmModelDialog()
+        }
+        updateLocalLlmStatus()
+    }
+
+    private fun applyEngineVisibility() {
+        val local = settings.llmEngine == "local"
+        findViewById<View>(R.id.localLlmSection).visibility =
+            if (local) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.endpointSection).visibility =
+            if (local) View.GONE else View.VISIBLE
+    }
+
+    private fun updateLocalLlmStatus() {
+        val model = LocalLlmModels.byKey(settings.localLlmModel)
+        findViewById<TextView>(R.id.localLlmStatus).text =
+            if (LocalLlmModels.isDownloaded(this, model)) {
+                getString(R.string.model_status_downloaded, model.displayName)
+            } else {
+                getString(R.string.model_status_missing, model.displayName)
+            }
+    }
+
+    private fun showLlmModelDialog() {
+        if (ModelDownloadService.isRunning) {
+            Toast.makeText(this, R.string.download_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val labels = LocalLlmModels.ALL.map { model ->
+            val state = if (LocalLlmModels.isDownloaded(this, model)) {
+                getString(R.string.model_downloaded_label)
+            } else {
+                getString(R.string.model_tap_download)
+            }
+            "${model.displayName} · ${model.sizeMb} MB · $state"
+        } + getString(R.string.model_delete_all)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.manage_llm_models)
+            .setItems(labels.toTypedArray()) { _, which ->
+                if (which >= LocalLlmModels.ALL.size) {
+                    LocalLlm.release()
+                    LocalLlmModels.deleteAll(this)
+                    updateLocalLlmStatus()
+                    return@setItems
+                }
+                val model = LocalLlmModels.ALL[which]
+                if (settings.localLlmModel != model.key) {
+                    settings.localLlmModel = model.key
+                    // Next generation loads the newly selected model.
+                    LocalLlm.release()
+                }
+                if (LocalLlmModels.isDownloaded(this, model)) {
+                    updateLocalLlmStatus()
+                } else {
+                    startModelDownload(ModelDownloadService.KIND_LLM, model.key)
+                    updateLocalLlmStatus()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     // --- Security -----------------------------------------------------------

@@ -45,6 +45,7 @@ This is a standalone native Android app (Kotlin). It does **not** depend on the 
 - **Photo attachments** — snap the whiteboard from the recording screen or add camera/gallery photos on the meeting page; stored privately with the meeting.
 - **Markdown/PDF export** — save any meeting as a .md or .pdf document wherever you choose, including summary, action items, notes, and the timestamped speaker transcript.
 - **Auto-titling** — meetings left with the default title get named from their content after recording (instant on-device heuristic, refined by the LLM when configured).
+- **On-device AI (embedded)** — Settings → AI summaries → engine "On-device" runs a small LLM (llama.cpp, GGUF) entirely on the phone: summaries, Ask, digest, topics, and speaker suggestions with zero network involvement, ever. Pick a model in the manager (Qwen 2.5 0.5B/1.5B, Llama 3.2 3B; 0.5–2 GB one-time downloads through the background download service). Slower than a server and long transcripts are middle-trimmed to fit the on-device context — quality sits below big cloud models, privacy sits above everything.
 - **Summaries**, two ways:
   - **On-device (default, zero config)**: an offline extractive summarizer produces key points and detected action items. No network involved.
   - **LLM (optional)**: point the app at any OpenAI-compatible endpoint — Ollama running on your computer (`http://YOUR_PC_IP:11434/v1`), Groq, OpenRouter, etc. Configure URL, model, and API key in Settings. If the LLM call fails, the app falls back to the on-device summary.

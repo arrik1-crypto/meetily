@@ -72,7 +72,7 @@ class AskLibraryActivity : AppCompatActivity() {
         sourcesList.removeAllViews()
         sendButton.isEnabled = false
 
-        val useLlm = settings.useLlm && settings.llmBaseUrl.isNotBlank()
+        val useLlm = settings.useLlm && settings.llmConfigured
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel

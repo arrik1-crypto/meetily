@@ -496,6 +496,85 @@
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
 
+                        <com.google.android.material.button.MaterialButtonToggleGroup
+                            android:id="@+id/llmEngineToggle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="12dp"
+                            app:selectionRequired="true"
+                            app:singleSelection="true">
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/engineEndpoint"
+                                style="?attr/materialButtonOutlinedStyle"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1"
+                                android:text="@string/engine_endpoint"
+                                android:textColor="?attr/colorOnSurface"
+                                app:strokeColor="?attr/colorOutline" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/engineLocal"
+                                style="?attr/materialButtonOutlinedStyle"
+                                android:layout_width="0dp"
+                                android:layout_height="44dp"
+                                android:layout_weight="1"
+                                android:text="@string/engine_local"
+                                android:textColor="?attr/colorOnSurface"
+                                app:strokeColor="?attr/colorOutline" />
+                        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+                        <!-- On-device engine: model status + manager. -->
+                        <LinearLayout
+                            android:id="@+id/localLlmSection"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:visibility="gone">
+
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="10dp"
+                                android:text="@string/engine_local_desc"
+                                android:textAppearance="?attr/textAppearanceBodySmall"
+                                android:textColor="?attr/colorOnSurfaceVariant" />
+
+                            <TextView
+                                android:id="@+id/localLlmStatus"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="10dp"
+                                android:textAppearance="?attr/textAppearanceBodyMedium"
+                                android:textColor="?attr/colorOnSurface" />
+
+                            <com.google.android.material.progressindicator.LinearProgressIndicator
+                                android:id="@+id/localLlmProgress"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="8dp"
+                                android:visibility="gone"
+                                app:trackCornerRadius="2dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/manageLlmButton"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="44dp"
+                                android:layout_marginTop="8dp"
+                                android:text="@string/manage_llm_models"
+                                android:textColor="?attr/colorOnSurface"
+                                app:cornerRadius="22dp"
+                                app:strokeColor="?attr/colorOutline" />
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:id="@+id/endpointSection"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical">
+
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/localOnlySwitch"
                             android:layout_width="match_parent"
@@ -571,6 +650,7 @@
                                 android:inputType="textPassword"
                                 android:textSize="15sp" />
                         </com.google.android.material.textfield.TextInputLayout>
+                        </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

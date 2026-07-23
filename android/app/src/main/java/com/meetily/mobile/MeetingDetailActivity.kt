@@ -222,7 +222,7 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        val llmReady = settings.useLlm && settings.llmBaseUrl.isNotBlank()
+        val llmReady = settings.useLlm && settings.llmConfigured
         askRow.visibility = if (llmReady) View.VISIBLE else View.GONE
         askDisabledHint.visibility = if (llmReady) View.GONE else View.VISIBLE
     }
@@ -425,7 +425,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             titleView.text = offline
             store.save(m)
         }
-        if (settings.useLlm && settings.llmBaseUrl.isNotBlank()) {
+        if (settings.useLlm && settings.llmConfigured) {
             val baseUrl = settings.llmBaseUrl
             val apiKey = settings.llmApiKey
             val model = settings.llmModel
@@ -1056,7 +1056,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         summaryView.visibility = View.VISIBLE
         summaryView.text = getString(R.string.summarizing)
 
-        val useLlm = settings.useLlm
+        val useLlm = settings.useLlm && settings.llmConfigured
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
@@ -1071,7 +1071,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         Thread {
             var parsedItems: List<ActionItem>? = null
             val result = try {
-                if (useLlm && baseUrl.isNotBlank()) {
+                if (useLlm) {
                     val raw = LlmClient.summarize(
                         baseUrl, apiKey, model, localOnly, speakerTranscript, notes,
                         attendees, highlights, template
@@ -1730,7 +1730,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             return
         }
         Toast.makeText(this, R.string.topics_detecting, Toast.LENGTH_SHORT).show()
-        val useLlm = settings.useLlm && settings.llmBaseUrl.isNotBlank()
+        val useLlm = settings.useLlm && settings.llmConfigured
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel

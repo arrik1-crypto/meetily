@@ -15,5 +15,14 @@ class RecapApp : Application() {
         // Re-arm reminder/nudge alarms from persisted state (alarms are lost
         // on process death and app updates).
         Thread { com.meetily.mobile.reminders.Reminders.rescheduleAll(this) }.start()
+        com.meetily.mobile.llm.LocalLlm.init(this)
+    }
+
+    override fun onTrimMemory(level: Int) {
+        super.onTrimMemory(level)
+        // A loaded GGUF model is the biggest thing we hold; let it go first.
+        if (level >= TRIM_MEMORY_BACKGROUND) {
+            com.meetily.mobile.llm.LocalLlm.release()
+        }
     }
 }

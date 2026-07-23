@@ -15,6 +15,7 @@ import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
 import androidx.core.app.NotificationCompat
+import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.WhisperModels
 
@@ -76,7 +77,7 @@ class ModelDownloadService : Service() {
                         PowerManager.PARTIAL_WAKE_LOCK, "meetily:model-download"
                     ).apply {
                         setReferenceCounted(false)
-                        acquire(60 * 60 * 1000L)
+                        acquire(2 * 60 * 60 * 1000L)
                     }
                 } catch (_: Exception) {
                 }
@@ -88,6 +89,7 @@ class ModelDownloadService : Service() {
 
     private fun displayName(kind: String, key: String): String = when (kind) {
         KIND_DIARIZE -> DiarizationModels.byKey(key).displayName
+        KIND_LLM -> LocalLlmModels.byKey(key).displayName
         else -> WhisperModels.byKey(key).displayName
     }
 
@@ -105,12 +107,14 @@ class ModelDownloadService : Service() {
                         }
                     }
                 }
-                if (kind == KIND_DIARIZE) {
-                    DiarizationModels.download(
+                when (kind) {
+                    KIND_DIARIZE -> DiarizationModels.download(
                         this, DiarizationModels.byKey(key), onProgress, { cancelled }
                     )
-                } else {
-                    WhisperModels.download(
+                    KIND_LLM -> LocalLlmModels.download(
+                        this, LocalLlmModels.byKey(key), onProgress, { cancelled }
+                    )
+                    else -> WhisperModels.download(
                         this, WhisperModels.byKey(key), onProgress, { cancelled }
                     )
                 }
@@ -244,6 +248,7 @@ class ModelDownloadService : Service() {
         const val EXTRA_KEY = "model_key"
         const val KIND_WHISPER = "whisper"
         const val KIND_DIARIZE = "diarize"
+        const val KIND_LLM = "llm"
         private const val CHANNEL_ID = "model_download"
         private const val NOTIF_ID = 46
         private const val NOTIF_DONE_ID = 47

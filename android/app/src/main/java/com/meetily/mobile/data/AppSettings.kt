@@ -12,6 +12,20 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("use_llm", false)
         set(value) = prefs.edit().putBoolean("use_llm", value).apply()
 
+    /** AI engine: "endpoint" (OpenAI-compatible URL) or "local" (embedded llama.cpp). */
+    var llmEngine: String
+        get() = prefs.getString("llm_engine", "endpoint") ?: "endpoint"
+        set(value) = prefs.edit().putString("llm_engine", value).apply()
+
+    /** Selected on-device GGUF model key (see LocalLlmModels). */
+    var localLlmModel: String
+        get() = prefs.getString("local_llm_model", "qwen2.5-1.5b") ?: "qwen2.5-1.5b"
+        set(value) = prefs.edit().putString("local_llm_model", value).apply()
+
+    /** True when the chosen AI engine has enough config to be called at all. */
+    val llmConfigured: Boolean
+        get() = llmEngine == "local" || llmBaseUrl.isNotBlank()
+
     var llmBaseUrl: String
         get() = prefs.getString("llm_base_url", "http://192.168.1.100:11434/v1") ?: ""
         set(value) = prefs.edit().putString("llm_base_url", value).apply()

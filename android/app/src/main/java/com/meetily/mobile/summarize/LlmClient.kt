@@ -322,6 +322,10 @@ object LlmClient {
         messages: JSONArray,
         localOnly: Boolean
     ): String {
+        // On-device engine: no endpoint, no socket — straight to llama.cpp.
+        if (com.meetily.mobile.llm.LocalLlm.isSelected()) {
+            return com.meetily.mobile.llm.LocalLlm.chat(messages)
+        }
         EndpointGuard.check(baseUrl, localOnly)
         val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
 

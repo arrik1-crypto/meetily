@@ -41,7 +41,7 @@ class DigestActivity : AppCompatActivity() {
         digestView = findViewById(R.id.digestText)
         val progress = findViewById<LinearProgressIndicator>(R.id.digestProgress)
         val settings = AppSettings(this)
-        val useLlm = settings.useLlm && settings.llmBaseUrl.isNotBlank()
+        val useLlm = settings.useLlm && settings.llmConfigured
         val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
         val formatDate: (Long) -> String = { dateFormat.format(Date(it)) }
 
