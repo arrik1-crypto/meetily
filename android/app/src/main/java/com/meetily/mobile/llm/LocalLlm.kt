@@ -22,6 +22,18 @@ object LocalLlm {
      */
     const val CHAR_BUDGET = (N_CTX - MAX_REPLY_TOKENS - 120) * 3
 
+    /** Above this, middle-trimming loses too much: condense per-section instead. */
+    const val MAP_REDUCE_THRESHOLD = CHAR_BUDGET * 3 / 2
+
+    private const val MAP_CHUNK_CHARS = 8_000
+    private const val MAP_MAX_CHUNKS = 12
+    private const val MAP_REPLY_TOKENS = 220
+    private const val MAP_PROMPT =
+        "You are condensing one section of a longer meeting transcript. " +
+            "Write compact notes (up to 8 short bullets) capturing decisions, " +
+            "action items with their owners, key facts and numbers, and what " +
+            "was discussed. No preamble, no commentary."
+
     private var appContext: Context? = null
     private var ptr = 0L
     private var loadedKey: String? = null
@@ -54,22 +66,104 @@ object LocalLlm {
             )
         }
 
-        val budgeted = budgetMessages(toPairs(messages), CHAR_BUDGET)
-        val packed = buildString {
-            for ((role, content) in budgeted) {
-                append('\u001e').append(role).append('\u001f').append(content)
-            }
-        }
+        var pairs = toPairs(messages)
 
         synchronized(lock) {
             ensureLoaded(context, model)
-            val reply = LlamaBridge.generate(ptr, packed, MAX_REPLY_TOKENS)
+
+            // Map-reduce: when one message (in practice, the transcript) far
+            // exceeds the context, condense it section-by-section with the
+            // same model, then answer over the ordered notes — full coverage
+            // instead of a missing middle.
+            val longest = pairs.indices.maxByOrNull { pairs[it].second.length }
+            if (longest != null && needsMapReduce(pairs[longest].second.length)) {
+                condense(pairs[longest].second)?.let { condensed ->
+                    pairs = pairs.toMutableList().also {
+                        it[longest] = it[longest].first to condensed
+                    }
+                }
+            }
+
+            val budgeted = budgetMessages(pairs, CHAR_BUDGET)
+            val reply = LlamaBridge.generate(ptr, pack(budgeted), MAX_REPLY_TOKENS)
                 ?.trim()
                 .orEmpty()
             if (reply.isBlank()) {
                 throw IllegalStateException("On-device model returned an empty response")
             }
             return reply
+        }
+    }
+
+    fun needsMapReduce(length: Int): Boolean = length > MAP_REDUCE_THRESHOLD
+
+    /**
+     * Condenses [content] chunk-by-chunk into ordered section notes. Returns
+     * null when there's nothing to gain (single chunk) or every section pass
+     * failed — the caller then falls back to head+tail trimming. Must be
+     * called with [lock] held and the model loaded.
+     */
+    private fun condense(content: String): String? {
+        val chunks = splitIntoChunks(content, MAP_CHUNK_CHARS, MAP_MAX_CHUNKS)
+        if (chunks.size < 2) return null
+        val notes = StringBuilder(
+            "[Ordered notes condensed from the full transcript of a long meeting]\n"
+        )
+        var produced = 0
+        for ((index, chunk) in chunks.withIndex()) {
+            // The chunk cap can force chunks past the budget; trim those.
+            val body = if (chunk.length > CHAR_BUDGET - 600) {
+                budgetMessages(listOf("user" to chunk), CHAR_BUDGET - 600)[0].second
+            } else {
+                chunk
+            }
+            val part = try {
+                LlamaBridge.generate(
+                    ptr,
+                    pack(listOf("system" to MAP_PROMPT, "user" to body)),
+                    MAP_REPLY_TOKENS
+                )?.trim().orEmpty()
+            } catch (_: Throwable) {
+                ""
+            }
+            notes.append("\n--- Section ").append(index + 1).append(" ---\n")
+            if (part.isBlank()) {
+                notes.append("(section notes unavailable)\n")
+            } else {
+                notes.append(part).append('\n')
+                produced++
+            }
+        }
+        return if (produced == 0) null else notes.toString()
+    }
+
+    /**
+     * Splits at line boundaries into near-even chunks of at most roughly
+     * [maxChars] (growing evenly beyond it only when [maxChunks] forces it).
+     * Concatenation of the result is exactly [text]. Pure; unit-tested.
+     */
+    fun splitIntoChunks(text: String, maxChars: Int, maxChunks: Int): List<String> {
+        if (text.length <= maxChars) return listOf(text)
+        val count = ((text.length + maxChars - 1) / maxChars).coerceAtMost(maxChunks)
+        val target = (text.length + count - 1) / count
+        val chunks = mutableListOf<String>()
+        var start = 0
+        while (start < text.length && chunks.size < count - 1) {
+            var end = (start + target).coerceAtMost(text.length)
+            if (end < text.length) {
+                val newline = text.lastIndexOf('\n', end - 1)
+                if (newline > start + target * 85 / 100) end = newline + 1
+            }
+            chunks.add(text.substring(start, end))
+            start = end
+        }
+        if (start < text.length) chunks.add(text.substring(start))
+        return chunks
+    }
+
+    private fun pack(messages: List<Pair<String, String>>): String = buildString {
+        for ((role, content) in messages) {
+            append('\u001e').append(role).append('\u001f').append(content)
         }
     }
 

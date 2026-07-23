@@ -39,4 +39,42 @@ class LocalLlmBudgetTest {
         // Floor keeps a usable stub rather than truncating to nothing.
         assertTrue(out[0].second.length >= 400)
     }
+
+    // --- Map-reduce chunking -------------------------------------------------
+
+    @Test
+    fun shortTextIsOneChunk() {
+        assertEquals(listOf("short"), LocalLlm.splitIntoChunks("short", 100, 12))
+    }
+
+    @Test
+    fun chunksConcatenateBackToTheOriginal() {
+        val text = (1..400).joinToString("\n") { "line $it with some words in it" }
+        val chunks = LocalLlm.splitIntoChunks(text, 2_000, 12)
+        assertTrue(chunks.size > 1)
+        assertEquals(text, chunks.joinToString(""))
+    }
+
+    @Test
+    fun chunksPreferLineBoundaries() {
+        val text = (1..400).joinToString("\n") { "line $it with some words in it" }
+        val chunks = LocalLlm.splitIntoChunks(text, 2_000, 12)
+        for (chunk in chunks.dropLast(1)) {
+            assertTrue("chunk should end at a line break", chunk.endsWith("\n"))
+        }
+    }
+
+    @Test
+    fun chunkCountIsCappedForHugeInput() {
+        val text = "word ".repeat(60_000) // 300k chars
+        val chunks = LocalLlm.splitIntoChunks(text, 8_000, 12)
+        assertEquals(12, chunks.size)
+        assertEquals(text, chunks.joinToString(""))
+    }
+
+    @Test
+    fun mapReduceThresholdSitsAboveTheBudget() {
+        assertTrue(!LocalLlm.needsMapReduce(LocalLlm.CHAR_BUDGET))
+        assertTrue(LocalLlm.needsMapReduce(LocalLlm.MAP_REDUCE_THRESHOLD + 1))
+    }
 }
