@@ -132,7 +132,10 @@ class LiveTranscriptAdapter(
  */
 class TranscriptLinesAdapter(
     private val onClick: (Int) -> Unit,
-    private val onLongClick: (Int) -> Unit
+    private val onLongClick: (Int) -> Unit,
+    // (segmentIndex, wordOffsetMs): tap-to-seek on a single word. Only wired
+    // to lines that have word timings and a playable audio offset.
+    private val onWordTap: ((Int, Long) -> Unit)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private sealed class Row {
@@ -217,7 +220,7 @@ class TranscriptLinesAdapter(
                 if (segment.speaker.isNullOrBlank()) 0.55f else 1f
             holder.speaker.visibility = View.VISIBLE
         }
-        holder.text.text = segment.text
+        bindLineText(holder.text, row)
         if (segment.highlighted) {
             holder.itemView.setBackgroundResource(R.drawable.bg_line_highlight)
         } else {
@@ -235,6 +238,50 @@ class TranscriptLinesAdapter(
     }
 
     override fun getItemCount(): Int = rows.size
+
+    /**
+     * Word-level tap-to-seek: each timed word becomes a ClickableSpan that
+     * seeks playback (Pixel Recorder style). Spans are matched against the
+     * displayed text sequentially, so lightly edited text degrades gracefully
+     * (unmatched words just lose their span).
+     */
+    private fun bindLineText(view: TextView, row: Row.LineRow) {
+        val segment = row.segment
+        val words = segment.words
+        val wordTap = onWordTap
+        if (wordTap == null || words.isNullOrEmpty() || segment.audioMs == null) {
+            view.text = segment.text
+            view.movementMethod = null
+            view.isClickable = false
+            view.isLongClickable = false
+            return
+        }
+        val span = android.text.SpannableString(segment.text)
+        var cursor = 0
+        var any = false
+        for (word in words) {
+            val at = segment.text.indexOf(word.text, cursor)
+            if (at < 0) continue
+            span.setSpan(
+                object : android.text.style.ClickableSpan() {
+                    override fun onClick(widget: View) {
+                        wordTap(row.segIndex, word.ms)
+                    }
+
+                    override fun updateDrawState(ds: android.text.TextPaint) {
+                        // Words look like normal text, not links.
+                    }
+                },
+                at, at + word.text.length,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            cursor = at + word.text.length
+            any = true
+        }
+        view.text = span
+        view.movementMethod =
+            if (any) android.text.method.LinkMovementMethod.getInstance() else null
+    }
 
     companion object {
         private const val TYPE_LINE = 0

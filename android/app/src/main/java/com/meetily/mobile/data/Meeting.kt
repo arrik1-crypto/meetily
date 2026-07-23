@@ -3,6 +3,12 @@ package com.meetily.mobile.data
 import org.json.JSONArray
 import org.json.JSONObject
 
+/** One word's start offset (ms) within its segment's audio chunk. */
+data class WordStamp(
+    val ms: Long,
+    val text: String
+)
+
 data class TranscriptSegment(
     val timestampMs: Long,
     val text: String,
@@ -11,7 +17,9 @@ data class TranscriptSegment(
     /** Acoustic diarization cluster ("Speaker N") when no name is known. */
     val clusterId: Int? = null,
     /** Offset into the meeting's audio file, for tap-to-play seek. */
-    val audioMs: Long? = null
+    val audioMs: Long? = null,
+    /** Word timings for word-level tap-to-seek; dropped when text is edited. */
+    val words: List<WordStamp>? = null
 )
 
 data class QaEntry(
@@ -113,6 +121,14 @@ data class Meeting(
             if (seg.audioMs != null) {
                 s.put("audioMs", seg.audioMs)
             }
+            val words = seg.words
+            if (!words.isNullOrEmpty()) {
+                val wordsArr = JSONArray()
+                for (word in words) {
+                    wordsArr.put(JSONArray().put(word.ms).put(word.text))
+                }
+                s.put("words", wordsArr)
+            }
             arr.put(s)
         }
         obj.put("segments", arr)
@@ -205,7 +221,18 @@ data class Meeting(
                         speaker = speaker.ifBlank { null },
                         highlighted = s.optBoolean("highlighted", false),
                         clusterId = if (s.has("cluster")) s.optInt("cluster") else null,
-                        audioMs = if (s.has("audioMs")) s.optLong("audioMs") else null
+                        audioMs = if (s.has("audioMs")) s.optLong("audioMs") else null,
+                        words = s.optJSONArray("words")?.let { wordsArr ->
+                            val out = mutableListOf<WordStamp>()
+                            for (w in 0 until wordsArr.length()) {
+                                val pair = wordsArr.optJSONArray(w) ?: continue
+                                val text = pair.optString(1, "")
+                                if (text.isNotBlank()) {
+                                    out.add(WordStamp(pair.optLong(0), text))
+                                }
+                            }
+                            out.ifEmpty { null }
+                        }
                     )
                 )
             }

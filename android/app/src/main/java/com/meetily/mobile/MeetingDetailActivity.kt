@@ -142,7 +142,11 @@ class MeetingDetailActivity : AppCompatActivity() {
             .inflate(R.layout.detail_header, recycler, false)
         transcriptAdapter = TranscriptLinesAdapter(
             onClick = { index -> assignSpeaker(index) },
-            onLongClick = { index -> toggleHighlight(index) }
+            onLongClick = { index -> toggleHighlight(index) },
+            onWordTap = { index, wordMs ->
+                val base = meeting?.segments?.getOrNull(index)?.audioMs
+                if (base != null) playFrom(base + wordMs)
+            }
         )
         recycler.adapter = ConcatAdapter(StaticViewAdapter(headerView), transcriptAdapter)
 
@@ -1327,7 +1331,8 @@ class MeetingDetailActivity : AppCompatActivity() {
                 if (newText.isBlank()) {
                     confirmDeleteSegment(index)
                 } else {
-                    m.segments[index] = m.segments[index].copy(text = newText)
+                    m.segments[index] =
+                        m.segments[index].copy(text = newText, words = null)
                     store.save(m)
                     transcriptAdapter.update(index, m.segments[index])
                 }

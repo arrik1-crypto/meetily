@@ -96,6 +96,17 @@
     <string name="topics_redetect">↻ Detect again</string>
     <string name="topics_remove">✕ Remove topic markers</string>
 
+    <string name="followups_title">Follow-ups</string>
+    <string name="followups_hint">Open action items from every meeting. Check one off to complete it in its meeting; long-press to open that meeting.</string>
+    <string name="followups_empty">Nothing outstanding — every action item is done.</string>
+
+    <string name="record_source_title">Record from</string>
+    <string name="record_source_mic">Microphone (default)</string>
+    <string name="record_source_device">Device audio — webinars &amp; videos</string>
+    <string name="device_audio_active">Capturing device audio. Apps that mark calls private (most VoIP apps) can\'t be captured — media and webinar playback can.</string>
+    <string name="device_audio_denied">Screen-capture permission declined — recording from the microphone instead.</string>
+    <string name="device_audio_needs_whisper">Device audio needs the on-device Whisper engine (Settings → Transcription) — recording from the microphone instead.</string>
+
     <string name="notes_edit">Edit notes</string>
     <string name="notes_done">Done</string>
     <string name="notes_hint_rich">Notes — use the toolbar for **bold**, lists, and checklists</string>

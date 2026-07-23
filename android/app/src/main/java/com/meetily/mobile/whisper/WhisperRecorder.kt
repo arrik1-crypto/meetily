@@ -26,6 +26,9 @@ class WhisperRecorder(
     // signal, and which physical input to prefer (null = system routing).
     private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
     private val preferredDevice: AudioDeviceInfo? = null,
+    // Overrides mic capture entirely (e.g. AudioPlaybackCapture for device
+    // audio). Invoked on the audio thread; null result = capture unavailable.
+    private val recordFactory: (() -> AudioRecord?)? = null,
     // Sampled at chunk-cut time so speaker attribution reflects when the
     // words were SPOKEN, not when transcription finishes seconds later.
     private val speakerSupplier: () -> String? = { null },
@@ -35,9 +38,12 @@ class WhisperRecorder(
     // Optional tee of every captured (non-paused) frame, e.g. into the
     // meeting-audio writer. Called on the audio thread; must not block.
     private val frameSink: ((FloatArray) -> Unit)? = null,
-    // (text, speaker, clusterId, audioMs) — audioMs is the chunk's start
-    // offset within the captured (non-paused) audio timeline.
-    private val onSegment: (String, String?, Int?, Long) -> Unit,
+    // (text, speaker, clusterId, audioMs, words) — audioMs is the chunk's
+    // start offset within the captured (non-paused) audio timeline; words
+    // carry word-start offsets within the chunk for tap-to-seek.
+    private val onSegment: (
+        String, String?, Int?, Long, List<com.meetily.mobile.data.WordStamp>
+    ) -> Unit,
     private val onProcessingChange: (Boolean) -> Unit,
     private val onError: (String) -> Unit
 ) {
@@ -79,13 +85,21 @@ class WhisperRecorder(
                 sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT
             )
             val record = try {
-                AudioRecord(
-                    audioSource,
-                    sampleRate,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_FLOAT,
-                    max(minBuffer, frameSize * 4 * 4)
-                )
+                if (recordFactory != null) {
+                    recordFactory.invoke() ?: run {
+                        onError("Device-audio capture unavailable")
+                        running = false
+                        return@Thread
+                    }
+                } else {
+                    AudioRecord(
+                        audioSource,
+                        sampleRate,
+                        AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_FLOAT,
+                        max(minBuffer, frameSize * 4 * 4)
+                    )
+                }
             } catch (e: Exception) {
                 onError("Microphone unavailable: ${e.message}")
                 running = false
@@ -97,7 +111,7 @@ class WhisperRecorder(
                 running = false
                 return@Thread
             }
-            if (preferredDevice != null) {
+            if (preferredDevice != null && recordFactory == null) {
                 // Best-effort: falls back to system routing if it fails.
                 try {
                     record.preferredDevice = preferredDevice
@@ -175,11 +189,12 @@ class WhisperRecorder(
                 }
                 val ptr = contextPtr
                 if (ptr != 0L) {
-                    val text = WhisperBridge.transcribe(ptr, padded, language, nThreads, translate)
-                        ?.trim()
-                        .orEmpty()
+                    val raw = WhisperBridge.transcribeWords(
+                        ptr, padded, language, nThreads, translate
+                    )
+                    val (text, words) = WhisperBridge.parseWords(raw)
                     if (text.isNotBlank() && !isNoise(text)) {
-                        onSegment(text, speaker, clusterId, audioMs)
+                        onSegment(text.trim(), speaker, clusterId, audioMs, words)
                     }
                 }
             } catch (e: Throwable) {

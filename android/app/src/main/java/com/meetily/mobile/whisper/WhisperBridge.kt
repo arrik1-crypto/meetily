@@ -29,4 +29,32 @@ object WhisperBridge {
         nThreads: Int,
         translate: Boolean
     ): String?
+
+    /**
+     * Transcription with word-level timings. Wire format from the JNI side:
+     * per word, 0x1e + start-ms + 0x1f + text. [parseWords] decodes it.
+     */
+    external fun transcribeWords(
+        ptr: Long,
+        samples: FloatArray,
+        language: String?,
+        nThreads: Int,
+        translate: Boolean
+    ): String?
+
+    /** Decodes [transcribeWords] output into (full text, word timings). */
+    fun parseWords(
+        raw: String?
+    ): Pair<String, List<com.meetily.mobile.data.WordStamp>> {
+        if (raw.isNullOrEmpty()) return "" to emptyList()
+        val words = raw.split('\u001e').mapNotNull { entry ->
+            if (entry.isEmpty()) return@mapNotNull null
+            val sep = entry.indexOf('\u001f')
+            if (sep <= 0) return@mapNotNull null
+            val ms = entry.substring(0, sep).toLongOrNull() ?: return@mapNotNull null
+            val text = entry.substring(sep + 1).trim()
+            if (text.isEmpty()) null else com.meetily.mobile.data.WordStamp(ms, text)
+        }
+        return words.joinToString(" ") { it.text } to words
+    }
 }

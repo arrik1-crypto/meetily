@@ -169,6 +169,10 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.recordOrb).setOnClickListener {
             startActivity(Intent(this, RecordingActivity::class.java))
         }
+        findViewById<View>(R.id.recordOrb).setOnLongClickListener {
+            showRecordSourceChooser()
+            true
+        }
         importBanner = findViewById(R.id.importBanner)
         importBannerName = findViewById(R.id.importBannerName)
         importBannerPct = findViewById(R.id.importBannerPct)
@@ -191,6 +195,9 @@ class MainActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.settingsButton).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<View>(R.id.followupsButton).setOnClickListener {
+            startActivity(Intent(this, FollowUpsActivity::class.java))
         }
         findViewById<View>(R.id.askButton).setOnClickListener {
             startActivity(Intent(this, AskLibraryActivity::class.java))
@@ -246,6 +253,29 @@ class MainActivity : AppCompatActivity() {
         )
         startIdleGlow()
         refresh()
+    }
+
+    /** Long-press the orb: choose microphone or device audio (webinars). */
+    private fun showRecordSourceChooser() {
+        if (android.os.Build.VERSION.SDK_INT < 29) {
+            startActivity(Intent(this, RecordingActivity::class.java))
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.record_source_title)
+            .setItems(
+                arrayOf(
+                    getString(R.string.record_source_mic),
+                    getString(R.string.record_source_device)
+                )
+            ) { _, which ->
+                startActivity(
+                    Intent(this, RecordingActivity::class.java)
+                        .putExtra(RecordingActivity.EXTRA_DEVICE_AUDIO, which == 1)
+                )
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     private fun refresh() {

@@ -81,6 +81,10 @@ class RecordingService : Service() {
     private var whisperMode = false
     private var finishing = false
 
+    // Device-audio capture (webinars): AudioPlaybackCapture via MediaProjection.
+    private var deviceAudioMode = false
+    private var mediaProjection: android.media.projection.MediaProjection? = null
+
     private val segments = mutableListOf<TranscriptSegment>()
     private var pendingHighlight = false
 
@@ -129,7 +133,9 @@ class RecordingService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
-            ACTION_START -> startSessionIfNeeded()
+            ACTION_START -> startSessionIfNeeded(
+                intent.getBooleanExtra(EXTRA_DEVICE_AUDIO, false)
+            )
             ACTION_TOGGLE_PAUSE -> togglePause()
             ACTION_FINISH -> finishAndSave(null)
         }
@@ -160,9 +166,10 @@ class RecordingService : Service() {
 
     // --- Session lifecycle ------------------------------------------------
 
-    private fun startSessionIfNeeded() {
+    private fun startSessionIfNeeded(deviceAudio: Boolean = false) {
         if (active) return
         active = true
+        deviceAudioMode = deviceAudio && Build.VERSION.SDK_INT >= 29
         isRunning = true
         finishing = false
         meetingId = UUID.randomUUID().toString()
@@ -182,6 +189,9 @@ class RecordingService : Service() {
         startForegroundNotification()
 
         whisperMode = resolveWhisperMode()
+        // Device audio rides the Whisper pipeline; without it, fall back to
+        // the normal microphone path (the activity gates this upstream too).
+        if (deviceAudioMode && !whisperMode) deviceAudioMode = false
         if (whisperMode) {
             startWhisper()
         } else if (!SpeechRecognizer.isRecognitionAvailable(this)) {
@@ -606,13 +616,18 @@ class RecordingService : Service() {
             translate = settings.whisperTranslate && !model.englishOnly,
             audioSource = CaptureTuning.audioSourceFor(this, settings.micSource),
             preferredDevice = CaptureTuning.findPreferred(this, settings.micDevice),
+            recordFactory = if (deviceAudioMode && Build.VERSION.SDK_INT >= 29) {
+                { deviceAudioRecord() }
+            } else null,
             speakerSupplier = { activeSpeaker },
             chunkLabeler = labeler,
             frameSink = if (writer != null) {
                 { frame -> writer.write(frame) }
             } else null,
-            onSegment = { text, speaker, clusterId, audioMs ->
-                main.post { if (active) appendSegment(text, speaker, clusterId, audioMs) }
+            onSegment = { text, speaker, clusterId, audioMs, words ->
+                main.post {
+                    if (active) appendSegment(text, speaker, clusterId, audioMs, words)
+                }
             },
             onProcessingChange = { processing ->
                 main.post {
@@ -640,7 +655,8 @@ class RecordingService : Service() {
         text: String,
         speaker: String? = activeSpeaker,
         clusterId: Int? = null,
-        audioMs: Long? = null
+        audioMs: Long? = null,
+        words: List<com.meetily.mobile.data.WordStamp> = emptyList()
     ) {
         // Unknown cluster: see if its voice matches a saved profile — this is
         // how known people get named from their first sentence.
@@ -658,7 +674,9 @@ class RecordingService : Service() {
             speaker = resolved,
             highlighted = pendingHighlight,
             clusterId = clusterId,
-            audioMs = if (audioFileName != null) audioMs else null
+            audioMs = if (audioFileName != null) audioMs else null,
+            // Word timings only matter when the audio is kept for playback.
+            words = if (audioFileName != null && words.isNotEmpty()) words else null
         )
         pendingHighlight = false
         segments.add(segment)
@@ -684,6 +702,11 @@ class RecordingService : Service() {
         restoreSystemSounds()
         whisperRecorder?.destroy()
         whisperRecorder = null
+        try {
+            mediaProjection?.stop()
+        } catch (_: Exception) {
+        }
+        mediaProjection = null
         embedder?.release()
         embedder = null
         clusterer = null
@@ -748,11 +771,63 @@ class RecordingService : Service() {
     private fun startForegroundNotification() {
         val notification = buildNotification()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            startForeground(
-                NOTIF_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
-            )
+            var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            if (deviceAudioMode) {
+                type = type or ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PROJECTION
+            }
+            startForeground(NOTIF_ID, notification, type)
         } else {
             startForeground(NOTIF_ID, notification)
+        }
+    }
+
+    /**
+     * AudioRecord fed by other apps' playback (AudioPlaybackCapture). Runs on
+     * the recorder's audio thread, after the mediaProjection-typed foreground
+     * start — the ordering Android 14 enforces. VoIP apps that flag their
+     * audio as voice-communication are excluded by the OS; media/webinar
+     * playback is capturable.
+     */
+    @androidx.annotation.RequiresApi(29)
+    private fun deviceAudioRecord(): android.media.AudioRecord? {
+        val data = pendingProjectionData ?: return null
+        val code = pendingProjectionCode
+        pendingProjectionData = null
+        val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+            as android.media.projection.MediaProjectionManager
+        val projection = try {
+            manager.getMediaProjection(code, data)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        try {
+            projection.registerCallback(
+                object : android.media.projection.MediaProjection.Callback() {}, main
+            )
+        } catch (_: Exception) {
+        }
+        mediaProjection = projection
+        val config = android.media.AudioPlaybackCaptureConfiguration.Builder(projection)
+            .addMatchingUsage(android.media.AudioAttributes.USAGE_MEDIA)
+            .addMatchingUsage(android.media.AudioAttributes.USAGE_GAME)
+            .addMatchingUsage(android.media.AudioAttributes.USAGE_UNKNOWN)
+            .build()
+        return try {
+            android.media.AudioRecord.Builder()
+                .setAudioPlaybackCaptureConfig(config)
+                .setAudioFormat(
+                    android.media.AudioFormat.Builder()
+                        .setEncoding(android.media.AudioFormat.ENCODING_PCM_FLOAT)
+                        .setSampleRate(16_000)
+                        .setChannelMask(android.media.AudioFormat.CHANNEL_IN_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(16_000 * 4 * 2)
+                .build()
+        } catch (_: Exception) {
+            projection.stop()
+            mediaProjection = null
+            null
         }
     }
 
@@ -839,6 +914,7 @@ class RecordingService : Service() {
         const val ACTION_START = "com.meetily.mobile.action.START"
         const val ACTION_TOGGLE_PAUSE = "com.meetily.mobile.action.TOGGLE_PAUSE"
         const val ACTION_FINISH = "com.meetily.mobile.action.FINISH"
+        const val EXTRA_DEVICE_AUDIO = "device_audio"
 
         private const val CHANNEL_ID = "recording"
         private const val NOTIF_ID = 1001
@@ -849,16 +925,26 @@ class RecordingService : Service() {
         @Volatile
         var isRunning = false
 
-        fun start(context: Context) {
+        fun start(context: Context, deviceAudio: Boolean = false) {
             isRunning = true
             val intent = Intent(context, RecordingService::class.java)
                 .setAction(ACTION_START)
+                .putExtra(EXTRA_DEVICE_AUDIO, deviceAudio)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
                 context.startService(intent)
             }
         }
+
+        /**
+         * MediaProjection consent handoff (RecordingActivity → service). An
+         * activity-result Intent isn't parcel-safe across a service start's
+         * extras on all OEMs, so it rides here and is consumed exactly once.
+         */
+        @Volatile var pendingProjectionData: Intent? = null
+
+        @Volatile var pendingProjectionCode: Int = 0
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {

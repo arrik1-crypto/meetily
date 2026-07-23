@@ -113,10 +113,29 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         }
     }
 
+    private var deviceAudioRequested = false
+
+    private val projectionConsent = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val data = result.data
+        if (result.resultCode == RESULT_OK && data != null) {
+            RecordingService.pendingProjectionCode = result.resultCode
+            RecordingService.pendingProjectionData = data
+            RecordingService.start(this, deviceAudio = true)
+            Toast.makeText(this, R.string.device_audio_active, Toast.LENGTH_LONG).show()
+        } else {
+            Toast.makeText(this, R.string.device_audio_denied, Toast.LENGTH_LONG).show()
+            RecordingService.start(this)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_recording)
+        deviceAudioRequested =
+            intent?.getBooleanExtra(EXTRA_DEVICE_AUDIO, false) == true
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         settings = AppSettings(this)
@@ -318,7 +337,25 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG).show()
             }
         }
-        RecordingService.start(this)
+        if (deviceAudioRequested &&
+            android.os.Build.VERSION.SDK_INT >= 29 &&
+            whisperReadyForDeviceAudio()
+        ) {
+            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+                as android.media.projection.MediaProjectionManager
+            try {
+                projectionConsent.launch(manager.createScreenCaptureIntent())
+            } catch (_: Exception) {
+                RecordingService.start(this)
+            }
+        } else {
+            if (deviceAudioRequested) {
+                Toast.makeText(
+                    this, R.string.device_audio_needs_whisper, Toast.LENGTH_LONG
+                ).show()
+            }
+            RecordingService.start(this)
+        }
         rebuildSpeakerChips()
         startTimer()
 
@@ -703,7 +740,15 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         super.onDestroy()
     }
 
+    private fun whisperReadyForDeviceAudio(): Boolean {
+        if (settings.transcriptionEngine != "whisper") return false
+        val model = WhisperModels.byKey(settings.whisperModel)
+        return WhisperModels.isDownloaded(this, model) &&
+            WhisperModels.isRuntimeAvailable()
+    }
+
     companion object {
+        const val EXTRA_DEVICE_AUDIO = "device_audio"
         private const val PERMISSION_REQUEST = 4001
         private const val CALENDAR_REQUEST = 4002
         private const val NOTIF_REQUEST = 4003

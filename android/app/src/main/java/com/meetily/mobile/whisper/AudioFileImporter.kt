@@ -164,18 +164,22 @@ class AudioFileImporter(
             } else {
                 audio
             }
-            val text = WhisperBridge.transcribe(contextPtr, padded, language, nThreads, translate)
-                ?.trim()
-                .orEmpty()
+            val raw = WhisperBridge.transcribeWords(
+                contextPtr, padded, language, nThreads, translate
+            )
+            val (text, words) = WhisperBridge.parseWords(raw)
             if (text.isBlank() || isNoise(text)) return
             meeting.segments.add(
                 TranscriptSegment(
                     timestampMs = baseMs + startSample * 1000 / sampleRate,
-                    text = text,
+                    text = text.trim(),
                     speaker = null,
                     clusterId = clusterId,
                     audioMs = if (meeting.audioFile != null) {
                         startSample * 1000 / sampleRate
+                    } else null,
+                    words = if (meeting.audioFile != null && words.isNotEmpty()) {
+                        words
                     } else null
                 )
             )

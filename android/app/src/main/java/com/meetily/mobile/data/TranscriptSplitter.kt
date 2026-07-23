@@ -43,7 +43,8 @@ object TranscriptSplitter {
             start + (span?.let { (it * fraction).toLong() } ?: estimate)
         }
 
-        return segment.copy(text = first) to TranscriptSegment(
+        // Word timings can't be split reliably; drop them on both halves.
+        return segment.copy(text = first, words = null) to TranscriptSegment(
             timestampMs = secondTs,
             text = second,
             speaker = null,
