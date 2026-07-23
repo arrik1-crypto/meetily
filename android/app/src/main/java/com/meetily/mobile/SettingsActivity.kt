@@ -771,15 +771,29 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    /** Records up to 15 s of speech and saves it as [name]'s voiceprint. */
+    /**
+     * Voiceprint capture with an explicit start: the dialog shows the
+     * read-aloud script first, the mic goes hot only when "Start voiceprint
+     * recording" is tapped, and a countdown bar drains over the 15-second
+     * window so it's obvious when recording is live and how long remains.
+     */
     private fun recordEnrollment(name: String) {
         val dModel = DiarizationModels.byKey(settings.diarizationModel)
         val modelPath = DiarizationModels.fileFor(this, dModel).absolutePath
+        val started = java.util.concurrent.atomic.AtomicBoolean(false)
         val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
+        val discarded = java.util.concurrent.atomic.AtomicBoolean(false)
         // A fixed read-aloud script beats improvised speech for voiceprints:
         // continuous, phonetically varied audio with no dead air.
         val density = resources.displayMetrics.density
         val pad = (20 * density).toInt()
+        val countdown = com.google.android.material.progressindicator
+            .LinearProgressIndicator(this).apply {
+                max = 100
+                progress = 100
+                trackCornerRadius = (2 * density).toInt()
+                visibility = View.GONE
+            }
         val content = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(pad, (8 * density).toInt(), pad, 0)
@@ -816,14 +830,60 @@ class SettingsActivity : AppCompatActivity() {
                     script.layoutParams = lp
                 }
             )
+            addView(
+                countdown,
+                android.widget.LinearLayout.LayoutParams(
+                    android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                    android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = (14 * density).toInt() }
+            )
         }
+        // Null click listeners: the real handlers are attached after show()
+        // so the buttons don't auto-dismiss the dialog.
         val dialog = AlertDialog.Builder(this)
             .setTitle(getString(R.string.enroll_title, name))
             .setView(content)
             .setCancelable(false)
-            .setPositiveButton(R.string.enroll_stop) { _, _ -> stopped.set(true) }
+            .setPositiveButton(R.string.enroll_start, null)
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
+        val actionButton = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener {
+            discarded.set(true)
+            stopped.set(true)
+            // Not yet recording: nothing will dismiss the dialog for us.
+            if (!started.get()) dialog.dismiss()
+        }
+        val ticker = android.os.Handler(mainLooper)
+        actionButton.setOnClickListener {
+            if (!started.compareAndSet(false, true)) {
+                stopped.set(true) // second tap = "Done"
+                return@setOnClickListener
+            }
+            actionButton.text = getString(R.string.enroll_stop)
+            countdown.visibility = View.VISIBLE
+            val startedAt = android.os.SystemClock.elapsedRealtime()
+            ticker.post(object : Runnable {
+                override fun run() {
+                    if (stopped.get() || isFinishing || isDestroyed) return
+                    val elapsed =
+                        android.os.SystemClock.elapsedRealtime() - startedAt
+                    countdown.progress =
+                        (100 - elapsed * 100 / ENROLL_MS).toInt().coerceIn(0, 100)
+                    if (elapsed < ENROLL_MS) ticker.postDelayed(this, 150)
+                }
+            })
+            startEnrollmentCapture(name, modelPath, stopped, discarded, dialog)
+        }
+    }
 
+    private fun startEnrollmentCapture(
+        name: String,
+        modelPath: String,
+        stopped: java.util.concurrent.atomic.AtomicBoolean,
+        discarded: java.util.concurrent.atomic.AtomicBoolean,
+        dialog: AlertDialog
+    ) {
         Thread {
             var saved = false
             try {
@@ -842,7 +902,7 @@ class SettingsActivity : AppCompatActivity() {
                 )
                 if (record.state == android.media.AudioRecord.STATE_INITIALIZED) {
                     record.startRecording()
-                    val audio = FloatArray(sampleRate * 15)
+                    val audio = FloatArray((sampleRate * ENROLL_MS / 1000L).toInt())
                     val frame = FloatArray(sampleRate / 10)
                     var filled = 0
                     while (!stopped.get() && filled < audio.size) {
@@ -857,7 +917,8 @@ class SettingsActivity : AppCompatActivity() {
                     }
                     record.stop()
                     record.release()
-                    if (filled >= sampleRate * 3) { // at least 3 s of speech
+                    // Cancelled recordings are discarded, never embedded.
+                    if (!discarded.get() && filled >= sampleRate * 3) {
                         val embedder = com.meetily.mobile.whisper.SherpaEmbedder
                             .create(modelPath)
                         if (embedder != null) {
@@ -881,14 +942,19 @@ class SettingsActivity : AppCompatActivity() {
                 } catch (_: Exception) {
                 }
                 updateVoicesStatus()
-                Toast.makeText(
-                    this,
-                    if (saved) getString(R.string.voice_saved, name)
-                    else getString(R.string.enroll_failed),
-                    Toast.LENGTH_LONG
-                ).show()
+                if (!discarded.get()) {
+                    Toast.makeText(
+                        this,
+                        if (saved) getString(R.string.voice_saved, name)
+                        else getString(R.string.enroll_failed),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
-        }.start()
+        }.apply {
+            this.name = "voice-enroll"
+            start()
+        }
     }
 
     // --- Whisper capture tuning -------------------------------------------
@@ -1016,5 +1082,10 @@ class SettingsActivity : AppCompatActivity() {
         )
         // Immediate visual feedback; service callbacks take over from here.
         downloadObserver.onDownloadProgress(kind, key, 0)
+    }
+
+    companion object {
+        /** Voiceprint capture window; the countdown bar drains over this. */
+        private const val ENROLL_MS = 15_000L
     }
 }

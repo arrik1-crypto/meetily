@@ -273,6 +273,7 @@
     <string name="enroll_instructions">Speak naturally for 10–15 seconds — normal sentences, normal volume, the phone at a comfortable distance. Recording stops automatically.</string>
     <string name="enroll_read_hint">Read this in your normal speaking voice — no need to rush or finish it:</string>
     <string name="enroll_script">“Hi, this is my voice. I\'m recording a short sample so Recap can learn how I sound. Each week we join the call, say our goals out loud, review the numbers, and agree on next steps. Good questions and a moment to think usually help — so does coffee.”</string>
+    <string name="enroll_start">Start voiceprint recording</string>
     <string name="enroll_stop">Done</string>
     <string name="enroll_failed">Couldn\'t save that voiceprint — try again with at least a few seconds of clear speech.</string>
     <string name="enroll_needs_mic">Microphone access hasn\'t been granted yet — record one meeting first.</string>
