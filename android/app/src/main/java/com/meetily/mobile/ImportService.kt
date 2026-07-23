@@ -47,18 +47,21 @@ class ImportService : Service() {
         val service: ImportService get() = this@ImportService
     }
 
-    var observer: Observer? = null
-        set(value) {
-            field = value
-            // Late binders catch up immediately.
-            if (value != null) {
-                if (done) {
-                    value.onImportDone(resultMeetingId, cancelled, resultError, resultWarning)
-                } else {
-                    value.onImportProgress(percent)
-                }
-            }
+    private val observers = java.util.concurrent.CopyOnWriteArraySet<Observer>()
+
+    /** Registers [observer]; late binders catch up immediately. */
+    fun addObserver(observer: Observer) {
+        observers.add(observer)
+        if (done) {
+            observer.onImportDone(resultMeetingId, cancelled, resultError, resultWarning)
+        } else {
+            observer.onImportProgress(percent)
         }
+    }
+
+    fun removeObserver(observer: Observer) {
+        observers.remove(observer)
+    }
 
     var sourceName: String = ""
         private set
@@ -122,7 +125,7 @@ class ImportService : Service() {
                         percent = p
                         main.post {
                             if (isRunning) {
-                                observer?.onImportProgress(p)
+                                observers.forEach { it.onImportProgress(p) }
                                 updateNotification(p)
                             }
                         }
@@ -159,7 +162,7 @@ class ImportService : Service() {
         } catch (_: Exception) {
         }
         wakeLock = null
-        observer?.onImportDone(meetingId, cancelled, error, warning)
+        observers.forEach { it.onImportDone(meetingId, cancelled, error, warning) }
         stopForegroundCompat()
         postCompletionNotification(meetingId, error, warning)
         isRunning = false

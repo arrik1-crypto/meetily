@@ -1,8 +1,12 @@
 package com.meetily.mobile
 
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.res.Configuration
 import android.os.Bundle
+import android.os.IBinder
 import androidx.activity.result.contract.ActivityResultContracts
 import android.text.Editable
 import android.text.TextWatcher
@@ -39,6 +43,81 @@ class MainActivity : AppCompatActivity() {
     private lateinit var filterChipsScroll: View
 
     private var appliedAccent: String = ""
+
+    // --- Import progress banner (mirrors ImportService state) ---------------
+
+    private lateinit var importBanner: View
+    private lateinit var importBannerName: TextView
+    private lateinit var importBannerPct: TextView
+    private lateinit var importBannerBar:
+        com.google.android.material.progressindicator.LinearProgressIndicator
+    private var importService: ImportService? = null
+    private var importBound = false
+
+    private val importObserver = object : ImportService.Observer {
+        override fun onImportProgress(percent: Int) {
+            if (isFinishing || isDestroyed) return
+            importBanner.visibility = View.VISIBLE
+            importBannerName.text = getString(
+                R.string.import_notif_title,
+                importService?.sourceName?.ifBlank { null }
+                    ?: getString(R.string.import_title)
+            )
+            importBannerBar.isIndeterminate = percent == 0
+            importBannerBar.progress = percent
+            importBannerPct.text = getString(R.string.percent_fmt, percent)
+        }
+
+        override fun onImportDone(
+            meetingId: String?,
+            wasCancelled: Boolean,
+            error: String?,
+            warning: String?
+        ) {
+            if (isFinishing || isDestroyed) return
+            importBanner.visibility = View.GONE
+            refresh() // the imported meeting (or its final state) shows up
+        }
+    }
+
+    private val importConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val svc = (binder as? ImportService.ImportBinder)?.service ?: return
+            importService = svc
+            svc.addObserver(importObserver)
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            importService = null
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (ImportService.isRunning) {
+            bindService(
+                Intent(this, ImportService::class.java),
+                importConnection,
+                Context.BIND_AUTO_CREATE
+            )
+            importBound = true
+        } else {
+            importBanner.visibility = View.GONE
+        }
+    }
+
+    override fun onStop() {
+        importService?.removeObserver(importObserver)
+        if (importBound) {
+            try {
+                unbindService(importConnection)
+            } catch (_: Exception) {
+            }
+            importBound = false
+        }
+        importService = null
+        super.onStop()
+    }
 
     private val pickAudio =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -90,7 +169,20 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.recordOrb).setOnClickListener {
             startActivity(Intent(this, RecordingActivity::class.java))
         }
+        importBanner = findViewById(R.id.importBanner)
+        importBannerName = findViewById(R.id.importBannerName)
+        importBannerPct = findViewById(R.id.importBannerPct)
+        importBannerBar = findViewById(R.id.importBannerBar)
+        importBanner.setOnClickListener {
+            startActivity(Intent(this, ImportActivity::class.java))
+        }
         findViewById<View>(R.id.importButton).setOnClickListener {
+            if (ImportService.isRunning) {
+                // An import is in flight — show its progress screen instead
+                // of the picker (one import runs at a time).
+                startActivity(Intent(this, ImportActivity::class.java))
+                return@setOnClickListener
+            }
             try {
                 pickAudio.launch("audio/*")
             } catch (_: Exception) {

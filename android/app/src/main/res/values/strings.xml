@@ -86,6 +86,7 @@
     <string name="download_failed_notif">%1$s model download failed</string>
     <string name="download_busy">A model download is already running.</string>
     <string name="download_status_running">Downloading… %1$d%%</string>
+    <string name="percent_fmt">%1$d%%</string>
     <string name="import_needs_whisper">Importing needs the on-device Whisper engine — download a Whisper model in Settings first.</string>
     <string name="import_wait_recording">Finish the current recording before importing a file.</string>
     <string name="import_cancelled_partial">Import stopped — the partial transcript was kept.</string>

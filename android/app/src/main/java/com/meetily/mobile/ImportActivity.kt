@@ -80,7 +80,7 @@ class ImportActivity : AppCompatActivity() {
             if (svc.sourceName.isNotBlank()) {
                 fileNameView.text = svc.sourceName
             }
-            svc.observer = observer
+            svc.addObserver(observer)
         }
 
         override fun onServiceDisconnected(name: ComponentName?) {
@@ -200,7 +200,7 @@ class ImportActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        service?.let { if (it.observer === observer) it.observer = null }
+        service?.removeObserver(observer)
         if (bound) {
             try {
                 unbindService(connection)
