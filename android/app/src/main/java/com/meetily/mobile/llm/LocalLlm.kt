@@ -34,6 +34,10 @@ object LocalLlm {
             "action items with their owners, key facts and numbers, and what " +
             "was discussed. No preamble, no commentary."
 
+    /** (sectionsDone, sectionsTotal) during a map-reduce condense pass. */
+    @Volatile
+    var stageListener: ((Int, Int) -> Unit)? = null
+
     private var appContext: Context? = null
     private var ptr = 0L
     private var loadedKey: String? = null
@@ -52,7 +56,7 @@ object LocalLlm {
      * Runs one chat completion on-device. [messages] is the same
      * OpenAI-shaped array LlmClient builds: [{role, content}, …].
      */
-    fun chat(messages: JSONArray): String {
+    fun chat(messages: JSONArray, allowMapReduce: Boolean = true): String {
         val context = appContext
             ?: throw IllegalStateException("On-device AI is not initialized")
         if (!LocalLlmModels.isRuntimeAvailable()) {
@@ -76,7 +80,9 @@ object LocalLlm {
             // same model, then answer over the ordered notes — full coverage
             // instead of a missing middle.
             val longest = pairs.indices.maxByOrNull { pairs[it].second.length }
-            if (longest != null && needsMapReduce(pairs[longest].second.length)) {
+            if (allowMapReduce && longest != null &&
+                needsMapReduce(pairs[longest].second.length)
+            ) {
                 condense(pairs[longest].second)?.let { condensed ->
                     pairs = pairs.toMutableList().also {
                         it[longest] = it[longest].first to condensed
@@ -111,6 +117,7 @@ object LocalLlm {
         )
         var produced = 0
         for ((index, chunk) in chunks.withIndex()) {
+            stageListener?.invoke(index + 1, chunks.size)
             // The chunk cap can force chunks past the budget; trim those.
             val body = if (chunk.length > CHAR_BUDGET - 600) {
                 budgetMessages(listOf("user" to chunk), CHAR_BUDGET - 600)[0].second

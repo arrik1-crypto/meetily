@@ -89,6 +89,89 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var askRow: View
     private lateinit var askDisabledHint: View
 
+    // --- Summary generation (owned by SummaryService) -----------------------
+
+    private var summaryService: SummaryService? = null
+    private var summaryBound = false
+
+    private val summaryObserver = object : SummaryService.Observer {
+        override fun onSummaryStage(stage: String) {
+            if (isFinishing || isDestroyed) return
+            showSummarizingUi()
+            summaryView.text = stage
+        }
+
+        override fun onSummaryDone(meetingId: String) {
+            if (isFinishing || isDestroyed) return
+            if (meetingId == meeting?.id) refreshSummaryFromStore(reveal = true)
+        }
+    }
+
+    private val summaryConnection = object : android.content.ServiceConnection {
+        override fun onServiceConnected(
+            name: android.content.ComponentName?,
+            binder: android.os.IBinder?
+        ) {
+            val svc = (binder as? SummaryService.SummaryBinder)?.service ?: return
+            summaryService = svc
+            svc.observer = summaryObserver
+        }
+
+        override fun onServiceDisconnected(name: android.content.ComponentName?) {
+            summaryService = null
+        }
+    }
+
+    private fun bindSummaryService() {
+        if (summaryBound) return
+        bindService(
+            Intent(this, SummaryService::class.java),
+            summaryConnection,
+            android.content.Context.BIND_AUTO_CREATE
+        )
+        summaryBound = true
+    }
+
+    override fun onStart() {
+        super.onStart()
+        val m = meeting ?: return
+        if (SummaryService.isRunning && SummaryService.currentMeetingId == m.id) {
+            // Coming back (or rotating) mid-generation: restore progress UI
+            // and reattach to the run.
+            showSummarizingUi()
+            bindSummaryService()
+        } else {
+            // A generation may have finished while this screen was away.
+            refreshSummaryFromStore(reveal = false)
+        }
+    }
+
+    override fun onStop() {
+        summaryService?.let { if (it.observer === summaryObserver) it.observer = null }
+        if (summaryBound) {
+            try {
+                unbindService(summaryConnection)
+            } catch (_: Exception) {
+            }
+            summaryBound = false
+        }
+        summaryService = null
+        super.onStop()
+    }
+
+    /** Pulls summary + action items saved by SummaryService into this screen. */
+    private fun refreshSummaryFromStore(reveal: Boolean) {
+        val m = meeting ?: return
+        val saved = store.load(m.id) ?: return
+        if (saved.summary == m.summary && saved.actionItems == m.actionItems) return
+        m.summary = saved.summary
+        m.actionItems = saved.actionItems
+        progress.visibility = View.GONE
+        renderSummary(m.summary)
+        renderActionItems(m)
+        if (reveal) revealSummarySections()
+    }
+
     private var suggestDialog: AlertDialog? = null
     private var pendingPhotoFile: File? = null
     private val takePicture =
@@ -1051,59 +1134,22 @@ class MeetingDetailActivity : AppCompatActivity() {
             return
         }
 
+        if (SummaryService.isRunning) {
+            Toast.makeText(this, R.string.summary_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        showSummarizingUi()
+        // Generation lives in SummaryService: it survives rotation and
+        // navigation, saves the result itself, and this screen just observes.
+        SummaryService.start(this, m.id, template.key)
+        bindSummaryService()
+    }
+
+    private fun showSummarizingUi() {
         aiPanel.visibility = View.GONE
         progress.visibility = View.VISIBLE
         summaryView.visibility = View.VISIBLE
         summaryView.text = getString(R.string.summarizing)
-
-        val useLlm = settings.useLlm && settings.llmConfigured
-        val baseUrl = settings.llmBaseUrl
-        val apiKey = settings.llmApiKey
-        val model = settings.llmModel
-        val localOnly = settings.localOnlyLlm
-        val rawTranscript = m.transcriptText()
-        val speakerTranscript = m.transcriptTextWithSpeakers()
-        val notes = m.notes + photoTextBlock(m)
-        val attendees = m.attendees.toList()
-        val highlights = m.highlightedTexts()
-        val segmentsSnapshot = m.segments.toList()
-
-        Thread {
-            var parsedItems: List<ActionItem>? = null
-            val result = try {
-                if (useLlm) {
-                    val raw = LlmClient.summarize(
-                        baseUrl, apiKey, model, localOnly, speakerTranscript, notes,
-                        attendees, highlights, template
-                    )
-                    val (clean, items) = ActionItems.splitLlmOutput(raw)
-                    parsedItems = items
-                    clean
-                } else {
-                    ExtractiveSummarizer.summarize(
-                        rawTranscript, notes, highlights, template.extractiveActionsOnly
-                    )
-                }
-            } catch (e: Exception) {
-                val fallback = ExtractiveSummarizer.summarize(
-                    rawTranscript, notes, highlights, template.extractiveActionsOnly
-                )
-                getString(R.string.llm_failed_fallback, e.message ?: "unknown error") +
-                    "\n\n" + fallback
-            }
-            val finalItems = parsedItems
-                ?: ActionItems.fromMeetingContent(segmentsSnapshot, notes)
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                progress.visibility = View.GONE
-                summaryView.text = result
-                m.summary = result
-                m.actionItems = finalItems.toMutableList()
-                renderActionItems(m)
-                store.save(m)
-                revealSummarySections()
-            }
-        }.start()
     }
 
     private fun shareMeeting() {

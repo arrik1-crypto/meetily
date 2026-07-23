@@ -130,7 +130,7 @@ object LlmClient {
             .put(JSONObject().put("role", "system").put("content", systemPrompt))
             .put(JSONObject().put("role", "user").put("content", transcript))
 
-        val response = chat(baseUrl, apiKey, model, messages, localOnly)
+        val response = chat(baseUrl, apiKey, model, messages, localOnly, allowMapReduce = false)
         // Anchor on "[{" so prose brackets ("[high-confidence]") can't hijack
         // the extraction; fall back to the first '[' for a bare "[]" answer.
         val start = response.indexOf("[{").takeIf { it >= 0 } ?: response.indexOf('[')
@@ -185,7 +185,7 @@ object LlmClient {
             .put(JSONObject().put("role", "system").put("content", systemPrompt))
             .put(JSONObject().put("role", "user").put("content", transcript))
 
-        val response = chat(baseUrl, apiKey, model, messages, localOnly)
+        val response = chat(baseUrl, apiKey, model, messages, localOnly, allowMapReduce = false)
         val start = response.indexOf("[{").takeIf { it >= 0 } ?: response.indexOf('[')
         val end = response.lastIndexOf(']')
         if (start < 0 || end <= start) return emptyList()
@@ -320,11 +320,12 @@ object LlmClient {
         apiKey: String,
         model: String,
         messages: JSONArray,
-        localOnly: Boolean
+        localOnly: Boolean,
+        allowMapReduce: Boolean = true
     ): String {
         // On-device engine: no endpoint, no socket — straight to llama.cpp.
         if (com.meetily.mobile.llm.LocalLlm.isSelected()) {
-            return com.meetily.mobile.llm.LocalLlm.chat(messages)
+            return com.meetily.mobile.llm.LocalLlm.chat(messages, allowMapReduce)
         }
         EndpointGuard.check(baseUrl, localOnly)
         val endpoint = baseUrl.trimEnd('/') + "/chat/completions"

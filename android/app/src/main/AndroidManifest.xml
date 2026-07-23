@@ -132,6 +132,11 @@
             android:foregroundServiceType="dataSync" />
 
         <service
+            android:name=".SummaryService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".RecordTileService"
             android:exported="true"
             android:icon="@drawable/ic_mic"

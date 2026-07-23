@@ -96,6 +96,12 @@
     <string name="topics_redetect">↻ Detect again</string>
     <string name="topics_remove">✕ Remove topic markers</string>
 
+    <string name="summary_channel_name">Summaries</string>
+    <string name="summary_notif_title">Generating summary</string>
+    <string name="summary_done_notif">Summary ready — tap to open</string>
+    <string name="summary_stage_condense">Reading the transcript… section %1$d of %2$d</string>
+    <string name="summary_busy">A summary is already being generated.</string>
+
     <string name="engine_endpoint">Private endpoint</string>
     <string name="engine_local">On-device</string>
     <string name="engine_local_desc">Runs a small language model entirely on this phone — no endpoint, no network, ever. Expect slower answers than a server, and give long meetings a minute: the model reads the transcript before it writes. Larger models answer better and slower.</string>
