@@ -15,7 +15,6 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
-import com.meetily.mobile.whisper.WhisperModels
 
 /**
  * Thin observer over ImportService: starts an import for a shared or picked
@@ -123,8 +122,9 @@ class ImportActivity : AppCompatActivity() {
         }
 
         val settings = AppSettings(this)
-        val downloaded = WhisperModels.ALL.filter { WhisperModels.isDownloaded(this, it) }
-        val whisperReady = WhisperModels.isRuntimeAvailable() && downloaded.isNotEmpty()
+        val downloaded =
+            com.meetily.mobile.whisper.TranscriptionModels.downloadedKeys(this)
+        val whisperReady = downloaded.isNotEmpty()
         if (!whisperReady) {
             Toast.makeText(this, R.string.import_needs_whisper, Toast.LENGTH_LONG).show()
             startActivity(Intent(this, SettingsActivity::class.java))
@@ -152,24 +152,26 @@ class ImportActivity : AppCompatActivity() {
         // should transcribe THIS file (heavier models suit imports better
         // than live capture, so the per-run choice matters here).
         if (downloaded.size == 1) {
-            startImport(uri, name, downloaded.first().key)
+            startImport(uri, name, downloaded.first())
         } else {
             val preselect = downloaded
-                .indexOfFirst { it.key == settings.whisperModel }
+                .indexOf(settings.whisperModel)
                 .coerceAtLeast(0)
             var chosen = preselect
             androidx.appcompat.app.AlertDialog.Builder(this)
                 .setTitle(R.string.import_choose_model)
                 .setSingleChoiceItems(
-                    downloaded.map { model ->
+                    downloaded.map { key ->
                         getString(
-                            R.string.import_model_label, model.displayName, model.sizeMb
+                            R.string.import_model_label,
+                            com.meetily.mobile.whisper.TranscriptionModels.displayName(key),
+                            com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key)
                         )
                     }.toTypedArray(),
                     preselect
                 ) { _, which -> chosen = which }
                 .setPositiveButton(R.string.import_transcribe_go) { _, _ ->
-                    startImport(uri, name, downloaded[chosen].key)
+                    startImport(uri, name, downloaded[chosen])
                 }
                 .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
                 .setOnCancelListener { finish() }

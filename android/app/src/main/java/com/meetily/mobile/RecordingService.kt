@@ -203,10 +203,10 @@ class RecordingService : Service() {
 
     private fun resolveWhisperMode(): Boolean {
         if (settings.transcriptionEngine != "whisper") return false
-        val model = WhisperModels.byKey(settings.whisperModel)
-        if (!WhisperModels.isDownloaded(this, model)) return false
-        if (!WhisperModels.isRuntimeAvailable()) return false
-        return true
+        // "whisper" engine setting covers all on-device models — whisper.cpp
+        // ggml files and sherpa-onnx NeMo models alike.
+        return com.meetily.mobile.whisper.TranscriptionModels
+            .isReady(this, settings.whisperModel)
     }
 
     fun togglePause() {
@@ -573,6 +573,16 @@ class RecordingService : Service() {
     private fun startWhisper() {
         if (whisperRecorder != null) return
         val model = WhisperModels.byKey(settings.whisperModel)
+        // NeMo path (Parakeet/Nemotron): loaded up front; null means "treat
+        // as whisper" so a broken download degrades to the default model.
+        val nemoModel = com.meetily.mobile.whisper.NemoModels
+            .byKeyOrNull(settings.whisperModel)
+        val nemoEngine = nemoModel?.let {
+            com.meetily.mobile.whisper.NemoEngine.create(
+                this, it, Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+            )
+        }
+        val englishOnly = nemoModel?.englishOnly ?: model.englishOnly
 
         // Optional acoustic diarization: only when enabled, the model is
         // downloaded, and the native stack loads. Failure of any piece
@@ -611,10 +621,18 @@ class RecordingService : Service() {
         val writer = audioWriter
 
         whisperRecorder = WhisperRecorder(
-            modelPath = WhisperModels.fileFor(this, model).absolutePath,
-            language = if (model.englishOnly) "en" else "auto",
-            translate = settings.whisperTranslate && !model.englishOnly,
-            vocabPrompt = com.meetily.mobile.whisper.Vocab.promptFor(settings.customVocab),
+            modelPath = if (nemoEngine != null) "" else {
+                WhisperModels.fileFor(this, model).absolutePath
+            },
+            language = if (englishOnly) "en" else "auto",
+            // Translate + vocab prompts are whisper features; NeMo models
+            // transcribe in the spoken language and ignore both.
+            translate = nemoEngine == null &&
+                settings.whisperTranslate && !englishOnly,
+            vocabPrompt = if (nemoEngine != null) null else {
+                com.meetily.mobile.whisper.Vocab.promptFor(settings.customVocab)
+            },
+            nemoEngine = nemoEngine,
             audioSource = CaptureTuning.audioSourceFor(this, settings.micSource),
             preferredDevice = CaptureTuning.findPreferred(this, settings.micDevice),
             recordFactory = if (deviceAudioMode && Build.VERSION.SDK_INT >= 29) {

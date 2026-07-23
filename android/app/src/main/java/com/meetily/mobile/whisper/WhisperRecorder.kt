@@ -24,6 +24,9 @@ class WhisperRecorder(
     private val translate: Boolean = false,
     /** Custom-vocabulary glossary (see Vocab.promptFor); null = none. */
     private val vocabPrompt: String? = null,
+    /** NeMo engine (Parakeet/Nemotron); when set, whisper is not loaded and
+     *  chunks go through sherpa-onnx instead. */
+    private val nemoEngine: NemoEngine? = null,
     // Capture tuning (see CaptureTuning): how firmware pre-processes the mic
     // signal, and which physical input to prefer (null = system routing).
     private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -71,16 +74,18 @@ class WhisperRecorder(
         if (running) return
         running = true
         audioThread = Thread {
-            if (!WhisperBridge.load()) {
-                onError("Whisper runtime unavailable on this device")
-                running = false
-                return@Thread
-            }
-            contextPtr = WhisperBridge.initContext(modelPath)
-            if (contextPtr == 0L) {
-                onError("Could not load the Whisper model")
-                running = false
-                return@Thread
+            if (nemoEngine == null) {
+                if (!WhisperBridge.load()) {
+                    onError("Whisper runtime unavailable on this device")
+                    running = false
+                    return@Thread
+                }
+                contextPtr = WhisperBridge.initContext(modelPath)
+                if (contextPtr == 0L) {
+                    onError("Could not load the Whisper model")
+                    running = false
+                    return@Thread
+                }
             }
 
             val minBuffer = AudioRecord.getMinBufferSize(
@@ -189,12 +194,22 @@ class WhisperRecorder(
                 } catch (_: Throwable) {
                     null
                 }
-                val ptr = contextPtr
-                if (ptr != 0L) {
-                    val raw = WhisperBridge.transcribeWords(
-                        ptr, padded, language, nThreads, translate, vocabPrompt
-                    )
-                    val (text, words) = WhisperBridge.parseWords(raw)
+                val decoded = if (nemoEngine != null) {
+                    nemoEngine.transcribe(padded)
+                } else {
+                    val ptr = contextPtr
+                    if (ptr != 0L) {
+                        WhisperBridge.parseWords(
+                            WhisperBridge.transcribeWords(
+                                ptr, padded, language, nThreads, translate, vocabPrompt
+                            )
+                        )
+                    } else {
+                        null
+                    }
+                }
+                if (decoded != null) {
+                    val (text, words) = decoded
                     if (text.isNotBlank() && !isNoise(text)) {
                         onSegment(text.trim(), speaker, clusterId, audioMs, words)
                     }
@@ -241,6 +256,7 @@ class WhisperRecorder(
                     val ptr = contextPtr
                     contextPtr = 0L
                     if (ptr != 0L) WhisperBridge.freeContext(ptr)
+                    nemoEngine?.release()
                 }
             }
             transcriber.shutdown()
@@ -254,6 +270,7 @@ class WhisperRecorder(
             val ptr = contextPtr
             contextPtr = 0L
             if (ptr != 0L) WhisperBridge.freeContext(ptr)
+            nemoEngine?.release()
         }
         transcriber.shutdown()
     }

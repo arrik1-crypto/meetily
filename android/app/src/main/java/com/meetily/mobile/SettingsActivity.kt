@@ -106,12 +106,12 @@ class SettingsActivity : AppCompatActivity() {
                 diarizeModelStatus.text =
                     getString(R.string.model_downloading, model.displayName, percent)
             } else {
-                val model = WhisperModels.byKey(key)
+                val name = com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
                 modelProgress.visibility = View.VISIBLE
                 modelProgress.isIndeterminate = percent == 0
                 modelProgress.progress = percent
                 whisperModelStatus.text =
-                    getString(R.string.model_downloading, model.displayName, percent)
+                    getString(R.string.model_downloading, name, percent)
             }
         }
 
@@ -200,6 +200,7 @@ class SettingsActivity : AppCompatActivity() {
         if (!ModelDownloadService.isRunning) {
             // Never sweep .part files while the download service is mid-write.
             WhisperModels.cleanPartials(this)
+            com.meetily.mobile.whisper.NemoModels.cleanPartials(this)
             DiarizationModels.cleanPartials(this)
             LocalLlmModels.cleanPartials(this)
         }
@@ -637,12 +638,14 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateWhisperSection() {
         whisperSection.visibility = if (whisperSwitch.isChecked) View.VISIBLE else View.GONE
-        val model = WhisperModels.byKey(settings.whisperModel)
-        whisperModelStatus.text = if (WhisperModels.isDownloaded(this, model)) {
-            getString(R.string.model_status_downloaded, model.displayName)
-        } else {
-            getString(R.string.model_status_missing, model.displayName)
-        }
+        val key = settings.whisperModel
+        val name = com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
+        whisperModelStatus.text =
+            if (com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
+                getString(R.string.model_status_downloaded, name)
+            } else {
+                getString(R.string.model_status_missing, name)
+            }
         updateDiarizeSection()
     }
 
@@ -658,29 +661,36 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun showModelDialog() {
         if (downloading) return
-        val labels = WhisperModels.ALL.map { model ->
-            val state = if (WhisperModels.isDownloaded(this, model)) {
-                getString(R.string.model_downloaded_label)
-            } else {
-                getString(R.string.model_tap_download)
-            }
-            "${model.displayName} · ${model.sizeMb} MB · $state"
+        // Whisper family first, then the NVIDIA NeMo models (Parakeet /
+        // Nemotron) served through sherpa-onnx — one list, one selection.
+        val keys = com.meetily.mobile.whisper.TranscriptionModels.allKeys()
+        val labels = keys.map { key ->
+            val state =
+                if (com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
+                    getString(R.string.model_downloaded_label)
+                } else {
+                    getString(R.string.model_tap_download)
+                }
+            com.meetily.mobile.whisper.TranscriptionModels.displayName(key) +
+                " · " + com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key) +
+                " MB · " + state
         } + getString(R.string.model_delete_all)
 
         AlertDialog.Builder(this)
             .setTitle(R.string.manage_models)
             .setItems(labels.toTypedArray()) { _, which ->
-                if (which >= WhisperModels.ALL.size) {
+                if (which >= keys.size) {
                     WhisperModels.deleteAll(this)
+                    com.meetily.mobile.whisper.NemoModels.deleteAll(this)
                     updateWhisperSection()
                     return@setItems
                 }
-                val model = WhisperModels.ALL[which]
-                settings.whisperModel = model.key
-                if (WhisperModels.isDownloaded(this, model)) {
+                val key = keys[which]
+                settings.whisperModel = key
+                if (com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
                     updateWhisperSection()
                 } else {
-                    startDownload(model.key)
+                    startDownload(key)
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)

@@ -37,7 +37,6 @@ import com.meetily.mobile.data.CalendarHelper
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.TranscriptSegment
-import com.meetily.mobile.whisper.WhisperModels
 import java.io.File
 import java.text.DateFormat
 import java.util.Date
@@ -331,10 +330,12 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             it.updateNotes(notesInput.text.toString())
         }
         if (settings.transcriptionEngine == "whisper") {
-            val model = WhisperModels.byKey(settings.whisperModel)
-            if (!WhisperModels.isDownloaded(this, model)) {
+            val key = settings.whisperModel
+            if (!com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
                 Toast.makeText(this, R.string.whisper_model_missing, Toast.LENGTH_LONG).show()
-            } else if (!WhisperModels.isRuntimeAvailable()) {
+            } else if (
+                !com.meetily.mobile.whisper.TranscriptionModels.isRuntimeAvailable(key)
+            ) {
                 Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG).show()
             }
         }
@@ -810,9 +811,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private fun whisperReadyForDeviceAudio(): Boolean {
         if (settings.transcriptionEngine != "whisper") return false
-        val model = WhisperModels.byKey(settings.whisperModel)
-        return WhisperModels.isDownloaded(this, model) &&
-            WhisperModels.isRuntimeAvailable()
+        return com.meetily.mobile.whisper.TranscriptionModels
+            .isReady(this, settings.whisperModel)
     }
 
     companion object {

@@ -2,9 +2,8 @@
 // https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.4/sherpa-onnx/kotlin-api/
 package com.k2fsa.sherpa.onnx
 
-data class SpeakerEmbeddingExtractorConfig(
-    val model: String = "",
-    var numThreads: Int = 1,
-    var debug: Boolean = false,
-    var provider: String = "cpu",
+data class QnnConfig(
+    var backendLib: String = "",
+    var contextBinary: String = "",
+    var systemLib: String = "",
 )

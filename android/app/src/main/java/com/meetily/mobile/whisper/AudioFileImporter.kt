@@ -63,22 +63,38 @@ class AudioFileImporter(
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean
     ): Result {
-        val model = WhisperModels.byKey(modelKey ?: settings.whisperModel)
-        if (!WhisperModels.isRuntimeAvailable()) {
-            throw ImportException("Whisper runtime unavailable on this device")
-        }
-        if (!WhisperModels.isDownloaded(context, model)) {
-            throw ImportException("Whisper model not downloaded")
-        }
-        val contextPtr = WhisperBridge.initContext(
-            WhisperModels.fileFor(context, model).absolutePath
-        )
-        if (contextPtr == 0L) {
-            throw ImportException("Could not load the Whisper model")
-        }
-        val language = if (model.englishOnly) "en" else "auto"
-        val translate = settings.whisperTranslate && !model.englishOnly
+        val selectedKey = modelKey ?: settings.whisperModel
         val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+
+        // NeMo path (Parakeet/Nemotron via sherpa-onnx) or whisper.cpp.
+        val nemoModel = NemoModels.byKeyOrNull(selectedKey)
+        var nemoEngine: NemoEngine? = null
+        var contextPtr = 0L
+        var language = "en"
+        var translate = false
+        if (nemoModel != null) {
+            if (!NemoModels.isRuntimeAvailable()) {
+                throw ImportException("Speech runtime unavailable on this device")
+            }
+            nemoEngine = NemoEngine.create(context, nemoModel, nThreads)
+                ?: throw ImportException("Could not load the ${nemoModel.displayName} model")
+        } else {
+            val model = WhisperModels.byKey(selectedKey)
+            if (!WhisperModels.isRuntimeAvailable()) {
+                throw ImportException("Whisper runtime unavailable on this device")
+            }
+            if (!WhisperModels.isDownloaded(context, model)) {
+                throw ImportException("Whisper model not downloaded")
+            }
+            contextPtr = WhisperBridge.initContext(
+                WhisperModels.fileFor(context, model).absolutePath
+            )
+            if (contextPtr == 0L) {
+                throw ImportException("Could not load the Whisper model")
+            }
+            language = if (model.englishOnly) "en" else "auto"
+            translate = settings.whisperTranslate && !model.englishOnly
+        }
 
         var embedder: SherpaEmbedder? = null
         var clusterer: SpeakerClusterer? = null
@@ -166,11 +182,17 @@ class AudioFileImporter(
             } else {
                 audio
             }
-            val raw = WhisperBridge.transcribeWords(
-                contextPtr, padded, language, nThreads, translate,
-                Vocab.promptFor(settings.customVocab)
-            )
-            val (text, words) = WhisperBridge.parseWords(raw)
+            val engine = nemoEngine
+            val (text, words) = if (engine != null) {
+                engine.transcribe(padded) ?: ("" to emptyList())
+            } else {
+                WhisperBridge.parseWords(
+                    WhisperBridge.transcribeWords(
+                        contextPtr, padded, language, nThreads, translate,
+                        Vocab.promptFor(settings.customVocab)
+                    )
+                )
+            }
             if (text.isBlank() || isNoise(text)) return
             meeting.segments.add(
                 TranscriptSegment(
@@ -317,7 +339,8 @@ class AudioFileImporter(
                 e.message ?: "decode failed mid-file"
             )
         } finally {
-            WhisperBridge.freeContext(contextPtr)
+            if (contextPtr != 0L) WhisperBridge.freeContext(contextPtr)
+            nemoEngine?.release()
             embedder?.release()
         }
     }

@@ -90,7 +90,9 @@ class ModelDownloadService : Service() {
     private fun displayName(kind: String, key: String): String = when (kind) {
         KIND_DIARIZE -> DiarizationModels.byKey(key).displayName
         KIND_LLM -> LocalLlmModels.byKey(key).displayName
-        else -> WhisperModels.byKey(key).displayName
+        // "whisper" kind covers all transcription models; NeMo keys route
+        // to their own registry.
+        else -> com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
     }
 
     private fun runDownload(kind: String, key: String) {
@@ -114,9 +116,18 @@ class ModelDownloadService : Service() {
                     KIND_LLM -> LocalLlmModels.download(
                         this, LocalLlmModels.byKey(key), onProgress, { cancelled }
                     )
-                    else -> WhisperModels.download(
-                        this, WhisperModels.byKey(key), onProgress, { cancelled }
-                    )
+                    else -> {
+                        val nemo = com.meetily.mobile.whisper.NemoModels.byKeyOrNull(key)
+                        if (nemo != null) {
+                            com.meetily.mobile.whisper.NemoModels.download(
+                                this, nemo, onProgress, { cancelled }
+                            )
+                        } else {
+                            WhisperModels.download(
+                                this, WhisperModels.byKey(key), onProgress, { cancelled }
+                            )
+                        }
+                    }
                 }
             } catch (e: InterruptedException) {
                 // Cancelled: partial already deleted by the downloader.

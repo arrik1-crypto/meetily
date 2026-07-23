@@ -4,7 +4,7 @@
 # .so files into app/src/main/jniLibs (gitignored). Run before building.
 set -euo pipefail
 
-VER="v1.10.30"
+VER="v1.13.4"
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$DIR/app/src/main/jniLibs"
 
