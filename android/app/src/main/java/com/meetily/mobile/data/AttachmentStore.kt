@@ -12,7 +12,7 @@ import java.io.File
  */
 object AttachmentStore {
 
-    private const val AUTHORITY = "com.meetily.mobile.fileprovider"
+    private fun authority(context: Context) = context.packageName + ".fileprovider"
 
     fun dir(context: Context): File =
         File(context.filesDir, "attachments").apply { mkdirs() }
@@ -26,7 +26,7 @@ object AttachmentStore {
     fun fileFor(context: Context, name: String): File = File(dir(context), name)
 
     fun uriFor(context: Context, file: File): Uri =
-        FileProvider.getUriForFile(context, AUTHORITY, file)
+        FileProvider.getUriForFile(context, authority(context), file)
 
     fun delete(context: Context, name: String) {
         fileFor(context, name).delete()

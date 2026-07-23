@@ -13,7 +13,9 @@ import java.io.File
  */
 object AudioStore {
 
-    private const val AUTHORITY = "com.meetily.mobile.fileprovider"
+    // Derived from the installed package so the authority always matches
+    // the manifest's ${applicationId}.fileprovider placeholder.
+    private fun authority(context: Context) = context.packageName + ".fileprovider"
 
     fun dir(context: Context): File =
         File(context.filesDir, "audio").apply { mkdirs() }
@@ -37,7 +39,7 @@ object AudioStore {
         !name.isNullOrBlank() && fileFor(context, name).length() > 0
 
     fun uriFor(context: Context, file: File): Uri =
-        FileProvider.getUriForFile(context, AUTHORITY, file)
+        FileProvider.getUriForFile(context, authority(context), file)
 
     fun delete(context: Context, name: String?) {
         if (!name.isNullOrBlank()) fileFor(context, name).delete()

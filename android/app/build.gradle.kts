@@ -24,15 +24,15 @@ val hasReleaseKeystore = releaseStoreFilePath != null &&
 
 android {
     namespace = "com.meetily.mobile"
-    compileSdk = 34
+    compileSdk = 35
     ndkVersion = "27.0.12077973"
 
     defaultConfig {
-        applicationId = "com.meetily.mobile"
+        applicationId = "com.recap.mobile"
         minSdk = 26
-        targetSdk = 34
-        versionCode = 47
-        versionName = "2.9.0-beta4"
+        targetSdk = 35
+        versionCode = 48
+        versionName = "3.0.0-rc1"
 
         // No ndk.abiFilters here: AGP forbids it alongside ABI splits. The
         // splits.abi.include list below is the single source of built ABIs.

@@ -8,7 +8,7 @@
         android:shortcutLongLabel="@string/shortcut_record_long">
         <intent
             android:action="android.intent.action.VIEW"
-            android:targetPackage="com.meetily.mobile"
+            android:targetPackage="com.recap.mobile"
             android:targetClass="com.meetily.mobile.RecordingActivity" />
     </shortcut>
     <shortcut
@@ -19,7 +19,7 @@
         android:shortcutLongLabel="@string/shortcut_import_long">
         <intent
             android:action="com.meetily.mobile.ACTION_IMPORT_PICK"
-            android:targetPackage="com.meetily.mobile"
+            android:targetPackage="com.recap.mobile"
             android:targetClass="com.meetily.mobile.MainActivity" />
     </shortcut>
 </shortcuts>

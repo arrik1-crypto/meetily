@@ -1,0 +1,54 @@
+Recap — full description for the Play listing (max 4000 chars)
+----------------------------------------------------------------
+
+Your meetings never have to leave your phone.
+
+Recap records, transcribes, and summarizes meetings entirely on your
+device. No account, no cloud, no subscription — your conversations stay
+yours.
+
+RECORD ANYWHERE
+• One-tap recording with live on-device transcription
+• Record device audio for webinars and calls (audio only, with your consent)
+• Import existing recordings and transcribe them in the background
+• Crash-safe: transcripts save continuously while you record
+
+TRANSCRIPTION THAT RESPECTS PRIVACY
+• On-device Whisper models — from 75 MB Tiny to Large v3 Turbo
+• NVIDIA Parakeet (25 languages) and Nemotron engines, also fully on-device
+• Speaker detection with reusable voice profiles
+• Custom vocabulary so your names and jargon come out right
+• Translate-to-English mode for multilingual meetings
+
+AI SUMMARIES — EVEN OFFLINE
+• Built-in AI engine runs models like Gemma, Llama, Qwen, and Mistral
+  directly on your phone: summaries, action items, and Q&A with zero
+  network involvement
+• Or connect your own endpoint (Ollama on your PC, Groq, OpenRouter)
+• Enhance rough notes into complete minutes using the transcript
+• "Catch me up" mid-meeting recap when you join late
+
+STAY ON TOP OF FOLLOW-UPS
+• Action items with reminders, a cross-meeting follow-ups list, and
+  export to your task app (.ics or text)
+• Pre-meeting briefs for recurring meetings: last time's outcomes and
+  open items, right from the calendar nudge
+• Weekly digest, tags, recurring-meeting grouping, full-text search
+
+BUILT FOR REAL WORK
+• Word-level tap-to-seek playback, speed control, skip-silence
+• Conversation insights: talk-time balance, questions, pace
+• Rich notes with checklists, photos, whiteboard OCR, file attachments
+• Share audio clips of key moments
+• Markdown/PDF export, encrypted backups
+• Biometric app lock and screenshot blocking
+
+PRIVACY, CONCRETELY
+Everything is stored in the app's private storage on your device. The
+developer runs no servers and receives no data. Optional AI models are
+downloaded once (0.1–5.7 GB depending on your choice) and then work
+offline. Recording laws vary by location — always record with consent.
+
+Recap is open source.
+----------------------------------------------------------------
+(char count ~2,050 — room to grow)
