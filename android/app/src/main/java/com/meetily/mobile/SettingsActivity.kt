@@ -766,9 +766,50 @@ class SettingsActivity : AppCompatActivity() {
         val dModel = DiarizationModels.byKey(settings.diarizationModel)
         val modelPath = DiarizationModels.fileFor(this, dModel).absolutePath
         val stopped = java.util.concurrent.atomic.AtomicBoolean(false)
+        // A fixed read-aloud script beats improvised speech for voiceprints:
+        // continuous, phonetically varied audio with no dead air.
+        val density = resources.displayMetrics.density
+        val pad = (20 * density).toInt()
+        val content = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(pad, (8 * density).toInt(), pad, 0)
+            addView(
+                android.widget.TextView(this@SettingsActivity).apply {
+                    text = getString(R.string.enroll_read_hint)
+                    setTextColor(
+                        com.google.android.material.color.MaterialColors.getColor(
+                            this, com.google.android.material.R.attr.colorOnSurfaceVariant
+                        )
+                    )
+                    textSize = 13f
+                }
+            )
+            addView(
+                android.widget.TextView(this@SettingsActivity).apply {
+                    text = getString(R.string.enroll_script)
+                    setBackgroundResource(R.drawable.bg_field)
+                    val inner = (14 * density).toInt()
+                    setPadding(inner, inner, inner, inner)
+                    setTextColor(
+                        com.google.android.material.color.MaterialColors.getColor(
+                            this, com.google.android.material.R.attr.colorOnSurface
+                        )
+                    )
+                    textSize = 16f
+                    setLineSpacing(4 * density, 1f)
+                }.also { script ->
+                    val lp = android.widget.LinearLayout.LayoutParams(
+                        android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                        android.widget.LinearLayout.LayoutParams.WRAP_CONTENT
+                    )
+                    lp.topMargin = (10 * density).toInt()
+                    script.layoutParams = lp
+                }
+            )
+        }
         val dialog = AlertDialog.Builder(this)
             .setTitle(getString(R.string.enroll_title, name))
-            .setMessage(R.string.enroll_instructions)
+            .setView(content)
             .setCancelable(false)
             .setPositiveButton(R.string.enroll_stop) { _, _ -> stopped.set(true) }
             .show()

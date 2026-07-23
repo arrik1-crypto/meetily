@@ -54,6 +54,7 @@ This is a standalone native Android app (Kotlin). It does **not** depend on the 
 - **Catch me up** — mid-meeting, tap the sparkle button on the recording screen for a terse "what happened so far" (current topic, decisions, open questions). Uses your configured AI when available, the instant offline summarizer otherwise.
 - **Playback speed + skip silence** — 0.5×–3× playback, and a skip-silence toggle that jumps over non-speech stretches (derived from the transcript's own timings — no audio analysis, works on any saved meeting with Whisper word data).
 - **Custom vocabulary** — list names, acronyms, and jargon in Settings and Whisper is biased toward them (its initial prompt) for all new recordings and imports.
+- **Guided voice enrollment** — saving a voice profile now shows a short read-aloud script sized to the 15-second capture window, so voiceprints come from continuous, phonetically varied speech instead of improvised filler.
 - **Conversation insights** — per-speaker talk-time share with bars, turn counts, longest monologue, questions asked, and speaking pace on every meeting page (estimates derived from the transcript).
 - **Pre-meeting brief** — before a recurring meeting, the calendar nudge gains a "Prep brief" action: last time's outcomes, open action items across the series (checkable), and an optional AI-written brief. Also reachable from any meeting's menu.
 - **Share audio clips** — long-press a transcript line → "Share clip…" cuts that moment (±1 s) into a small WAV for the share sheet, with the quote attached as text.
