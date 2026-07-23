@@ -27,13 +27,17 @@ set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 
+# llama.cpp is fetched FIRST and provides the shared ggml target;
+# whisper.cpp reuses it via its `if (NOT TARGET ggml)` guard. The two tags
+# must come from a close ggml sync window: b10089 (2026-07-22) pairs with
+# whisper v1.8.6 (2026-06-01). b10089 is the floor for Gemma 4 + Qwen3.5.
 FetchContent_Declare(
     llama_cpp
-    URL https://github.com/ggml-org/llama.cpp/archive/refs/tags/b4783.tar.gz
+    URL https://github.com/ggml-org/llama.cpp/archive/refs/tags/b10089.tar.gz
 )
 FetchContent_Declare(
     whisper_cpp
-    URL https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.7.5.tar.gz
+    URL https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.8.6.tar.gz
 )
 FetchContent_MakeAvailable(llama_cpp whisper_cpp)
 

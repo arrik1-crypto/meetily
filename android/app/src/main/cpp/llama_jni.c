@@ -189,7 +189,8 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
         n_prompt = limit;
     }
 
-    llama_kv_cache_clear(llm->ctx);
+    /* b10089: llama_kv_cache_clear was replaced by the memory API. */
+    llama_memory_clear(llama_get_memory(llm->ctx), true);
 
     /* Decode the prompt in n_batch-sized chunks. */
     const int32_t n_batch = (int32_t) llama_n_batch(llm->ctx);

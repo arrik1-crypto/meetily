@@ -57,6 +57,24 @@ object LocalLlm {
     }
 
     /**
+     * Reasoning models (Qwen 3.5 and kin) may open with a <think> block via
+     * their chat template; users should only ever see the answer. Also
+     * handles a truncated block (budget ran out mid-thought). Pure — tested.
+     */
+    fun stripThinking(reply: String): String {
+        val trimmed = reply.trim()
+        if (!trimmed.startsWith("<think>")) {
+            return trimmed.replace(Regex("(?s)<think>.*?</think>"), "").trim()
+        }
+        val close = trimmed.indexOf("</think>")
+        return if (close >= 0) {
+            trimmed.substring(close + "</think>".length).trim()
+        } else {
+            "" // never surface raw chain-of-thought as the summary
+        }
+    }
+
+    /**
      * Runs one chat completion on-device. [messages] is the same
      * OpenAI-shaped array LlmClient builds: [{role, content}, …].
      */
@@ -96,9 +114,11 @@ object LocalLlm {
             }
 
             val budgeted = budgetMessages(pairs, CHAR_BUDGET)
-            val reply = LlamaBridge.generate(ptr, pack(budgeted), MAX_REPLY_TOKENS)
-                ?.trim()
-                .orEmpty()
+            val reply = stripThinking(
+                LlamaBridge.generate(ptr, pack(budgeted), MAX_REPLY_TOKENS)
+                    ?.trim()
+                    .orEmpty()
+            )
             if (reply.isBlank()) {
                 throw IllegalStateException("On-device model returned an empty response")
             }

@@ -14,6 +14,22 @@ class LocalLlmBudgetTest {
     }
 
     @Test
+    fun stripThinkingRemovesReasoningBlocks() {
+        assertEquals(
+            "The answer.",
+            LocalLlm.stripThinking("<think>step 1... step 2...</think>\nThe answer.")
+        )
+        // Truncated thought (budget ran out): never surface it.
+        assertEquals("", LocalLlm.stripThinking("<think>endless pondering"))
+        // Non-thinking replies pass through; embedded blocks are excised.
+        assertEquals("Plain reply.", LocalLlm.stripThinking("Plain reply."))
+        assertEquals(
+            "Before after.",
+            LocalLlm.stripThinking("Before <think>hmm</think>after.")
+        )
+    }
+
+    @Test
     fun overBudgetShrinksTheLongestMessageKeepingHeadAndTail() {
         val transcript = buildString {
             append("OPENING_MARKER ")
