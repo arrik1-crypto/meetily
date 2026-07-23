@@ -32,6 +32,10 @@ jobs:
 
       - name: Fetch sherpa-onnx native libs
         run: bash android/scripts/fetch_sherpa_libs.sh
+        env:
+          # Authenticates the release-API fallback path (the direct asset
+          # URL needs no auth); avoids anonymous rate limits on runners.
+          GH_TOKEN: ${{ github.token }}
 
       - name: Run unit tests
         working-directory: android
