@@ -166,6 +166,22 @@ The listing copy sells the model explicitly ("PAY ONCE, OWN IT" section
 in PLAY_LISTING.txt) — the $100+/yr subscription contrast is the
 strongest conversion line this app has.
 
+## 10. Crashes and bug reports
+
+- **Android Vitals** (Console → Quality → Android Vitals → Crashes & ANRs)
+  is the aggregate crash feed — automatic for Play installs, no SDK. The
+  release build packs native symbol tables into the AAB
+  (`debugSymbolLevel = SYMBOL_TABLE`), so native crashes in the
+  whisper/llama/sherpa libraries arrive symbolicated.
+- **No third-party crash SDK on purpose**: Crashlytics/Sentry would break
+  the "no data collected" data-safety answer. Instead the app captures
+  crashes to a local file and, on next launch, offers the user a
+  share-sheet report ("Recap crashed last time — share the report?"); a
+  "Report a bug" entry in Settings does the same on demand. Reports move
+  only when the user sends them, so the data-safety form is unaffected.
+- Check **reviews** weekly early on; reply to bug reports there and point
+  users at Settings → Report a bug.
+
 ## Notes and gotchas
 
 - **App size**: the AAB is ~26 MB; Play splits per-device. All speech/AI

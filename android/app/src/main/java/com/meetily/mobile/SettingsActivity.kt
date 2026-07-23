@@ -282,6 +282,17 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.privacyLink).setOnClickListener {
             startActivity(Intent(this, PrivacyActivity::class.java))
         }
+        findViewById<View>(R.id.reportBugLink).setOnClickListener {
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, getString(R.string.bug_report_subject))
+                putExtra(
+                    Intent.EXTRA_TEXT,
+                    com.meetily.mobile.diag.CrashLog.bugReportText(this@SettingsActivity)
+                )
+            }
+            startActivity(Intent.createChooser(send, getString(R.string.report_bug)))
+        }
 
         findViewById<View>(R.id.saveButton).setOnClickListener {
             persistAll()

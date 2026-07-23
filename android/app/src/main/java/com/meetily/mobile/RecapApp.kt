@@ -7,6 +7,9 @@ import com.meetily.mobile.security.AppLock
 class RecapApp : Application() {
     override fun onCreate() {
         super.onCreate()
+        // First, before anything that could crash: local-only crash capture
+        // (writes a file, chains to the system handler — no telemetry).
+        com.meetily.mobile.diag.CrashLog.install(this)
         // Night-mode preference is process-wide state; reapply on every start.
         ThemeManager.applyNightMode(AppSettings(this).themeMode)
         // App lock + FLAG_SECURE are enforced from lifecycle callbacks so

@@ -201,6 +201,35 @@ class MainActivity : AppCompatActivity() {
         super.onStop()
     }
 
+    /**
+     * If the app crashed last time, offer the locally saved report — the
+     * user decides where (or whether) it goes, via their own share sheet.
+     */
+    private fun maybeOfferCrashReport() {
+        val crash = com.meetily.mobile.diag.CrashLog.pendingCrash(this) ?: return
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.crash_prompt_title)
+            .setMessage(R.string.crash_prompt_body)
+            .setPositiveButton(R.string.crash_share) { _, _ ->
+                com.meetily.mobile.diag.CrashLog.markConsumed(this, crash)
+                val send = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_SUBJECT, getString(R.string.bug_report_subject))
+                    putExtra(
+                        Intent.EXTRA_TEXT,
+                        com.meetily.mobile.diag.CrashLog.shareText(crash)
+                    )
+                }
+                startActivity(
+                    Intent.createChooser(send, getString(R.string.crash_share))
+                )
+            }
+            .setNegativeButton(R.string.crash_dismiss) { _, _ ->
+                com.meetily.mobile.diag.CrashLog.markConsumed(this, crash)
+            }
+            .show()
+    }
+
     private val pickAudio =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) {
@@ -262,6 +291,7 @@ class MainActivity : AppCompatActivity() {
         importBanner.setOnClickListener {
             startActivity(Intent(this, ImportActivity::class.java))
         }
+        maybeOfferCrashReport()
         summaryBanner = findViewById(R.id.summaryBanner)
         summaryBannerName = findViewById(R.id.summaryBannerName)
         summaryBannerPct = findViewById(R.id.summaryBannerPct)

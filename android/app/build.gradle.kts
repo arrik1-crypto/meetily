@@ -31,8 +31,8 @@ android {
         applicationId = "com.recap.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 48
-        versionName = "3.0.0-rc1"
+        versionCode = 49
+        versionName = "3.0.0-rc2"
 
         // No ndk.abiFilters here: AGP forbids it alongside ABI splits. The
         // splits.abi.include list below is the single source of built ABIs.
@@ -84,6 +84,12 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Pack native symbol tables into the AAB so Play's Android
+            // Vitals can symbolicate crashes in the whisper/llama/sherpa
+            // .so files instead of showing raw addresses.
+            ndk {
+                debugSymbolLevel = "SYMBOL_TABLE"
+            }
             // Use the real upload key when a keystore is configured (release
             // workflow); otherwise fall back to the debug key so the normal
             // sideload APK build stays green without any secrets.
