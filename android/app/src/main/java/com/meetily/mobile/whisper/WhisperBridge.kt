@@ -22,5 +22,11 @@ object WhisperBridge {
 
     external fun initContext(modelPath: String): Long
     external fun freeContext(ptr: Long)
-    external fun transcribe(ptr: Long, samples: FloatArray, language: String?, nThreads: Int): String?
+    external fun transcribe(
+        ptr: Long,
+        samples: FloatArray,
+        language: String?,
+        nThreads: Int,
+        translate: Boolean
+    ): String?
 }

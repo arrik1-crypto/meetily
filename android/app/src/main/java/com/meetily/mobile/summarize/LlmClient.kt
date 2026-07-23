@@ -155,6 +155,57 @@ object LlmClient {
         }
     }
 
+    /**
+     * Topic separation: asks the LLM to mark where new topics start in a
+     * numbered transcript. Returns (lineIndex, chapterTitle) pairs sorted by
+     * line; empty on unusable output (caller falls back to TopicChapters).
+     */
+    fun chapters(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        localOnly: Boolean,
+        lines: List<String>
+    ): List<Pair<Int, String>> {
+        val systemPrompt =
+            "You split a meeting transcript into topical chapters. Reply with " +
+                "ONLY a JSON array; each element is {\"line\": <0-based line " +
+                "number where the topic starts>, \"title\": \"<2-5 word " +
+                "chapter title>\"}. The first chapter must start at line 0. " +
+                "Mark only clear topic shifts — typically 2 to 8 chapters for " +
+                "a full meeting."
+        val transcript = buildString {
+            append("Transcript:\n")
+            for ((i, line) in lines.withIndex()) {
+                append(i).append(": ").append(line).append('\n')
+            }
+        }.take(48_000)
+
+        val messages = JSONArray()
+            .put(JSONObject().put("role", "system").put("content", systemPrompt))
+            .put(JSONObject().put("role", "user").put("content", transcript))
+
+        val response = chat(baseUrl, apiKey, model, messages, localOnly)
+        val start = response.indexOf("[{").takeIf { it >= 0 } ?: response.indexOf('[')
+        val end = response.lastIndexOf(']')
+        if (start < 0 || end <= start) return emptyList()
+        return try {
+            val arr = JSONArray(response.substring(start, end + 1))
+            val out = mutableListOf<Pair<Int, String>>()
+            for (i in 0 until arr.length()) {
+                val obj = arr.optJSONObject(i) ?: continue
+                val index = obj.optInt("line", -1)
+                val title = obj.optString("title", "").trim()
+                if (index >= 0 && title.isNotBlank()) {
+                    out.add(index to title)
+                }
+            }
+            out.sortedBy { it.first }.distinctBy { it.first }
+        } catch (_: Exception) {
+            emptyList()
+        }
+    }
+
     fun ask(
         baseUrl: String,
         apiKey: String,

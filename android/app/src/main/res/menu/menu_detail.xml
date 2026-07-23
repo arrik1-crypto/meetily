@@ -21,6 +21,10 @@
         android:title="@string/suggest_speakers"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_topics"
+        android:title="@string/topics_title"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_share_audio"
         android:title="@string/share_audio"
         app:showAsAction="never" />

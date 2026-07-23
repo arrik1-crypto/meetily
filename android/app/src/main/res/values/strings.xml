@@ -87,6 +87,17 @@
     <string name="download_busy">A model download is already running.</string>
     <string name="download_status_running">Downloading… %1$d%%</string>
     <string name="percent_fmt">%1$d%%</string>
+
+    <string name="topics_title">Topics</string>
+    <string name="topics_detecting">Detecting topics…</string>
+    <string name="topics_found">%1$d topics marked in the transcript.</string>
+    <string name="topics_none">No clear topic shifts found in this transcript.</string>
+    <string name="topics_too_short">This transcript is too short to split into topics.</string>
+    <string name="topics_redetect">↻ Detect again</string>
+    <string name="topics_remove">✕ Remove topic markers</string>
+
+    <string name="setting_translate">Translate to English</string>
+    <string name="setting_translate_desc">Transcribe speech in any language as English text. Needs a multilingual model — models marked "English" ignore this.</string>
     <string name="import_needs_whisper">Importing needs the on-device Whisper engine — download a Whisper model in Settings first.</string>
     <string name="import_wait_recording">Finish the current recording before importing a file.</string>
     <string name="import_cancelled_partial">Import stopped — the partial transcript was kept.</string>

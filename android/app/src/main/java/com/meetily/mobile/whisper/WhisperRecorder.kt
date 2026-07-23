@@ -20,6 +20,8 @@ import kotlin.math.sqrt
 class WhisperRecorder(
     private val modelPath: String,
     private val language: String?, // null => auto-detect
+    /** Whisper translate task: any spoken language comes out as English text. */
+    private val translate: Boolean = false,
     // Capture tuning (see CaptureTuning): how firmware pre-processes the mic
     // signal, and which physical input to prefer (null = system routing).
     private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -173,7 +175,7 @@ class WhisperRecorder(
                 }
                 val ptr = contextPtr
                 if (ptr != 0L) {
-                    val text = WhisperBridge.transcribe(ptr, padded, language, nThreads)
+                    val text = WhisperBridge.transcribe(ptr, padded, language, nThreads, translate)
                         ?.trim()
                         .orEmpty()
                     if (text.isNotBlank() && !isNoise(text)) {

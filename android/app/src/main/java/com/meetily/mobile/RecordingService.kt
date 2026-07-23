@@ -603,6 +603,7 @@ class RecordingService : Service() {
         whisperRecorder = WhisperRecorder(
             modelPath = WhisperModels.fileFor(this, model).absolutePath,
             language = if (model.englishOnly) "en" else "auto",
+            translate = settings.whisperTranslate && !model.englishOnly,
             audioSource = CaptureTuning.audioSourceFor(this, settings.micSource),
             preferredDevice = CaptureTuning.findPreferred(this, settings.micDevice),
             speakerSupplier = { activeSpeaker },

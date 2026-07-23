@@ -45,6 +45,12 @@ class AppSettings(context: Context) {
         get() = prefs.getString("whisper_model", "base.en") ?: "base.en"
         set(value) = prefs.edit().putString("whisper_model", value).apply()
 
+    /** Whisper translate task: non-English speech comes out as English text
+     *  (multilingual models only; English-only models ignore this). */
+    var whisperTranslate: Boolean
+        get() = prefs.getBoolean("whisper_translate", false)
+        set(value) = prefs.edit().putBoolean("whisper_translate", value).apply()
+
     /** Acoustic speaker detection (Whisper engine only, experimental). */
     var diarizationEnabled: Boolean
         get() = prefs.getBoolean("diarization_enabled", false)

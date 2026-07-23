@@ -214,6 +214,7 @@ class SettingsActivity : AppCompatActivity() {
         muteSoundsSwitch.isChecked = settings.muteRecognizerSounds
         whisperSwitch.isChecked = settings.transcriptionEngine == "whisper"
         diarizeSwitch.isChecked = settings.diarizationEnabled
+        findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
         findViewById<MaterialSwitch>(R.id.saveAudioSwitch).isChecked = settings.saveAudio
         calendarSwitch.isChecked = settings.calendarPrefill
         urlInput.setText(settings.llmBaseUrl)
@@ -275,6 +276,8 @@ class SettingsActivity : AppCompatActivity() {
             if (whisperSwitch.isChecked) "whisper" else "system"
         settings.calendarPrefill = calendarSwitch.isChecked
         settings.diarizationEnabled = diarizeSwitch.isChecked
+        settings.whisperTranslate =
+            findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
         settings.saveAudio = findViewById<MaterialSwitch>(R.id.saveAudioSwitch).isChecked
         settings.llmBaseUrl = urlInput.text.toString().trim()
         settings.llmApiKey = keyInput.text.toString().trim()

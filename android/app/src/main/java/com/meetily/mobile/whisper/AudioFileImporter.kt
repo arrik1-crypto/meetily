@@ -75,6 +75,7 @@ class AudioFileImporter(
             throw ImportException("Could not load the Whisper model")
         }
         val language = if (model.englishOnly) "en" else "auto"
+        val translate = settings.whisperTranslate && !model.englishOnly
         val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
 
         var embedder: SherpaEmbedder? = null
@@ -163,7 +164,7 @@ class AudioFileImporter(
             } else {
                 audio
             }
-            val text = WhisperBridge.transcribe(contextPtr, padded, language, nThreads)
+            val text = WhisperBridge.transcribe(contextPtr, padded, language, nThreads, translate)
                 ?.trim()
                 .orEmpty()
             if (text.isBlank() || isNoise(text)) return

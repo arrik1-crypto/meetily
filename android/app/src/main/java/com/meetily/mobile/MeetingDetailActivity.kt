@@ -43,6 +43,7 @@ import com.meetily.mobile.summarize.ActionItems
 import com.meetily.mobile.summarize.CustomTemplates
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
+import com.meetily.mobile.summarize.TopicChapters
 import com.meetily.mobile.summarize.SummaryTemplate
 import com.meetily.mobile.summarize.SummaryTemplates
 import com.meetily.mobile.whisper.AudioWindowExtractor
@@ -217,7 +218,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         )
         // Transcript lines belong to the Transcript tab only.
         tagHint.visibility = if (onTranscriptTab) View.VISIBLE else View.GONE
-        transcriptAdapter.submit(if (onTranscriptTab) m.segments else emptyList())
+        transcriptAdapter.submit(
+            if (onTranscriptTab) m.segments else emptyList(),
+            if (onTranscriptTab) m.chapters else emptyList()
+        )
     }
 
     // --- Summary | Transcript segmented tabs --------------------------------
@@ -988,6 +992,10 @@ class MeetingDetailActivity : AppCompatActivity() {
                 shareAudio()
                 true
             }
+            R.id.action_topics -> {
+                topicsAction()
+                true
+            }
             R.id.action_retranscribe -> {
                 confirmRetranscribe()
                 true
@@ -1298,6 +1306,102 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    // --- Topic chapters ------------------------------------------------------
+
+    private fun topicsAction() {
+        val m = meeting ?: return
+        if (m.chapters.isEmpty()) {
+            detectTopics(m)
+            return
+        }
+        val labels = m.chapters.map { it.title } +
+            getString(R.string.topics_redetect) +
+            getString(R.string.topics_remove)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.topics_title)
+            .setItems(labels.toTypedArray()) { _, which ->
+                when {
+                    which < m.chapters.size -> jumpToChapter(m.chapters[which])
+                    which == m.chapters.size -> detectTopics(m)
+                    else -> {
+                        m.chapters.clear()
+                        store.save(m)
+                        renderTranscript(m)
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun jumpToChapter(chapter: com.meetily.mobile.data.Chapter) {
+        val m = meeting ?: return
+        if (!onTranscriptTab) switchTab(true)
+        val segIndex = m.segments.indexOfFirst { it.timestampMs >= chapter.startMs }
+        if (segIndex < 0) return
+        val recycler = findViewById<RecyclerView>(R.id.detailRecycler)
+        val lm = recycler.layoutManager as? LinearLayoutManager ?: return
+        // +1 skips the static document header inside the ConcatAdapter.
+        lm.scrollToPositionWithOffset(
+            1 + transcriptAdapter.positionOfSegment(segIndex), 48
+        )
+    }
+
+    private fun detectTopics(m: Meeting) {
+        if (m.segments.size < 8) {
+            Toast.makeText(this, R.string.topics_too_short, Toast.LENGTH_SHORT).show()
+            return
+        }
+        Toast.makeText(this, R.string.topics_detecting, Toast.LENGTH_SHORT).show()
+        val useLlm = settings.useLlm && settings.llmBaseUrl.isNotBlank()
+        val baseUrl = settings.llmBaseUrl
+        val apiKey = settings.llmApiKey
+        val model = settings.llmModel
+        val localOnly = settings.localOnlyLlm
+        val segmentsSnapshot = m.segments.toList()
+        Thread {
+            var chapters: List<com.meetily.mobile.data.Chapter> = emptyList()
+            if (useLlm) {
+                try {
+                    val lines = segmentsSnapshot.map { seg ->
+                        val speaker = seg.speaker
+                        if (speaker.isNullOrBlank()) seg.text else "$speaker: ${seg.text}"
+                    }
+                    chapters = LlmClient
+                        .chapters(baseUrl, apiKey, model, localOnly, lines)
+                        .filter { it.first in segmentsSnapshot.indices }
+                        .map { (index, title) ->
+                            com.meetily.mobile.data.Chapter(
+                                title.take(60),
+                                segmentsSnapshot[index].timestampMs
+                            )
+                        }
+                    if (chapters.size < 2) chapters = emptyList()
+                } catch (_: Exception) {
+                }
+            }
+            if (chapters.isEmpty()) {
+                chapters = TopicChapters.buildLocal(segmentsSnapshot)
+            }
+            val result = chapters
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (result.isEmpty()) {
+                    Toast.makeText(this, R.string.topics_none, Toast.LENGTH_LONG).show()
+                } else {
+                    m.chapters.clear()
+                    m.chapters.addAll(result)
+                    store.save(m)
+                    if (!onTranscriptTab) switchTab(true) else renderTranscript(m)
+                    Toast.makeText(
+                        this, getString(R.string.topics_found, result.size),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+        }.start()
     }
 
     companion object {

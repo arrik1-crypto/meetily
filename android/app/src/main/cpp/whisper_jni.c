@@ -38,7 +38,7 @@ Java_com_meetily_mobile_whisper_WhisperBridge_freeContext(
 JNIEXPORT jstring JNICALL
 Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
         JNIEnv *env, jobject thiz, jlong ptr, jfloatArray samples,
-        jstring language, jint n_threads) {
+        jstring language, jint n_threads, jboolean translate) {
     (void) thiz;
     struct whisper_context *ctx = (struct whisper_context *) (intptr_t) ptr;
     if (ctx == NULL || samples == NULL) return NULL;
@@ -56,7 +56,7 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
     params.print_realtime = false;
     params.print_special = false;
     params.print_timestamps = false;
-    params.translate = false;
+    params.translate = translate ? true : false;
     params.suppress_blank = true;
 
     const char *lang = NULL;

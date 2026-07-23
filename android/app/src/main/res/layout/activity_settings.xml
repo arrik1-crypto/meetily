@@ -239,6 +239,23 @@
                             app:strokeColor="?attr/colorOutline" />
 
                         <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/translateSwitch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:text="@string/setting_translate"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/setting_translate_desc"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
+                        <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/diarizeSwitch"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"

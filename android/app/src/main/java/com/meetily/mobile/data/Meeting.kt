@@ -25,6 +25,16 @@ data class ActionItem(
     val done: Boolean = false
 )
 
+/**
+ * A topical chapter within the transcript. Anchored by wall-clock start time
+ * (not segment index) so transcript edits and splits can't orphan it: the
+ * chapter renders above the first segment at or after [startMs].
+ */
+data class Chapter(
+    val title: String,
+    val startMs: Long
+)
+
 data class Meeting(
     val id: String,
     var title: String,
@@ -39,7 +49,9 @@ data class Meeting(
     /** Filename in AudioStore when the meeting's audio was kept. */
     var audioFile: String? = null,
     /** Free-form labels for filtering the library ("client-x", "1:1"…). */
-    var tags: MutableList<String> = mutableListOf()
+    var tags: MutableList<String> = mutableListOf(),
+    /** Detected topic chapters, ordered by startMs. */
+    val chapters: MutableList<Chapter> = mutableListOf()
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -122,6 +134,15 @@ data class Meeting(
             for (tag in tags) tagsArr.put(tag)
             obj.put("tags", tagsArr)
         }
+        if (chapters.isNotEmpty()) {
+            val chaptersArr = JSONArray()
+            for (chapter in chapters) {
+                chaptersArr.put(
+                    JSONObject().put("title", chapter.title).put("t", chapter.startMs)
+                )
+            }
+            obj.put("chapters", chaptersArr)
+        }
         return obj
     }
 
@@ -191,6 +212,14 @@ data class Meeting(
             for (i in 0 until tagsArr.length()) {
                 val tag = tagsArr.optString(i, "")
                 if (tag.isNotBlank()) meeting.tags.add(tag)
+            }
+            val chaptersArr = obj.optJSONArray("chapters") ?: JSONArray()
+            for (i in 0 until chaptersArr.length()) {
+                val c = chaptersArr.getJSONObject(i)
+                val title = c.optString("title", "")
+                if (title.isNotBlank()) {
+                    meeting.chapters.add(Chapter(title, c.optLong("t", 0L)))
+                }
             }
             return meeting
         }

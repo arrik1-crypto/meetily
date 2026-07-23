@@ -124,26 +124,54 @@ class LiveTranscriptAdapter(
     }
 }
 
-/** Recycled, read-only transcript lines for the meeting detail screen. */
+/**
+ * Recycled, read-only transcript lines for the meeting detail screen, with
+ * optional topic-chapter headers woven between them. Callbacks always carry
+ * SEGMENT indices (not adapter positions), so callers stay oblivious to
+ * where headers land.
+ */
 class TranscriptLinesAdapter(
     private val onClick: (Int) -> Unit,
     private val onLongClick: (Int) -> Unit
-) : RecyclerView.Adapter<TranscriptLinesAdapter.Holder>() {
+) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
-    private val items = mutableListOf<TranscriptSegment>()
+    private sealed class Row {
+        class ChapterRow(val title: String) : Row()
+        class LineRow(val segIndex: Int, var segment: TranscriptSegment) : Row()
+    }
 
-    fun submit(segments: List<TranscriptSegment>) {
-        items.clear()
-        items.addAll(segments)
+    private val rows = mutableListOf<Row>()
+    private var segmentPositions = IntArray(0)
+
+    fun submit(
+        segments: List<TranscriptSegment>,
+        chapters: List<com.meetily.mobile.data.Chapter> = emptyList()
+    ) {
+        rows.clear()
+        segmentPositions = IntArray(segments.size)
+        val sorted = chapters.sortedBy { it.startMs }
+        var next = 0
+        for ((i, seg) in segments.withIndex()) {
+            while (next < sorted.size && sorted[next].startMs <= seg.timestampMs) {
+                rows.add(Row.ChapterRow(sorted[next].title))
+                next++
+            }
+            segmentPositions[i] = rows.size
+            rows.add(Row.LineRow(i, seg))
+        }
         notifyDataSetChanged()
     }
 
     fun update(index: Int, segment: TranscriptSegment) {
-        if (index in items.indices) {
-            items[index] = segment
-            notifyItemChanged(index)
-        }
+        val pos = segmentPositions.getOrNull(index) ?: return
+        val row = rows.getOrNull(pos) as? Row.LineRow ?: return
+        row.segment = segment
+        notifyItemChanged(pos)
     }
+
+    /** Adapter position of a segment (for scroll-to-chapter jumps). */
+    fun positionOfSegment(index: Int): Int =
+        segmentPositions.getOrNull(index) ?: 0
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val time: TextView = view.findViewById(R.id.lineTime)
@@ -152,14 +180,30 @@ class TranscriptLinesAdapter(
         val defaultBackground = view.background
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder =
-        Holder(
-            LayoutInflater.from(parent.context)
-                .inflate(R.layout.item_transcript_line, parent, false)
-        )
+    class ChapterHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val title: TextView = view.findViewById(R.id.chapterTitle)
+    }
 
-    override fun onBindViewHolder(holder: Holder, position: Int) {
-        val segment = items[position]
+    override fun getItemViewType(position: Int): Int =
+        if (rows[position] is Row.ChapterRow) TYPE_CHAPTER else TYPE_LINE
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        return if (viewType == TYPE_CHAPTER) {
+            ChapterHolder(inflater.inflate(R.layout.item_chapter_header, parent, false))
+        } else {
+            Holder(inflater.inflate(R.layout.item_transcript_line, parent, false))
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        val row = rows[position]
+        if (holder is ChapterHolder && row is Row.ChapterRow) {
+            holder.title.text = row.title
+            return
+        }
+        if (holder !is Holder || row !is Row.LineRow) return
+        val segment = row.segment
         val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
         val time = timeFormat.format(Date(segment.timestampMs))
         holder.time.text = if (segment.highlighted) "★ $time" else time
@@ -180,17 +224,22 @@ class TranscriptLinesAdapter(
             holder.itemView.background = holder.defaultBackground
         }
         holder.itemView.setOnClickListener {
-            val index = holder.bindingAdapterPosition
-            if (index != RecyclerView.NO_POSITION) onClick(index)
+            (rows.getOrNull(holder.bindingAdapterPosition) as? Row.LineRow)
+                ?.let { onClick(it.segIndex) }
         }
         holder.itemView.setOnLongClickListener {
-            val index = holder.bindingAdapterPosition
-            if (index != RecyclerView.NO_POSITION) onLongClick(index)
+            (rows.getOrNull(holder.bindingAdapterPosition) as? Row.LineRow)
+                ?.let { onLongClick(it.segIndex) }
             true
         }
     }
 
-    override fun getItemCount(): Int = items.size
+    override fun getItemCount(): Int = rows.size
+
+    companion object {
+        private const val TYPE_LINE = 0
+        private const val TYPE_CHAPTER = 1
+    }
 }
 
 /**
