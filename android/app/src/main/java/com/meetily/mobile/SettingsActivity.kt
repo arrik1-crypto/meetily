@@ -1,9 +1,13 @@
 package com.meetily.mobile
 
+import android.content.ComponentName
+import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Bundle
+import android.os.IBinder
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -72,14 +76,115 @@ class SettingsActivity : AppCompatActivity() {
             uri?.let { readBackup(it) }
         }
 
+    // --- Model downloads (owned by ModelDownloadService) --------------------
+
+    private var downloadService: ModelDownloadService? = null
+    private var downloadBound = false
+
+    private val downloadObserver = object : ModelDownloadService.Observer {
+        override fun onDownloadProgress(kind: String, key: String, percent: Int) {
+            if (isFinishing || isDestroyed) return
+            downloading = true
+            manageModelsButton.isEnabled = false
+            manageDiarizeButton.isEnabled = false
+            if (kind == ModelDownloadService.KIND_DIARIZE) {
+                val model = DiarizationModels.byKey(key)
+                diarizeProgress.visibility = View.VISIBLE
+                diarizeProgress.isIndeterminate = percent == 0
+                diarizeProgress.progress = percent
+                diarizeModelStatus.text =
+                    getString(R.string.model_downloading, model.displayName, percent)
+            } else {
+                val model = WhisperModels.byKey(key)
+                modelProgress.visibility = View.VISIBLE
+                modelProgress.isIndeterminate = percent == 0
+                modelProgress.progress = percent
+                whisperModelStatus.text =
+                    getString(R.string.model_downloading, model.displayName, percent)
+            }
+        }
+
+        override fun onDownloadDone(
+            kind: String,
+            key: String,
+            cancelled: Boolean,
+            error: String?
+        ) {
+            if (isFinishing || isDestroyed) return
+            downloading = false
+            manageModelsButton.isEnabled = true
+            manageDiarizeButton.isEnabled = true
+            modelProgress.visibility = View.GONE
+            diarizeProgress.visibility = View.GONE
+            updateWhisperSection()
+            if (error != null) {
+                Toast.makeText(
+                    this@SettingsActivity,
+                    getString(R.string.model_download_failed, error),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
+
+    private val downloadConnection = object : ServiceConnection {
+        override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
+            val svc = (binder as? ModelDownloadService.DownloadBinder)?.service ?: return
+            downloadService = svc
+            svc.observer = downloadObserver
+        }
+
+        override fun onServiceDisconnected(name: ComponentName?) {
+            downloadService = null
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        // Bind so a download started earlier (or from this screen) reports
+        // progress here; downloads themselves live in the service and keep
+        // going when this screen is left or the phone sleeps.
+        bindService(
+            Intent(this, ModelDownloadService::class.java),
+            downloadConnection,
+            Context.BIND_AUTO_CREATE
+        )
+        downloadBound = true
+        if (!ModelDownloadService.isRunning && downloading) {
+            // The download finished while we were away.
+            downloading = false
+            manageModelsButton.isEnabled = true
+            manageDiarizeButton.isEnabled = true
+            modelProgress.visibility = View.GONE
+            diarizeProgress.visibility = View.GONE
+            updateWhisperSection()
+        }
+    }
+
+    override fun onStop() {
+        downloadService?.let { if (it.observer === downloadObserver) it.observer = null }
+        if (downloadBound) {
+            try {
+                unbindService(downloadConnection)
+            } catch (_: Exception) {
+            }
+            downloadBound = false
+        }
+        downloadService = null
+        super.onStop()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_settings)
 
         settings = AppSettings(this)
-        WhisperModels.cleanPartials(this)
-        DiarizationModels.cleanPartials(this)
+        if (!ModelDownloadService.isRunning) {
+            // Never sweep .part files while the download service is mid-write.
+            WhisperModels.cleanPartials(this)
+            DiarizationModels.cleanPartials(this)
+        }
 
         findViewById<MaterialToolbar>(R.id.settingsToolbar).setNavigationOnClickListener {
             finish()
@@ -223,21 +328,8 @@ class SettingsActivity : AppCompatActivity() {
                 else -> "system"
             }
             if (mode == settings.themeMode) return@addOnButtonCheckedListener
-            if (downloading) {
-                // A night-mode change recreates this screen, which would
-                // orphan the running model download — same guard as accents.
-                Toast.makeText(this, R.string.theme_wait_download, Toast.LENGTH_SHORT).show()
-                suppressThemeListener = true
-                group.check(
-                    when (settings.themeMode) {
-                        "light" -> R.id.themeLight
-                        "dark" -> R.id.themeDark
-                        else -> R.id.themeSystem
-                    }
-                )
-                suppressThemeListener = false
-                return@addOnButtonCheckedListener
-            }
+            // Model downloads live in ModelDownloadService, so the recreate
+            // this triggers no longer orphans them.
             settings.themeMode = mode
             // Posted: setDefaultNightMode recreates this activity, and doing
             // that from inside the toggle-group's checked-change dispatch
@@ -708,94 +800,31 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun startDiarizeDownload(modelKey: String) {
-        val model = DiarizationModels.byKey(modelKey)
-        downloading = true
-        manageModelsButton.isEnabled = false
-        manageDiarizeButton.isEnabled = false
-        diarizeProgress.visibility = View.VISIBLE
-        diarizeProgress.isIndeterminate = true
-        diarizeModelStatus.text = getString(R.string.model_downloading, model.displayName, 0)
-
-        Thread {
-            try {
-                DiarizationModels.download(this, model) { percent ->
-                    runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        diarizeProgress.isIndeterminate = false
-                        diarizeProgress.progress = percent
-                        diarizeModelStatus.text =
-                            getString(R.string.model_downloading, model.displayName, percent)
-                    }
-                }
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    downloading = false
-                    manageModelsButton.isEnabled = true
-                    manageDiarizeButton.isEnabled = true
-                    diarizeProgress.visibility = View.GONE
-                    updateDiarizeSection()
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    downloading = false
-                    manageModelsButton.isEnabled = true
-                    manageDiarizeButton.isEnabled = true
-                    diarizeProgress.visibility = View.GONE
-                    updateDiarizeSection()
-                    Toast.makeText(
-                        this,
-                        getString(R.string.model_download_failed, e.message ?: "network error"),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        }.start()
+        startModelDownload(ModelDownloadService.KIND_DIARIZE, modelKey)
     }
 
     private fun startDownload(modelKey: String) {
-        val model = WhisperModels.byKey(modelKey)
-        downloading = true
-        manageModelsButton.isEnabled = false
-        manageDiarizeButton.isEnabled = false
-        modelProgress.visibility = View.VISIBLE
-        modelProgress.isIndeterminate = true
-        whisperModelStatus.text = getString(R.string.model_downloading, model.displayName, 0)
+        startModelDownload(ModelDownloadService.KIND_WHISPER, modelKey)
+    }
 
-        Thread {
-            try {
-                WhisperModels.download(this, model) { percent ->
-                    runOnUiThread {
-                        if (isFinishing || isDestroyed) return@runOnUiThread
-                        modelProgress.isIndeterminate = false
-                        modelProgress.progress = percent
-                        whisperModelStatus.text =
-                            getString(R.string.model_downloading, model.displayName, percent)
-                    }
-                }
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    downloading = false
-                    manageModelsButton.isEnabled = true
-                    manageDiarizeButton.isEnabled = true
-                    modelProgress.visibility = View.GONE
-                    updateWhisperSection()
-                }
-            } catch (e: Exception) {
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    downloading = false
-                    manageModelsButton.isEnabled = true
-                    manageDiarizeButton.isEnabled = true
-                    modelProgress.visibility = View.GONE
-                    updateWhisperSection()
-                    Toast.makeText(
-                        this,
-                        getString(R.string.model_download_failed, e.message ?: "network error"),
-                        Toast.LENGTH_LONG
-                    ).show()
-                }
-            }
-        }.start()
+    /**
+     * Hands the download to ModelDownloadService (foreground + wakelock), so
+     * it keeps going when this screen is left or the phone sleeps. Progress
+     * comes back through the bound observer.
+     */
+    private fun startModelDownload(kind: String, key: String) {
+        if (ModelDownloadService.isRunning) {
+            Toast.makeText(this, R.string.download_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, ModelDownloadService::class.java)
+                .setAction(ModelDownloadService.ACTION_START)
+                .putExtra(ModelDownloadService.EXTRA_KIND, kind)
+                .putExtra(ModelDownloadService.EXTRA_KEY, key)
+        )
+        // Immediate visual feedback; service callbacks take over from here.
+        downloadObserver.onDownloadProgress(kind, key, 0)
     }
 }

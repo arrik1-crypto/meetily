@@ -59,7 +59,8 @@ object WhisperModels {
     fun download(
         context: Context,
         model: WhisperModel,
-        onProgress: (Int) -> Unit
+        onProgress: (Int) -> Unit,
+        cancelled: () -> Boolean = { false }
     ) {
         val target = fileFor(context, model)
         // Unique temp file per invocation so two downloads (e.g. after an
@@ -81,6 +82,9 @@ object WhisperModels {
                     var read = 0L
                     var lastPercent = -1
                     while (true) {
+                        if (cancelled()) {
+                            throw InterruptedException("Download cancelled")
+                        }
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)

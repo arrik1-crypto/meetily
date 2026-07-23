@@ -63,7 +63,12 @@ object DiarizationModels {
     }
 
     /** Blocking download with 0..100 progress; call from a worker thread. */
-    fun download(context: Context, model: DiarizationModel, onProgress: (Int) -> Unit) {
+    fun download(
+        context: Context,
+        model: DiarizationModel,
+        onProgress: (Int) -> Unit,
+        cancelled: () -> Boolean = { false }
+    ) {
         val target = fileFor(context, model)
         val partial = File(target.absolutePath + ".part-" + System.nanoTime())
         val connection = URL(model.url).openConnection() as HttpURLConnection
@@ -82,6 +87,9 @@ object DiarizationModels {
                     var read = 0L
                     var lastPercent = -1
                     while (true) {
+                        if (cancelled()) {
+                            throw InterruptedException("Download cancelled")
+                        }
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)
