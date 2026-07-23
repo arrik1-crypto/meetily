@@ -7,6 +7,12 @@ Recap records, transcribes, and summarizes meetings entirely on your
 device. No account, no cloud, no subscription — your conversations stay
 yours.
 
+PAY ONCE, OWN IT
+Meeting AI assistants typically cost $100–200 every year, forever, and
+send your conversations to their servers to earn it. Recap is a single
+one-time purchase: everything below is included, works offline, and
+never phones home. No tiers, no upsells, no recurring anything.
+
 RECORD ANYWHERE
 • One-tap recording with live on-device transcription
 • Record device audio for webinars and calls (audio only, with your consent)
@@ -51,4 +57,4 @@ offline. Recording laws vary by location — always record with consent.
 
 Recap is open source.
 ----------------------------------------------------------------
-(char count ~2,050 — room to grow)
+(char count ~2,450 — room to grow)

@@ -32,7 +32,9 @@ APKs (for sideload checks).
 ## 3. Create the app in Play Console
 
 Play Console → Create app: name **Recap**, default language, App (not
-game), **Free**. Then complete "Set up your app":
+game), **Paid** — this is the one-way door: a free app can never become
+paid, so it must be Paid from creation (see section 9 for price setup).
+Then complete "Set up your app":
 
 - **Privacy policy URL**: publish `docs/privacy-policy.md` publicly first.
   Easiest: repo → Settings → Pages → deploy from branch → `main` `/docs`,
@@ -116,12 +118,53 @@ Recommended ladder regardless of account type:
 2. **Closed testing** — the 14-day/12-tester run if required.
 3. **Production** — staged rollout at 20% → 100%.
 
+Since the app is paid: add every tester's Google account email under
+**Play Console → Settings → License testing** so they get the app free
+(internal-track testers always install free; license testing covers the
+closed track and production checks).
+
 ## 8. Per-release loop (after setup)
 
 1. Bump `versionCode` (+ `versionName`) in `android/app/build.gradle.kts`.
 2. Run the **Release Android (signed AAB)** workflow; download the AAB.
 3. Play Console → the track → Create new release → upload AAB → release
    notes → roll out.
+
+## 9. Pricing (paid up-front)
+
+Decision (July 2026, backed by market research): **list price $7.99,
+launch sale $4.99**.
+
+Why: the one-time on-device comparables sit at $4.99 (Viska, thin
+feature set) and $6.99 (Whisper Notes, transcription only); Recap adds
+the meeting-intelligence layer that cloud tools (Otter $100-204/yr,
+Fireflies $120-216/yr) charge subscriptions for, so it prices at the
+top of the one-time class, with an intro sale for impulse-buy momentum
+and early reviews. Marginal cost per user is zero (no servers), so
+price is pure positioning.
+
+Setup order (the free→paid lock makes ordering matter):
+1. **Payments profile first**: Play Console → Settings → Payments
+   profile — business/individual details, tax forms, payout bank
+   account. Verification can take a couple of days; nothing paid can
+   ship until it clears.
+2. **Enroll in the 15% service-fee tier**: Console → Monetization setup
+   → join the 15% tier (15% fee on the first $1M/yr instead of 30%).
+3. **Set the price**: Monetization → App pricing → Paid → **$7.99**
+   USD; let Play auto-convert other currencies initially (round pricing
+   templates can come later).
+4. **Launch sale**: once live (or at production rollout), create a
+   promotional price / sale at **$4.99** — Play shows the strikethrough
+   ($7.99 → $4.99). Let it lapse to list price once a review base
+   exists (~50+ reviews is a reasonable trigger).
+5. Paid-price changes are allowed anytime in both directions; only
+   free→paid is impossible. Buyers get Play's automatic 48-hour refund
+   window; refunds after that are granted (or not) by you in the
+   console.
+
+The listing copy sells the model explicitly ("PAY ONCE, OWN IT" section
+in PLAY_LISTING.txt) — the $100+/yr subscription contrast is the
+strongest conversion line this app has.
 
 ## Notes and gotchas
 
