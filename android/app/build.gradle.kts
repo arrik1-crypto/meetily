@@ -114,4 +114,7 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
 
     testImplementation("junit:junit:4.13.2")
+    // Real org.json for JVM unit tests — the android.jar mockable stubs
+    // throw "Stub!" for JSONObject/JSONArray otherwise.
+    testImplementation("org.json:json:20240303")
 }
