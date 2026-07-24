@@ -41,9 +41,39 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon testReleaseUnitTest
 
+      # Without a keystore, AGP signs with a debug key that it GENERATES FRESH
+      # on every ephemeral runner — so each build carries a different
+      # certificate and Android refuses to install it over the previous one
+      # ("App not installed"). Decoding the stored keystore makes every build
+      # share one identity, so sideloaded updates install in place.
+      - name: Decode signing keystore
+        id: keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > android/upload.keystore
+            echo "have_keystore=true" >> "$GITHUB_OUTPUT"
+            echo "Signed with the stored keystore: updates install in place."
+          else
+            echo "have_keystore=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::ANDROID_KEYSTORE_BASE64 is not set, so this APK is signed with a throwaway debug key generated on this runner. It CANNOT be installed over an existing build (generic install error); the app must be uninstalled first, which erases its data. Add the ANDROID_KEYSTORE_* secrets to fix this permanently."
+          fi
+
       - name: Build release APK
         working-directory: android
+        env:
+          # Ignored by the gradle config when the file is absent, in which case
+          # it falls back to the debug key (see app/build.gradle.kts).
+          MEETILY_KEYSTORE_FILE: upload.keystore
+          MEETILY_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          MEETILY_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          MEETILY_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: ./gradlew --no-daemon assembleRelease
+
+      - name: Remove keystore
+        if: always()
+        run: rm -f android/upload.keystore
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4

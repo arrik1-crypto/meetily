@@ -22,6 +22,26 @@ password manager). This is the **upload key** — with Play App Signing
 app signing key, so a lost upload key can be reset via Play support.
 **Never commit the keystore or passwords to the repo.**
 
+### Why this matters before you even reach Play
+
+Adding these secrets also fixes sideloading. Without them, `assembleRelease`
+falls back to a debug key, and because CI runners are wiped between jobs
+Android Gradle generates a **brand-new debug key on every build**. Each APK
+then carries a different signing certificate, and Android refuses to install
+an update whose certificate differs from the installed app — the phone shows
+only a generic "App not installed" error. The sole workaround is to uninstall
+first, which erases the app's data.
+
+With the secrets in place, `Build Android APK` signs every APK with the same
+key, so each new build installs straight over the previous one and keeps its
+meetings, models, and settings. The workflow prints a warning in its log
+whenever it had to fall back to a throwaway key.
+
+**Migrating an already-installed sideload build:** the old install was signed
+with a random key, so the first switch still needs an uninstall. Export a
+backup first (Settings → Data → Export), uninstall, install the new APK, then
+import the backup. After that, updates install in place.
+
 ## 2. Build the signed bundle
 
 GitHub → Actions → **Release Android (signed AAB)** → Run workflow (on the
