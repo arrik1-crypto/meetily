@@ -25,8 +25,10 @@ object LlmClient {
         highlights: List<String> = emptyList(),
         template: SummaryTemplate = SummaryTemplates.ALL.first()
     ): String {
+        // Length is governed by the template's depth instructions (see
+        // SummaryTemplates.effective), so no "be concise" here to fight it.
         val systemPrompt = "You are a meeting assistant. " + template.llmInstructions +
-            " Be concise and factual; incorporate the user's own notes and highlighted " +
+            " Be factual; incorporate the user's own notes and highlighted " +
             "moments where relevant." + ActionItems.LLM_INSTRUCTIONS
 
         val userContent = buildString {

@@ -96,6 +96,13 @@
     <string name="vocab_add_medical">＋ Medical terms</string>
     <string name="vocab_add_legal">＋ Legal terms</string>
     <string name="vocab_preset_added">Starter terms added — prune the list to fit your meetings; your own names matter most.</string>
+    <string name="template_soap">Clinical visit note (SOAP)</string>
+    <string name="template_patient_recap">Patient consult recap</string>
+    <string name="template_legal_consult">Legal consultation memo</string>
+    <string name="template_matter">Case / matter notes</string>
+    <string name="depth_brief">Brief</string>
+    <string name="depth_standard">Standard</string>
+    <string name="depth_detailed">Detailed</string>
     <string name="percent_fmt">%1$d%%</string>
 
     <string name="topics_title">Topics</string>

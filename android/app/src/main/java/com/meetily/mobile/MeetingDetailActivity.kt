@@ -1178,23 +1178,60 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun chooseTemplateAndSummarize() {
         val templates = SummaryTemplates.allWithCustom(this)
-        val labels = templates.map { it.label(this) }.toTypedArray()
+        // Per-series memory: a standup series preselects standup, a sales
+        // series preselects the sales report — falling back to the global
+        // last-used template for one-off meetings.
+        val seriesKey = meeting?.let {
+            com.meetily.mobile.search.MeetingGroups.normalizeTitle(it.title)
+        }.orEmpty()
+        val preferred = settings.seriesTemplate(seriesKey) ?: settings.summaryTemplate
         val current = templates
-            .indexOfFirst { it.key == settings.summaryTemplate }
+            .indexOfFirst { it.key == preferred }
             .coerceAtLeast(0)
-        AlertDialog.Builder(this)
-            .setTitle(R.string.choose_template)
-            .setSingleChoiceItems(labels, current) { dialog, which ->
-                dialog.dismiss()
-                val template = templates[which]
-                settings.summaryTemplate = template.key
-                generateSummary(template)
+
+        val view = layoutInflater.inflate(R.layout.dialog_summary_style, null)
+        val toggle = view.findViewById<
+            com.google.android.material.button.MaterialButtonToggleGroup
+        >(R.id.depthToggle)
+        toggle.check(
+            when (settings.summaryDepth) {
+                "brief" -> R.id.depthBrief
+                "detailed" -> R.id.depthDetailed
+                else -> R.id.depthStandard
             }
+        )
+        toggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (isChecked) {
+                settings.summaryDepth = when (checkedId) {
+                    R.id.depthBrief -> "brief"
+                    R.id.depthDetailed -> "detailed"
+                    else -> "standard"
+                }
+            }
+        }
+        val list = view.findViewById<android.widget.ListView>(R.id.templateList)
+        list.adapter = android.widget.ArrayAdapter(
+            this,
+            android.R.layout.simple_list_item_single_choice,
+            templates.map { it.label(this) }
+        )
+        list.setItemChecked(current, true)
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.choose_template)
+            .setView(view)
             .setNeutralButton(R.string.template_custom_button) { _, _ ->
                 showCustomTemplateMenu()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+        list.setOnItemClickListener { _, _, which, _ ->
+            dialog.dismiss()
+            val template = templates[which]
+            settings.summaryTemplate = template.key
+            settings.setSeriesTemplate(seriesKey, template.key)
+            generateSummary(template)
+        }
     }
 
     private fun showCustomTemplateMenu() {

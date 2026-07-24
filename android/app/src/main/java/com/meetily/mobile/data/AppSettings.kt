@@ -50,6 +50,38 @@ class AppSettings(context: Context) {
         get() = prefs.getString("summary_template", "general") ?: "general"
         set(value) = prefs.edit().putString("summary_template", value).apply()
 
+    /** Summary depth knob: "brief", "standard", or "detailed". */
+    var summaryDepth: String
+        get() = prefs.getString("summary_depth", "standard") ?: "standard"
+        set(value) = prefs.edit().putString("summary_depth", value).apply()
+
+    /**
+     * Per-series template memory (normalized title → template key), so a
+     * standup series defaults to the standup template while a sales series
+     * defaults to the sales report — independent of the global last-used.
+     */
+    fun seriesTemplate(seriesKey: String): String? {
+        if (seriesKey.isBlank()) return null
+        return try {
+            org.json.JSONObject(prefs.getString("series_templates", "{}") ?: "{}")
+                .optString(seriesKey).takeIf { it.isNotBlank() }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    fun setSeriesTemplate(seriesKey: String, templateKey: String) {
+        if (seriesKey.isBlank()) return
+        try {
+            val map = org.json.JSONObject(
+                prefs.getString("series_templates", "{}") ?: "{}"
+            )
+            map.put(seriesKey, templateKey)
+            prefs.edit().putString("series_templates", map.toString()).apply()
+        } catch (_: Exception) {
+        }
+    }
+
     /** "system" (Android speech recognizer) or "whisper" (on-device whisper.cpp). */
     var transcriptionEngine: String
         get() = prefs.getString("transcription_engine", "system") ?: "system"
