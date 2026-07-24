@@ -65,6 +65,12 @@ class WhisperRecorder(
     @Volatile private var paused = false
     private var audioThread: Thread? = null
     private val transcriber = Executors.newSingleThreadExecutor()
+
+    /** Set by whichever of finish()/destroy() runs first; the other no-ops. */
+    private val teardownClaimed = java.util.concurrent.atomic.AtomicBoolean(false)
+
+    /** Guards the native free against running twice. */
+    private val nativeReleased = java.util.concurrent.atomic.AtomicBoolean(false)
     @Volatile private var contextPtr = 0L
     @Volatile private var pendingJobs = 0
     private val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
@@ -180,46 +186,56 @@ class WhisperRecorder(
     }
 
     private fun submitChunk(audio: FloatArray, speaker: String?, audioMs: Long) {
+        // A chunk can reach here just as teardown shuts the executor down —
+        // submitting then throws RejectedExecutionException on the audio
+        // thread and takes the process with it. Drop it instead.
+        if (teardownClaimed.get()) return
         pendingJobs++
         onProcessingChange(true)
-        transcriber.execute {
-            try {
-                val padded = if (audio.size < sampleRate * 12 / 10) {
-                    audio.copyOf(sampleRate * 12 / 10)
-                } else {
-                    audio
-                }
-                val clusterId = try {
-                    chunkLabeler?.invoke(audio)
-                } catch (_: Throwable) {
-                    null
-                }
-                val decoded = if (nemoEngine != null) {
-                    nemoEngine.transcribe(padded)
-                } else {
-                    val ptr = contextPtr
-                    if (ptr != 0L) {
-                        WhisperBridge.parseWords(
-                            WhisperBridge.transcribeWords(
-                                ptr, padded, language, nThreads, translate, vocabPrompt
-                            )
-                        )
+        try {
+            transcriber.execute {
+                try {
+                    val padded = if (audio.size < sampleRate * 12 / 10) {
+                        audio.copyOf(sampleRate * 12 / 10)
                     } else {
+                        audio
+                    }
+                    val clusterId = try {
+                        chunkLabeler?.invoke(audio)
+                    } catch (_: Throwable) {
                         null
                     }
-                }
-                if (decoded != null) {
-                    val (text, words) = decoded
-                    if (text.isNotBlank() && !isNoise(text)) {
-                        onSegment(text.trim(), speaker, clusterId, audioMs, words)
+                    val decoded = if (nemoEngine != null) {
+                        nemoEngine.transcribe(padded)
+                    } else {
+                        val ptr = contextPtr
+                        if (ptr != 0L) {
+                            WhisperBridge.parseWords(
+                                WhisperBridge.transcribeWords(
+                                    ptr, padded, language, nThreads, translate, vocabPrompt
+                                )
+                            )
+                        } else {
+                            null
+                        }
                     }
+                    if (decoded != null) {
+                        val (text, words) = decoded
+                        if (text.isNotBlank() && !isNoise(text)) {
+                            onSegment(text.trim(), speaker, clusterId, audioMs, words)
+                        }
+                    }
+                } catch (e: Throwable) {
+                    onError("Transcription failed: ${e.message}")
+                } finally {
+                    pendingJobs--
+                    if (pendingJobs <= 0) onProcessingChange(false)
                 }
-            } catch (e: Throwable) {
-                onError("Transcription failed: ${e.message}")
-            } finally {
-                pendingJobs--
-                if (pendingJobs <= 0) onProcessingChange(false)
             }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Teardown won the race; this chunk is not transcribed.
+            pendingJobs--
+            if (pendingJobs <= 0) onProcessingChange(false)
         }
     }
 
@@ -249,30 +265,68 @@ class WhisperRecorder(
                 audioThread?.join(4000)
             } catch (_: InterruptedException) {
             }
-            transcriber.execute {
-                try {
-                    onComplete()
-                } finally {
-                    val ptr = contextPtr
-                    contextPtr = 0L
-                    if (ptr != 0L) WhisperBridge.freeContext(ptr)
-                    nemoEngine?.release()
+            // Whoever claims teardown owns the shutdown and the native free.
+            if (!teardownClaimed.compareAndSet(false, true)) {
+                // destroy() already tore everything down; still tell the
+                // caller we are done, or the finish flow hangs.
+                onComplete()
+                return@Thread
+            }
+            val submitted = try {
+                transcriber.execute {
+                    try {
+                        onComplete()
+                    } finally {
+                        releaseNative()
+                    }
                 }
+                true
+            } catch (_: java.util.concurrent.RejectedExecutionException) {
+                false
             }
             transcriber.shutdown()
+            if (!submitted) {
+                onComplete()
+                releaseNative()
+            }
         }.start()
     }
 
-    /** Immediate teardown without waiting for pending transcriptions. */
+    /**
+     * Immediate teardown without waiting for pending transcriptions.
+     *
+     * Safe to call after [finish] — and it is, on every normal stop:
+     * RecordingService tears the engines down once the finish callback
+     * lands. Submitting to the already-shut-down executor threw
+     * RejectedExecutionException on the main thread and crashed the app at
+     * the end of a recording, so teardown is claimed exactly once and the
+     * later caller becomes a no-op.
+     */
     fun destroy() {
         running = false
-        transcriber.execute {
-            val ptr = contextPtr
-            contextPtr = 0L
-            if (ptr != 0L) WhisperBridge.freeContext(ptr)
-            nemoEngine?.release()
+        if (!teardownClaimed.compareAndSet(false, true)) return
+        try {
+            transcriber.execute { releaseNative() }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            releaseNative()
         }
         transcriber.shutdown()
+    }
+
+    /**
+     * Frees the whisper context and the NeMo engine exactly once. Runs on
+     * the transcriber thread whenever possible, so it cannot race a
+     * transcription that is still using the context.
+     */
+    private fun releaseNative() {
+        if (!nativeReleased.compareAndSet(false, true)) return
+        val ptr = contextPtr
+        contextPtr = 0L
+        if (ptr != 0L) WhisperBridge.freeContext(ptr)
+        try {
+            nemoEngine?.release()
+        } catch (_: Throwable) {
+        }
     }
 
     private fun rmsOf(buffer: FloatArray, n: Int): Float {
