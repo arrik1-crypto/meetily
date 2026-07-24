@@ -82,15 +82,33 @@ object NemoModels {
 
     fun isDownloaded(context: Context, model: NemoModel): Boolean {
         val dir = dir(context, model)
-        return model.files.all { file ->
-            val f = File(dir, file.name)
-            // Tiny files (tokens.txt) just need to exist non-empty; ONNX
-            // parts must be at least ~85% of nominal to reject truncation.
-            if (file.sizeMb <= 1) {
-                f.length() > 0
-            } else {
-                f.length() > file.sizeMb * 1024L * 1024L * 85 / 100
-            }
+        return model.files.all { file -> fileComplete(dir, file) }
+    }
+
+    private fun okFile(dir: File, file: NemoFile): File = File(dir, file.name + ".ok")
+
+    /**
+     * A file counts as complete when its .ok sidecar (written only after a
+     * download finished and matched the server's Content-Length) records the
+     * file's current byte count. The nominal-size heuristic remains as a
+     * fallback so installs that downloaded before sidecars existed are not
+     * asked to re-download — but sidecars are authoritative, because the
+     * hard-coded nominal sizes can drift from what upstream actually serves.
+     */
+    private fun fileComplete(dir: File, file: NemoFile): Boolean {
+        val f = File(dir, file.name)
+        if (!f.exists() || f.length() == 0L) return false
+        val ok = okFile(dir, file)
+        if (ok.exists()) {
+            val recorded = ok.readText().trim().toLongOrNull()
+            if (recorded != null && recorded == f.length()) return true
+        }
+        // Legacy fallback (pre-sidecar installs): tiny files just need to be
+        // non-empty; ONNX parts must be at least ~85% of nominal size.
+        return if (file.sizeMb <= 1) {
+            f.length() > 0
+        } else {
+            f.length() > file.sizeMb * 1024L * 1024L * 85 / 100
         }
     }
 
@@ -125,12 +143,7 @@ object NemoModels {
         for (file in model.files) {
             val target = File(dir, file.name)
             val nominal = file.sizeMb * 1024L * 1024L
-            val complete = if (file.sizeMb <= 1) {
-                target.length() > 0
-            } else {
-                target.length() > nominal * 85 / 100
-            }
-            if (complete) {
+            if (fileComplete(dir, file)) {
                 doneBytes += nominal
                 onProgress((doneBytes * 100 / totalBytes).toInt().coerceIn(0, 100))
                 continue
@@ -139,6 +152,9 @@ object NemoModels {
                 val overall = doneBytes + read.coerceAtMost(nominal)
                 onProgress((overall * 100 / totalBytes).toInt().coerceIn(0, 99))
             }
+            // Record the verified byte count so completeness never depends on
+            // the nominal-size guess again (see fileComplete).
+            okFile(dir, file).writeText(target.length().toString())
             doneBytes += nominal
             onProgress((doneBytes * 100 / totalBytes).toInt().coerceIn(0, 100))
         }
@@ -160,10 +176,11 @@ object NemoModels {
             if (status !in 200..299) {
                 throw RuntimeException("HTTP $status while downloading ${target.name}")
             }
+            val expected = connection.contentLengthLong
+            var received = 0L
             connection.inputStream.use { input ->
                 partial.outputStream().use { output ->
                     val buffer = ByteArray(256 * 1024)
-                    var read = 0L
                     while (true) {
                         if (cancelled()) {
                             throw InterruptedException("Download cancelled")
@@ -171,10 +188,15 @@ object NemoModels {
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)
-                        read += n
-                        onBytes(read)
+                        received += n
+                        onBytes(received)
                     }
                 }
+            }
+            if (expected > 0 && received != expected) {
+                throw RuntimeException(
+                    "Truncated download for ${target.name}: got $received of $expected bytes"
+                )
             }
             if (!partial.renameTo(target)) {
                 partial.copyTo(target, overwrite = true)
