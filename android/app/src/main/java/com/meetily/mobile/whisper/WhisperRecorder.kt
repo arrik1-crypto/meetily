@@ -66,11 +66,8 @@ class WhisperRecorder(
     private var audioThread: Thread? = null
     private val transcriber = Executors.newSingleThreadExecutor()
 
-    /** Set by whichever of finish()/destroy() runs first; the other no-ops. */
-    private val teardownClaimed = java.util.concurrent.atomic.AtomicBoolean(false)
-
-    /** Guards the native free against running twice. */
-    private val nativeReleased = java.util.concurrent.atomic.AtomicBoolean(false)
+    /** Ordering guard shared by finish()/destroy(); see [TeardownGate]. */
+    private val gate = TeardownGate()
     @Volatile private var contextPtr = 0L
     @Volatile private var pendingJobs = 0
     private val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
@@ -189,7 +186,7 @@ class WhisperRecorder(
         // A chunk can reach here just as teardown shuts the executor down —
         // submitting then throws RejectedExecutionException on the audio
         // thread and takes the process with it. Drop it instead.
-        if (teardownClaimed.get()) return
+        if (gate.isClaimed) return
         pendingJobs++
         onProcessingChange(true)
         try {
@@ -266,7 +263,7 @@ class WhisperRecorder(
             } catch (_: InterruptedException) {
             }
             // Whoever claims teardown owns the shutdown and the native free.
-            if (!teardownClaimed.compareAndSet(false, true)) {
+            if (!gate.claim()) {
                 // destroy() already tore everything down; still tell the
                 // caller we are done, or the finish flow hangs.
                 onComplete()
@@ -304,7 +301,7 @@ class WhisperRecorder(
      */
     fun destroy() {
         running = false
-        if (!teardownClaimed.compareAndSet(false, true)) return
+        if (!gate.claim()) return
         try {
             transcriber.execute { releaseNative() }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
@@ -318,8 +315,7 @@ class WhisperRecorder(
      * the transcriber thread whenever possible, so it cannot race a
      * transcription that is still using the context.
      */
-    private fun releaseNative() {
-        if (!nativeReleased.compareAndSet(false, true)) return
+    private fun releaseNative() = gate.releaseOnce {
         val ptr = contextPtr
         contextPtr = 0L
         if (ptr != 0L) WhisperBridge.freeContext(ptr)

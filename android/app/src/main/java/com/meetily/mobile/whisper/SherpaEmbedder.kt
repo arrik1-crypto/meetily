@@ -11,9 +11,22 @@ import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
 class SherpaEmbedder private constructor(
     private val extractor: SpeakerEmbeddingExtractor
 ) {
-    /** Computes a voice embedding for 16 kHz mono float PCM, or null. */
-    fun embed(samples: FloatArray): FloatArray? {
-        return try {
+    private val lock = Any()
+
+    @Volatile private var released = false
+
+    /**
+     * Computes a voice embedding for 16 kHz mono float PCM, or null.
+     *
+     * Serialised against [release]: the recording service frees this from
+     * the MAIN thread during teardown, while queued transcription chunks may
+     * still be labelling speakers on the transcriber thread. Using the freed
+     * native handle is a SIGSEGV — a fatal signal, not a catchable throwable
+     * — so the guard has to prevent the call, not catch it.
+     */
+    fun embed(samples: FloatArray): FloatArray? = synchronized(lock) {
+        if (released) return null
+        try {
             val stream = extractor.createStream()
             try {
                 stream.acceptWaveform(samples, SAMPLE_RATE)
@@ -27,7 +40,10 @@ class SherpaEmbedder private constructor(
         }
     }
 
-    fun release() {
+    /** Idempotent; blocks on at most one in-flight [embed]. */
+    fun release() = synchronized(lock) {
+        if (released) return
+        released = true
         try {
             extractor.release()
         } catch (_: Throwable) {
