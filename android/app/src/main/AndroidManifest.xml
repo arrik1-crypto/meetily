@@ -112,6 +112,11 @@
             android:parentActivityName=".MainActivity" />
 
         <activity
+            android:name=".CalendarDiagnosticsActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity" />
+
+        <activity
             android:name=".AskLibraryActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
@@ -154,7 +159,15 @@
 
         <receiver
             android:name=".reminders.ReminderReceiver"
-            android:exported="false" />
+            android:exported="false">
+            <!-- The calendar provider broadcasts this after a sync, so newly
+                 arrived meetings get an alarm armed without opening the app. -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROVIDER_CHANGED" />
+                <data android:scheme="content" />
+                <data android:host="com.android.calendar" />
+            </intent-filter>
+        </receiver>
 
         <receiver
             android:name=".reminders.BootReceiver"

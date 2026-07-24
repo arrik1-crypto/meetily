@@ -271,6 +271,9 @@ class SettingsActivity : AppCompatActivity() {
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
         findViewById<android.widget.EditText>(R.id.vocabInput).setText(settings.customVocab)
+        findViewById<View>(R.id.calendarCheckButton).setOnClickListener {
+            startActivity(Intent(this, CalendarDiagnosticsActivity::class.java))
+        }
         findViewById<View>(R.id.vocabMedicalButton).setOnClickListener {
             appendVocabPreset(com.meetily.mobile.whisper.Vocab.MEDICAL_PRESET)
         }

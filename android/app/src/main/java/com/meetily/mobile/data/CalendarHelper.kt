@@ -12,6 +12,9 @@ import kotlin.math.abs
  */
 object CalendarHelper {
 
+    /** Stand-in for events whose sync adapter left the title empty. */
+    const val UNTITLED = "Untitled meeting"
+
     data class CalendarEvent(
         val eventId: Long,
         val title: String,
@@ -19,14 +22,50 @@ object CalendarHelper {
         val endMs: Long
     )
 
+    /** One row of the Calendars table, for the in-app calendar diagnostics. */
+    data class CalendarInfo(
+        val id: Long,
+        val displayName: String,
+        val accountName: String,
+        val accountType: String,
+        val visible: Boolean,
+        val syncEvents: Boolean,
+        val upcomingCount: Int
+    ) {
+        /** "Google", "Outlook/Exchange", "On this device"… from the raw type. */
+        val providerLabel: String
+            get() = when {
+                accountType.contains("google", true) -> "Google"
+                accountType.contains("exchange", true) ||
+                    accountType.contains("microsoft", true) ||
+                    accountType.contains("outlook", true) -> "Outlook / Exchange"
+                accountType.contains("LOCAL", true) -> "On this device"
+                accountType.isBlank() -> "Unknown"
+                else -> accountType
+            }
+    }
+
     /**
      * The next event starting more than a minute from now (within 24 h), for
      * the "meeting is starting — record?" nudge chain. Requires READ_CALENDAR.
      */
-    fun nextUpcomingEvent(context: Context): CalendarEvent? {
+    fun nextUpcomingEvent(context: Context): CalendarEvent? =
+        upcomingEvents(context, limit = 1).firstOrNull()
+
+    /**
+     * Up to [limit] events starting between a minute from now and [windowMs]
+     * ahead, earliest first. The nudge chain arms one alarm per event rather
+     * than a single "next event" alarm, so simultaneous and back-to-back
+     * meetings each get their own nudge and the chain cannot go stale.
+     */
+    fun upcomingEvents(
+        context: Context,
+        limit: Int = 8,
+        windowMs: Long = 24L * 60 * 60 * 1000
+    ): List<CalendarEvent> {
         val now = System.currentTimeMillis()
         val windowStart = now + 60_000L
-        val windowEnd = now + 24L * 60 * 60 * 1000
+        val windowEnd = now + windowMs
 
         val uriBuilder = CalendarContract.Instances.CONTENT_URI.buildUpon()
         ContentUris.appendId(uriBuilder, windowStart)
@@ -39,25 +78,88 @@ object CalendarHelper {
             CalendarContract.Instances.END,
             CalendarContract.Instances.ALL_DAY
         )
+        val out = mutableListOf<CalendarEvent>()
         try {
             context.contentResolver.query(
                 uriBuilder.build(), projection, null, null,
                 CalendarContract.Instances.BEGIN + " ASC"
             )?.use { cursor ->
-                while (cursor.moveToNext()) {
+                while (cursor.moveToNext() && out.size < limit) {
                     if (cursor.getInt(4) != 0) continue // all-day
+                    // Exchange/Outlook leaves TITLE null on some private or
+                    // subject-less holds; skipping them meant no nudge at all
+                    // for meetings that are common on a work calendar.
                     val title = cursor.getString(1)?.trim().orEmpty()
-                    if (title.isBlank()) continue
+                        .ifBlank { UNTITLED }
                     val begin = cursor.getLong(2)
                     if (begin <= now) continue
-                    return CalendarEvent(
-                        cursor.getLong(0), title, begin, cursor.getLong(3)
+                    out.add(CalendarEvent(cursor.getLong(0), title, begin, cursor.getLong(3)))
+                }
+            }
+        } catch (_: Exception) {
+        }
+        return out
+    }
+
+    /**
+     * Every calendar this app can see, with a count of timed events in the
+     * next 7 days. Drives the diagnostics screen: a work calendar that never
+     * reaches Android's calendar database simply will not appear here, which
+     * is the difference between "the app is broken" and "the account isn't
+     * syncing to the device".
+     */
+    fun calendars(context: Context): List<CalendarInfo> {
+        val projection = arrayOf(
+            CalendarContract.Calendars._ID,
+            CalendarContract.Calendars.CALENDAR_DISPLAY_NAME,
+            CalendarContract.Calendars.ACCOUNT_NAME,
+            CalendarContract.Calendars.ACCOUNT_TYPE,
+            CalendarContract.Calendars.VISIBLE,
+            CalendarContract.Calendars.SYNC_EVENTS
+        )
+        val out = mutableListOf<CalendarInfo>()
+        try {
+            context.contentResolver.query(
+                CalendarContract.Calendars.CONTENT_URI, projection, null, null,
+                CalendarContract.Calendars.ACCOUNT_NAME + " ASC"
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    out.add(
+                        CalendarInfo(
+                            id = id,
+                            displayName = cursor.getString(1)?.trim().orEmpty(),
+                            accountName = cursor.getString(2)?.trim().orEmpty(),
+                            accountType = cursor.getString(3)?.trim().orEmpty(),
+                            visible = cursor.getInt(4) != 0,
+                            syncEvents = cursor.getInt(5) != 0,
+                            upcomingCount = countUpcoming(context, id)
+                        )
                     )
                 }
             }
         } catch (_: Exception) {
         }
-        return null
+        return out
+    }
+
+    /** Timed events on one calendar over the next 7 days. */
+    private fun countUpcoming(context: Context, calendarId: Long): Int {
+        val now = System.currentTimeMillis()
+        val uriBuilder = CalendarContract.Instances.CONTENT_URI.buildUpon()
+        ContentUris.appendId(uriBuilder, now)
+        ContentUris.appendId(uriBuilder, now + 7L * 24 * 60 * 60 * 1000)
+        return try {
+            context.contentResolver.query(
+                uriBuilder.build(),
+                arrayOf(CalendarContract.Instances.EVENT_ID),
+                CalendarContract.Instances.CALENDAR_ID + " = ?",
+                arrayOf(calendarId.toString()),
+                null
+            )?.use { it.count } ?: 0
+        } catch (_: Exception) {
+            0
+        }
     }
 
     /**
@@ -91,7 +193,7 @@ object CalendarHelper {
                     val allDay = cursor.getInt(4) != 0
                     if (allDay) continue
                     val title = cursor.getString(1)?.trim().orEmpty()
-                    if (title.isBlank()) continue
+                        .ifBlank { UNTITLED }
                     val begin = cursor.getLong(2)
                     val end = cursor.getLong(3)
                     val startsSoon = begin <= now + 15L * 60 * 1000

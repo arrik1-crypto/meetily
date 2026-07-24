@@ -160,6 +160,14 @@
                         android:text="@string/setting_nudges_desc"
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <!-- "Why didn't my meeting nudge fire?" answered in-app. -->
+                    <Button
+                        android:id="@+id/calendarCheckButton"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/cal_diag_menu" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 

@@ -103,6 +103,35 @@
     <string name="depth_brief">Brief</string>
     <string name="depth_standard">Standard</string>
     <string name="depth_detailed">Detailed</string>
+
+    <!-- Calendar diagnostics -->
+    <string name="cal_diag_title">Calendar check</string>
+    <string name="cal_diag_menu">Calendar check…</string>
+    <string name="cal_diag_intro">What Recap can actually see. Calendars missing from this list aren\'t reaching Android\'s calendar database, so no app on the phone can read them — that\'s an account sync setting, not a Recap problem.</string>
+    <string name="cal_diag_setup">SETUP</string>
+    <string name="cal_diag_nudges_setting">Suggest recording at meeting start</string>
+    <string name="cal_diag_permission">Calendar permission</string>
+    <string name="cal_diag_exact_alarms">Exact alarms</string>
+    <string name="cal_diag_on">On</string>
+    <string name="cal_diag_off">Off</string>
+    <string name="cal_diag_granted">Granted</string>
+    <string name="cal_diag_denied">Not granted</string>
+    <string name="cal_diag_exact_denied">Not allowed</string>
+    <string name="cal_diag_exact_help">Without this, Android may deliver a nudge a few minutes late. Recap handles that, but allowing it makes nudges land right on time.</string>
+    <string name="cal_diag_exact_open">Allow exact alarms</string>
+    <string name="cal_diag_permission_help">Recap can\'t read any calendar without this permission.</string>
+    <string name="cal_diag_open_settings">Open app settings</string>
+    <string name="cal_diag_calendars">CALENDARS VISIBLE TO RECAP (%1$d)</string>
+    <string name="cal_diag_none">None. No calendar account is syncing to this phone\'s calendar database.</string>
+    <string name="cal_diag_event_count">%1$d in 7 days</string>
+    <string name="cal_diag_flag_nosync"> · sync off</string>
+    <string name="cal_diag_flag_hidden"> · hidden</string>
+    <string name="cal_diag_no_outlook">No Outlook/Exchange calendar found. If you use a work Microsoft 365 account: open Outlook → Settings → your account → turn on "Sync calendars". If your employer manages the device, an IT policy or a separate work profile may block this entirely — in that case nothing on the personal side of the phone can see those meetings.</string>
+    <string name="cal_diag_armed">NUDGES ARMED</string>
+    <string name="cal_diag_armed_none">None. Either no meetings are coming up in the next 24 hours, or nothing is syncing.</string>
+    <string name="cal_diag_checked_at">Last checked %1$s</string>
+    <string name="cal_diag_footer">Recap re-checks hourly and whenever the calendar syncs. Use "Re-check now" after changing a calendar setting.</string>
+    <string name="cal_diag_recheck">Re-check now</string>
     <string name="percent_fmt">%1$d%%</string>
 
     <string name="topics_title">Topics</string>

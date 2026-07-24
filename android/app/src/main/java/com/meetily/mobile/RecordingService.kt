@@ -964,6 +964,18 @@ class RecordingService : Service() {
         /** True while a recording session is live in this process. */
         @Volatile
         var isRunning = false
+            set(value) {
+                field = value
+                // Timestamp the transition so the calendar nudge can tell
+                // "recording THIS meeting" from "still recording the previous
+                // one" — back-to-back meetings must still be nudged.
+                runningSinceMs = if (value) System.currentTimeMillis() else null
+            }
+
+        /** When the current recording started, or null when idle. */
+        @Volatile
+        var runningSinceMs: Long? = null
+            private set
 
         fun start(context: Context, deviceAudio: Boolean = false) {
             isRunning = true

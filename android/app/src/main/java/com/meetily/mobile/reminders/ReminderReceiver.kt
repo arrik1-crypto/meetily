@@ -22,7 +22,15 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             Reminders.ACTION_ITEM_REMINDER -> fireActionItem(context, intent)
-            Reminders.ACTION_CALENDAR_NUDGE -> fireNudge(context)
+            Reminders.ACTION_CALENDAR_NUDGE -> fireNudge(context, intent)
+            // Hourly sweep, and the calendar provider telling us it synced:
+            // both just re-arm, which is how a newly arrived meeting gets a
+            // nudge without the app being opened.
+            Reminders.ACTION_REFRESH, Intent.ACTION_PROVIDER_CHANGED ->
+                try {
+                    Reminders.scheduleNextCalendarNudge(context)
+                } catch (_: Exception) {
+                }
         }
     }
 
@@ -60,58 +68,86 @@ class ReminderReceiver : BroadcastReceiver() {
         notify(context, (meetingId + "|" + task).hashCode(), notification)
     }
 
-    private fun fireNudge(context: Context) {
+    private fun fireNudge(context: Context, intent: Intent) {
         try {
             if (!AppSettings(context).meetingNudges) return
-            if (RecordingService.isRunning) return
             val now = System.currentTimeMillis()
-            // The alarm was set for an event's start; confirm one is actually
-            // starting around now (calendar may have changed since arming).
-            val event = CalendarHelper.findCurrentEvents(context)
-                .firstOrNull { kotlin.math.abs(it.beginMs - now) <= 3 * 60_000L }
-                ?: return
+            // A recording started in the last few minutes is for THIS meeting,
+            // so stay quiet. One still running from the previous meeting must
+            // not silence the next one — the back-to-back work pattern.
+            if (Reminders.NudgeTiming.suppressedByRecording(
+                    RecordingService.runningSinceMs, now
+                )
+            ) {
+                return
+            }
+            // Confirm an event really is starting around now (the calendar can
+            // change between arming and firing). The acceptance window must be
+            // wider than the alarm's own window: without the exact-alarm
+            // permission — denied by default on Android 14+ — the alarm fires
+            // anywhere inside a several-minute band, and a tighter check here
+            // silently swallowed the notification.
+            // Nudge EVERY event starting around now, not just one: two
+            // meetings at the same time are a routine work-calendar shape.
+            // Dedupe by occurrence keeps the widened window from repeating.
+            val candidates = CalendarHelper.findCurrentEvents(context)
+                .filter { Reminders.NudgeTiming.accepts(it.beginMs, it.endMs, now) }
+                .take(3)
+            if (candidates.isEmpty()) return
             ensureChannel(
                 context, CHANNEL_NUDGES,
                 context.getString(R.string.nudges_channel_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             )
-            val record = PendingIntent.getActivity(
-                context,
-                9002,
-                Intent(context, RecordingActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-            )
-            val builder = NotificationCompat.Builder(context, CHANNEL_NUDGES)
-                .setSmallIcon(R.drawable.ic_mic)
-                .setContentTitle(
-                    context.getString(R.string.nudge_notif_title, event.title)
-                )
-                .setContentText(context.getString(R.string.nudge_notif_body))
-                .setContentIntent(record)
-                .setAutoCancel(true)
-                .setTimeoutAfter(20 * 60_000L)
-            // When this event matches a known recurring series, offer a
-            // pre-meeting brief: last time's outcomes + open items.
-            if (hasSeriesHistory(context, event.title)) {
-                val brief = PendingIntent.getActivity(
+            for (event in candidates) {
+                val key = Reminders.NudgeTiming.nudgeKey(event.eventId, event.beginMs)
+                if (NudgeState.alreadyPosted(context, key)) continue
+                // Per-event codes/ids: two meetings starting at once must not
+                // overwrite each other's notification or share stale extras.
+                val eventCode = 9200 + (event.eventId % 400).toInt()
+                val record = PendingIntent.getActivity(
                     context,
-                    9003,
-                    Intent(context, com.meetily.mobile.PreMeetingBriefActivity::class.java)
-                        .putExtra(
-                            com.meetily.mobile.PreMeetingBriefActivity.EXTRA_QUERY,
-                            event.title
-                        )
+                    eventCode,
+                    Intent(context, RecordingActivity::class.java)
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
-                builder.addAction(
-                    R.drawable.ic_sparkle,
-                    context.getString(R.string.nudge_prep_action),
-                    brief
-                )
+                val builder = NotificationCompat.Builder(context, CHANNEL_NUDGES)
+                    .setSmallIcon(R.drawable.ic_mic)
+                    .setContentTitle(
+                        context.getString(R.string.nudge_notif_title, event.title)
+                    )
+                    .setContentText(context.getString(R.string.nudge_notif_body))
+                    .setContentIntent(record)
+                    .setAutoCancel(true)
+                    // Stay up for roughly the meeting instead of a flat 20 min,
+                    // so a phone face-down through the meeting still shows it.
+                    .setTimeoutAfter(
+                        (event.endMs - now).coerceIn(20 * 60_000L, 3 * 60 * 60_000L)
+                    )
+                // When this event matches a known recurring series, offer a
+                // pre-meeting brief: last time's outcomes + open items.
+                if (hasSeriesHistory(context, event.title)) {
+                    val brief = PendingIntent.getActivity(
+                        context,
+                        eventCode + 500,
+                        Intent(context, com.meetily.mobile.PreMeetingBriefActivity::class.java)
+                            .putExtra(
+                                com.meetily.mobile.PreMeetingBriefActivity.EXTRA_QUERY,
+                                event.title
+                            )
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                    )
+                    builder.addAction(
+                        R.drawable.ic_sparkle,
+                        context.getString(R.string.nudge_prep_action),
+                        brief
+                    )
+                }
+                notify(context, eventCode, builder.build())
+                NudgeState.markPosted(context, key)
             }
-            notify(context, 9002, builder.build())
         } finally {
             // Keep the chain alive no matter what this firing decided.
             Reminders.scheduleNextCalendarNudge(context)
