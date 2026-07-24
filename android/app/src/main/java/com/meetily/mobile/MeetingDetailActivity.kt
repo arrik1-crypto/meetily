@@ -1754,7 +1754,12 @@ class MeetingDetailActivity : AppCompatActivity() {
                                 val pcm = AudioWindowExtractor
                                     .extract(this, file, start, end) ?: continue
                                 val embedding = embedder.embed(pcm) ?: continue
-                                if (VoiceProfileStore.addSample(this, name, embedding)) {
+                                // Audio is banked so the profile can roll
+                                // over when the speaker model changes.
+                                if (VoiceProfileStore.addSample(
+                                        this, name, embedding, dModel.key, pcm
+                                    )
+                                ) {
                                     added++
                                 }
                             }

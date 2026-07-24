@@ -63,4 +63,54 @@ class VoiceProfilesTest {
         val merged = VoiceProfileStore.merged(unit(0), oldWeight = 1, sample = unit(1))
         assertEquals(merged[0], merged[1], 1e-5f)
     }
+
+    @Test
+    fun matchSkipsProfilesFromAnotherModelEvenWithMatchingDimensions() {
+        // Same 8-dim space, but tagged with a different speaker model:
+        // cross-model cosine similarity is meaningless, never a match.
+        val profiles = listOf(VoiceProfile("Priya", unit(0), 1, model = "resnet34-en"))
+        assertNull(
+            VoiceProfileStore.match(profiles, unit(0), model = "resnet293-en")
+        )
+        assertEquals(
+            "Priya",
+            VoiceProfileStore.match(profiles, unit(0), model = "resnet34-en")
+        )
+    }
+
+    @Test
+    fun matchAllowsLegacyUntaggedProfilesOnDimensionsAlone() {
+        val profiles = listOf(VoiceProfile("Legacy", unit(0), 1, model = ""))
+        assertEquals(
+            "Legacy",
+            VoiceProfileStore.match(profiles, unit(0), model = "resnet293-en")
+        )
+    }
+
+    @Test
+    fun matchWithoutModelKeepsOldBehaviour() {
+        val profiles = listOf(VoiceProfile("Priya", unit(0), 1, model = "resnet34-en"))
+        assertEquals("Priya", VoiceProfileStore.match(profiles, unit(0)))
+    }
+
+    @Test
+    fun pcm16RoundTripsWithinQuantizationError() {
+        val original = floatArrayOf(0f, 0.5f, -0.5f, 1f, -1f, 0.123f, -0.987f)
+        val decoded = VoiceProfileStore.decodePcm16(
+            VoiceProfileStore.encodePcm16(original)
+        )
+        assertEquals(original.size, decoded.size)
+        for (i in original.indices) {
+            assertEquals(original[i], decoded[i], 1.5f / 32768f)
+        }
+    }
+
+    @Test
+    fun pcm16ClampsOutOfRangeSamples() {
+        val decoded = VoiceProfileStore.decodePcm16(
+            VoiceProfileStore.encodePcm16(floatArrayOf(2f, -2f))
+        )
+        assertEquals(1f, decoded[0], 1.5f / 32768f)
+        assertEquals(-1f, decoded[1], 1.5f / 32768f)
+    }
 }

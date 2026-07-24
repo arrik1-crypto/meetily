@@ -99,6 +99,8 @@ class RecordingService : Service() {
     private var audioWriter: MeetingAudioWriter? = null
     private var audioFileName: String? = null
     private var voiceProfiles: List<VoiceProfile> = emptyList()
+    /** Speaker-model key the live embedder was created from ("" = none). */
+    private var diarizeModelKey: String = ""
     private var clusterer: SpeakerClusterer? = null
     private val clusterNames = mutableMapOf<Int, String>()
 
@@ -305,7 +307,10 @@ class RecordingService : Service() {
      */
     fun saveVoiceProfileFromCluster(clusterId: Int, name: String): Boolean {
         val centroid = clusterer?.centroidOf(clusterId) ?: return false
-        val saved = VoiceProfileStore.addSample(this, name, centroid)
+        // No clean per-speaker audio exists for a live cluster, so this
+        // profile has no banked audio; tagging lines afterwards (which
+        // extracts exact windows from the saved recording) adds some.
+        val saved = VoiceProfileStore.addSample(this, name, centroid, diarizeModelKey)
         if (saved) voiceProfiles = VoiceProfileStore.load(this)
         return saved
     }
@@ -596,10 +601,24 @@ class RecordingService : Service() {
                 )
                 if (created != null) {
                     embedder = created
+                    diarizeModelKey = dModel.key
                     val c = SpeakerClusterer()
                     clusterer = c
                     voiceProfiles = VoiceProfileStore.load(this)
+                    // Voiceprint rollover runs on the labeler's first call:
+                    // that's the transcription worker thread (the embedder's
+                    // normal home, so no lifecycle races) rather than the
+                    // service start path, and its main.post lands before the
+                    // first segment posts — so even the opening sentence is
+                    // matched against the converted profiles.
+                    val rolled = java.util.concurrent.atomic.AtomicBoolean(false)
                     labeler = { audio ->
+                        if (rolled.compareAndSet(false, true)) {
+                            val updated = VoiceProfileStore.reembedForModel(
+                                this, dModel.key
+                            ) { created.embed(it) }
+                            main.post { if (active) voiceProfiles = updated }
+                        }
                         c.assign(
                             if (audio.size >= MIN_EMBED_SAMPLES) created.embed(audio) else null
                         )
@@ -682,8 +701,10 @@ class RecordingService : Service() {
         if (clusterId != null && !clusterNames.containsKey(clusterId) &&
             voiceProfiles.isNotEmpty()
         ) {
-            VoiceProfileStore.match(voiceProfiles, clusterer?.centroidOf(clusterId))
-                ?.let { name -> applyClusterName(clusterId, name) }
+            VoiceProfileStore.match(
+                voiceProfiles, clusterer?.centroidOf(clusterId),
+                model = diarizeModelKey
+            )?.let { name -> applyClusterName(clusterId, name) }
         }
         // Precedence: manual/sticky speaker > named cluster > anonymous cluster.
         val resolved = speaker ?: clusterId?.let { clusterNames[it] }

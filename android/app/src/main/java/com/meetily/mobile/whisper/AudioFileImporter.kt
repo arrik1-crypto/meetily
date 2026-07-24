@@ -98,13 +98,17 @@ class AudioFileImporter(
 
         var embedder: SherpaEmbedder? = null
         var clusterer: SpeakerClusterer? = null
+        var diarizeKey: String? = null
         if (settings.diarizationEnabled) {
             val dModel = DiarizationModels.byKey(settings.diarizationModel)
             if (DiarizationModels.isDownloaded(context, dModel)) {
                 embedder = SherpaEmbedder.create(
                     DiarizationModels.fileFor(context, dModel).absolutePath
                 )
-                if (embedder != null) clusterer = SpeakerClusterer()
+                if (embedder != null) {
+                    clusterer = SpeakerClusterer()
+                    diarizeKey = dModel.key
+                }
             }
         }
 
@@ -291,15 +295,24 @@ class AudioFileImporter(
                     meeting.segments[i] = s.copy(clusterId = to)
                 }
             }
-            // Name clusters whose voices match saved profiles.
+            // Name clusters whose voices match saved profiles — after first
+            // rolling profiles from other speaker models over to this one
+            // (re-embedding their banked audio while the extractor is live).
             val c = clusterer
             if (c != null) {
-                val profiles = VoiceProfileStore.load(context)
+                val e = embedder
+                val dk = diarizeKey
+                val profiles = if (dk != null && e != null) {
+                    VoiceProfileStore.reembedForModel(context, dk) { e.embed(it) }
+                } else {
+                    VoiceProfileStore.load(context)
+                }
                 if (profiles.isNotEmpty()) {
                     val names = mutableMapOf<Int, String>()
                     for (id in c.clusterIds()) {
-                        VoiceProfileStore.match(profiles, c.centroidOf(id))
-                            ?.let { names[id] = it }
+                        VoiceProfileStore.match(
+                            profiles, c.centroidOf(id), model = dk
+                        )?.let { names[id] = it }
                     }
                     if (names.isNotEmpty()) {
                         for (i in meeting.segments.indices) {

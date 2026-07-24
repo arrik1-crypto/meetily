@@ -30,6 +30,7 @@ import com.meetily.mobile.security.AppLock
 import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.security.BackupCrypto
 import com.meetily.mobile.whisper.CaptureTuning
+import com.meetily.mobile.whisper.DiarizationModel
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.VoiceProfileStore
 import com.meetily.mobile.whisper.WhisperModels
@@ -916,12 +917,13 @@ class SettingsActivity : AppCompatActivity() {
                     if (elapsed < ENROLL_MS) ticker.postDelayed(this, 150)
                 }
             })
-            startEnrollmentCapture(name, modelPath, stopped, discarded, dialog)
+            startEnrollmentCapture(name, dModel.key, modelPath, stopped, discarded, dialog)
         }
     }
 
     private fun startEnrollmentCapture(
         name: String,
+        modelKey: String,
         modelPath: String,
         stopped: java.util.concurrent.atomic.AtomicBoolean,
         discarded: java.util.concurrent.atomic.AtomicBoolean,
@@ -966,9 +968,13 @@ class SettingsActivity : AppCompatActivity() {
                             .create(modelPath)
                         if (embedder != null) {
                             try {
-                                embedder.embed(audio.copyOf(filled))?.let { embedding ->
-                                    saved = VoiceProfileStore
-                                        .addSample(this, name, embedding)
+                                val captured = audio.copyOf(filled)
+                                embedder.embed(captured)?.let { embedding ->
+                                    // Banking the audio lets the profile
+                                    // roll over to future speaker models.
+                                    saved = VoiceProfileStore.addSample(
+                                        this, name, embedding, modelKey, captured
+                                    )
                                 }
                             } finally {
                                 embedder.release()
@@ -1090,11 +1096,43 @@ class SettingsActivity : AppCompatActivity() {
             },
             onPick = { key ->
                 val model = DiarizationModels.byKey(key)
-                settings.diarizationModel = model.key
-                if (DiarizationModels.isDownloaded(this, model)) {
-                    updateDiarizeSection()
+                val profiles =
+                    if (model.key == settings.diarizationModel) emptyList()
+                    else VoiceProfileStore.load(this)
+                if (profiles.isEmpty()) {
+                    applyDiarizeModelPick(model)
                 } else {
-                    startDiarizeDownload(model.key)
+                    // Voiceprints don't transfer between speaker models on
+                    // their own — tell the user what will convert (banked
+                    // audio) and what needs re-enrolling before switching.
+                    val convertible = profiles.count {
+                        VoiceProfileStore.hasStoredAudio(this, it.name)
+                    }
+                    val manual = profiles.size - convertible
+                    val body = buildString {
+                        append(getString(R.string.voice_switch_intro))
+                        if (convertible > 0) {
+                            append("\n\n")
+                            append(
+                                getString(
+                                    R.string.voice_switch_auto,
+                                    convertible, profiles.size
+                                )
+                            )
+                        }
+                        if (manual > 0) {
+                            append("\n\n")
+                            append(getString(R.string.voice_switch_reenroll, manual))
+                        }
+                    }
+                    AlertDialog.Builder(this)
+                        .setTitle(R.string.voice_switch_title)
+                        .setMessage(body)
+                        .setPositiveButton(R.string.voice_switch_go) { _, _ ->
+                            applyDiarizeModelPick(model)
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .show()
                 }
             },
             onDelete = { entry ->
@@ -1106,6 +1144,15 @@ class SettingsActivity : AppCompatActivity() {
                 updateDiarizeSection()
             }
         )
+    }
+
+    private fun applyDiarizeModelPick(model: DiarizationModel) {
+        settings.diarizationModel = model.key
+        if (DiarizationModels.isDownloaded(this, model)) {
+            updateDiarizeSection()
+        } else {
+            startDiarizeDownload(model.key)
+        }
     }
 
     private fun startDiarizeDownload(modelKey: String) {

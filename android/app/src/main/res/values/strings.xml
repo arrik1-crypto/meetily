@@ -284,6 +284,11 @@
     <string name="voice_save_no">Not now</string>
     <string name="voice_saved">Updated %1$s\'s voiceprint</string>
     <string name="voice_save_failed">Couldn\'t save the voiceprint from this audio.</string>
+    <string name="voice_switch_title">Switch speaker model?</string>
+    <string name="voice_switch_intro">Voiceprints are tied to the speaker model that created them, so they don\'t carry over on their own.</string>
+    <string name="voice_switch_auto">%1$d of %2$d saved voices include stored enrollment audio and will convert to the new model automatically on the next recording or import.</string>
+    <string name="voice_switch_reenroll">%1$d saved voice(s) have no stored audio and won\'t be recognized under the new model — re-enroll them in Settings → Voice profiles, or tag their lines in a meeting that kept its audio.</string>
+    <string name="voice_switch_go">Switch model</string>
 
     <!-- Transcript editing -->
     <string name="edit_text_action">Edit text…</string>

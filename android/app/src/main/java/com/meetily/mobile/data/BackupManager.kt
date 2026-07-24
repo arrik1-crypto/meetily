@@ -24,6 +24,9 @@ object BackupManager {
     private const val PHOTOS = "photos/"
     private const val AUDIO = "audio/"
     private const val ATTACHMENTS = "attachments/"
+    // Banked voiceprint audio: lets restored profiles roll over to a new
+    // speaker model on the destination device.
+    private const val VOICE_AUDIO = "voiceprint-audio/"
 
     private const val VOICES = "voice_profiles.json"
 
@@ -33,6 +36,7 @@ object BackupManager {
             addDir(zip, File(context.filesDir, "photos"), PHOTOS) { true }
             addDir(zip, File(context.filesDir, "audio"), AUDIO) { true }
             addDir(zip, File(context.filesDir, "attachments"), ATTACHMENTS) { true }
+            addDir(zip, File(context.filesDir, "voiceprint-audio"), VOICE_AUDIO) { true }
             val voices = File(context.filesDir, VOICES)
             if (voices.isFile) {
                 zip.putNextEntry(ZipEntry(VOICES))
@@ -89,6 +93,7 @@ object BackupManager {
         val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
         val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
         val attachmentsDir = File(context.filesDir, "attachments").apply { mkdirs() }
+        val voiceAudioDir = File(context.filesDir, "voiceprint-audio").apply { mkdirs() }
         var restored = 0
         ZipInputStream(input).use { zip ->
             var entry: ZipEntry? = zip.nextEntry
@@ -106,6 +111,8 @@ object BackupManager {
                             File(audioDir, File(name).name)
                         name.startsWith(ATTACHMENTS) ->
                             File(attachmentsDir, File(name).name)
+                        name.startsWith(VOICE_AUDIO) ->
+                            File(voiceAudioDir, File(name).name)
                         name == VOICES ->
                             File(context.filesDir, VOICES)
                         else -> null
