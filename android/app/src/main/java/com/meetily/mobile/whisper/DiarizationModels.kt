@@ -54,6 +54,10 @@ object DiarizationModels {
         return file.exists() && file.length() > 4L * 1024 * 1024
     }
 
+    fun delete(context: Context, model: DiarizationModel) {
+        fileFor(context, model).delete()
+    }
+
     fun deleteAll(context: Context) {
         dir(context).listFiles()?.forEach { it.delete() }
     }

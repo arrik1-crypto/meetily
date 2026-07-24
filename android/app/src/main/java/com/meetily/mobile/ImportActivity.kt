@@ -154,28 +154,35 @@ class ImportActivity : AppCompatActivity() {
         if (downloaded.size == 1) {
             startImport(uri, name, downloaded.first())
         } else {
-            val preselect = downloaded
-                .indexOf(settings.whisperModel)
-                .coerceAtLeast(0)
-            var chosen = preselect
-            androidx.appcompat.app.AlertDialog.Builder(this)
-                .setTitle(R.string.import_choose_model)
-                .setSingleChoiceItems(
+            ModelPickerSheet.show(
+                this,
+                getString(R.string.import_choose_model),
+                entriesProvider = {
                     downloaded.map { key ->
-                        getString(
-                            R.string.import_model_label,
-                            com.meetily.mobile.whisper.TranscriptionModels.displayName(key),
-                            com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key)
+                        ModelPickerSheet.Entry(
+                            key = key,
+                            title = com.meetily.mobile.whisper.TranscriptionModels
+                                .displayName(key),
+                            meta = getString(
+                                R.string.model_card_meta,
+                                com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key),
+                                getString(
+                                    if (com.meetily.mobile.whisper.TranscriptionModels
+                                            .englishOnly(key)
+                                    ) R.string.model_lang_en else R.string.model_lang_multi
+                                ),
+                                if (com.meetily.mobile.whisper.TranscriptionModels
+                                        .isNemo(key)
+                                ) "NVIDIA" else "Whisper"
+                            ),
+                            downloaded = true,
+                            selected = settings.whisperModel == key
                         )
-                    }.toTypedArray(),
-                    preselect
-                ) { _, which -> chosen = which }
-                .setPositiveButton(R.string.import_transcribe_go) { _, _ ->
-                    startImport(uri, name, downloaded[chosen])
-                }
-                .setNegativeButton(android.R.string.cancel) { _, _ -> finish() }
-                .setOnCancelListener { finish() }
-                .show()
+                    }
+                },
+                onPick = { key -> startImport(uri, name, key) },
+                onDismissed = { finish() } // no pick, nothing to import
+            )
         }
     }
 

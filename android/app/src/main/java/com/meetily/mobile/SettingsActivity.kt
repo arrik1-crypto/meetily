@@ -400,25 +400,27 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.download_busy, Toast.LENGTH_SHORT).show()
             return
         }
-        val labels = LocalLlmModels.ALL.map { model ->
-            val state = if (LocalLlmModels.isDownloaded(this, model)) {
-                getString(R.string.model_downloaded_label)
-            } else {
-                getString(R.string.model_tap_download)
-            }
-            "${model.displayName} · ${model.sizeMb} MB · $state"
-        } + getString(R.string.model_delete_all)
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.manage_llm_models)
-            .setItems(labels.toTypedArray()) { _, which ->
-                if (which >= LocalLlmModels.ALL.size) {
-                    LocalLlm.release()
-                    LocalLlmModels.deleteAll(this)
-                    updateLocalLlmStatus()
-                    return@setItems
+        ModelPickerSheet.show(
+            this,
+            getString(R.string.manage_llm_models),
+            entriesProvider = {
+                LocalLlmModels.ALL.map { model ->
+                    ModelPickerSheet.Entry(
+                        key = model.key,
+                        title = model.displayName,
+                        meta = getString(
+                            R.string.model_card_meta,
+                            model.sizeMb,
+                            getString(R.string.model_lang_multi),
+                            "GGUF"
+                        ),
+                        downloaded = LocalLlmModels.isDownloaded(this, model),
+                        selected = settings.localLlmModel == model.key
+                    )
                 }
-                val model = LocalLlmModels.ALL[which]
+            },
+            onPick = { key ->
+                val model = LocalLlmModels.byKey(key)
                 if (settings.localLlmModel != model.key) {
                     settings.localLlmModel = model.key
                     // Next generation loads the newly selected model.
@@ -430,9 +432,19 @@ class SettingsActivity : AppCompatActivity() {
                     startModelDownload(ModelDownloadService.KIND_LLM, model.key)
                     updateLocalLlmStatus()
                 }
+            },
+            onDelete = { entry ->
+                // Deleting the active model: drop the loaded instance first.
+                if (settings.localLlmModel == entry.key) LocalLlm.release()
+                LocalLlmModels.delete(this, LocalLlmModels.byKey(entry.key))
+                updateLocalLlmStatus()
+            },
+            onDeleteAll = {
+                LocalLlm.release()
+                LocalLlmModels.deleteAll(this)
+                updateLocalLlmStatus()
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        )
     }
 
     // --- Security -----------------------------------------------------------
@@ -673,39 +685,59 @@ class SettingsActivity : AppCompatActivity() {
     private fun showModelDialog() {
         if (downloading) return
         // Whisper family first, then the NVIDIA NeMo models (Parakeet /
-        // Nemotron) served through sherpa-onnx — one list, one selection.
-        val keys = com.meetily.mobile.whisper.TranscriptionModels.allKeys()
-        val labels = keys.map { key ->
-            val state =
-                if (com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
-                    getString(R.string.model_downloaded_label)
-                } else {
-                    getString(R.string.model_tap_download)
+        // Nemotron) served through sherpa-onnx — one sheet, one selection.
+        ModelPickerSheet.show(
+            this,
+            getString(R.string.manage_models),
+            entriesProvider = {
+                com.meetily.mobile.whisper.TranscriptionModels.allKeys().map { key ->
+                    ModelPickerSheet.Entry(
+                        key = key,
+                        title = com.meetily.mobile.whisper.TranscriptionModels
+                            .displayName(key),
+                        meta = getString(
+                            R.string.model_card_meta,
+                            com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key),
+                            getString(
+                                if (com.meetily.mobile.whisper.TranscriptionModels
+                                        .englishOnly(key)
+                                ) R.string.model_lang_en else R.string.model_lang_multi
+                            ),
+                            if (com.meetily.mobile.whisper.TranscriptionModels.isNemo(key)) {
+                                "NVIDIA"
+                            } else {
+                                "Whisper"
+                            }
+                        ),
+                        downloaded = com.meetily.mobile.whisper.TranscriptionModels
+                            .isDownloaded(this, key),
+                        selected = settings.whisperModel == key
+                    )
                 }
-            com.meetily.mobile.whisper.TranscriptionModels.displayName(key) +
-                " · " + com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key) +
-                " MB · " + state
-        } + getString(R.string.model_delete_all)
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.manage_models)
-            .setItems(labels.toTypedArray()) { _, which ->
-                if (which >= keys.size) {
-                    WhisperModels.deleteAll(this)
-                    com.meetily.mobile.whisper.NemoModels.deleteAll(this)
-                    updateWhisperSection()
-                    return@setItems
-                }
-                val key = keys[which]
+            },
+            onPick = { key ->
                 settings.whisperModel = key
                 if (com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
                     updateWhisperSection()
                 } else {
                     startDownload(key)
                 }
+            },
+            onDelete = { entry ->
+                val nemo = com.meetily.mobile.whisper.NemoModels.byKeyOrNull(entry.key)
+                if (nemo != null) {
+                    com.meetily.mobile.whisper.NemoModels.delete(this, nemo)
+                } else {
+                    WhisperModels.delete(this, WhisperModels.byKey(entry.key))
+                }
+                updateWhisperSection()
+            },
+            onDeleteAll = {
+                WhisperModels.deleteAll(this)
+                com.meetily.mobile.whisper.NemoModels.deleteAll(this)
+                updateWhisperSection()
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        )
     }
 
     // --- Voice profiles -----------------------------------------------------
@@ -1037,33 +1069,43 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun showDiarizeModelDialog() {
         if (downloading) return
-        val labels = DiarizationModels.ALL.map { model ->
-            val state = if (DiarizationModels.isDownloaded(this, model)) {
-                getString(R.string.model_downloaded_label)
-            } else {
-                getString(R.string.model_tap_download)
-            }
-            "${model.displayName} · ${model.approxSizeMb} MB · $state"
-        } + getString(R.string.model_delete_all)
-
-        AlertDialog.Builder(this)
-            .setTitle(R.string.diarize_manage)
-            .setItems(labels.toTypedArray()) { _, which ->
-                if (which >= DiarizationModels.ALL.size) {
-                    DiarizationModels.deleteAll(this)
-                    updateDiarizeSection()
-                    return@setItems
+        ModelPickerSheet.show(
+            this,
+            getString(R.string.diarize_manage),
+            entriesProvider = {
+                DiarizationModels.ALL.map { model ->
+                    ModelPickerSheet.Entry(
+                        key = model.key,
+                        title = model.displayName,
+                        meta = getString(
+                            R.string.model_card_meta,
+                            model.approxSizeMb,
+                            "Speaker ID", // language is in each model's name
+                            "sherpa-onnx"
+                        ),
+                        downloaded = DiarizationModels.isDownloaded(this, model),
+                        selected = settings.diarizationModel == model.key
+                    )
                 }
-                val model = DiarizationModels.ALL[which]
+            },
+            onPick = { key ->
+                val model = DiarizationModels.byKey(key)
                 settings.diarizationModel = model.key
                 if (DiarizationModels.isDownloaded(this, model)) {
                     updateDiarizeSection()
                 } else {
                     startDiarizeDownload(model.key)
                 }
+            },
+            onDelete = { entry ->
+                DiarizationModels.delete(this, DiarizationModels.byKey(entry.key))
+                updateDiarizeSection()
+            },
+            onDeleteAll = {
+                DiarizationModels.deleteAll(this)
+                updateDiarizeSection()
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        )
     }
 
     private fun startDiarizeDownload(modelKey: String) {

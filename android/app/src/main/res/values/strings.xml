@@ -368,6 +368,17 @@
     <string name="setting_local_only_desc">Only allow AI endpoints on this device or your private network (localhost, LAN, Tailscale). Turn off to permit cloud providers — transcripts will leave the device.</string>
     <string name="privacy_policy">Privacy policy</string>
     <string name="report_bug">Report a bug</string>
+
+    <!-- Model picker cards -->
+    <string name="model_status_active">Selected · downloaded</string>
+    <string name="model_status_selected_missing">Selected · not downloaded yet</string>
+    <string name="model_delete">Delete</string>
+    <string name="delete_model_title">Delete model?</string>
+    <string name="delete_model_body">Remove “%1$s” from this device? You can download it again anytime.</string>
+    <string name="delete_all_models_body">Remove every downloaded model in this list from the device? They can be downloaded again anytime.</string>
+    <string name="model_card_meta">%1$d MB · %2$s · %3$s</string>
+    <string name="model_lang_en">English</string>
+    <string name="model_lang_multi">Multilingual</string>
     <string name="bug_report_subject">Recap bug report</string>
     <string name="crash_prompt_title">Recap crashed last time</string>
     <string name="crash_prompt_body">A crash report was saved on this device (it never leaves your phone on its own). Would you like to share it with the developer? You choose where it goes.</string>

@@ -58,6 +58,10 @@ object WhisperModels {
         return file.exists() && file.length() > model.sizeMb * 1024L * 1024L * 9 / 10
     }
 
+    fun delete(context: Context, model: WhisperModel) {
+        fileFor(context, model).delete()
+    }
+
     fun deleteAll(context: Context) {
         dir(context).listFiles()?.forEach { it.delete() }
     }

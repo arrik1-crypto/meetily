@@ -94,6 +94,10 @@ object NemoModels {
         }
     }
 
+    fun delete(context: Context, model: NemoModel) {
+        dir(context, model).deleteRecursively()
+    }
+
     fun deleteAll(context: Context) {
         File(context.filesDir, "nemo-models").deleteRecursively()
     }
