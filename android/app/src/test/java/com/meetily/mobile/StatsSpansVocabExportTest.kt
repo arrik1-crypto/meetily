@@ -155,6 +155,35 @@ class StatsSpansVocabExportTest {
         assertTrue(prompt.endsWith("."))
     }
 
+    @Test
+    fun vocabPresetMergeKeepsUserTermsFirstAndDedupes() {
+        val merged = Vocab.withPreset(
+            "Dr. Okafor, metformin", listOf("metformin", "lisinopril")
+        )
+        assertEquals("Dr. Okafor, metformin, lisinopril", merged)
+        // Case-insensitive: user's casing wins, preset duplicate dropped.
+        assertEquals(
+            "METFORMIN, lisinopril",
+            Vocab.withPreset("METFORMIN", listOf("metformin", "lisinopril"))
+        )
+    }
+
+    @Test
+    fun vocabPresetMergeIsIdempotent() {
+        val once = Vocab.withPreset("", Vocab.LEGAL_PRESET)
+        assertEquals(once, Vocab.withPreset(once, Vocab.LEGAL_PRESET))
+    }
+
+    @Test
+    fun vocabPresetsAreCompactAndUnique() {
+        for (preset in listOf(Vocab.MEDICAL_PRESET, Vocab.LEGAL_PRESET)) {
+            assertEquals(preset.size, preset.map { it.lowercase() }.toSet().size)
+            // Leave prompt-budget room for the user's own names/jargon.
+            assertTrue(preset.joinToString(", ").length < 450)
+            assertTrue(Vocab.promptFor(preset.joinToString(", "))!!.length <= 600)
+        }
+    }
+
     // --- TaskExport ---------------------------------------------------------
 
     @Test

@@ -96,6 +96,25 @@ object LocalLlmModels {
             "https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF/resolve/main/" +
                 "Qwen_Qwen3.5-9B-Q4_K_M.gguf",
             5680
+        ),
+        // Domain specialists — same engine, domain-tuned weights (Gemma 3 4B
+        // and Mistral 7B bases, so their chat templates are already proven
+        // here). Summaries remain drafts, not clinical or legal documents.
+        LocalLlmModel(
+            "medgemma-4b",
+            "MedGemma 4B (medical · 6 GB+ RAM)",
+            "medgemma-4b-it-Q4_K_M.gguf",
+            "https://huggingface.co/unsloth/medgemma-4b-it-GGUF/resolve/main/" +
+                "medgemma-4b-it-Q4_K_M.gguf",
+            2490
+        ),
+        LocalLlmModel(
+            "saul-7b",
+            "SaulLM 7B (legal · 12 GB+ RAM)",
+            "Saul-7B-Instruct-v1-Q4_K_M.gguf",
+            "https://huggingface.co/tensorblock/Saul-7B-Instruct-v1-GGUF/resolve/main/" +
+                "Saul-7B-Instruct-v1-Q4_K_M.gguf",
+            4370
         )
     )
 

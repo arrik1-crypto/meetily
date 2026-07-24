@@ -257,6 +257,12 @@ class SettingsActivity : AppCompatActivity() {
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
         findViewById<android.widget.EditText>(R.id.vocabInput).setText(settings.customVocab)
+        findViewById<View>(R.id.vocabMedicalButton).setOnClickListener {
+            appendVocabPreset(com.meetily.mobile.whisper.Vocab.MEDICAL_PRESET)
+        }
+        findViewById<View>(R.id.vocabLegalButton).setOnClickListener {
+            appendVocabPreset(com.meetily.mobile.whisper.Vocab.LEGAL_PRESET)
+        }
         findViewById<MaterialSwitch>(R.id.saveAudioSwitch).isChecked = settings.saveAudio
         calendarSwitch.isChecked = settings.calendarPrefill
         setUpNudgeSwitch()
@@ -1171,6 +1177,18 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    /** Merges a starter glossary into the vocabulary field (deduped). */
+    private fun appendVocabPreset(preset: List<String>) {
+        val input = findViewById<android.widget.EditText>(R.id.vocabInput)
+        val merged = com.meetily.mobile.whisper.Vocab
+            .withPreset(input.text.toString(), preset)
+        if (merged != input.text.toString().trim()) {
+            input.setText(merged)
+            input.setSelection(input.text.length)
+            Toast.makeText(this, R.string.vocab_preset_added, Toast.LENGTH_LONG).show()
+        }
     }
 
     /**

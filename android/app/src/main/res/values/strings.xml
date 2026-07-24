@@ -93,6 +93,9 @@
     <string name="download_line_fail">✗ %1$s — %2$s</string>
     <string name="download_batch_done">%1$d models downloaded</string>
     <string name="download_batch_partial">Model downloads finished — %1$d failed</string>
+    <string name="vocab_add_medical">＋ Medical terms</string>
+    <string name="vocab_add_legal">＋ Legal terms</string>
+    <string name="vocab_preset_added">Starter terms added — prune the list to fit your meetings; your own names matter most.</string>
     <string name="percent_fmt">%1$d%%</string>
 
     <string name="topics_title">Topics</string>
