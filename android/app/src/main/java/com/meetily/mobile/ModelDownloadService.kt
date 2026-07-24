@@ -20,10 +20,16 @@ import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.WhisperModels
 
 /**
- * Foreground (dataSync) service that owns a model download, so a 466 MB
+ * Foreground (dataSync) service that owns model downloads, so a 466 MB
  * Whisper model keeps downloading when the user leaves Settings or the
  * screen turns off. SettingsActivity binds as a thin observer, mirroring
- * the ImportService/ImportActivity split. One download at a time.
+ * the ImportService/ImportActivity split.
+ *
+ * Downloads run one at a time (parallel downloads share the same pipe and
+ * finish no sooner overall), but further requests QUEUE: the user can tap a
+ * whisper model, a speaker model, and an LLM back-to-back and they download
+ * consecutively under one notification. Cancel stops the current download
+ * and drops the queue.
  */
 class ModelDownloadService : Service() {
 
@@ -32,6 +38,9 @@ class ModelDownloadService : Service() {
 
         /** error == null means the model finished downloading (or was cancelled). */
         fun onDownloadDone(kind: String, key: String, cancelled: Boolean, error: String?)
+
+        /** A request arrived while another download runs; it waits in line. */
+        fun onDownloadQueued(kind: String, key: String) {}
     }
 
     inner class DownloadBinder : Binder() {
@@ -41,9 +50,10 @@ class ModelDownloadService : Service() {
     var observer: Observer? = null
         set(value) {
             field = value
-            // Late binders catch up immediately.
+            // Late binders catch up immediately — current item and queue.
             if (value != null && isRunning) {
                 value.onDownloadProgress(currentKind, currentKey, percent)
+                for ((kind, key) in queue) value.onDownloadQueued(kind, key)
             }
         }
 
@@ -53,18 +63,42 @@ class ModelDownloadService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private val main = Handler(Looper.getMainLooper())
 
+    /** Waiting (kind, key) pairs; main-thread confined. */
+    private val queue = ArrayDeque<Pair<String, String>>()
+
+    /** (display name, error-or-null) per finished item, for the summary. */
+    private val finished = mutableListOf<Pair<String, String?>>()
+
     override fun onBind(intent: Intent?): IBinder = DownloadBinder()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_CANCEL -> {
+                // Cancel means "stop downloading models": current + queued.
                 cancelled = true
+                queue.clear()
+                queuedCount = 0
                 if (!isRunning) stopSelf()
             }
             ACTION_START -> {
                 val kind = intent.getStringExtra(EXTRA_KIND).orEmpty()
                 val key = intent.getStringExtra(EXTRA_KEY).orEmpty()
-                if (isRunning || kind.isBlank() || key.isBlank()) return START_NOT_STICKY
+                if (kind.isBlank() || key.isBlank()) return START_NOT_STICKY
+                if (isRunning) {
+                    // Queue behind the current download unless it's already
+                    // running or waiting.
+                    val duplicate = (currentKind == kind && currentKey == key) ||
+                        queue.any { it.first == kind && it.second == key }
+                    if (!duplicate) {
+                        queue.add(kind to key)
+                        queuedCount = queue.size
+                        observer?.onDownloadQueued(kind, key)
+                        updateNotification(displayName(currentKind, currentKey), percent)
+                    }
+                    return START_NOT_STICKY
+                }
+                cancelled = false
+                finished.clear()
                 isRunning = true
                 currentKind = kind
                 currentKey = key
@@ -142,20 +176,45 @@ class ModelDownloadService : Service() {
     }
 
     private fun finishRun(kind: String, key: String, name: String, error: String?) {
+        observer?.onDownloadDone(kind, key, cancelled, error)
+        if (!cancelled) finished.add(name to error)
+
+        // Chain into the next queued download (unless cancel dropped it all).
+        val next = if (cancelled) null else queue.removeFirstOrNull()
+        if (next != null) {
+            queuedCount = queue.size
+            currentKind = next.first
+            currentKey = next.second
+            percent = 0
+            // Refresh the wakelock timeout for the new item.
+            try {
+                wakeLock?.acquire(2 * 60 * 60 * 1000L)
+            } catch (_: Exception) {
+            }
+            updateNotification(displayName(next.first, next.second), 0)
+            runDownload(next.first, next.second)
+            return
+        }
+
         try {
             wakeLock?.release()
         } catch (_: Exception) {
         }
         wakeLock = null
-        observer?.onDownloadDone(kind, key, cancelled, error)
+        queue.clear()
+        queuedCount = 0
         stopForegroundCompat()
-        if (!cancelled) postCompletionNotification(name, error)
+        if (!cancelled) postCompletionNotification()
         isRunning = false
         stopSelf()
     }
 
     fun requestCancel() {
         cancelled = true
+        main.post {
+            queue.clear()
+            queuedCount = 0
+        }
     }
 
     // --- Notifications ------------------------------------------------------
@@ -188,7 +247,13 @@ class ModelDownloadService : Service() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setContentTitle(getString(R.string.download_notif_title, name))
-            .setContentText(getString(R.string.download_status_running, progress))
+            .setContentText(
+                if (queue.isEmpty()) {
+                    getString(R.string.download_status_running, progress)
+                } else {
+                    getString(R.string.download_status_queued, progress, queue.size)
+                }
+            )
             .setProgress(100, progress, progress == 0)
             .setOngoing(true)
             .setSilent(true)
@@ -205,17 +270,36 @@ class ModelDownloadService : Service() {
         }
     }
 
-    private fun postCompletionNotification(name: String, error: String?) {
+    private fun postCompletionNotification() {
+        if (finished.isEmpty()) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setAutoCancel(true)
             .setSilent(true)
-        if (error == null) {
-            builder.setContentTitle(getString(R.string.download_done_notif, name))
+        if (finished.size == 1) {
+            val (name, error) = finished.first()
+            if (error == null) {
+                builder.setContentTitle(getString(R.string.download_done_notif, name))
+            } else {
+                builder.setContentTitle(getString(R.string.download_failed_notif, name))
+                    .setContentText(error)
+            }
         } else {
-            builder.setContentTitle(getString(R.string.download_failed_notif, name))
-                .setContentText(error)
+            // Queued batch: one summary with a line per model.
+            val lines = finished.map { (name, error) ->
+                if (error == null) getString(R.string.download_line_ok, name)
+                else getString(R.string.download_line_fail, name, error)
+            }
+            val failures = finished.count { it.second != null }
+            builder.setContentTitle(
+                if (failures == 0) getString(R.string.download_batch_done, finished.size)
+                else getString(R.string.download_batch_partial, failures)
+            )
+                .setContentText(lines.joinToString("  ·  "))
+                .setStyle(
+                    NotificationCompat.BigTextStyle().bigText(lines.joinToString("\n"))
+                )
         }
         try {
             manager.notify(NOTIF_DONE_ID, builder.build())
@@ -251,6 +335,10 @@ class ModelDownloadService : Service() {
             private set
 
         @Volatile var currentKey = ""
+            private set
+
+        /** Downloads waiting behind the current one. */
+        @Volatile var queuedCount = 0
             private set
 
         const val ACTION_START = "com.meetily.mobile.download.START"

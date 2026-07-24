@@ -89,8 +89,6 @@ class SettingsActivity : AppCompatActivity() {
         override fun onDownloadProgress(kind: String, key: String, percent: Int) {
             if (isFinishing || isDestroyed) return
             downloading = true
-            manageModelsButton.isEnabled = false
-            manageDiarizeButton.isEnabled = false
             if (kind == ModelDownloadService.KIND_LLM) {
                 val model = LocalLlmModels.byKey(key)
                 val bar = findViewById<LinearProgressIndicator>(R.id.localLlmProgress)
@@ -123,13 +121,17 @@ class SettingsActivity : AppCompatActivity() {
             error: String?
         ) {
             if (isFinishing || isDestroyed) return
-            downloading = false
-            manageModelsButton.isEnabled = true
-            manageDiarizeButton.isEnabled = true
-            modelProgress.visibility = View.GONE
-            diarizeProgress.visibility = View.GONE
-            findViewById<LinearProgressIndicator>(R.id.localLlmProgress).visibility =
-                View.GONE
+            // More items may be queued behind this one; the next item's
+            // progress callback re-lights its own section.
+            downloading = ModelDownloadService.queuedCount > 0
+            when (kind) {
+                ModelDownloadService.KIND_LLM ->
+                    findViewById<LinearProgressIndicator>(R.id.localLlmProgress)
+                        .visibility = View.GONE
+                ModelDownloadService.KIND_DIARIZE ->
+                    diarizeProgress.visibility = View.GONE
+                else -> modelProgress.visibility = View.GONE
+            }
             updateWhisperSection()
             updateLocalLlmStatus()
             if (error != null) {
@@ -138,6 +140,27 @@ class SettingsActivity : AppCompatActivity() {
                     getString(R.string.model_download_failed, error),
                     Toast.LENGTH_LONG
                 ).show()
+            }
+        }
+
+        override fun onDownloadQueued(kind: String, key: String) {
+            if (isFinishing || isDestroyed) return
+            when (kind) {
+                ModelDownloadService.KIND_LLM ->
+                    findViewById<TextView>(R.id.localLlmStatus).text = getString(
+                        R.string.download_queued_status,
+                        LocalLlmModels.byKey(key).displayName
+                    )
+                ModelDownloadService.KIND_DIARIZE ->
+                    diarizeModelStatus.text = getString(
+                        R.string.download_queued_status,
+                        DiarizationModels.byKey(key).displayName
+                    )
+                else ->
+                    whisperModelStatus.text = getString(
+                        R.string.download_queued_status,
+                        com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
+                    )
             }
         }
     }
@@ -168,8 +191,6 @@ class SettingsActivity : AppCompatActivity() {
         if (!ModelDownloadService.isRunning && downloading) {
             // The download finished while we were away.
             downloading = false
-            manageModelsButton.isEnabled = true
-            manageDiarizeButton.isEnabled = true
             modelProgress.visibility = View.GONE
             diarizeProgress.visibility = View.GONE
             findViewById<LinearProgressIndicator>(R.id.localLlmProgress).visibility =
@@ -397,10 +418,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showLlmModelDialog() {
-        if (ModelDownloadService.isRunning) {
-            Toast.makeText(this, R.string.download_busy, Toast.LENGTH_SHORT).show()
-            return
-        }
         ModelPickerSheet.show(
             this,
             getString(R.string.manage_llm_models),
@@ -435,15 +452,19 @@ class SettingsActivity : AppCompatActivity() {
                 }
             },
             onDelete = { entry ->
-                // Deleting the active model: drop the loaded instance first.
-                if (settings.localLlmModel == entry.key) LocalLlm.release()
-                LocalLlmModels.delete(this, LocalLlmModels.byKey(entry.key))
-                updateLocalLlmStatus()
+                if (!deleteBlockedByDownload(ModelDownloadService.KIND_LLM, entry.key)) {
+                    // Deleting the active model: drop the loaded instance first.
+                    if (settings.localLlmModel == entry.key) LocalLlm.release()
+                    LocalLlmModels.delete(this, LocalLlmModels.byKey(entry.key))
+                    updateLocalLlmStatus()
+                }
             },
             onDeleteAll = {
-                LocalLlm.release()
-                LocalLlmModels.deleteAll(this)
-                updateLocalLlmStatus()
+                if (!deleteBlockedByDownload(ModelDownloadService.KIND_LLM)) {
+                    LocalLlm.release()
+                    LocalLlmModels.deleteAll(this)
+                    updateLocalLlmStatus()
+                }
             }
         )
     }
@@ -684,7 +705,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showModelDialog() {
-        if (downloading) return
         // Whisper family first, then the NVIDIA NeMo models (Parakeet /
         // Nemotron) served through sherpa-onnx — one sheet, one selection.
         ModelPickerSheet.show(
@@ -725,18 +745,22 @@ class SettingsActivity : AppCompatActivity() {
                 }
             },
             onDelete = { entry ->
-                val nemo = com.meetily.mobile.whisper.NemoModels.byKeyOrNull(entry.key)
-                if (nemo != null) {
-                    com.meetily.mobile.whisper.NemoModels.delete(this, nemo)
-                } else {
-                    WhisperModels.delete(this, WhisperModels.byKey(entry.key))
+                if (!deleteBlockedByDownload(ModelDownloadService.KIND_WHISPER, entry.key)) {
+                    val nemo = com.meetily.mobile.whisper.NemoModels.byKeyOrNull(entry.key)
+                    if (nemo != null) {
+                        com.meetily.mobile.whisper.NemoModels.delete(this, nemo)
+                    } else {
+                        WhisperModels.delete(this, WhisperModels.byKey(entry.key))
+                    }
+                    updateWhisperSection()
                 }
-                updateWhisperSection()
             },
             onDeleteAll = {
-                WhisperModels.deleteAll(this)
-                com.meetily.mobile.whisper.NemoModels.deleteAll(this)
-                updateWhisperSection()
+                if (!deleteBlockedByDownload(ModelDownloadService.KIND_WHISPER)) {
+                    WhisperModels.deleteAll(this)
+                    com.meetily.mobile.whisper.NemoModels.deleteAll(this)
+                    updateWhisperSection()
+                }
             }
         )
     }
@@ -1074,7 +1098,6 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showDiarizeModelDialog() {
-        if (downloading) return
         ModelPickerSheet.show(
             this,
             getString(R.string.diarize_manage),
@@ -1136,14 +1159,32 @@ class SettingsActivity : AppCompatActivity() {
                 }
             },
             onDelete = { entry ->
-                DiarizationModels.delete(this, DiarizationModels.byKey(entry.key))
-                updateDiarizeSection()
+                if (!deleteBlockedByDownload(ModelDownloadService.KIND_DIARIZE, entry.key)) {
+                    DiarizationModels.delete(this, DiarizationModels.byKey(entry.key))
+                    updateDiarizeSection()
+                }
             },
             onDeleteAll = {
-                DiarizationModels.deleteAll(this)
-                updateDiarizeSection()
+                if (!deleteBlockedByDownload(ModelDownloadService.KIND_DIARIZE)) {
+                    DiarizationModels.deleteAll(this)
+                    updateDiarizeSection()
+                }
             }
         )
+    }
+
+    /**
+     * Model pickers stay usable while downloads run (that's how queueing
+     * works), so deletes need one guard: the file currently being written.
+     */
+    private fun deleteBlockedByDownload(kind: String, key: String? = null): Boolean {
+        val busy = ModelDownloadService.isRunning &&
+            ModelDownloadService.currentKind == kind &&
+            (key == null || ModelDownloadService.currentKey == key)
+        if (busy) {
+            Toast.makeText(this, R.string.download_busy, Toast.LENGTH_SHORT).show()
+        }
+        return busy
     }
 
     private fun applyDiarizeModelPick(model: DiarizationModel) {
@@ -1166,13 +1207,13 @@ class SettingsActivity : AppCompatActivity() {
     /**
      * Hands the download to ModelDownloadService (foreground + wakelock), so
      * it keeps going when this screen is left or the phone sleeps. Progress
-     * comes back through the bound observer.
+     * comes back through the bound observer. If a download is already
+     * running, the service queues this one to run right after it — so a
+     * whisper model, a speaker model, and an LLM can be tapped back-to-back
+     * and download consecutively.
      */
     private fun startModelDownload(kind: String, key: String) {
-        if (ModelDownloadService.isRunning) {
-            Toast.makeText(this, R.string.download_busy, Toast.LENGTH_SHORT).show()
-            return
-        }
+        val wasRunning = ModelDownloadService.isRunning
         ContextCompat.startForegroundService(
             this,
             Intent(this, ModelDownloadService::class.java)
@@ -1181,7 +1222,12 @@ class SettingsActivity : AppCompatActivity() {
                 .putExtra(ModelDownloadService.EXTRA_KEY, key)
         )
         // Immediate visual feedback; service callbacks take over from here.
-        downloadObserver.onDownloadProgress(kind, key, 0)
+        if (wasRunning) {
+            downloadObserver.onDownloadQueued(kind, key)
+            Toast.makeText(this, R.string.download_queued_toast, Toast.LENGTH_SHORT).show()
+        } else {
+            downloadObserver.onDownloadProgress(kind, key, 0)
+        }
     }
 
     companion object {

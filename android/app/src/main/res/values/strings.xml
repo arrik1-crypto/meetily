@@ -86,6 +86,13 @@
     <string name="download_failed_notif">%1$s model download failed</string>
     <string name="download_busy">A model download is already running.</string>
     <string name="download_status_running">Downloading… %1$d%%</string>
+    <string name="download_status_queued">Downloading… %1$d%% · %2$d more queued</string>
+    <string name="download_queued_status">%1$s — queued</string>
+    <string name="download_queued_toast">Queued — will download after the current one.</string>
+    <string name="download_line_ok">✓ %1$s</string>
+    <string name="download_line_fail">✗ %1$s — %2$s</string>
+    <string name="download_batch_done">%1$d models downloaded</string>
+    <string name="download_batch_partial">Model downloads finished — %1$d failed</string>
     <string name="percent_fmt">%1$d%%</string>
 
     <string name="topics_title">Topics</string>
