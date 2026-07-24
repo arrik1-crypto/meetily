@@ -14,6 +14,7 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.PowerManager
+import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.whisper.DiarizationModels
@@ -133,13 +134,22 @@ class ModelDownloadService : Service() {
         val name = displayName(kind, key)
         Thread {
             var error: String? = null
+            // Per-run throttle, local to this thread (onProgress is called
+            // synchronously by the downloader on it). A fresh instance per
+            // run is what lets the NEXT queued item report its own early
+            // progress instead of inheriting this one's final percent.
+            val throttle = ProgressThrottle(NOTIFY_MIN_MS)
             try {
                 val onProgress: (Int) -> Unit = { p ->
+                    // Published unthrottled: the observer setter replays this
+                    // to late binders, so it must never read stale.
                     percent = p
-                    main.post {
-                        if (isRunning) {
-                            observer?.onDownloadProgress(kind, key, p)
-                            updateNotification(name, p)
+                    if (throttle.shouldPost(p, SystemClock.uptimeMillis())) {
+                        main.post {
+                            if (isRunning) {
+                                observer?.onDownloadProgress(kind, key, p)
+                                updateNotification(name, p)
+                            }
                         }
                     }
                 }
@@ -348,6 +358,13 @@ class ModelDownloadService : Service() {
         const val KIND_WHISPER = "whisper"
         const val KIND_DIARIZE = "diarize"
         const val KIND_LLM = "llm"
+        /**
+         * Floor between posted progress updates. 500 ms keeps the UI and the
+         * notification comfortably under the system's per-package update
+         * shedding threshold, so every notification we pay to build is one
+         * the user actually sees.
+         */
+        private const val NOTIFY_MIN_MS = 500L
         private const val CHANNEL_ID = "model_download"
         private const val NOTIF_ID = 46
         private const val NOTIF_DONE_ID = 47

@@ -85,17 +85,30 @@ class SettingsActivity : AppCompatActivity() {
     private var downloadService: ModelDownloadService? = null
     private var downloadBound = false
 
+    // Looked up once: these were re-resolved on every progress tick.
+    private val llmProgress: LinearProgressIndicator by lazy {
+        findViewById(R.id.localLlmProgress)
+    }
+    private val llmStatus: TextView by lazy { findViewById(R.id.localLlmStatus) }
+
+    // Last state actually rendered, so a repeated value (e.g. the rebind
+    // catch-up replay landing on the same percent) costs no layout pass.
+    private var lastRenderedKey = ""
+    private var lastRenderedPercent = -1
+
     private val downloadObserver = object : ModelDownloadService.Observer {
         override fun onDownloadProgress(kind: String, key: String, percent: Int) {
             if (isFinishing || isDestroyed) return
             downloading = true
+            if (key == lastRenderedKey && percent == lastRenderedPercent) return
+            lastRenderedKey = key
+            lastRenderedPercent = percent
             if (kind == ModelDownloadService.KIND_LLM) {
                 val model = LocalLlmModels.byKey(key)
-                val bar = findViewById<LinearProgressIndicator>(R.id.localLlmProgress)
-                bar.visibility = View.VISIBLE
-                bar.isIndeterminate = percent == 0
-                bar.progress = percent
-                findViewById<TextView>(R.id.localLlmStatus).text =
+                llmProgress.visibility = View.VISIBLE
+                llmProgress.isIndeterminate = percent == 0
+                llmProgress.progress = percent
+                llmStatus.text =
                     getString(R.string.model_downloading, model.displayName, percent)
             } else if (kind == ModelDownloadService.KIND_DIARIZE) {
                 val model = DiarizationModels.byKey(key)
@@ -124,10 +137,10 @@ class SettingsActivity : AppCompatActivity() {
             // More items may be queued behind this one; the next item's
             // progress callback re-lights its own section.
             downloading = ModelDownloadService.queuedCount > 0
+            lastRenderedKey = ""
+            lastRenderedPercent = -1
             when (kind) {
-                ModelDownloadService.KIND_LLM ->
-                    findViewById<LinearProgressIndicator>(R.id.localLlmProgress)
-                        .visibility = View.GONE
+                ModelDownloadService.KIND_LLM -> llmProgress.visibility = View.GONE
                 ModelDownloadService.KIND_DIARIZE ->
                     diarizeProgress.visibility = View.GONE
                 else -> modelProgress.visibility = View.GONE
@@ -147,7 +160,7 @@ class SettingsActivity : AppCompatActivity() {
             if (isFinishing || isDestroyed) return
             when (kind) {
                 ModelDownloadService.KIND_LLM ->
-                    findViewById<TextView>(R.id.localLlmStatus).text = getString(
+                    llmStatus.text = getString(
                         R.string.download_queued_status,
                         LocalLlmModels.byKey(key).displayName
                     )
@@ -191,10 +204,11 @@ class SettingsActivity : AppCompatActivity() {
         if (!ModelDownloadService.isRunning && downloading) {
             // The download finished while we were away.
             downloading = false
+            lastRenderedKey = ""
+            lastRenderedPercent = -1
             modelProgress.visibility = View.GONE
             diarizeProgress.visibility = View.GONE
-            findViewById<LinearProgressIndicator>(R.id.localLlmProgress).visibility =
-                View.GONE
+            llmProgress.visibility = View.GONE
             updateWhisperSection()
             updateLocalLlmStatus()
         }
@@ -415,7 +429,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateLocalLlmStatus() {
         val model = LocalLlmModels.byKey(settings.localLlmModel)
-        findViewById<TextView>(R.id.localLlmStatus).text =
+        llmStatus.text =
             if (LocalLlmModels.isDownloaded(this, model)) {
                 getString(R.string.model_status_downloaded, model.displayName)
             } else {

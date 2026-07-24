@@ -13,6 +13,42 @@ import java.net.URL
  */
 data class NemoFile(val name: String, val sizeMb: Int)
 
+/**
+ * Byte-weighted progress across a model's files, deduped to whole percent.
+ *
+ * Every other downloader in the app keeps a `lastPercent` guard so a large
+ * file reports at most 101 times; the NeMo path used to report once per
+ * socket read, which flooded the main thread (each report rebuilds the
+ * foreground notification) and made the UI crawl while a 600 MB Parakeet
+ * or Nemotron model downloaded. Emitting `null` means "nothing changed —
+ * don't tell anyone". Pure (no Android, no I/O) — unit-tested.
+ */
+class NemoProgressAggregator(totalBytes: Long) {
+
+    private val total = totalBytes.coerceAtLeast(1L)
+    private var doneBytes = 0L
+    private var lastPercent = -1
+
+    /** Percent to report for the in-flight file, or null when unchanged. */
+    fun onBytes(read: Long, nominalBytes: Long): Int? =
+        emit(
+            ((doneBytes + read.coerceAtMost(nominalBytes)) * 100 / total)
+                .toInt().coerceIn(0, 99)
+        )
+
+    /** Percent to report once a file is complete, or null when unchanged. */
+    fun onFileDone(nominalBytes: Long): Int? {
+        doneBytes += nominalBytes
+        return emit((doneBytes * 100 / total).toInt().coerceIn(0, 100))
+    }
+
+    private fun emit(percent: Int): Int? {
+        if (percent == lastPercent) return null
+        lastPercent = percent
+        return percent
+    }
+}
+
 data class NemoModel(
     val key: String,
     val displayName: String,
@@ -130,6 +166,10 @@ object NemoModels {
      * Blocking multi-file download with aggregate progress (0..100 weighted
      * by nominal sizes). Call from a worker thread. Files already complete
      * are skipped, so an interrupted download resumes at file granularity.
+     *
+     * Progress is deduped by [NemoProgressAggregator]: reporting on every
+     * socket read (as this did before) floods the main thread with
+     * notification rebuilds and makes the foreground UI crawl.
      */
     fun download(
         context: Context,
@@ -138,25 +178,21 @@ object NemoModels {
         cancelled: () -> Boolean = { false }
     ) {
         val dir = dir(context, model)
-        val totalBytes = model.totalMb * 1024L * 1024L
-        var doneBytes = 0L
+        val progress = NemoProgressAggregator(model.totalMb * 1024L * 1024L)
         for (file in model.files) {
             val target = File(dir, file.name)
             val nominal = file.sizeMb * 1024L * 1024L
             if (fileComplete(dir, file)) {
-                doneBytes += nominal
-                onProgress((doneBytes * 100 / totalBytes).toInt().coerceIn(0, 100))
+                progress.onFileDone(nominal)?.let(onProgress)
                 continue
             }
             downloadOne(model.urlFor(file), target, cancelled) { read ->
-                val overall = doneBytes + read.coerceAtMost(nominal)
-                onProgress((overall * 100 / totalBytes).toInt().coerceIn(0, 99))
+                progress.onBytes(read, nominal)?.let(onProgress)
             }
             // Record the verified byte count so completeness never depends on
             // the nominal-size guess again (see fileComplete).
             okFile(dir, file).writeText(target.length().toString())
-            doneBytes += nominal
-            onProgress((doneBytes * 100 / totalBytes).toInt().coerceIn(0, 100))
+            progress.onFileDone(nominal)?.let(onProgress)
         }
     }
 
