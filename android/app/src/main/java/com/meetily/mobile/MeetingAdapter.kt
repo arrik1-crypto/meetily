@@ -5,6 +5,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.color.MaterialColors
 import com.meetily.mobile.data.Meeting
 import java.text.DateFormat
 import java.util.Calendar
@@ -18,7 +19,8 @@ import java.util.Date
  */
 class MeetingAdapter(
     private val onClick: (Meeting) -> Unit,
-    private val onLongClick: (Meeting) -> Unit
+    private val onLongClick: (Meeting) -> Unit,
+    private val onToggleStar: (Meeting) -> Unit
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private sealed class Row {
@@ -26,7 +28,38 @@ class MeetingAdapter(
         data class Item(val meeting: Meeting, val time: String, val meta: String) : Row()
     }
 
+    /** Work in flight for one meeting; [percent] < 0 renders indeterminate. */
+    data class Progress(val label: String, val percent: Int)
+
     private val rows = mutableListOf<Row>()
+    private val progressByMeeting = HashMap<String, Progress>()
+
+    /**
+     * Sets or clears the progress row inside [meetingId]'s card. Returns
+     * whether that card is currently in the list — the caller falls back to a
+     * banner when it is not (filtered out, or not loaded yet).
+     */
+    fun setProgress(meetingId: String, value: Progress?): Boolean {
+        val previous = if (value == null) {
+            progressByMeeting.remove(meetingId)
+        } else {
+            progressByMeeting.put(meetingId, value)
+        }
+        val index = rows.indexOfFirst { (it as? Row.Item)?.meeting?.id == meetingId }
+        // Repaint the one row, never the list: progress ticks constantly and
+        // a full rebuild would flicker the whole library.
+        if (index >= 0 && previous != value) notifyItemChanged(index)
+        return index >= 0
+    }
+
+    fun hasMeeting(meetingId: String): Boolean =
+        rows.any { (it as? Row.Item)?.meeting?.id == meetingId }
+
+    /** Repaints a single row after its meeting changed in place (starring). */
+    fun refreshMeeting(meetingId: String) {
+        val index = rows.indexOfFirst { (it as? Row.Item)?.meeting?.id == meetingId }
+        if (index >= 0) notifyItemChanged(index)
+    }
 
     fun submit(meetings: List<Meeting>) {
         rows.clear()
@@ -101,9 +134,16 @@ class MeetingAdapter(
     }
 
     class ItemHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val card: View = view.findViewById(R.id.meetingCard)
         val time: TextView = view.findViewById(R.id.meetingTime)
         val title: TextView = view.findViewById(R.id.meetingTitle)
         val meta: TextView = view.findViewById(R.id.meetingMeta)
+        val star: android.widget.ImageButton = view.findViewById(R.id.meetingStar)
+        val progressRow: View = view.findViewById(R.id.meetingProgressRow)
+        val progressLabel: TextView = view.findViewById(R.id.meetingProgressLabel)
+        val progressBar:
+            com.google.android.material.progressindicator.LinearProgressIndicator =
+            view.findViewById(R.id.meetingProgressBar)
     }
 
     override fun getItemViewType(position: Int): Int =
@@ -126,16 +166,63 @@ class MeetingAdapter(
             }
             is Row.Item -> {
                 val h = holder as ItemHolder
+                val meeting = row.meeting
                 h.time.text = row.time
-                h.title.text = row.meeting.title
+                h.title.text = meeting.title
                 h.meta.text = "${row.time} · ${row.meta}"
-                h.itemView.setOnClickListener { onClick(row.meeting) }
+                h.itemView.setOnClickListener { onClick(meeting) }
                 h.itemView.setOnLongClickListener {
-                    onLongClick(row.meeting)
+                    onLongClick(meeting)
                     true
                 }
+                bindStar(h, meeting)
+                bindProgress(h, meeting)
             }
         }
+    }
+
+    /** Flagged meetings keep an accent edge and a filled star. */
+    private fun bindStar(h: ItemHolder, meeting: Meeting) {
+        val context = h.itemView.context
+        h.card.setBackgroundResource(
+            if (meeting.starred) R.drawable.bg_card_starred else R.drawable.bg_card
+        )
+        h.star.setImageResource(
+            if (meeting.starred) R.drawable.ic_star else R.drawable.ic_star_outline
+        )
+        h.star.imageTintList = android.content.res.ColorStateList.valueOf(
+            MaterialColors.getColor(
+                h.star,
+                if (meeting.starred) {
+                    com.google.android.material.R.attr.colorPrimary
+                } else {
+                    com.google.android.material.R.attr.colorOutlineVariant
+                }
+            )
+        )
+        h.star.contentDescription = context.getString(
+            if (meeting.starred) R.string.unstar_meeting else R.string.star_meeting
+        )
+        h.star.setOnClickListener { onToggleStar(meeting) }
+    }
+
+    private fun bindProgress(h: ItemHolder, meeting: Meeting) {
+        val progress = progressByMeeting[meeting.id]
+        if (progress == null) {
+            h.progressRow.visibility = View.GONE
+            return
+        }
+        h.progressRow.visibility = View.VISIBLE
+        h.progressLabel.text = progress.label
+        val wantIndeterminate = progress.percent < 0
+        if (h.progressBar.isIndeterminate != wantIndeterminate) {
+            // Material indicators refuse an in-place mode switch while
+            // visible, so blink the bar around the change.
+            h.progressBar.visibility = View.INVISIBLE
+            h.progressBar.isIndeterminate = wantIndeterminate
+            h.progressBar.visibility = View.VISIBLE
+        }
+        if (!wantIndeterminate) h.progressBar.progress = progress.percent
     }
 
     override fun getItemCount(): Int = rows.size

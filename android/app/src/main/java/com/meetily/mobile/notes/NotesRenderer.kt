@@ -4,9 +4,6 @@ import android.content.Context
 import android.graphics.Paint
 import android.graphics.Typeface
 import android.text.SpannableStringBuilder
-import android.text.Spanned
-import android.text.style.StyleSpan
-import android.text.style.TypefaceSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.widget.CheckBox
@@ -85,33 +82,7 @@ object NotesRenderer {
         }
     }
 
-    private fun inline(text: String): CharSequence {
-        val out = SpannableStringBuilder()
-        for (segment in NotesMarkdown.inlineSegments(text)) {
-            val start = out.length
-            out.append(segment.text)
-            val end = out.length
-            if (segment.bold) {
-                out.setSpan(
-                    StyleSpan(Typeface.BOLD), start, end,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
-            if (segment.italic) {
-                out.setSpan(
-                    StyleSpan(Typeface.ITALIC), start, end,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
-            if (segment.code) {
-                out.setSpan(
-                    TypefaceSpan("monospace"), start, end,
-                    Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-                )
-            }
-        }
-        return out
-    }
+    private fun inline(text: String): CharSequence = MarkdownSpans.inline(text)
 
     private fun textView(context: Context, text: String?, bold: Boolean = false): TextView =
         TextView(context).apply {

@@ -43,6 +43,22 @@ class MeetingStore(context: Context) {
         }
     }
 
+    /**
+     * Saves [meeting] after folding in any transcript segments that reached
+     * disk since it was loaded.
+     *
+     * Screens hold a Meeting for as long as they are open and write the whole
+     * object back on every change, so a plain [save] from a screen can erase
+     * a segment appended meanwhile by the recording service (see
+     * RecordingService.appendLateSegment). Everything else on the screen's
+     * copy still wins — it is the one carrying the user's edits.
+     */
+    fun saveMerging(meeting: Meeting) {
+        val onDisk = load(meeting.id)
+        if (onDisk != null) MeetingMerge.foldLateSegments(meeting, onDisk)
+        save(meeting)
+    }
+
     fun delete(id: String) {
         File(dir, "$id.json").delete()
     }

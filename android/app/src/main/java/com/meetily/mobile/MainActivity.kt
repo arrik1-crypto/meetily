@@ -36,9 +36,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var orbCaption: TextView
     private var allMeetings: List<Meeting> = emptyList()
 
-    // Library filters: at most one active — a tag or a recurring series.
+    // Library filters: at most one active — flagged, a tag, or a series.
     private var selectedTag: String? = null
     private var selectedSeriesKey: String? = null
+    private var flaggedOnly = false
     private lateinit var filterChips: android.widget.LinearLayout
     private lateinit var filterChipsScroll: View
 
@@ -55,17 +56,36 @@ class MainActivity : AppCompatActivity() {
     private var importBound = false
 
     private val importObserver = object : ImportService.Observer {
-        override fun onImportProgress(percent: Int) {
+        override fun onImportProgress(meetingId: String?, percent: Int) {
             if (isFinishing || isDestroyed) return
-            importBanner.visibility = View.VISIBLE
-            importBannerName.text = getString(
-                R.string.import_notif_title,
-                importService?.sourceName?.ifBlank { null }
-                    ?: getString(R.string.import_title)
+            val recheck = ImportService.isRecheck
+            val source = importService?.sourceName?.ifBlank { null }
+                ?: getString(R.string.import_title)
+            importWork = Work(
+                meetingId = meetingId,
+                bannerTitle = getString(
+                    if (recheck) R.string.check_notif_title
+                    else R.string.import_notif_title,
+                    source
+                ),
+                inlineLabel = getString(
+                    if (recheck) R.string.card_progress_checking
+                    else R.string.card_progress_transcribing,
+                    percent
+                ),
+                percent = percent
             )
-            importBannerBar.isIndeterminate = percent == 0
-            importBannerBar.progress = percent
-            importBannerPct.text = getString(R.string.percent_fmt, percent)
+            // An import's meeting only reaches disk once its first line is
+            // transcribed, so the list has to be reloaded to show it. One
+            // reload per run: after that the card is there to paint into.
+            if (meetingId != null && meetingId != importListedId &&
+                !adapter.hasMeeting(meetingId) && store.load(meetingId) != null
+            ) {
+                importListedId = meetingId
+                refresh()
+                return
+            }
+            syncProgressViews()
         }
 
         override fun onImportDone(
@@ -75,7 +95,9 @@ class MainActivity : AppCompatActivity() {
             warning: String?
         ) {
             if (isFinishing || isDestroyed) return
-            importBanner.visibility = View.GONE
+            clearWork(importWork)
+            importWork = null
+            importListedId = null
             refresh() // the imported meeting (or its final state) shows up
         }
     }
@@ -105,26 +127,27 @@ class MainActivity : AppCompatActivity() {
     private val summaryObserver = object : SummaryService.Observer {
         override fun onSummaryProgress(meetingId: String, percent: Int, stage: String) {
             if (isFinishing || isDestroyed) return
-            summaryBanner.visibility = View.VISIBLE
-            summaryBannerName.text = SummaryService.currentTitle.ifBlank {
-                getString(R.string.summary_banner_untitled)
-            }
-            val wantIndeterminate = percent < 0
-            if (summaryBannerBar.isIndeterminate != wantIndeterminate) {
-                // Material indicators refuse an in-place mode switch while
-                // visible, so blink the bar around the change.
-                summaryBannerBar.visibility = View.INVISIBLE
-                summaryBannerBar.isIndeterminate = wantIndeterminate
-                summaryBannerBar.visibility = View.VISIBLE
-            }
-            if (!wantIndeterminate) summaryBannerBar.progress = percent
-            summaryBannerPct.text =
-                if (percent < 0) "" else getString(R.string.percent_fmt, percent)
+            val notesRun = SummaryService.currentMode == SummaryService.MODE_NOTES
+            summaryWork = Work(
+                meetingId = meetingId,
+                bannerTitle = SummaryService.currentTitle.ifBlank {
+                    getString(R.string.summary_banner_untitled)
+                },
+                inlineLabel = when {
+                    percent < 0 && notesRun -> getString(R.string.card_progress_notes_plain)
+                    percent < 0 -> getString(R.string.card_progress_summarising_plain)
+                    notesRun -> getString(R.string.card_progress_notes, percent)
+                    else -> getString(R.string.card_progress_summarising, percent)
+                },
+                percent = percent
+            )
+            syncProgressViews()
         }
 
         override fun onSummaryDone(meetingId: String, failed: Boolean) {
             if (isFinishing || isDestroyed) return
-            summaryBanner.visibility = View.GONE
+            clearWork(summaryWork)
+            summaryWork = null
             // currentTitle/currentMode are still set when observers hear
             // about the finish.
             val title = SummaryService.currentTitle
@@ -155,6 +178,75 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // --- Where progress goes -------------------------------------------------
+
+    /** One piece of background work, as the home screen needs to show it. */
+    private data class Work(
+        val meetingId: String?,
+        val bannerTitle: String,
+        val inlineLabel: String,
+        val percent: Int
+    )
+
+    private var importWork: Work? = null
+    private var summaryWork: Work? = null
+
+    /** The import meeting the list has already been reloaded for. */
+    private var importListedId: String? = null
+
+    private fun clearWork(work: Work?) {
+        work?.meetingId?.let { adapter.setProgress(it, null) }
+    }
+
+    private fun syncProgressViews() {
+        renderWork(
+            importWork, importBanner, importBannerName, importBannerBar, importBannerPct
+        )
+        renderWork(
+            summaryWork, summaryBanner, summaryBannerName, summaryBannerBar,
+            summaryBannerPct
+        )
+    }
+
+    /**
+     * Progress belongs inside the meeting's own card — the card already names
+     * the meeting, so a banner repeating it is redundant. The banner stays as
+     * the fallback for work whose card is not on screen: filtered out by the
+     * search box or a chip, or an import whose meeting is not in the list
+     * yet. Never both at once.
+     */
+    private fun renderWork(
+        work: Work?,
+        banner: View,
+        name: TextView,
+        bar: com.google.android.material.progressindicator.LinearProgressIndicator,
+        pct: TextView
+    ) {
+        if (work == null) {
+            banner.visibility = View.GONE
+            return
+        }
+        val inline = work.meetingId != null && adapter.setProgress(
+            work.meetingId, MeetingAdapter.Progress(work.inlineLabel, work.percent)
+        )
+        if (inline) {
+            banner.visibility = View.GONE
+            return
+        }
+        banner.visibility = View.VISIBLE
+        name.text = work.bannerTitle
+        val wantIndeterminate = work.percent <= 0
+        if (bar.isIndeterminate != wantIndeterminate) {
+            // Material indicators refuse an in-place mode switch while
+            // visible, so blink the bar around the change.
+            bar.visibility = View.INVISIBLE
+            bar.isIndeterminate = wantIndeterminate
+            bar.visibility = View.VISIBLE
+        }
+        if (!wantIndeterminate) bar.progress = work.percent
+        pct.text = if (work.percent < 0) "" else getString(R.string.percent_fmt, work.percent)
+    }
+
     override fun onStart() {
         super.onStart()
         if (ImportService.isRunning) {
@@ -165,7 +257,8 @@ class MainActivity : AppCompatActivity() {
             )
             importBound = true
         } else {
-            importBanner.visibility = View.GONE
+            clearWork(importWork)
+            importWork = null
         }
         if (SummaryService.isRunning) {
             bindService(
@@ -175,8 +268,10 @@ class MainActivity : AppCompatActivity() {
             )
             summaryBound = true
         } else {
-            summaryBanner.visibility = View.GONE
+            clearWork(summaryWork)
+            summaryWork = null
         }
+        syncProgressViews()
     }
 
     override fun onStop() {
@@ -272,7 +367,8 @@ class MainActivity : AppCompatActivity() {
                         .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meeting.id)
                 )
             },
-            onLongClick = { meeting -> confirmDelete(meeting) }
+            onLongClick = { meeting -> showMeetingActions(meeting) },
+            onToggleStar = { meeting -> toggleStar(meeting) }
         )
         recycler.adapter = adapter
 
@@ -424,18 +520,30 @@ class MainActivity : AppCompatActivity() {
         if (selectedSeriesKey != null && series.none { it.key == selectedSeriesKey }) {
             selectedSeriesKey = null
         }
+        val anyFlagged = allMeetings.any { it.starred }
+        if (!anyFlagged) flaggedOnly = false
         filterChips.removeAllViews()
-        if (tags.isEmpty() && series.isEmpty()) {
+        if (tags.isEmpty() && series.isEmpty() && !anyFlagged) {
             filterChipsScroll.visibility = View.GONE
             return
         }
         filterChipsScroll.visibility = View.VISIBLE
+        if (anyFlagged) {
+            addFilterChip(getString(R.string.filter_flagged), flaggedOnly) {
+                selectedTag = null
+                selectedSeriesKey = null
+                flaggedOnly = !flaggedOnly
+                rebuildFilterChips()
+                applyFilter()
+            }
+        }
         for (tag in tags) {
             addFilterChip(
                 label = "#$tag",
                 selected = tag.equals(selectedTag, ignoreCase = true)
             ) {
                 selectedSeriesKey = null
+                flaggedOnly = false
                 selectedTag = if (tag.equals(selectedTag, true)) null else tag
                 rebuildFilterChips()
                 applyFilter()
@@ -447,6 +555,7 @@ class MainActivity : AppCompatActivity() {
                 selected = s.key == selectedSeriesKey
             ) {
                 selectedTag = null
+                flaggedOnly = false
                 selectedSeriesKey = if (s.key == selectedSeriesKey) null else s.key
                 rebuildFilterChips()
                 applyFilter()
@@ -482,6 +591,9 @@ class MainActivity : AppCompatActivity() {
     private fun applyFilter() {
         val query = searchInput.text.toString().trim().lowercase()
         var filtered = allMeetings
+        if (flaggedOnly) {
+            filtered = filtered.filter { it.starred }
+        }
         selectedTag?.let { tag ->
             filtered = filtered.filter { meeting ->
                 meeting.tags.any { it.equals(tag, ignoreCase = true) }
@@ -511,6 +623,93 @@ class MainActivity : AppCompatActivity() {
                     R.plurals.meeting_count, allMeetings.size, allMeetings.size
                 )
         }
+        // The rows just changed, so whether progress can live inside a card
+        // (rather than the fallback banner) may have changed with them.
+        syncProgressViews()
+    }
+
+    /**
+     * Long-press used to delete immediately, which made the most destructive
+     * action the easiest one to hit by accident. It now opens the full set of
+     * things you can do to a meeting, with Delete set apart at the end.
+     */
+    private fun showMeetingActions(meeting: Meeting) {
+        val hasAudio = AudioStore.exists(this, meeting.audioFile)
+        val canSummarize = meeting.segments.isNotEmpty() || meeting.notes.isNotBlank()
+        val canTopics = meeting.segments.size >= 8
+        val items = listOf(
+            ActionSheet.Item(
+                MeetingDetailActivity.ACTION_RENAME,
+                getString(R.string.rename_meeting)
+            ),
+            ActionSheet.Item(
+                MeetingDetailActivity.ACTION_CHECK_ACCURACY,
+                getString(R.string.check_accuracy),
+                subtitle = if (hasAudio) null else getString(R.string.no_audio_kept),
+                enabled = hasAudio
+            ),
+            ActionSheet.Item(
+                MeetingDetailActivity.ACTION_SUMMARIZE,
+                getString(R.string.summarize),
+                subtitle = if (canSummarize) null else getString(R.string.no_transcript),
+                enabled = canSummarize
+            ),
+            ActionSheet.Item(
+                MeetingDetailActivity.ACTION_TOPICS,
+                getString(R.string.topics_title),
+                subtitle = if (canTopics) null else getString(R.string.topics_too_short),
+                enabled = canTopics
+            ),
+            ActionSheet.Item(
+                MeetingDetailActivity.ACTION_SHARE,
+                getString(R.string.share_meeting)
+            ),
+            ActionSheet.Item(
+                ACTION_FLAG,
+                getString(
+                    if (meeting.starred) R.string.unstar_meeting else R.string.star_meeting
+                )
+            ),
+            ActionSheet.Item(
+                ACTION_DELETE,
+                getString(R.string.delete_meeting_title),
+                destructive = true,
+                separated = true
+            )
+        )
+        ActionSheet.show(this, meeting.title, items) { id ->
+            when (id) {
+                ACTION_FLAG -> toggleStar(meeting)
+                ACTION_DELETE -> confirmDelete(meeting)
+                else -> startActivity(
+                    Intent(this, MeetingDetailActivity::class.java)
+                        .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meeting.id)
+                        .putExtra(MeetingDetailActivity.EXTRA_ACTION, id)
+                )
+            }
+        }
+    }
+
+    /**
+     * Flags a meeting for follow-up. Written against a freshly loaded copy so
+     * a list that has been open for a while cannot push stale content back.
+     */
+    private fun toggleStar(meeting: Meeting) {
+        val stored = store.load(meeting.id)
+        if (stored == null) {
+            refresh()
+            return
+        }
+        val starred = !meeting.starred
+        stored.starred = starred
+        store.save(stored)
+        meeting.starred = starred // the list holds this instance
+        if (flaggedOnly && !starred) {
+            applyFilter() // it no longer belongs in the current view
+        } else {
+            adapter.refreshMeeting(meeting.id)
+        }
+        rebuildFilterChips()
     }
 
     private fun confirmDelete(meeting: Meeting) {
@@ -562,5 +761,10 @@ class MainActivity : AppCompatActivity() {
 
     companion object {
         const val ACTION_IMPORT_PICK = "com.meetily.mobile.ACTION_IMPORT_PICK"
+
+        // Long-press sheet entries handled here rather than on the detail
+        // screen; the rest are MeetingDetailActivity.ACTION_* values.
+        private const val ACTION_FLAG = "flag"
+        private const val ACTION_DELETE = "delete"
     }
 }

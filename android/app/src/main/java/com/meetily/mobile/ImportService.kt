@@ -28,7 +28,12 @@ import com.meetily.mobile.whisper.AudioFileImporter
 class ImportService : Service() {
 
     interface Observer {
-        fun onImportProgress(percent: Int)
+        /**
+         * [meetingId] is null until the run knows which meeting it is filling
+         * — the home screen uses it to put progress inside that meeting's own
+         * card instead of a floating banner.
+         */
+        fun onImportProgress(meetingId: String?, percent: Int)
 
         /**
          * error != null means the import failed outright (nothing kept);
@@ -55,7 +60,7 @@ class ImportService : Service() {
         if (done) {
             observer.onImportDone(resultMeetingId, cancelled, resultError, resultWarning)
         } else {
-            observer.onImportProgress(percent)
+            observer.onImportProgress(currentMeetingId, percent)
         }
     }
 
@@ -68,6 +73,9 @@ class ImportService : Service() {
 
     /** Per-run model override (see ImportActivity's picker); null = default. */
     private var modelKey: String? = null
+
+    /** Set when this run is a second pass over an existing meeting's audio. */
+    private var recheckMeetingId: String? = null
 
     @Volatile private var cancelled = false
     @Volatile private var percent = 0
@@ -91,6 +99,9 @@ class ImportService : Service() {
                 val uri = intent.data
                 if (isRunning || uri == null) return START_NOT_STICKY
                 isRunning = true
+                recheckMeetingId = intent.getStringExtra(EXTRA_RECHECK_MEETING_ID)
+                isRecheck = recheckMeetingId != null
+                currentMeetingId = recheckMeetingId
                 sourceName = intent.getStringExtra(EXTRA_NAME).orEmpty()
                     .ifBlank { getString(R.string.import_title) }
                 modelKey = intent.getStringExtra(EXTRA_MODEL)
@@ -126,11 +137,21 @@ class ImportService : Service() {
                     title = sourceName.substringBeforeLast('.').ifBlank { sourceName },
                     sourceName = sourceName,
                     modelKey = modelKey,
+                    recheckMeetingId = recheckMeetingId,
+                    onMeetingCreated = { id ->
+                        currentMeetingId = id
+                        main.post {
+                            if (isRunning) {
+                                observers.forEach { it.onImportProgress(id, percent) }
+                            }
+                        }
+                    },
                     onProgress = { p ->
                         percent = p
                         main.post {
                             if (isRunning) {
-                                observers.forEach { it.onImportProgress(p) }
+                                val id = currentMeetingId
+                                observers.forEach { it.onImportProgress(id, p) }
                                 updateNotification(p)
                             }
                         }
@@ -162,6 +183,12 @@ class ImportService : Service() {
         resultMeetingId = meetingId
         resultError = error
         resultWarning = warning
+        val recheckId = recheckMeetingId
+        if (recheckId != null && (cancelled || error != null)) {
+            // Nothing was written to the meeting, and a half-finished draft
+            // would only produce a misleading comparison.
+            com.meetily.mobile.data.TranscriptDraft.delete(this, recheckId)
+        }
         try {
             wakeLock?.release()
         } catch (_: Exception) {
@@ -169,7 +196,10 @@ class ImportService : Service() {
         wakeLock = null
         observers.forEach { it.onImportDone(meetingId, cancelled, error, warning) }
         stopForegroundCompat()
-        postCompletionNotification(meetingId, error, warning)
+        if (!cancelled) postCompletionNotification(meetingId, error, warning)
+        // isRecheck / currentMeetingId deliberately survive the run: an
+        // observer that binds after the finish still needs to know what just
+        // happened. Both are reset by the next ACTION_START.
         isRunning = false
         stopSelf()
     }
@@ -216,7 +246,13 @@ class ImportService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
-            .setContentTitle(getString(R.string.import_notif_title, sourceName))
+            .setContentTitle(
+                if (recheckMeetingId != null) {
+                    getString(R.string.check_notif_title, sourceName)
+                } else {
+                    getString(R.string.import_notif_title, sourceName)
+                }
+            )
             .setContentText(getString(R.string.import_status_running, progress))
             .setProgress(100, progress, progress == 0)
             .setOngoing(true)
@@ -244,7 +280,21 @@ class ImportService : Service() {
             .setSmallIcon(R.drawable.ic_download)
             .setAutoCancel(true)
             .setSilent(true)
-        if (meetingId != null) {
+        if (meetingId != null && recheckMeetingId != null) {
+            // The second pass is done but nothing has changed yet — the whole
+            // point is that the user reviews it first.
+            builder.setContentTitle(getString(R.string.check_ready_notif))
+                .setContentText(getString(R.string.check_ready_notif_body))
+                .setContentIntent(
+                    PendingIntent.getActivity(
+                        this, 4,
+                        Intent(this, TranscriptCheckActivity::class.java)
+                            .putExtra(TranscriptCheckActivity.EXTRA_MEETING_ID, meetingId)
+                            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                    )
+                )
+        } else if (meetingId != null) {
             builder.setContentTitle(
                 if (warning != null) getString(R.string.import_incomplete_notif)
                 else getString(R.string.import_done_notif)
@@ -296,10 +346,19 @@ class ImportService : Service() {
         @Volatile var isRunning = false
             private set
 
+        /** The meeting this run is filling, once known. */
+        @Volatile var currentMeetingId: String? = null
+            private set
+
+        /** True while the run is a second pass over an existing meeting. */
+        @Volatile var isRecheck = false
+            private set
+
         const val ACTION_START = "com.meetily.mobile.import.START"
         const val ACTION_CANCEL = "com.meetily.mobile.import.CANCEL"
         const val EXTRA_NAME = "source_name"
         const val EXTRA_MODEL = "model_key"
+        const val EXTRA_RECHECK_MEETING_ID = "recheck_meeting_id"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45

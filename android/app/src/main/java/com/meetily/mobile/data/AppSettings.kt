@@ -104,6 +104,15 @@ class AppSettings(context: Context) {
         get() = prefs.getString("whisper_model", "base.en") ?: "base.en"
         set(value) = prefs.edit().putString("whisper_model", value).apply()
 
+    /**
+     * After a recording ends, run the saved audio through the heaviest
+     * downloaded model and stage a comparison. Nothing is replaced without
+     * the user reviewing it, and the pass is skipped on low battery.
+     */
+    var autoCheckTranscript: Boolean
+        get() = prefs.getBoolean("auto_check_transcript", false)
+        set(value) = prefs.edit().putBoolean("auto_check_transcript", value).apply()
+
     /** Whisper translate task: non-English speech comes out as English text
      *  (multilingual models only; English-only models ignore this). */
     var whisperTranslate: Boolean

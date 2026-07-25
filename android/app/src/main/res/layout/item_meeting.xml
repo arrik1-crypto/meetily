@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/meetingCard"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginHorizontal="24dp"
@@ -59,12 +60,53 @@
             android:maxLines="1"
             android:textColor="@color/tx4"
             android:textSize="11sp" />
+
+        <!-- Work in flight for THIS meeting (summary, transcription). The
+             card already names the meeting, so the label carries only the
+             kind and the percentage. -->
+        <LinearLayout
+            android:id="@+id/meetingProgressRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="7dp"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/meetingProgressLabel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="?attr/colorPrimary"
+                android:textSize="11sp" />
+
+            <com.google.android.material.progressindicator.LinearProgressIndicator
+                android:id="@+id/meetingProgressBar"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:indeterminate="true"
+                app:trackCornerRadius="2dp"
+                app:trackThickness="3dp" />
+        </LinearLayout>
     </LinearLayout>
+
+    <ImageButton
+        android:id="@+id/meetingStar"
+        android:layout_width="34dp"
+        android:layout_height="34dp"
+        android:layout_marginStart="4dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/star_meeting"
+        android:padding="7dp"
+        android:scaleType="fitCenter"
+        android:src="@drawable/ic_star_outline" />
 
     <ImageView
         android:layout_width="13dp"
         android:layout_height="13dp"
-        android:layout_marginStart="8dp"
+        android:layout_marginStart="4dp"
         android:importantForAccessibility="no"
         android:src="@drawable/ic_chevron_right"
         app:tint="@color/brd2" />

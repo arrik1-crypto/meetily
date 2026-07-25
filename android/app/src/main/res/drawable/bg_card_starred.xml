@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The library row for a meeting flagged for follow-up: same card, accent
+     edge, so it reads as marked without shouting over its neighbours. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/surface" />
+    <corners android:radius="14dp" />
+    <stroke android:width="2dp" android:color="@color/accent" />
+</shape>

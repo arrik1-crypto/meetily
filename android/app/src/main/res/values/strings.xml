@@ -313,9 +313,62 @@
     <string name="play_from_here">▶ Play from here</string>
     <string name="player_time">%1$s / %2$s</string>
     <string name="share_audio">Share audio…</string>
-    <string name="retranscribe">Re-transcribe audio…</string>
-    <string name="retranscribe_message">Runs this meeting\'s saved audio through transcription again using your current Whisper and speaker models, creating a new meeting. The original meeting is untouched.</string>
-    <string name="retranscribe_go">Re-transcribe</string>
+    <!-- Transcript accuracy check (second pass over the saved audio) -->
+    <string name="check_accuracy">Check transcript accuracy…</string>
+    <string name="check_accuracy_title">Check transcript accuracy</string>
+    <string name="check_accuracy_message">Runs this meeting\'s saved audio through %1$s and compares what it hears with the transcript you already have. Nothing is replaced until you have seen the differences.</string>
+    <string name="check_accuracy_go">Run the check</string>
+    <string name="check_choose_model">Check with which model?</string>
+    <string name="check_model_made_current">Produced the current transcript</string>
+    <string name="check_model_unknown">the original pass</string>
+    <string name="check_started">Checking the transcript in the background. You\'ll get a notification when the comparison is ready.</string>
+    <string name="check_notif_title">Checking %1$s</string>
+    <string name="check_ready_notif">Transcript check ready</string>
+    <string name="check_ready_notif_body">Tap to compare the two transcripts.</string>
+    <string name="check_ready_prompt">A second pass has finished for this meeting. Look at the differences now?</string>
+    <string name="check_cancelled">Check cancelled. Your transcript is unchanged.</string>
+    <string name="check_nothing_to_review">There\'s no finished check waiting for this meeting.</string>
+    <string name="check_nothing_to_apply">Nothing to apply.</string>
+    <string name="check_agree_title">Both models agree</string>
+    <string name="check_agree_body">%1$s heard the same words as %2$s, all the way through. That is a good sign for this transcript.</string>
+    <string name="check_differences_body">%1$s and %2$s heard different words in places, across %3$d stretches of audio compared. Playing those moments back is the quickest way to tell which is right.</string>
+    <string name="check_review">Review differences</string>
+    <string name="check_use_new">Use the new transcript</string>
+    <string name="check_keep_current">Keep the current transcript</string>
+    <string name="check_done">Done</string>
+    <string name="check_review_hint">Pick the version you want for each moment; tap play to hear the audio.</string>
+    <string name="check_side_current">Current</string>
+    <string name="check_side_new">New — %1$s</string>
+    <string name="check_side_silent">(this model heard nothing here)</string>
+    <string name="check_play_span">Play this moment</string>
+    <string name="check_apply">Apply</string>
+    <string name="check_apply_none">Keep the current transcript</string>
+    <string name="check_kept_current">Kept the current transcript.</string>
+    <string name="check_summary_stale_title">The transcript changed</string>
+    <string name="check_summary_stale_body">The summary and action items were written from the old wording. Generate them again?</string>
+    <string name="check_regenerate">Regenerate</string>
+    <string name="check_leave_summary">Leave as is</string>
+    <string name="summary_stale_hint">Transcript changed since this summary was written</string>
+
+    <!-- Flagging a meeting for follow-up -->
+    <string name="star_meeting">Flag for follow-up</string>
+    <string name="unstar_meeting">Remove flag</string>
+    <string name="starred_toast">Flagged for follow-up</string>
+    <string name="unstarred_toast">Flag removed</string>
+    <string name="filter_flagged">Flagged</string>
+
+    <!-- Progress shown inside a meeting card on the home screen -->
+    <string name="card_progress_transcribing">Transcribing… %1$d%%</string>
+    <string name="card_progress_checking">Checking transcript… %1$d%%</string>
+    <string name="card_progress_summarising">Summarising… %1$d%%</string>
+    <string name="card_progress_summarising_plain">Summarising…</string>
+    <string name="card_progress_notes">Enhancing notes… %1$d%%</string>
+    <string name="card_progress_notes_plain">Enhancing notes…</string>
+
+    <string name="setting_auto_check">Check the transcript after each meeting</string>
+    <string name="setting_auto_check_desc">When a recording ends, Recap quietly runs the saved audio through the heaviest model you have downloaded and tells you where the two passes disagree. Live capture has to keep up in real time; a second unhurried pass often hears more. Nothing is replaced until you review it, and the pass is skipped when the battery is low and the phone is not charging. Requires "Keep meeting audio".</string>
+
+    <string name="later">Later</string>
     <string name="no_audio_kept">No audio was kept for this meeting.</string>
     <string name="audio_play_failed">Couldn\'t play this meeting\'s audio.</string>
 
@@ -614,5 +667,15 @@
     <plurals name="meeting_count">
         <item quantity="one">%1$d meeting</item>
         <item quantity="other">%1$d meetings</item>
+    </plurals>
+
+    <plurals name="check_differences_title">
+        <item quantity="one">%1$d difference found</item>
+        <item quantity="other">%1$d differences found</item>
+    </plurals>
+
+    <plurals name="check_apply_n">
+        <item quantity="one">Apply %1$d change</item>
+        <item quantity="other">Apply %1$d changes</item>
     </plurals>
 </resources>

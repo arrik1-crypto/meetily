@@ -136,6 +136,16 @@
         app:trackCornerRadius="2dp" />
 
     <TextView
+        android:id="@+id/summaryStaleHint"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/summary_stale_hint"
+        android:textAppearance="?attr/textAppearanceBodySmall"
+        android:textColor="?attr/colorPrimary"
+        android:visibility="gone" />
+
+    <TextView
         android:id="@+id/detailSummary"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -569,5 +579,14 @@
         android:text="@string/tap_to_tag_hint"
         android:textAppearance="?attr/textAppearanceBodySmall"
         android:textColor="?attr/colorOnSurfaceVariant" />
+
+    <com.google.android.material.progressindicator.LinearProgressIndicator
+        android:id="@+id/topicsProgress"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="7dp"
+        android:indeterminate="true"
+        android:visibility="gone"
+        app:trackCornerRadius="2dp" />
 
 </LinearLayout>

@@ -32,7 +32,7 @@ class ImportActivity : AppCompatActivity() {
     private var opened = false
 
     private val observer = object : ImportService.Observer {
-        override fun onImportProgress(percent: Int) {
+        override fun onImportProgress(meetingId: String?, percent: Int) {
             if (isFinishing || isDestroyed) return
             progress.isIndeterminate = percent == 0
             progress.progress = percent
@@ -47,6 +47,20 @@ class ImportActivity : AppCompatActivity() {
         ) {
             if (isFinishing || isDestroyed) return
             when {
+                meetingId != null && ImportService.isRecheck -> {
+                    // A cancelled check left the stored transcript alone and
+                    // threw its draft away — there is nothing to review.
+                    if (wasCancelled) {
+                        Toast.makeText(
+                            this@ImportActivity,
+                            R.string.check_cancelled,
+                            Toast.LENGTH_LONG
+                        ).show()
+                        finish()
+                    } else {
+                        openCheck(meetingId)
+                    }
+                }
                 meetingId != null -> {
                     when {
                         wasCancelled -> Toast.makeText(
@@ -106,6 +120,12 @@ class ImportActivity : AppCompatActivity() {
             statusView.text = getString(R.string.import_stopping)
         }
 
+        // The same progress screen backs an accuracy check; say which it is.
+        if (ImportService.isRunning && ImportService.isRecheck) {
+            findViewById<MaterialToolbar>(R.id.importToolbar).title =
+                getString(R.string.check_accuracy_title)
+        }
+
         val uri = incomingUri()
         if (uri == null) {
             // Reopened from the progress notification: just observe.
@@ -163,18 +183,8 @@ class ImportActivity : AppCompatActivity() {
                             key = key,
                             title = com.meetily.mobile.whisper.TranscriptionModels
                                 .displayName(key),
-                            meta = getString(
-                                R.string.model_card_meta,
-                                com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key),
-                                getString(
-                                    if (com.meetily.mobile.whisper.TranscriptionModels
-                                            .englishOnly(key)
-                                    ) R.string.model_lang_en else R.string.model_lang_multi
-                                ),
-                                if (com.meetily.mobile.whisper.TranscriptionModels
-                                        .isNemo(key)
-                                ) "NVIDIA" else "Whisper"
-                            ),
+                            meta = com.meetily.mobile.whisper.TranscriptionModels
+                                .metaLine(this, key),
                             downloaded = true,
                             selected = settings.whisperModel == key
                         )
@@ -235,6 +245,16 @@ class ImportActivity : AppCompatActivity() {
         startActivity(
             Intent(this, MeetingDetailActivity::class.java)
                 .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meetingId)
+        )
+        finish()
+    }
+
+    private fun openCheck(meetingId: String) {
+        if (opened) return
+        opened = true
+        startActivity(
+            Intent(this, TranscriptCheckActivity::class.java)
+                .putExtra(TranscriptCheckActivity.EXTRA_MEETING_ID, meetingId)
         )
         finish()
     }

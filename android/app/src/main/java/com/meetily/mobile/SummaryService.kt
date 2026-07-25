@@ -226,6 +226,9 @@ class SummaryService : Service() {
             val target = store.load(meetingId) ?: meeting
             target.summary = result
             target.actionItems = finalItems.toMutableList()
+            // Written from the transcript as it stands now, so any "this
+            // summary is out of date" flag is settled.
+            target.summaryStale = false
             store.save(target)
 
             main.post { finishRun(meetingId) }

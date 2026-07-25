@@ -73,7 +73,21 @@ data class Meeting(
     /** On-device OCR text per attached photo (filename → extracted text). */
     val photoTexts: MutableMap<String, String> = mutableMapOf(),
     /** Arbitrary file attachments (see AttachmentStore). */
-    val attachmentsList: MutableList<Attachment> = mutableListOf()
+    val attachmentsList: MutableList<Attachment> = mutableListOf(),
+    /** Flagged for follow-up: the meeting is starred in the library list. */
+    var starred: Boolean = false,
+    /**
+     * Key of the transcription model that produced the current segments, when
+     * known. Written by imports and by the accuracy check so the second-pass
+     * picker can say which model made this transcript.
+     */
+    var transcriptModel: String? = null,
+    /**
+     * Set when the transcript changed under an existing summary (an accepted
+     * accuracy check), so the screen can say the summary is out of date
+     * instead of silently regenerating or silently lying.
+     */
+    var summaryStale: Boolean = false
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -111,30 +125,7 @@ data class Meeting(
         obj.put("attendees", attendeesArr)
         val arr = JSONArray()
         for (seg in segments) {
-            val s = JSONObject()
-            s.put("t", seg.timestampMs)
-            s.put("text", seg.text)
-            if (!seg.speaker.isNullOrBlank()) {
-                s.put("speaker", seg.speaker)
-            }
-            if (seg.highlighted) {
-                s.put("highlighted", true)
-            }
-            if (seg.clusterId != null) {
-                s.put("cluster", seg.clusterId)
-            }
-            if (seg.audioMs != null) {
-                s.put("audioMs", seg.audioMs)
-            }
-            val words = seg.words
-            if (!words.isNullOrEmpty()) {
-                val wordsArr = JSONArray()
-                for (word in words) {
-                    wordsArr.put(JSONArray().put(word.ms).put(word.text))
-                }
-                s.put("words", wordsArr)
-            }
-            arr.put(s)
+            arr.put(segmentToJson(seg))
         }
         obj.put("segments", arr)
         val qaArr = JSONArray()
@@ -191,10 +182,74 @@ data class Meeting(
             }
             obj.put("attachments", attachArr)
         }
+        if (starred) {
+            obj.put("starred", true)
+        }
+        if (!transcriptModel.isNullOrBlank()) {
+            obj.put("transcriptModel", transcriptModel)
+        }
+        if (summaryStale) {
+            obj.put("summaryStale", true)
+        }
         return obj
     }
 
     companion object {
+        /**
+         * Segment (de)serialisation lives here rather than inline so the
+         * staged second-pass transcript (TranscriptDraft) writes exactly the
+         * same shape a stored meeting does.
+         */
+        fun segmentToJson(seg: TranscriptSegment): JSONObject {
+            val s = JSONObject()
+            s.put("t", seg.timestampMs)
+            s.put("text", seg.text)
+            if (!seg.speaker.isNullOrBlank()) {
+                s.put("speaker", seg.speaker)
+            }
+            if (seg.highlighted) {
+                s.put("highlighted", true)
+            }
+            if (seg.clusterId != null) {
+                s.put("cluster", seg.clusterId)
+            }
+            if (seg.audioMs != null) {
+                s.put("audioMs", seg.audioMs)
+            }
+            val words = seg.words
+            if (!words.isNullOrEmpty()) {
+                val wordsArr = JSONArray()
+                for (word in words) {
+                    wordsArr.put(JSONArray().put(word.ms).put(word.text))
+                }
+                s.put("words", wordsArr)
+            }
+            return s
+        }
+
+        fun segmentFromJson(s: JSONObject): TranscriptSegment {
+            val speaker = s.optString("speaker", "")
+            return TranscriptSegment(
+                timestampMs = s.optLong("t", 0L),
+                text = s.optString("text", ""),
+                speaker = speaker.ifBlank { null },
+                highlighted = s.optBoolean("highlighted", false),
+                clusterId = if (s.has("cluster")) s.optInt("cluster") else null,
+                audioMs = if (s.has("audioMs")) s.optLong("audioMs") else null,
+                words = s.optJSONArray("words")?.let { wordsArr ->
+                    val out = mutableListOf<WordStamp>()
+                    for (w in 0 until wordsArr.length()) {
+                        val pair = wordsArr.optJSONArray(w) ?: continue
+                        val text = pair.optString(1, "")
+                        if (text.isNotBlank()) {
+                            out.add(WordStamp(pair.optLong(0), text))
+                        }
+                    }
+                    out.ifEmpty { null }
+                }
+            )
+        }
+
         fun parseAttendees(input: String): MutableList<String> =
             input.split(',', ';', '\n')
                 .map { it.trim() }
@@ -218,29 +273,7 @@ data class Meeting(
             }
             val arr = obj.optJSONArray("segments") ?: JSONArray()
             for (i in 0 until arr.length()) {
-                val s = arr.getJSONObject(i)
-                val speaker = s.optString("speaker", "")
-                meeting.segments.add(
-                    TranscriptSegment(
-                        timestampMs = s.optLong("t", 0L),
-                        text = s.optString("text", ""),
-                        speaker = speaker.ifBlank { null },
-                        highlighted = s.optBoolean("highlighted", false),
-                        clusterId = if (s.has("cluster")) s.optInt("cluster") else null,
-                        audioMs = if (s.has("audioMs")) s.optLong("audioMs") else null,
-                        words = s.optJSONArray("words")?.let { wordsArr ->
-                            val out = mutableListOf<WordStamp>()
-                            for (w in 0 until wordsArr.length()) {
-                                val pair = wordsArr.optJSONArray(w) ?: continue
-                                val text = pair.optString(1, "")
-                                if (text.isNotBlank()) {
-                                    out.add(WordStamp(pair.optLong(0), text))
-                                }
-                            }
-                            out.ifEmpty { null }
-                        }
-                    )
-                )
+                meeting.segments.add(segmentFromJson(arr.getJSONObject(i)))
             }
             val qaArr = obj.optJSONArray("qa") ?: JSONArray()
             for (i in 0 until qaArr.length()) {
@@ -303,6 +336,11 @@ data class Meeting(
                     )
                 }
             }
+            // Absent in meetings saved before these fields existed, which is
+            // exactly the default either way.
+            meeting.starred = obj.optBoolean("starred", false)
+            meeting.transcriptModel = obj.optString("transcriptModel", "").ifBlank { null }
+            meeting.summaryStale = obj.optBoolean("summaryStale", false)
             return meeting
         }
     }

@@ -5,6 +5,10 @@
         android:id="@+id/action_rename"
         android:title="@string/rename_meeting"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/action_star"
+        android:title="@string/star_meeting"
+        app:showAsAction="never" />
 
     <item
         android:id="@+id/action_summarize"
@@ -38,7 +42,7 @@
         android:title="@string/share_audio"
         app:showAsAction="never" />
     <item
-        android:id="@+id/action_retranscribe"
-        android:title="@string/retranscribe"
+        android:id="@+id/action_check_accuracy"
+        android:title="@string/check_accuracy"
         app:showAsAction="never" />
 </menu>

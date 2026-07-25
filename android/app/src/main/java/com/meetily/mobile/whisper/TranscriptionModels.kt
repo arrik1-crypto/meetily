@@ -44,6 +44,21 @@ object TranscriptionModels {
     fun isReady(context: Context, key: String): Boolean =
         isRuntimeAvailable(key) && isDownloaded(context, key)
 
+    /** The "220 MB · English · Whisper" line every model picker shows. */
+    fun metaLine(context: Context, key: String): String =
+        context.getString(
+            com.meetily.mobile.R.string.model_card_meta,
+            sizeMb(key),
+            context.getString(
+                if (englishOnly(key)) {
+                    com.meetily.mobile.R.string.model_lang_en
+                } else {
+                    com.meetily.mobile.R.string.model_lang_multi
+                }
+            ),
+            if (isNemo(key)) "NVIDIA" else "Whisper"
+        )
+
     /** All model keys for pickers, whisper family first. */
     fun allKeys(): List<String> =
         WhisperModels.ALL.map { it.key } + NemoModels.ALL.map { it.key }

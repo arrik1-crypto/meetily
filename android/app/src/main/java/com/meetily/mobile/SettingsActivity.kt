@@ -270,6 +270,8 @@ class SettingsActivity : AppCompatActivity() {
         whisperSwitch.isChecked = settings.transcriptionEngine == "whisper"
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
+        findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked =
+            settings.autoCheckTranscript
         findViewById<android.widget.EditText>(R.id.vocabInput).setText(settings.customVocab)
         findViewById<android.widget.EditText>(R.id.userNameInput).setText(settings.userName)
         findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(
@@ -379,6 +381,8 @@ class SettingsActivity : AppCompatActivity() {
         settings.diarizationEnabled = diarizeSwitch.isChecked
         settings.whisperTranslate =
             findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
+        settings.autoCheckTranscript =
+            findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked
         settings.customVocab =
             findViewById<android.widget.EditText>(R.id.vocabInput).text.toString().trim()
         settings.userName =

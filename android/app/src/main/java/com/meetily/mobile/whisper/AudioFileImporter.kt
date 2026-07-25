@@ -6,6 +6,7 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.TranscriptDraft
 import com.meetily.mobile.data.TranscriptSegment
 import java.util.UUID
 import kotlin.math.max
@@ -60,6 +61,14 @@ class AudioFileImporter(
         sourceName: String = title,
         /** Model for THIS run; null = the default from Settings. */
         modelKey: String? = null,
+        /**
+         * Set to run a second pass over an existing meeting's saved audio.
+         * Nothing is written to that meeting: the result is staged in
+         * [TranscriptDraft] for the user to compare and accept.
+         */
+        recheckMeetingId: String? = null,
+        /** Fires as soon as the target meeting id is known. */
+        onMeetingCreated: ((String) -> Unit)? = null,
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean
     ): Result {
@@ -113,31 +122,65 @@ class AudioFileImporter(
         }
 
         val store = MeetingStore(context)
+        // A recheck re-transcribes a meeting that already exists. Its
+        // timestamps must stay anchored to that meeting so the two passes
+        // line up on the same audio; nothing is written to the meeting
+        // itself until the user accepts the result.
+        val recheckTarget = recheckMeetingId?.let { store.load(it) }
+        if (recheckMeetingId != null && recheckTarget == null) {
+            throw ImportException("That meeting is no longer available")
+        }
+        val recheck = recheckTarget != null
         // Timestamps are anchored so the imported meeting reads as having
         // just ended (base + in-file offset); refined once duration is known.
-        var baseMs = System.currentTimeMillis()
+        var baseMs = recheckTarget?.createdAtMs ?: System.currentTimeMillis()
         val meeting = Meeting(
-            id = UUID.randomUUID().toString(),
-            title = title,
+            id = recheckTarget?.id ?: UUID.randomUUID().toString(),
+            title = recheckTarget?.title ?: title,
             createdAtMs = baseMs
         )
+        // Recorded so a later accuracy check can say which model produced the
+        // transcript it is comparing against, and offer a different one.
+        meeting.transcriptModel = selectedKey
+        onMeetingCreated?.invoke(meeting.id)
 
-        // Keep a copy of the source audio so playback and later
-        // re-transcription work on imported meetings too. Decoding also runs
-        // from this copy: the caller's content-URI grant can be revoked once
-        // the sharing activity goes away, but our own file cannot.
-        try {
-            val audioCopy = AudioStore.newImportFile(context, meeting.id, sourceName)
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                audioCopy.outputStream().use { input.copyTo(it) }
-            }
-            if (audioCopy.length() > 0) {
-                meeting.audioFile = audioCopy.name
+        /**
+         * Where transcribed segments land. A normal import owns its meeting
+         * and saves into it incrementally; a recheck must not touch the
+         * stored meeting at all, so it stages instead.
+         */
+        fun persist(complete: Boolean) {
+            if (recheck) {
+                TranscriptDraft.save(
+                    context, meeting.id, selectedKey, meeting.segments, complete
+                )
             } else {
-                audioCopy.delete()
+                store.save(meeting)
             }
-        } catch (_: Exception) {
-            meeting.audioFile = null
+        }
+
+        if (recheck) {
+            meeting.audioFile = recheckTarget?.audioFile
+                ?: throw ImportException("No audio was kept for this meeting")
+        } else {
+            // Keep a copy of the source audio so playback and later
+            // re-transcription work on imported meetings too. Decoding also
+            // runs from this copy: the caller's content-URI grant can be
+            // revoked once the sharing activity goes away, but our own file
+            // cannot.
+            try {
+                val audioCopy = AudioStore.newImportFile(context, meeting.id, sourceName)
+                context.contentResolver.openInputStream(uri)?.use { input ->
+                    audioCopy.outputStream().use { input.copyTo(it) }
+                }
+                if (audioCopy.length() > 0) {
+                    meeting.audioFile = audioCopy.name
+                } else {
+                    audioCopy.delete()
+                }
+            } catch (_: Exception) {
+                meeting.audioFile = null
+            }
         }
         val decodeUri = meeting.audioFile?.let {
             Uri.fromFile(AudioStore.fileFor(context, it))
@@ -212,7 +255,7 @@ class AudioFileImporter(
                     } else null
                 )
             )
-            store.save(meeting)
+            persist(complete = false)
         }
 
         fun cutChunk() {
@@ -270,8 +313,10 @@ class AudioFileImporter(
                 onProgress = onProgress,
                 cancelled = cancelled
             )
-            if (durationMs > 0) {
-                // Re-anchor so the meeting reads as ending "now".
+            if (!recheck && durationMs > 0) {
+                // Re-anchor so the meeting reads as ending "now". A recheck
+                // stays on the original meeting's clock — the two passes have
+                // to line up on the same audio.
                 val newBase = System.currentTimeMillis() - durationMs
                 val shift = newBase - baseMs
                 baseMs = newBase
@@ -325,18 +370,29 @@ class AudioFileImporter(
                     }
                 }
             }
-            store.save(meeting)
+            // A cancelled run must not leave a draft looking finished: half a
+            // second pass would read as "the new model went silent here".
+            persist(complete = !cancelled())
+            if (recheck && cancelled()) TranscriptDraft.delete(context, meeting.id)
             if (durationMs > 0) totalMs = durationMs
             return Result(
                 meeting.id, consumedSamples * 1000 / sampleRate, totalMs, null
             )
         } catch (e: AudioFileDecoder.UnsupportedAudioException) {
-            if (meeting.segments.isEmpty()) {
+            if (recheck) {
+                TranscriptDraft.delete(context, meeting.id)
+            } else if (meeting.segments.isEmpty()) {
                 store.delete(meeting.id)
                 AudioStore.delete(context, meeting.audioFile)
             }
             throw ImportException(e.message ?: "unsupported audio")
         } catch (e: Throwable) {
+            if (recheck) {
+                // Half a transcript is useless for a comparison, and the
+                // stored one is untouched either way — drop the draft.
+                TranscriptDraft.delete(context, meeting.id)
+                throw ImportException(e.message ?: "decode failed")
+            }
             if (meeting.segments.isEmpty()) {
                 store.delete(meeting.id)
                 AudioStore.delete(context, meeting.audioFile)

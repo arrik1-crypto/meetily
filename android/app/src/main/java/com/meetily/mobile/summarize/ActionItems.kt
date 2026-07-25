@@ -21,6 +21,54 @@ object ActionItems {
             "Output nothing after the JSON array."
 
     /**
+     * The shared output rules ask the model to write "None identified" under
+     * a heading it found nothing for. That belongs in the summary body — it
+     * shows the heading was considered — but the model repeats it in the JSON
+     * tail too, where it would become a checkable to-do. Exact matches only,
+     * so a real task that merely starts with "no" survives.
+     */
+    private val PLACEHOLDER_TASKS = setOf(
+        "none",
+        "none identified",
+        "none identified at this time",
+        "none at this time",
+        "none noted",
+        "none found",
+        "none listed",
+        "none mentioned",
+        "none specified",
+        "none required",
+        "none yet",
+        "no action items",
+        "no action items identified",
+        "no actions",
+        "no actions identified",
+        "no action required",
+        "no follow-up required",
+        "no follow up required",
+        "no follow-ups",
+        "no follow ups",
+        "nothing identified",
+        "nothing noted",
+        "nothing to report",
+        "n/a",
+        "na",
+        "not applicable"
+    )
+
+    /** True when [text] is a not-found placeholder rather than a real task. */
+    fun isPlaceholderTask(text: String): Boolean {
+        val cleaned = text
+            .trim()
+            .trim('-', '•', '*', '·', '–', '—', '+', ' ', '\t')
+            .trim()
+            .trimEnd('.', '!', ',', ';', ':')
+            .trim()
+            .lowercase()
+        return cleaned.isEmpty() || cleaned in PLACEHOLDER_TASKS
+    }
+
+    /**
      * Splits an LLM response into the human summary and the parsed action
      * items. Returns null items when no valid JSON tail is present.
      */
@@ -40,7 +88,7 @@ object ActionItems {
             for (i in 0 until arr.length()) {
                 val obj = arr.optJSONObject(i) ?: continue
                 val task = obj.optString("task", "").trim()
-                if (task.isBlank()) continue
+                if (task.isBlank() || isPlaceholderTask(task)) continue
                 val owner = obj.optString("owner", "").trim()
                 val cleanOwner = owner.takeIf {
                     it.isNotBlank() && !it.equals("null", true) && !it.equals("unknown", true)
@@ -57,13 +105,17 @@ object ActionItems {
     fun fromMeetingContent(segments: List<TranscriptSegment>, notes: String): List<ActionItem> {
         val items = mutableListOf<ActionItem>()
         for (segment in segments) {
-            if (ExtractiveSummarizer.isActionSentence(segment.text)) {
-                items.add(ActionItem(segment.text.trim(), segment.speaker))
+            val text = segment.text.trim()
+            if (ExtractiveSummarizer.isActionSentence(text) && !isPlaceholderTask(text)) {
+                items.add(ActionItem(text, segment.speaker))
             }
         }
         for (line in notes.split('\n')) {
             val trimmed = line.trim().trimStart('-', '•', '*', ' ')
-            if (trimmed.length > 8 && ExtractiveSummarizer.isActionSentence(trimmed)) {
+            if (trimmed.length > 8 &&
+                ExtractiveSummarizer.isActionSentence(trimmed) &&
+                !isPlaceholderTask(trimmed)
+            ) {
                 items.add(ActionItem(trimmed))
             }
         }

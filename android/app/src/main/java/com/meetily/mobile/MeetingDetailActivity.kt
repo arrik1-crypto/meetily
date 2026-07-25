@@ -79,6 +79,8 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var summaryView: TextView
     private lateinit var aiPanel: View
     private lateinit var tagHint: TextView
+    private lateinit var topicsProgress:
+        com.google.android.material.progressindicator.LinearProgressIndicator
     private lateinit var notesInput: EditText
     private lateinit var attendeesInput: EditText
     private lateinit var tagsInput: EditText
@@ -158,6 +160,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         val m = meeting ?: return
+        refreshSegmentsFromStore()
         if (SummaryService.isRunning && SummaryService.currentMeetingId == m.id) {
             // Coming back (or rotating) mid-generation: restore progress UI
             // and reattach to the run. (Notes runs show no summary-section
@@ -171,6 +174,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             refreshSummaryFromStore(reveal = false)
             refreshNotesFromStore()
         }
+        maybeOfferCheckReview()
     }
 
     override fun onStop() {
@@ -184,6 +188,28 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         summaryService = null
         super.onStop()
+    }
+
+    /**
+     * Picks up transcript lines that landed on disk while this screen held an
+     * older copy — the recording service can still deliver a final chunk after
+     * the session closes. Folds rather than replaces: this copy carries the
+     * user's edits, splits, highlights and speaker tags.
+     */
+    private fun refreshSegmentsFromStore() {
+        val m = meeting ?: return
+        val saved = store.load(m.id) ?: return
+        if (com.meetily.mobile.data.MeetingMerge.foldLateSegments(m, saved) == 0) return
+        renderMeta(m)
+        renderTranscript(m)
+        renderStats(m)
+    }
+
+    private fun renderMeta(m: Meeting) {
+        val wordCount = m.transcriptText()
+            .split(Regex("\\s+"))
+            .count { it.isNotBlank() }
+        metaView.text = getString(R.string.detail_meta, m.segments.size, wordCount)
     }
 
     /** Pulls summary + action items saved by SummaryService into this screen. */
@@ -208,7 +234,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             val m = meeting
             if (success && file != null && file.exists() && file.length() > 0 && m != null) {
                 m.photos.add(file.name)
-                store.save(m)
+                store.saveMerging(m)
                 renderPhotos(m)
                 ocrPhoto(m, file.name)
             } else {
@@ -270,6 +296,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         summaryView = headerView.findViewById(R.id.detailSummary)
         aiPanel = headerView.findViewById(R.id.aiPanel)
         tagHint = headerView.findViewById(R.id.tagHint)
+        topicsProgress = headerView.findViewById(R.id.topicsProgress)
         notesInput = headerView.findViewById(R.id.detailNotes)
         attendeesInput = headerView.findViewById(R.id.detailAttendees)
         tagsInput = headerView.findViewById(R.id.detailTags)
@@ -292,10 +319,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         titleView.text = m.title
         dateView.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(m.createdAtMs))
-        val wordCount = m.transcriptText()
-            .split(Regex("\\s+"))
-            .count { it.isNotBlank() }
-        metaView.text = getString(R.string.detail_meta, m.segments.size, wordCount)
+        renderMeta(m)
 
         headerView.findViewById<View>(R.id.generateButton).setOnClickListener {
             chooseTemplateAndSummarize()
@@ -333,6 +357,37 @@ class MeetingDetailActivity : AppCompatActivity() {
         setUpPlayer()
         renderStats(m)
         maybeAutoTitle(m)
+        runRequestedAction(firstCreate = savedInstanceState == null)
+    }
+
+    /**
+     * The home screen's long-press sheet and the accuracy check hand work
+     * over as an intent extra so every heavy action keeps its one
+     * implementation here, with its existing service and progress wiring.
+     * Posted so the screen is laid out before a dialog or sheet appears.
+     */
+    private fun runRequestedAction(firstCreate: Boolean) {
+        // Rotating re-delivers the original intent, so without this the
+        // rename dialog would reopen (or a summary start twice) on every
+        // configuration change.
+        if (!firstCreate) return
+        if (intent.getBooleanExtra(EXTRA_REGENERATE_SUMMARY, false)) {
+            intent.removeExtra(EXTRA_REGENERATE_SUMMARY)
+            headerView.post { chooseTemplateAndSummarize() }
+            return
+        }
+        val action = intent.getStringExtra(EXTRA_ACTION) ?: return
+        intent.removeExtra(EXTRA_ACTION)
+        headerView.post {
+            if (isFinishing || isDestroyed) return@post
+            when (action) {
+                ACTION_RENAME -> renameMeeting()
+                ACTION_SUMMARIZE -> chooseTemplateAndSummarize()
+                ACTION_TOPICS -> topicsAction()
+                ACTION_CHECK_ACCURACY -> confirmCheckAccuracy()
+                ACTION_SHARE -> shareMeeting()
+            }
+        }
     }
 
     /** Conversation insights: talk-time bars + monologue/questions/pace line. */
@@ -391,11 +446,22 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun renderSummary(summary: String) {
+        // The transcript changed under this summary (an accepted accuracy
+        // check). Say so rather than quietly presenting stale wording.
+        headerView.findViewById<View>(R.id.summaryStaleHint).visibility =
+            if (summary.isNotBlank() && meeting?.summaryStale == true) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
         if (summary.isBlank()) {
             summaryView.visibility = View.GONE
             aiPanel.visibility = View.VISIBLE
         } else {
-            summaryView.text = summary
+            // Templates emit "## Heading" markup; render it rather than show
+            // the marks. m.summary keeps the raw text for share, export and
+            // anything handing the summary back to a model.
+            summaryView.text = com.meetily.mobile.notes.MarkdownSpans.render(summary)
             summaryView.visibility = View.VISIBLE
             aiPanel.visibility = View.GONE
         }
@@ -407,6 +473,15 @@ class MeetingDetailActivity : AppCompatActivity() {
         )
         // Transcript lines belong to the Transcript tab only.
         tagHint.visibility = if (onTranscriptTab) View.VISIBLE else View.GONE
+        if (topicsRunning) {
+            // Detection status outlives a transcript re-render (tab switch,
+            // late lines landing) — it is the only sign work is happening.
+            tagHint.text = getString(R.string.topics_working)
+            tagHint.visibility = View.VISIBLE
+            topicsProgress.visibility = View.VISIBLE
+        } else {
+            topicsProgress.visibility = View.GONE
+        }
         transcriptAdapter.textSizeSp = when (settings.transcriptTextSize) {
             "small" -> 13.5f
             "large" -> 17f
@@ -495,7 +570,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         m.segments[index] = m.segments[index].copy(
             highlighted = !m.segments[index].highlighted
         )
-        store.save(m)
+        store.saveMerging(m)
         transcriptAdapter.update(index, m.segments[index])
     }
 
@@ -535,7 +610,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                         }
                     }
                     addAttendee(name)
-                    store.save(m)
+                    store.saveMerging(m)
                     renderTranscript(m)
                     promptVoiceprintUpdate(name, tagged)
                 }
@@ -544,7 +619,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (index !in m.segments.indices) return@show
             m.segments[index] = m.segments[index].copy(speaker = name)
             if (!name.isNullOrBlank()) addAttendee(name)
-            store.save(m)
+            store.saveMerging(m)
             transcriptAdapter.update(index, m.segments[index])
             if (!name.isNullOrBlank()) {
                 promptVoiceprintUpdate(name, listOf(index))
@@ -586,7 +661,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             m.notes = newNotes
             m.attendees = newAttendees
             m.tags = newTags
-            store.save(m)
+            store.saveMerging(m)
         }
     }
 
@@ -602,7 +677,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (offline.isNotBlank()) {
             m.title = offline
             titleView.text = offline
-            store.save(m)
+            store.saveMerging(m)
         }
         if (settings.useLlm && settings.llmConfigured) {
             val baseUrl = settings.llmBaseUrl
@@ -619,7 +694,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                             if (isFinishing || isDestroyed) return@runOnUiThread
                             m.title = generated
                             titleView.text = generated
-                            store.save(m)
+                            store.saveMerging(m)
                         }
                     }
                 } catch (_: Exception) {
@@ -669,7 +744,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     val updated = m.actionItems[index].copy(done = checked)
                     m.actionItems[index] = updated
                     applyStrike(text, checked)
-                    store.save(m)
+                    store.saveMerging(m)
                     val at = updated.remindAtMs
                     if (at != null) {
                         if (checked) {
@@ -765,7 +840,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         val item = m.actionItems[index].copy(remindAtMs = atMs, done = false)
         m.actionItems[index] = item
-        store.save(m)
+        store.saveMerging(m)
         Reminders.scheduleActionItem(this, m.id, item.task, atMs)
         renderActionItems(m)
         Toast.makeText(
@@ -785,7 +860,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         val item = m.actionItems[index]
         Reminders.cancelActionItem(this, m.id, item.task)
         m.actionItems[index] = item.copy(remindAtMs = null)
-        store.save(m)
+        store.saveMerging(m)
         renderActionItems(m)
     }
 
@@ -799,7 +874,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     if (removed.remindAtMs != null) {
                         Reminders.cancelActionItem(this, m.id, removed.task)
                     }
-                    store.save(m)
+                    store.saveMerging(m)
                     renderActionItems(m)
                 }
             }
@@ -860,7 +935,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 m.photos.remove(name)
                 m.photoTexts.remove(name)
                 PhotoStore.delete(this, name)
-                store.save(m)
+                store.saveMerging(m)
                 renderPhotos(m)
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -888,7 +963,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 file.outputStream().use { output -> input.copyTo(output) }
             } ?: throw RuntimeException("cannot open image")
             m.photos.add(file.name)
-            store.save(m)
+            store.saveMerging(m)
             renderPhotos(m)
             ocrPhoto(m, file.name)
         } catch (_: Exception) {
@@ -903,7 +978,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         PhotoOcr.extract(this, file) { text ->
             if (text != null && name in m.photos) {
                 m.photoTexts[name] = text
-                store.save(m)
+                store.saveMerging(m)
             }
         }
     }
@@ -1067,7 +1142,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 answerView.text = answer
                 askSend.isEnabled = true
                 m.qa.add(QaEntry(question, answer))
-                store.save(m)
+                store.saveMerging(m)
             }
         }.start()
     }
@@ -1175,7 +1250,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     }
                 }
                 attendeesInput.setText(m.attendeesText())
-                store.save(m)
+                store.saveMerging(m)
                 renderTranscript(m)
                 Toast.makeText(
                     this,
@@ -1372,6 +1447,25 @@ class MeetingDetailActivity : AppCompatActivity() {
         return true
     }
 
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        menu.findItem(R.id.action_star)?.setTitle(
+            if (meeting?.starred == true) R.string.unstar_meeting else R.string.star_meeting
+        )
+        return super.onPrepareOptionsMenu(menu)
+    }
+
+    private fun toggleStar() {
+        val m = meeting ?: return
+        m.starred = !m.starred
+        store.saveMerging(m)
+        invalidateOptionsMenu()
+        Toast.makeText(
+            this,
+            if (m.starred) R.string.starred_toast else R.string.unstarred_toast,
+            Toast.LENGTH_SHORT
+        ).show()
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_summarize -> {
@@ -1411,8 +1505,12 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
                 true
             }
-            R.id.action_retranscribe -> {
-                confirmRetranscribe()
+            R.id.action_check_accuracy -> {
+                confirmCheckAccuracy()
+                true
+            }
+            R.id.action_star -> {
+                toggleStar()
                 true
             }
             else -> super.onOptionsItemSelected(item)
@@ -1706,7 +1804,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 } else {
                     m.segments[index] =
                         m.segments[index].copy(text = newText, words = null)
-                    store.save(m)
+                    store.saveMerging(m)
                     transcriptAdapter.update(index, m.segments[index])
                 }
             }
@@ -1721,7 +1819,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setPositiveButton(R.string.delete) { _, _ ->
                 if (index !in m.segments.indices) return@setPositiveButton
                 m.segments.removeAt(index)
-                store.save(m)
+                store.saveMerging(m)
                 renderTranscript(m)
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -1764,7 +1862,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
                 m.segments[index] = parts.first
                 m.segments.add(index + 1, parts.second)
-                store.save(m)
+                store.saveMerging(m)
                 renderTranscript(m)
                 // Tag who said the second half right away.
                 assignSpeaker(index + 1)
@@ -1836,23 +1934,120 @@ class MeetingDetailActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun confirmRetranscribe() {
+    // --- Transcript accuracy check -------------------------------------------
+
+    /**
+     * Runs the saved audio through a second model and compares the result
+     * with what is stored. Nothing is overwritten without the user seeing the
+     * differences first — that is why this is a check and not an "improve".
+     */
+    private fun confirmCheckAccuracy() {
+        val m = meeting ?: return
         val file = audioFileOrNull()
         if (file == null) {
             Toast.makeText(this, R.string.no_audio_kept, Toast.LENGTH_SHORT).show()
             return
         }
+        if (com.meetily.mobile.data.TranscriptDraft.pending(this, m.id) != null) {
+            openCheckReview(m.id)
+            return
+        }
+        if (RecordingService.isRunning) {
+            Toast.makeText(this, R.string.import_wait_recording, Toast.LENGTH_LONG).show()
+            return
+        }
+        if (ImportService.isRunning) {
+            Toast.makeText(this, R.string.import_busy, Toast.LENGTH_LONG).show()
+            return
+        }
+        val downloaded = com.meetily.mobile.whisper.TranscriptionModels.downloadedKeys(this)
+        if (downloaded.isEmpty()) {
+            Toast.makeText(this, R.string.import_needs_whisper, Toast.LENGTH_LONG).show()
+            return
+        }
+        // Heaviest first: with no real-time budget a bigger model is the
+        // whole reason to run a second pass.
+        val ranked = downloaded.sortedByDescending {
+            com.meetily.mobile.whisper.TranscriptionModels.sizeMb(it)
+        }
+        val willUse = ranked.firstOrNull { it != m.transcriptModel } ?: ranked.first()
         AlertDialog.Builder(this)
-            .setTitle(R.string.retranscribe)
-            .setMessage(R.string.retranscribe_message)
-            .setPositiveButton(R.string.retranscribe_go) { _, _ ->
-                startActivity(
-                    Intent(this, ImportActivity::class.java)
-                        .setData(AudioStore.uriFor(this, file))
-                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            .setTitle(R.string.check_accuracy_title)
+            .setMessage(
+                getString(
+                    R.string.check_accuracy_message,
+                    com.meetily.mobile.whisper.TranscriptionModels.displayName(willUse)
                 )
+            )
+            .setPositiveButton(R.string.check_accuracy_go) { _, _ ->
+                if (ranked.size == 1) startCheck(m, ranked.first())
+                else chooseCheckModel(m, ranked, willUse)
             }
             .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun chooseCheckModel(m: Meeting, ranked: List<String>, preferred: String) {
+        val models = com.meetily.mobile.whisper.TranscriptionModels
+        ModelPickerSheet.show(
+            this,
+            getString(R.string.check_choose_model),
+            entriesProvider = {
+                ranked.map { key ->
+                    ModelPickerSheet.Entry(
+                        key = key,
+                        title = models.displayName(key),
+                        meta = if (key == m.transcriptModel) {
+                            getString(R.string.check_model_made_current)
+                        } else {
+                            models.metaLine(this, key)
+                        },
+                        downloaded = true,
+                        selected = key == preferred
+                    )
+                }
+            },
+            onPick = { key -> startCheck(m, key) }
+        )
+    }
+
+    private fun startCheck(m: Meeting, modelKey: String) {
+        val file = audioFileOrNull() ?: return
+        val start = Intent(this, ImportService::class.java)
+            .setAction(ImportService.ACTION_START)
+            .setData(AudioStore.uriFor(this, file))
+            .putExtra(ImportService.EXTRA_NAME, m.title)
+            .putExtra(ImportService.EXTRA_MODEL, modelKey)
+            .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, m.id)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startForegroundService(start)
+        } else {
+            startService(start)
+        }
+        Toast.makeText(this, R.string.check_started, Toast.LENGTH_LONG).show()
+    }
+
+    private fun openCheckReview(meetingId: String) {
+        startActivity(
+            Intent(this, TranscriptCheckActivity::class.java)
+                .putExtra(TranscriptCheckActivity.EXTRA_MEETING_ID, meetingId)
+        )
+    }
+
+    /** Asked once per visit: a finished check is waiting to be looked at. */
+    private var checkPromptShown = false
+
+    private fun maybeOfferCheckReview() {
+        val m = meeting ?: return
+        if (checkPromptShown || isFinishing || isDestroyed) return
+        if (com.meetily.mobile.data.TranscriptDraft.pending(this, m.id) == null) return
+        checkPromptShown = true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.check_ready_notif)
+            .setMessage(R.string.check_ready_prompt)
+            .setPositiveButton(R.string.check_review) { _, _ -> openCheckReview(m.id) }
+            .setNegativeButton(R.string.later, null)
             .show()
     }
 
@@ -1879,7 +2074,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         headerView.findViewById<View>(R.id.doneNotesButton).setOnClickListener {
             val m = meeting ?: return@setOnClickListener
             m.notes = notesInput.text.toString()
-            store.save(m)
+            store.saveMerging(m)
             setNotesMode(viewMode = m.notes.isNotBlank())
         }
         headerView.findViewById<View>(R.id.fmtBold).setOnClickListener {
@@ -1947,7 +2142,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (m.notesOriginal.isBlank()) return
         m.notes = m.notesOriginal
         m.notesOriginal = ""
-        store.save(m)
+        store.saveMerging(m)
         notesInput.setText(m.notes)
         renderNotes(m)
         syncNotesButtons()
@@ -1974,7 +2169,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         NotesRenderer.render(container, m.notes) { line ->
             m.notes = NotesMarkdown.toggleCheck(m.notes, line)
             notesInput.setText(m.notes)
-            store.save(m)
+            store.saveMerging(m)
             renderNotes(m)
         }
     }
@@ -2011,7 +2206,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 throw RuntimeException("empty file")
             }
             m.attachmentsList.add(Attachment(file.name, display))
-            store.save(m)
+            store.saveMerging(m)
             renderAttachments(m)
         } catch (_: Exception) {
             Toast.makeText(this, R.string.attach_failed, Toast.LENGTH_SHORT).show()
@@ -2120,7 +2315,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setPositiveButton(R.string.delete) { _, _ ->
                 m.attachmentsList.remove(attachment)
                 AttachmentStore.delete(this, attachment.file)
-                store.save(m)
+                store.saveMerging(m)
                 renderAttachments(m)
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -2161,7 +2356,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 val name = input.text.toString().trim()
                 if (name.isBlank() || name == m.title) return@setPositiveButton
                 m.title = name
-                store.save(m)
+                store.saveMerging(m)
                 titleView.text = name
                 Toast.makeText(this, R.string.renamed, Toast.LENGTH_SHORT).show()
             }
@@ -2188,7 +2383,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     which == m.chapters.size -> detectTopics(m)
                     else -> {
                         m.chapters.clear()
-                        store.save(m)
+                        store.saveMerging(m)
                         renderTranscript(m)
                     }
                 }
@@ -2251,6 +2446,10 @@ class MeetingDetailActivity : AppCompatActivity() {
                                     tagHint.text = getString(
                                         R.string.summary_stage_condense, i, total
                                     )
+                                    // Bar and text step together: "window i
+                                    // of total", both counting the window
+                                    // being worked on.
+                                    setTopicsProgress(i, total)
                                 }
                             }
                         }
@@ -2327,12 +2526,44 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (busy) {
             tagHint.visibility = View.VISIBLE
             tagHint.text = getString(R.string.topics_working)
+            // Starts indeterminate: the window count is only known once the
+            // transcript has been split, which happens on the worker thread.
+            topicsProgress.isIndeterminate = true
+            topicsProgress.visibility = View.VISIBLE
         } else {
+            topicsProgress.visibility = View.GONE
             meeting?.let { renderTranscript(it) }
         }
     }
 
+    /** Drives the bar from chaptersWindowed's (window, total) callback. */
+    private fun setTopicsProgress(window: Int, total: Int) {
+        if (total <= 0) return
+        if (topicsProgress.isIndeterminate) {
+            // Material indicators refuse an in-place mode switch while
+            // visible, so blink the bar around the change.
+            topicsProgress.visibility = View.GONE
+            topicsProgress.isIndeterminate = false
+            topicsProgress.max = total
+            topicsProgress.visibility = View.VISIBLE
+        } else if (topicsProgress.max != total) {
+            topicsProgress.max = total
+        }
+        topicsProgress.progress = window.coerceIn(0, total)
+    }
+
     companion object {
         const val EXTRA_MEETING_ID = "meeting_id"
+
+        /** Set by the accuracy check when the user asked to redo the summary. */
+        const val EXTRA_REGENERATE_SUMMARY = "regenerate_summary"
+
+        /** One of the ACTION_* values below, run once the screen is up. */
+        const val EXTRA_ACTION = "detail_action"
+        const val ACTION_RENAME = "rename"
+        const val ACTION_SUMMARIZE = "summarize"
+        const val ACTION_TOPICS = "topics"
+        const val ACTION_CHECK_ACCURACY = "check_accuracy"
+        const val ACTION_SHARE = "share"
     }
 }

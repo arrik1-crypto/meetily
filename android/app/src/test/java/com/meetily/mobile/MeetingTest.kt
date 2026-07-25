@@ -6,12 +6,40 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/**
- * Pure-logic tests only. JSON (de)serialization is exercised via instrumented
- * tests, since org.json is an Android-framework class not reliably available
- * to plain JVM unit tests.
- */
 class MeetingTest {
+
+    @Test
+    fun json_roundTripsTheFollowUpAndTranscriptFields() {
+        val meeting = Meeting(id = "m1", title = "Standup", createdAtMs = 42L).apply {
+            starred = true
+            transcriptModel = "large-v3-turbo-q5_0"
+            summaryStale = true
+        }
+        val restored = Meeting.fromJson(meeting.toJson())
+        assertTrue(restored.starred)
+        assertEquals("large-v3-turbo-q5_0", restored.transcriptModel)
+        assertTrue(restored.summaryStale)
+    }
+
+    @Test
+    fun json_meetingsSavedBeforeTheseFieldsExistedStillLoad() {
+        val legacy = org.json.JSONObject()
+            .put("id", "old")
+            .put("title", "Older meeting")
+            .put("createdAtMs", 1L)
+        val restored = Meeting.fromJson(legacy)
+        assertTrue(!restored.starred)
+        assertEquals(null, restored.transcriptModel)
+        assertTrue(!restored.summaryStale)
+    }
+
+    @Test
+    fun json_omitsTheDefaultsSoStoredFilesDoNotGrow() {
+        val plain = Meeting(id = "m2", title = "Plain", createdAtMs = 0L).toJson()
+        assertTrue(!plain.has("starred"))
+        assertTrue(!plain.has("transcriptModel"))
+        assertTrue(!plain.has("summaryStale"))
+    }
 
     @Test
     fun parseAttendees_splitsTrimsAndDedupes() {

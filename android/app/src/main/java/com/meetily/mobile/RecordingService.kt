@@ -409,8 +409,65 @@ class RecordingService : Service() {
         val id = meetingId
         observer?.onFinished(id)
         onDone?.invoke(id)
+        maybeStartAutoCheck(id)
         stopForegroundCompat()
         stopSelf()
+    }
+
+    /**
+     * Optional post-meeting accuracy pass. Live capture has to keep up in
+     * real time and cuts the audio at silences, so a single unhurried pass
+     * with a heavier model can genuinely do better. It stages a comparison
+     * and notifies — it never edits the transcript on its own.
+     */
+    private fun maybeStartAutoCheck(meetingId: String) {
+        try {
+            if (!settings.autoCheckTranscript) return
+            if (ImportService.isRunning) return
+            val audio = audioFileName ?: return
+            if (!AudioStore.exists(this, audio)) return
+            if (segments.size < 4) return
+            if (!batteryAllowsHeavyWork()) return
+            val current = if (settings.transcriptionEngine == "whisper") {
+                settings.whisperModel
+            } else {
+                null
+            }
+            // A second opinion from the same model is worth nothing.
+            val model = com.meetily.mobile.whisper.TranscriptionModels
+                .downloadedKeys(this)
+                .sortedByDescending {
+                    com.meetily.mobile.whisper.TranscriptionModels.sizeMb(it)
+                }
+                .firstOrNull { it != current } ?: return
+            val start = Intent(this, ImportService::class.java)
+                .setAction(ImportService.ACTION_START)
+                .setData(AudioStore.uriFor(this, AudioStore.fileFor(this, audio)))
+                .putExtra(
+                    ImportService.EXTRA_NAME,
+                    title.ifBlank { getString(R.string.import_title) }
+                )
+                .putExtra(ImportService.EXTRA_MODEL, model)
+                .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, meetingId)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(start)
+            } else {
+                startService(start)
+            }
+        } catch (_: Throwable) {
+            // Strictly a bonus pass: it must never stop a meeting finishing.
+        }
+    }
+
+    private fun batteryAllowsHeavyWork(): Boolean = try {
+        val manager = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
+        manager.isCharging ||
+            manager.getIntProperty(
+                android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY
+            ) >= 40
+    } catch (_: Exception) {
+        true
     }
 
     /** Discards the in-progress recording and its media entirely. */
@@ -836,7 +893,13 @@ class RecordingService : Service() {
         attendees = Meeting.parseAttendees(attendeesRaw),
         photos = photos.toMutableList(),
         audioFile = audioFileName
-    )
+    ).also { meeting ->
+        // Only the on-device Whisper/NeMo path has a model key an accuracy
+        // check can name and compare against; the system recognizer does not.
+        if (settings.transcriptionEngine == "whisper") {
+            meeting.transcriptModel = settings.whisperModel
+        }
+    }
 
     // --- Foreground notification -----------------------------------------
 

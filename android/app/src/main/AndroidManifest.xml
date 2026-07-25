@@ -103,6 +103,11 @@
         </activity>
 
         <activity
+            android:name=".TranscriptCheckActivity"
+            android:exported="false"
+            android:parentActivityName=".MeetingDetailActivity" />
+
+        <activity
             android:name=".FollowUpsActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity" />
