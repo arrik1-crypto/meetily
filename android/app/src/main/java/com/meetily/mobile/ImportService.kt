@@ -186,7 +186,9 @@ class ImportService : Service() {
                         currentMeetingId = id
                         main.post {
                             if (isRunning) {
-                                observers.forEach { it.onImportProgress(id, percent) }
+                                observers.forEach {
+                                    it.onImportProgress(id, percent, detail)
+                                }
                             }
                         }
                     },
