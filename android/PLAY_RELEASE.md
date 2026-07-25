@@ -41,9 +41,18 @@ the same certificate:
 python3 android/scripts/apk_cert.py android/dist/meetily-android.apk
 ```
 
-The SHA-256 it prints must equal the one the key script printed, on both
-builds. Two different values means the secrets are not being read and the
-runner is still falling back to a throwaway debug key.
+Recap's upload certificate SHA-256 — every signed build must print exactly
+this, and it is safe to publish (it is the public half):
+
+```
+83:97:D1:AF:6A:14:CE:D8:6D:2B:19:2D:C4:14:65:92:21:D4:69:AE:30:B1:F8:DC:23:6C:B2:9D:0C:9B:F0:34
+```
+
+Anything else means the secrets are not being read and the runner fell back
+to a throwaway debug key. For reference, two consecutive builds *without* the
+secrets produced `54:3A:38:A0:…:D7:4E` and `93:58:24:64:…:69:04` — a
+different identity each time, which is precisely why sideloaded updates used
+to fail with a bare "App not installed".
 
 ### Why this matters before you even reach Play
 
