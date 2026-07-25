@@ -100,9 +100,15 @@ class MeetingDetailActivity : AppCompatActivity() {
         override fun onSummaryProgress(meetingId: String, percent: Int, stage: String) {
             if (isFinishing || isDestroyed) return
             if (meetingId != meeting?.id) return
-            // Notes-enhancement progress lives in the notification + home
-            // banner; only summary runs take over the summary section UI.
-            if (SummaryService.currentMode == SummaryService.MODE_NOTES) return
+            // Notes and speaker runs report through the notification and the
+            // meeting card on the home screen; only a summary run may take
+            // over the summary section here.
+            if (SummaryService.currentMode != SummaryService.MODE_SUMMARY) {
+                if (SummaryService.currentMode == SummaryService.MODE_SPEAKERS) {
+                    setSpeakersBusy(percent, stage)
+                }
+                return
+            }
             showSummarizingUi()
             summaryView.text = stage
             setSummaryProgress(percent)
@@ -111,10 +117,15 @@ class MeetingDetailActivity : AppCompatActivity() {
         override fun onSummaryDone(meetingId: String, failed: Boolean) {
             if (isFinishing || isDestroyed) return
             if (meetingId != meeting?.id) return
-            if (SummaryService.currentMode == SummaryService.MODE_NOTES) {
-                if (!failed) refreshNotesFromStore()
-            } else {
-                refreshSummaryFromStore(reveal = true)
+            when (SummaryService.currentMode) {
+                SummaryService.MODE_NOTES -> if (!failed) refreshNotesFromStore()
+                SummaryService.MODE_SPEAKERS -> {
+                    setSpeakersBusy(null, null)
+                    // Straight into the review: the user is looking at the
+                    // meeting the proposals belong to.
+                    if (!failed) offerSpeakerSuggestions()
+                }
+                else -> refreshSummaryFromStore(reveal = true)
             }
         }
     }
@@ -163,9 +174,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         refreshSegmentsFromStore()
         if (SummaryService.isRunning && SummaryService.currentMeetingId == m.id) {
             // Coming back (or rotating) mid-generation: restore progress UI
-            // and reattach to the run. (Notes runs show no summary-section
-            // UI; the observer refreshes notes when they land.)
-            if (SummaryService.currentMode != SummaryService.MODE_NOTES) {
+            // and reattach to the run. Only a summary run owns the summary
+            // section — notes and speaker runs report elsewhere, and taking
+            // it over would blank a summary the user already has.
+            if (SummaryService.currentMode == SummaryService.MODE_SUMMARY) {
                 showSummarizingUi()
             }
             bindSummaryService()
@@ -175,6 +187,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             refreshNotesFromStore()
         }
         maybeOfferCheckReview()
+        maybeOfferSpeakerSuggestions()
     }
 
     override fun onStop() {
@@ -253,7 +266,6 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (reveal) revealSummarySections()
     }
 
-    private var suggestDialog: AlertDialog? = null
     private var pendingPhotoFile: File? = null
     private val takePicture =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -502,10 +514,12 @@ class MeetingDetailActivity : AppCompatActivity() {
         )
         // Transcript lines belong to the Transcript tab only.
         tagHint.visibility = if (onTranscriptTab) View.VISIBLE else View.GONE
-        if (topicsRunning) {
-            // Detection status outlives a transcript re-render (tab switch,
-            // late lines landing) — it is the only sign work is happening.
-            tagHint.text = getString(R.string.topics_working)
+        if (topicsRunning || speakersBusy) {
+            // The status outlives a transcript re-render (tab switch, late
+            // lines landing) — it is the only sign work is happening.
+            tagHint.text = getString(
+                if (speakersBusy) R.string.suggest_analyzing else R.string.topics_working
+            )
             tagHint.visibility = View.VISIBLE
             topicsProgress.visibility = View.VISIBLE
         } else {
@@ -668,9 +682,6 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
-        // Avoid a WindowLeaked crash if a config change lands mid-analysis.
-        suggestDialog?.dismiss()
-        suggestDialog = null
         playerHandler.removeCallbacks(playerTick)
         playerReady = false
         try {
@@ -1181,8 +1192,19 @@ class MeetingDetailActivity : AppCompatActivity() {
      * to untagged lines, never overwriting manual tags, and always behind an
      * explicit confirmation with a preview.
      */
+    /**
+     * Hands speaker attribution to the service that already owns long AI
+     * runs. It used to hold the screen behind a modal dialog for as long as
+     * the model took — which on a long meeting is minutes — and threw the
+     * result away if you left. Now it runs in the background with progress on
+     * the meeting card, and the proposals wait for you to come back.
+     */
     private fun suggestSpeakers() {
         val m = meeting ?: return
+        if (com.meetily.mobile.data.SpeakerSuggestions.isPending(this, m.id)) {
+            offerSpeakerSuggestions()
+            return
+        }
         if (!settings.useLlm || settings.llmBaseUrl.isBlank()) {
             Toast.makeText(this, R.string.suggest_requires_llm, Toast.LENGTH_LONG).show()
             return
@@ -1191,57 +1213,39 @@ class MeetingDetailActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.no_transcript, Toast.LENGTH_SHORT).show()
             return
         }
+        if (SummaryService.isRunning) {
+            Toast.makeText(this, R.string.ai_busy, Toast.LENGTH_LONG).show()
+            return
+        }
         saveEdits()
+        SummaryService.start(this, m.id, "", SummaryService.MODE_SPEAKERS)
+        Toast.makeText(this, R.string.speakers_started, Toast.LENGTH_LONG).show()
+    }
 
-        // Cancelable: a hung endpoint (up to ~200s of timeouts) must not trap
-        // the screen. Cancel abandons the in-flight result.
-        val progressDialog = AlertDialog.Builder(this)
-            .setMessage(R.string.suggest_analyzing)
-            .setCancelable(true)
-            .create()
-        suggestDialog = progressDialog
-        progressDialog.show()
+    /** Asked once per visit: a finished analysis is waiting to be reviewed. */
+    private var speakerPromptShown = false
 
-        val baseUrl = settings.llmBaseUrl
-        val apiKey = settings.llmApiKey
-        val model = settings.llmModel
-        val localOnly = settings.localOnlyLlm
-        val lines = m.segments.map { it.text to it.speaker }
-        val attendees = m.attendees.toList()
+    private fun maybeOfferSpeakerSuggestions() {
+        val m = meeting ?: return
+        if (speakerPromptShown || isFinishing || isDestroyed) return
+        if (!com.meetily.mobile.data.SpeakerSuggestions.isPending(this, m.id)) return
+        speakerPromptShown = true
+        offerSpeakerSuggestions()
+    }
 
-        Thread {
-            var error: String? = null
-            val suggestions = try {
-                LlmClient.suggestSpeakers(baseUrl, apiKey, model, localOnly, lines, attendees)
-            } catch (e: Exception) {
-                error = e.message ?: "unknown error"
-                emptyList()
-            }
-            runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                val canceled = !progressDialog.isShowing
-                progressDialog.dismiss()
-                suggestDialog = null
-                if (canceled) return@runOnUiThread
-                if (error != null) {
-                    Toast.makeText(
-                        this, getString(R.string.ask_failed, error), Toast.LENGTH_LONG
-                    ).show()
-                    return@runOnUiThread
-                }
-                val applicable = suggestions
-                    .distinctBy { it.first }
-                    .filter { (index, _) ->
-                        index in m.segments.indices &&
-                            m.segments[index].speaker.isNullOrBlank()
-                    }
-                if (applicable.isEmpty()) {
-                    Toast.makeText(this, R.string.suggest_none, Toast.LENGTH_LONG).show()
-                    return@runOnUiThread
-                }
-                confirmSpeakerSuggestions(m, applicable)
-            }
-        }.start()
+    private fun offerSpeakerSuggestions() {
+        val m = meeting ?: return
+        val staged = com.meetily.mobile.data.SpeakerSuggestions.load(this, m.id)
+        // Re-filtered against the transcript as it stands now: any line the
+        // user tagged themselves while this was running keeps their tag.
+        val applicable = com.meetily.mobile.data.SpeakerSuggestions
+            .applicable(staged, m.segments)
+        if (applicable.isEmpty()) {
+            com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
+            Toast.makeText(this, R.string.suggest_none, Toast.LENGTH_LONG).show()
+            return
+        }
+        confirmSpeakerSuggestions(m, applicable)
     }
 
     private fun confirmSpeakerSuggestions(m: Meeting, applicable: List<Pair<Int, String>>) {
@@ -1266,6 +1270,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 )
             )
             .setPositiveButton(R.string.suggest_apply) { _, _ ->
+                com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
                 for ((index, suggested) in applicable) {
                     if (index !in m.segments.indices) continue
                     // Canonicalize to the existing attendee's casing so the
@@ -1289,7 +1294,12 @@ class MeetingDetailActivity : AppCompatActivity() {
                     Toast.LENGTH_SHORT
                 ).show()
             }
-            .setNegativeButton(android.R.string.cancel, null)
+            // An explicit decline discards them; backing out of the dialog
+            // without choosing keeps them, since the run took real time and
+            // the menu item is the way back to this prompt.
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
+            }
             .show()
     }
 
@@ -2547,6 +2557,31 @@ class MeetingDetailActivity : AppCompatActivity() {
         }.apply {
             name = "topic-detect"
             start()
+        }
+    }
+
+    /**
+     * Speaker attribution reuses the transcript tab's status line and bar —
+     * it is the same kind of work over the same lines, and a second widget
+     * for it would just be clutter. [percent] null means the run is over.
+     */
+    private var speakersBusy = false
+
+    private fun setSpeakersBusy(percent: Int?, stage: String?) {
+        speakersBusy = percent != null
+        if (!speakersBusy) {
+            topicsProgress.visibility = View.GONE
+            meeting?.let { renderTranscript(it) }
+            return
+        }
+        tagHint.visibility = View.VISIBLE
+        tagHint.text = stage?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.suggest_analyzing)
+        if (percent != null && percent >= 0) {
+            setTopicsProgress(percent, 100)
+        } else {
+            topicsProgress.isIndeterminate = true
+            topicsProgress.visibility = View.VISIBLE
         }
     }
 

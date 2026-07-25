@@ -92,6 +92,44 @@ object LlmClient {
      * self-references, role cues). Already-tagged lines are shown as anchors
      * and must not be relabeled. Returns (lineIndex, speakerName) pairs.
      */
+    /**
+     * [suggestSpeakers] across the WHOLE transcript, in windows, with each
+     * window's line numbers mapped back to absolute positions. [onWindow]
+     * reports (index, total) for progress.
+     *
+     * A single call truncates the transcript at 48k characters, so on a long
+     * meeting only its opening was ever attributed — silently, which is the
+     * worst way for a feature to be incomplete. Windows also give the run
+     * something real to report progress against.
+     *
+     * Lines that already carry a speaker travel with their window and keep
+     * acting as the anchors the prompt relies on.
+     */
+    fun suggestSpeakersWindowed(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        localOnly: Boolean,
+        lines: List<Pair<String, String?>>,
+        attendees: List<String>,
+        onWindow: ((Int, Int) -> Unit)? = null
+    ): List<Pair<Int, String>> {
+        val windows = chapterWindows(lines.map { it.first.length })
+        val collected = mutableListOf<Pair<Int, String>>()
+        for ((index, range) in windows.withIndex()) {
+            onWindow?.invoke(index + 1, windows.size)
+            val slice = lines.subList(range.first, range.last + 1)
+            val part = suggestSpeakers(baseUrl, apiKey, model, localOnly, slice, attendees)
+            for ((line, name) in part) {
+                val absolute = range.first + line
+                if (absolute in lines.indices) collected.add(absolute to name)
+            }
+        }
+        // Windows are disjoint, so a repeat can only come from a model
+        // returning an out-of-range line; first answer wins either way.
+        return collected.distinctBy { it.first }
+    }
+
     fun suggestSpeakers(
         baseUrl: String,
         apiKey: String,

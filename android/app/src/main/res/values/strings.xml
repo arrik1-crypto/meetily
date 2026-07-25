@@ -370,6 +370,17 @@
     <string name="setting_auto_check">Check the transcript after each meeting</string>
     <string name="setting_auto_check_desc">When a recording ends, Recap quietly runs the saved audio through the heaviest model you have downloaded and tells you where the two passes disagree. Live capture has to keep up in real time; a second unhurried pass often hears more. Nothing is replaced until you review it, and the pass is skipped when the battery is low and the phone is not charging. Requires "Keep meeting audio".</string>
 
+    <string name="ai_busy">Another AI task is still running. Give it a moment to finish.</string>
+
+    <!-- AI speaker attribution, run in the background -->
+    <string name="speakers_started">Working out who said what. It runs in the background — you\'ll get a notification when the suggestions are ready to review.</string>
+    <string name="speakers_stage_window">Reading part %1$d of %2$d…</string>
+    <string name="speakers_notif_title_named">Identifying speakers in %1$s</string>
+    <string name="speakers_done_notif">Speaker suggestions ready</string>
+    <string name="speakers_failed_notif">Couldn\'t identify speakers</string>
+    <string name="card_progress_speakers">Identifying speakers… %1$d%%</string>
+    <string name="card_progress_speakers_plain">Identifying speakers…</string>
+
     <string name="later">Later</string>
     <string name="no_audio_kept">No audio was kept for this meeting.</string>
     <string name="audio_play_failed">Couldn\'t play this meeting\'s audio.</string>

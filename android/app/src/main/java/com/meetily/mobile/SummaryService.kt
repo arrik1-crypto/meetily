@@ -17,6 +17,7 @@ import android.os.PowerManager
 import androidx.core.app.NotificationCompat
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.SpeakerSuggestions
 import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.summarize.ActionItems
 import com.meetily.mobile.summarize.ExtractiveSummarizer
@@ -81,8 +82,11 @@ class SummaryService : Service() {
         currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
         percent = -1
         stage = getString(
-            if (currentMode == MODE_NOTES) R.string.enhancing_notes
-            else R.string.summarizing
+            when (currentMode) {
+                MODE_NOTES -> R.string.enhancing_notes
+                MODE_SPEAKERS -> R.string.suggest_analyzing
+                else -> R.string.summarizing
+            }
         )
         createChannel()
         startForegroundCompat()
@@ -96,10 +100,10 @@ class SummaryService : Service() {
             }
         } catch (_: Exception) {
         }
-        if (currentMode == MODE_NOTES) {
-            runNotesEnhance(meetingId)
-        } else {
-            runGeneration(meetingId, templateKey)
+        when (currentMode) {
+            MODE_NOTES -> runNotesEnhance(meetingId)
+            MODE_SPEAKERS -> runSpeakerSuggest(meetingId)
+            else -> runGeneration(meetingId, templateKey)
         }
         return START_NOT_STICKY
     }
@@ -153,6 +157,51 @@ class SummaryService : Service() {
             main.post { finishRun(meetingId, failed) }
         }.apply {
             name = "notes-enhance-service"
+            start()
+        }
+    }
+
+    /**
+     * Speaker attribution across the whole transcript. Nothing is written to
+     * the meeting: the proposals are staged for the user to accept or reject
+     * when they next open it, which is what lets this run happen in the
+     * background at all.
+     */
+    private fun runSpeakerSuggest(meetingId: String) {
+        val store = MeetingStore(this)
+        val settings = AppSettings(this)
+        Thread {
+            val meeting = store.load(meetingId)
+            if (meeting == null || meeting.segments.isEmpty()) {
+                main.post { finishRun(meetingId, failed = meeting != null) }
+                return@Thread
+            }
+            val lines = meeting.segments.map { it.text to it.speaker }
+            val attendees = meeting.attendees.toList()
+            var failed = false
+            try {
+                val suggestions = LlmClient.suggestSpeakersWindowed(
+                    settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
+                    settings.localOnlyLlm, lines, attendees
+                ) { window, total ->
+                    setProgress(
+                        progressPercent(window, total),
+                        getString(R.string.speakers_stage_window, window, total)
+                    )
+                }
+                // Filtered again at review time against the meeting as it
+                // then stands; this pass only avoids staging obvious noise.
+                SpeakerSuggestions.save(
+                    this,
+                    meetingId,
+                    SpeakerSuggestions.applicable(suggestions, meeting.segments)
+                )
+            } catch (_: Exception) {
+                failed = true
+            }
+            main.post { finishRun(meetingId, failed) }
+        }.apply {
+            name = "speaker-suggest-service"
             start()
         }
     }
@@ -294,6 +343,10 @@ class SummaryService : Service() {
                         getString(R.string.notes_notif_title_named, currentTitle)
                     currentMode == MODE_NOTES ->
                         getString(R.string.enhancing_notes)
+                    currentMode == MODE_SPEAKERS && currentTitle.isNotBlank() ->
+                        getString(R.string.speakers_notif_title_named, currentTitle)
+                    currentMode == MODE_SPEAKERS ->
+                        getString(R.string.suggest_analyzing)
                     currentTitle.isNotBlank() ->
                         getString(R.string.summary_notif_title_named, currentTitle)
                     else -> getString(R.string.summary_notif_title)
@@ -319,6 +372,14 @@ class SummaryService : Service() {
         val title = when {
             currentMode == MODE_NOTES && failed -> getString(R.string.notes_failed_notif)
             currentMode == MODE_NOTES -> getString(R.string.notes_done_notif)
+            currentMode == MODE_SPEAKERS && failed ->
+                getString(R.string.speakers_failed_notif)
+            currentMode == MODE_SPEAKERS ->
+                if (SpeakerSuggestions.isPending(this, meetingId)) {
+                    getString(R.string.speakers_done_notif)
+                } else {
+                    getString(R.string.suggest_none)
+                }
             else -> getString(R.string.summary_done_notif)
         }
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -394,6 +455,7 @@ class SummaryService : Service() {
         const val EXTRA_MODE = "mode"
         const val MODE_SUMMARY = "summary"
         const val MODE_NOTES = "notes"
+        const val MODE_SPEAKERS = "speakers"
         private const val CHANNEL_ID = "summary"
         private const val NOTIF_ID = 50
         private const val NOTIF_DONE_ID = 51

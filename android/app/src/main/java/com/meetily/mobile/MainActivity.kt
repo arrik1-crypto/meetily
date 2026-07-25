@@ -127,6 +127,7 @@ class MainActivity : AppCompatActivity() {
         override fun onSummaryProgress(meetingId: String, percent: Int, stage: String) {
             if (isFinishing || isDestroyed) return
             val notesRun = SummaryService.currentMode == SummaryService.MODE_NOTES
+            val speakersRun = SummaryService.currentMode == SummaryService.MODE_SPEAKERS
             summaryWork = Work(
                 meetingId = meetingId,
                 bannerTitle = SummaryService.currentTitle.ifBlank {
@@ -134,8 +135,11 @@ class MainActivity : AppCompatActivity() {
                 },
                 inlineLabel = when {
                     percent < 0 && notesRun -> getString(R.string.card_progress_notes_plain)
+                    percent < 0 && speakersRun ->
+                        getString(R.string.card_progress_speakers_plain)
                     percent < 0 -> getString(R.string.card_progress_summarising_plain)
                     notesRun -> getString(R.string.card_progress_notes, percent)
+                    speakersRun -> getString(R.string.card_progress_speakers, percent)
                     else -> getString(R.string.card_progress_summarising, percent)
                 },
                 percent = percent
@@ -150,11 +154,14 @@ class MainActivity : AppCompatActivity() {
             // about the finish.
             val title = SummaryService.currentTitle
             val notesMode = SummaryService.currentMode == SummaryService.MODE_NOTES
+            val speakersMode = SummaryService.currentMode == SummaryService.MODE_SPEAKERS
             Toast.makeText(
                 this@MainActivity,
                 when {
                     notesMode && failed -> getString(R.string.notes_failed_notif)
                     notesMode -> getString(R.string.notes_done_notif)
+                    speakersMode && failed -> getString(R.string.speakers_failed_notif)
+                    speakersMode -> getString(R.string.speakers_done_notif)
                     title.isBlank() -> getString(R.string.summary_ready_plain)
                     else -> getString(R.string.summary_ready_toast, title)
                 },
