@@ -28,6 +28,8 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.appbar.MaterialToolbar
@@ -182,12 +184,18 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
         installWatchers()
 
-        pauseButton.setOnClickListener { service?.togglePause() }
-        highlightButton.setOnClickListener { onHighlightClicked() }
-        cameraButton.setOnClickListener { capturePhoto() }
-        finishButton.setOnClickListener { finishAndSave() }
-        calendarButton.setOnClickListener { requestCalendarPrefill(manual = true) }
-        findViewById<View>(R.id.catchUpButton).setOnClickListener { showCatchUp() }
+        pauseButton.setOnClickListener { dismissNotesFocus(); service?.togglePause() }
+        highlightButton.setOnClickListener { dismissNotesFocus(); onHighlightClicked() }
+        cameraButton.setOnClickListener { dismissNotesFocus(); capturePhoto() }
+        finishButton.setOnClickListener { dismissNotesFocus(); finishAndSave() }
+        calendarButton.setOnClickListener {
+            dismissNotesFocus()
+            requestCalendarPrefill(manual = true)
+        }
+        findViewById<View>(R.id.catchUpButton).setOnClickListener {
+            dismissNotesFocus()
+            showCatchUp()
+        }
 
         startPulse()
 
@@ -209,6 +217,13 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         // timer AND the notes field, so typing collapses the capture header
         // and gives the space to notes.
         notesInput.setOnFocusChangeListener { _, hasFocus -> setNotesFocusMode(hasFocus) }
+        // Dismissing the keyboard with Back leaves the EditText focused, so
+        // focus alone would strand the screen in notes layout — no timer, no
+        // recording indicator — for the rest of the session. Watch the IME.
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.recordingRoot)) { _, insets ->
+            if (!insets.isVisible(WindowInsetsCompat.Type.ime())) dismissNotesFocus()
+            insets
+        }
     }
 
     /**
@@ -665,6 +680,11 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
      * notes field take the freed height. Recording is unaffected — this is
      * purely how the screen is laid out.
      */
+    /** Leaves notes-focus layout; the focus listener restores the header. */
+    private fun dismissNotesFocus() {
+        if (notesInput.hasFocus()) notesInput.clearFocus()
+    }
+
     private fun setNotesFocusMode(active: Boolean) {
         val header = findViewById<View>(R.id.captureHeaderBlock) ?: return
         header.visibility = if (active) View.GONE else View.VISIBLE

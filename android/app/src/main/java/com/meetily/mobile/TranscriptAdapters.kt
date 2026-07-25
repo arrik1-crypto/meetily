@@ -200,7 +200,10 @@ class TranscriptLinesAdapter(
             collapsed.clear()
             collapsed.addAll(sorted.indices)
         }
-        if (sorted.isEmpty()) collapsed.clear()
+        // An empty submission is also how the Summary tab hides the
+        // transcript; only forget the arrangement when a real transcript
+        // genuinely has no chapters, or every tab switch would wipe it.
+        if (sorted.isEmpty() && segments.isNotEmpty()) collapsed.clear()
         rebuild()
     }
 

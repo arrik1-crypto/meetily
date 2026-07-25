@@ -161,7 +161,6 @@
     <!-- Who the user is (personalises Note to Self) -->
     <string name="setting_me">Your name</string>
     <string name="setting_me_desc">Used by the Note to Self summary to tell your commitments apart from everyone else\'s. Stays on this device.</string>
-    <string name="setting_me_hint">e.g. Alex</string>
     <string name="percent_fmt">%1$d%%</string>
 
     <string name="topics_title">Topics</string>
