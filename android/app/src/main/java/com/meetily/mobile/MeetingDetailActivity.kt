@@ -407,11 +407,24 @@ class MeetingDetailActivity : AppCompatActivity() {
         )
         // Transcript lines belong to the Transcript tab only.
         tagHint.visibility = if (onTranscriptTab) View.VISIBLE else View.GONE
+        transcriptAdapter.textSizeSp = when (settings.transcriptTextSize) {
+            "small" -> 13.5f
+            "large" -> 17f
+            else -> 15f
+        }
+        // Chapters start collapsed the first time a meeting is opened, so a
+        // chaptered transcript reads as an outline you drill into.
+        val collapseFirst = onTranscriptTab && !collapsedApplied && m.chapters.isNotEmpty()
+        if (collapseFirst) collapsedApplied = true
         transcriptAdapter.submit(
             if (onTranscriptTab) m.segments else emptyList(),
-            if (onTranscriptTab) m.chapters else emptyList()
+            if (onTranscriptTab) m.chapters else emptyList(),
+            collapseAllInitially = collapseFirst
         )
     }
+
+    /** Chapters are auto-collapsed once per screen, not on every re-render. */
+    private var collapsedApplied = false
 
     // --- Summary | Transcript segmented tabs --------------------------------
 
@@ -1381,6 +1394,10 @@ class MeetingDetailActivity : AppCompatActivity() {
                 shareAudio()
                 true
             }
+            R.id.action_rename -> {
+                renameMeeting()
+                true
+            }
             R.id.action_topics -> {
                 topicsAction()
                 true
@@ -2119,6 +2136,39 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun dp(value: Int): Int =
         (value * resources.displayMetrics.density).toInt()
 
+    // --- Rename ---------------------------------------------------------------
+
+    private fun renameMeeting() {
+        val m = meeting ?: return
+        val input = EditText(this).apply {
+            setText(m.title)
+            setSelection(text.length)
+            hint = getString(R.string.rename_hint)
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            filters = arrayOf(android.text.InputFilter.LengthFilter(120))
+        }
+        val pad = (20 * resources.displayMetrics.density).toInt()
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.rename_meeting_title)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                if (name.isBlank() || name == m.title) return@setPositiveButton
+                m.title = name
+                store.save(m)
+                titleView.text = name
+                Toast.makeText(this, R.string.renamed, Toast.LENGTH_SHORT).show()
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
     // --- Topic chapters ------------------------------------------------------
 
     private fun topicsAction() {
@@ -2160,28 +2210,50 @@ class MeetingDetailActivity : AppCompatActivity() {
         )
     }
 
+    @Volatile private var topicsRunning = false
+
     private fun detectTopics(m: Meeting) {
         if (m.segments.size < 8) {
             Toast.makeText(this, R.string.topics_too_short, Toast.LENGTH_SHORT).show()
             return
         }
-        Toast.makeText(this, R.string.topics_detecting, Toast.LENGTH_SHORT).show()
+        if (topicsRunning) {
+            Toast.makeText(this, R.string.topics_working, Toast.LENGTH_SHORT).show()
+            return
+        }
+        topicsRunning = true
+        setTopicsBusy(true)
         val useLlm = settings.useLlm && settings.llmConfigured
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
         val localOnly = settings.localOnlyLlm
         val segmentsSnapshot = m.segments.toList()
+        val meetingId = m.id
+        val store = this.store
         Thread {
             var chapters: List<com.meetily.mobile.data.Chapter> = emptyList()
+            var failure: String? = null
+            var usedLlm = false
             if (useLlm) {
                 try {
                     val lines = segmentsSnapshot.map { seg ->
                         val speaker = seg.speaker
                         if (speaker.isNullOrBlank()) seg.text else "$speaker: ${seg.text}"
                     }
+                    // Windowed: a single call truncates to the model context,
+                    // which used to leave long meetings chaptered only at the
+                    // start. Progress is reported per window.
                     chapters = LlmClient
-                        .chapters(baseUrl, apiKey, model, localOnly, lines)
+                        .chaptersWindowed(baseUrl, apiKey, model, localOnly, lines) { i, total ->
+                            runOnUiThread {
+                                if (!isFinishing && !isDestroyed) {
+                                    tagHint.text = getString(
+                                        R.string.summary_stage_condense, i, total
+                                    )
+                                }
+                            }
+                        }
                         .filter { it.first in segmentsSnapshot.indices }
                         .map { (index, title) ->
                             com.meetily.mobile.data.Chapter(
@@ -2189,30 +2261,75 @@ class MeetingDetailActivity : AppCompatActivity() {
                                 segmentsSnapshot[index].timestampMs
                             )
                         }
-                    if (chapters.size < 2) chapters = emptyList()
-                } catch (_: Exception) {
+                    if (chapters.size < 2) chapters = emptyList() else usedLlm = true
+                } catch (e: Exception) {
+                    failure = e.message ?: "AI request failed"
                 }
             }
             if (chapters.isEmpty()) {
                 chapters = TopicChapters.buildLocal(segmentsSnapshot)
             }
             val result = chapters
+            // SAVE FIRST, on this thread, against a freshly loaded copy: the
+            // result must survive the screen being closed or rotated. This
+            // used to be discarded whenever the activity had gone away.
+            var saved = false
+            if (result.isNotEmpty()) {
+                try {
+                    val target = store.load(meetingId)
+                    if (target != null) {
+                        target.chapters.clear()
+                        target.chapters.addAll(result)
+                        store.save(target)
+                        saved = true
+                    }
+                } catch (_: Exception) {
+                }
+            }
+            val hadFailure = failure
+            val wasLlm = usedLlm
             runOnUiThread {
+                topicsRunning = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                setTopicsBusy(false)
                 if (result.isEmpty()) {
                     Toast.makeText(this, R.string.topics_none, Toast.LENGTH_LONG).show()
-                } else {
-                    m.chapters.clear()
-                    m.chapters.addAll(result)
-                    store.save(m)
-                    if (!onTranscriptTab) switchTab(true) else renderTranscript(m)
-                    Toast.makeText(
-                        this, getString(R.string.topics_found, result.size),
-                        Toast.LENGTH_SHORT
+                    return@runOnUiThread
+                }
+                if (saved) {
+                    meeting?.let { current ->
+                        current.chapters.clear()
+                        current.chapters.addAll(result)
+                    }
+                }
+                collapsedApplied = false // re-collapse around the new chapters
+                if (!onTranscriptTab) switchTab(true) else meeting?.let { renderTranscript(it) }
+                when {
+                    hadFailure != null -> Toast.makeText(
+                        this, getString(R.string.topics_failed, hadFailure), Toast.LENGTH_LONG
+                    ).show()
+                    !wasLlm && useLlm -> Toast.makeText(
+                        this, R.string.topics_offline_note, Toast.LENGTH_LONG
+                    ).show()
+                    else -> Toast.makeText(
+                        this, getString(R.string.topics_found, result.size), Toast.LENGTH_SHORT
                     ).show()
                 }
             }
-        }.start()
+        }.apply {
+            name = "topic-detect"
+            start()
+        }
+    }
+
+    /** Shows that topic detection is working; the menu item is gated too. */
+    private fun setTopicsBusy(busy: Boolean) {
+        if (busy) {
+            tagHint.visibility = View.VISIBLE
+            tagHint.text = getString(R.string.topics_working)
+        } else {
+            meeting?.let { renderTranscript(it) }
+        }
     }
 
     companion object {

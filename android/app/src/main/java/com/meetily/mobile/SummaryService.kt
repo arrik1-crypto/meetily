@@ -168,8 +168,11 @@ class SummaryService : Service() {
             }
             // Effective template = instructions + the user's depth setting +
             // shared output rules (custom templates get the rules too).
-            val template = SummaryTemplates.effective(
-                SummaryTemplates.byKey(this, templateKey), settings.summaryDepth
+            val template = SummaryTemplates.personalised(
+                SummaryTemplates.effective(
+                    SummaryTemplates.byKey(this, templateKey), settings.summaryDepth
+                ),
+                settings.userName
             )
             val useLlm = settings.useLlm && settings.llmConfigured
             val rawTranscript = meeting.transcriptText()

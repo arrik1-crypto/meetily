@@ -50,6 +50,19 @@ class AppSettings(context: Context) {
         get() = prefs.getString("summary_template", "general") ?: "general"
         set(value) = prefs.edit().putString("summary_template", value).apply()
 
+    /** Transcript body text size: "small", "medium" (default) or "large". */
+    var transcriptTextSize: String
+        get() = prefs.getString("transcript_text_size", "medium") ?: "medium"
+        set(value) = prefs.edit().putString("transcript_text_size", value).apply()
+
+    /**
+     * The user's own name, used to personalise the Note to Self summary so it
+     * can tell their commitments from everyone else's. Blank = unknown.
+     */
+    var userName: String
+        get() = prefs.getString("user_name", "") ?: ""
+        set(value) = prefs.edit().putString("user_name", value.trim()).apply()
+
     /** Summary depth knob: "brief", "standard", or "detailed". */
     var summaryDepth: String
         get() = prefs.getString("summary_depth", "standard") ?: "standard"

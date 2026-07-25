@@ -1,6 +1,7 @@
 package com.meetily.mobile
 
 import android.view.LayoutInflater
+import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -41,6 +42,13 @@ class LiveTranscriptAdapter(
 
     private val segments = mutableListOf<TranscriptSegment>()
     private var partial: String = ""
+
+    /** Body text size in sp; matches the meeting screen (see AppSettings). */
+    var textSizeSp: Float = 15f
+        set(value) {
+            field = value
+            notifyDataSetChanged()
+        }
 
     fun reset(list: List<TranscriptSegment>, partialText: String) {
         segments.clear()
@@ -107,6 +115,10 @@ class LiveTranscriptAdapter(
             }
             holder.time.text = segmentTimeLabel(holder.itemView.context, segment)
             holder.text.text = segment.text
+            holder.text.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
+            holder.time.setTextSize(
+                TypedValue.COMPLEX_UNIT_SP, (textSizeSp - 4f).coerceAtLeast(9f)
+            )
             holder.itemView.setOnClickListener {
                 val index = holder.bindingAdapterPosition
                 if (index != RecyclerView.NO_POSITION && index < segments.size) {
@@ -115,6 +127,7 @@ class LiveTranscriptAdapter(
             }
         } else if (holder is PartialHolder) {
             holder.text.text = partial
+            holder.text.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
         }
     }
 
@@ -139,42 +152,165 @@ class TranscriptLinesAdapter(
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private sealed class Row {
-        class ChapterRow(val title: String) : Row()
+        class ChapterRow(
+            val chapterIndex: Int,
+            val title: String,
+            val lineCount: Int,
+            val span: String,
+            val collapsed: Boolean
+        ) : Row()
+
         class LineRow(val segIndex: Int, var segment: TranscriptSegment) : Row()
     }
 
     private val rows = mutableListOf<Row>()
+
+    /**
+     * Adapter position per segment, or -1 when its chapter is collapsed and
+     * the line is not currently on screen. Callers must expand first (see
+     * [ensureVisible]) before scrolling to a segment.
+     */
     private var segmentPositions = IntArray(0)
+
+    /** Chapter index per segment (-1 before the first chapter). */
+    private var segmentChapter = IntArray(0)
+
+    private val collapsed = mutableSetOf<Int>()
+    private var lastSegments: List<TranscriptSegment> = emptyList()
+    private var lastChapters: List<com.meetily.mobile.data.Chapter> = emptyList()
+
+    /** Body text size in sp; metadata scales with it. See AppSettings. */
+    var textSizeSp: Float = 15f
+        set(value) {
+            field = value
+            notifyDataSetChanged()
+        }
+
+    private val metaSizeSp: Float get() = (textSizeSp - 4f).coerceAtLeast(9f)
 
     fun submit(
         segments: List<TranscriptSegment>,
-        chapters: List<com.meetily.mobile.data.Chapter> = emptyList()
+        chapters: List<com.meetily.mobile.data.Chapter> = emptyList(),
+        collapseAllInitially: Boolean = false
     ) {
-        rows.clear()
-        segmentPositions = IntArray(segments.size)
+        lastSegments = segments
         val sorted = chapters.sortedBy { it.startMs }
+        lastChapters = sorted
+        if (collapseAllInitially && sorted.isNotEmpty()) {
+            collapsed.clear()
+            collapsed.addAll(sorted.indices)
+        }
+        if (sorted.isEmpty()) collapsed.clear()
+        rebuild()
+    }
+
+    /** Rebuilds the row list from the last submitted data + collapse state. */
+    private fun rebuild() {
+        rows.clear()
+        val segments = lastSegments
+        val sorted = lastChapters
+        segmentPositions = IntArray(segments.size) { -1 }
+        segmentChapter = IntArray(segments.size) { -1 }
+
+        // First pass: which chapter owns each segment, and its line count.
+        var owner = -1
         var next = 0
         for ((i, seg) in segments.withIndex()) {
             while (next < sorted.size && sorted[next].startMs <= seg.timestampMs) {
-                rows.add(Row.ChapterRow(sorted[next].title))
+                owner = next
                 next++
             }
+            segmentChapter[i] = owner
+        }
+        val counts = IntArray(sorted.size)
+        for (c in segmentChapter) if (c >= 0) counts[c]++
+
+        // Second pass: emit headers and the lines of expanded chapters.
+        var emitted = -1
+        for ((i, seg) in segments.withIndex()) {
+            val chapter = segmentChapter[i]
+            if (chapter >= 0 && chapter != emitted) {
+                // Emit every chapter header up to this one, including any
+                // that own no lines, so nothing silently disappears.
+                for (c in (emitted + 1)..chapter) {
+                    rows.add(
+                        Row.ChapterRow(
+                            chapterIndex = c,
+                            title = sorted[c].title,
+                            lineCount = counts[c],
+                            span = spanLabel(segments, c),
+                            collapsed = collapsed.contains(c)
+                        )
+                    )
+                }
+                emitted = chapter
+            }
+            if (chapter >= 0 && collapsed.contains(chapter)) continue
             segmentPositions[i] = rows.size
             rows.add(Row.LineRow(i, seg))
+        }
+        for (c in (emitted + 1) until sorted.size) {
+            rows.add(
+                Row.ChapterRow(c, sorted[c].title, counts[c], spanLabel(segments, c), collapsed.contains(c))
+            )
         }
         notifyDataSetChanged()
     }
 
+    /** "09:15 – 09:28" for the lines a chapter owns, or "" when it owns none. */
+    private fun spanLabel(segments: List<TranscriptSegment>, chapter: Int): String {
+        val fmt = DateFormat.getTimeInstance(DateFormat.SHORT)
+        var first: Long? = null
+        var last: Long? = null
+        for (i in segments.indices) {
+            if (segmentChapter.getOrNull(i) != chapter) continue
+            if (first == null) first = segments[i].timestampMs
+            last = segments[i].timestampMs
+        }
+        val a = first ?: return ""
+        val b = last ?: a
+        return if (a == b) fmt.format(Date(a)) else fmt.format(Date(a)) + " – " + fmt.format(Date(b))
+    }
+
+    fun toggleChapter(index: Int) {
+        if (!collapsed.add(index)) collapsed.remove(index)
+        rebuild()
+    }
+
+    fun setAllCollapsed(value: Boolean) {
+        collapsed.clear()
+        if (value) collapsed.addAll(lastChapters.indices)
+        rebuild()
+    }
+
+    val hasChapters: Boolean get() = lastChapters.isNotEmpty()
+
+    /**
+     * Expands the chapter owning [segmentIndex] if needed, so callers that
+     * scroll to a segment (playback follow, deep links, search hits, jump to
+     * chapter) never target a hidden row.
+     */
+    fun ensureVisible(segmentIndex: Int) {
+        val chapter = segmentChapter.getOrNull(segmentIndex) ?: return
+        if (chapter >= 0 && collapsed.remove(chapter)) rebuild()
+    }
+
     fun update(index: Int, segment: TranscriptSegment) {
-        val pos = segmentPositions.getOrNull(index) ?: return
+        lastSegments.getOrNull(index)?.let { lastSegments = lastSegments.toMutableList().also { l -> l[index] = segment } }
+        val pos = segmentPositions.getOrNull(index)?.takeIf { it >= 0 } ?: return
         val row = rows.getOrNull(pos) as? Row.LineRow ?: return
         row.segment = segment
         notifyItemChanged(pos)
     }
 
-    /** Adapter position of a segment (for scroll-to-chapter jumps). */
-    fun positionOfSegment(index: Int): Int =
-        segmentPositions.getOrNull(index) ?: 0
+    /**
+     * Adapter position of a segment, expanding its chapter first when the
+     * line is currently collapsed away.
+     */
+    fun positionOfSegment(index: Int): Int {
+        ensureVisible(index)
+        return segmentPositions.getOrNull(index)?.takeIf { it >= 0 } ?: 0
+    }
 
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val time: TextView = view.findViewById(R.id.lineTime)
@@ -185,6 +321,8 @@ class TranscriptLinesAdapter(
 
     class ChapterHolder(view: View) : RecyclerView.ViewHolder(view) {
         val title: TextView = view.findViewById(R.id.chapterTitle)
+        val meta: TextView = view.findViewById(R.id.chapterMeta)
+        val chevron: TextView = view.findViewById(R.id.chapterChevron)
     }
 
     override fun getItemViewType(position: Int): Int =
@@ -203,6 +341,18 @@ class TranscriptLinesAdapter(
         val row = rows[position]
         if (holder is ChapterHolder && row is Row.ChapterRow) {
             holder.title.text = row.title
+            holder.chevron.text = if (row.collapsed) "\u25B8" else "\u25BE"
+            val ctx = holder.itemView.context
+            holder.meta.text = if (row.span.isBlank()) {
+                ctx.getString(R.string.chapter_meta, row.lineCount, "")
+            } else {
+                ctx.getString(R.string.chapter_meta, row.lineCount, row.span)
+            }
+            holder.meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, metaSizeSp)
+            holder.itemView.setOnClickListener {
+                (rows.getOrNull(holder.bindingAdapterPosition) as? Row.ChapterRow)
+                    ?.let { toggleChapter(it.chapterIndex) }
+            }
             return
         }
         if (holder !is Holder || row !is Row.LineRow) return
@@ -210,6 +360,9 @@ class TranscriptLinesAdapter(
         val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
         val time = timeFormat.format(Date(segment.timestampMs))
         holder.time.text = if (segment.highlighted) "★ $time" else time
+        holder.text.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
+        holder.time.setTextSize(TypedValue.COMPLEX_UNIT_SP, metaSizeSp)
+        holder.speaker.setTextSize(TypedValue.COMPLEX_UNIT_SP, metaSizeSp)
         val display = segmentSpeakerDisplay(holder.itemView.context, segment)
         if (display.isNullOrBlank()) {
             holder.speaker.visibility = View.GONE

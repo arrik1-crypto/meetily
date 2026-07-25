@@ -15,7 +15,19 @@ data class SummaryTemplate(
     val labelRes: Int = 0,
     val labelText: String? = null,
     val llmInstructions: String,
-    val extractiveActionsOnly: Boolean = false
+    val extractiveActionsOnly: Boolean = false,
+    /**
+     * Prose output (an email, a note) where an empty section must simply be
+     * left out — writing "None identified" under a heading would read as
+     * broken text in something meant to be sent or read as prose.
+     */
+    val omitEmptySections: Boolean = false,
+    /**
+     * Use these instructions EXACTLY: no depth clause, no shared output
+     * rules. For templates that carry their own complete format and length
+     * contract, where the shared additions would contradict them.
+     */
+    val verbatim: Boolean = false
 ) {
     fun label(context: Context): String = labelText ?: context.getString(labelRes)
 }
@@ -28,12 +40,31 @@ object SummaryTemplates {
      * these rules, so they live here instead of being repeated per template.
      * Phrased to coexist with [ActionItems.LLM_INSTRUCTIONS]' JSON tail.
      */
-    const val OUTPUT_RULES = "Rules: use clear section headings. Quote names, dates, " +
-        "amounts, and deadlines exactly as spoken. Report only what was actually said — " +
-        "if something is unclear or was not discussed, say so rather than guessing, and " +
-        "mark uncertain speaker attributions with '(?)'. Skip sections that had no " +
-        "content instead of padding them. Start directly with the summary: no preamble, " +
-        "no meta-commentary."
+    private const val RULES_HEAD = "Rules: use clear section headings. Quote names, " +
+        "dates, amounts, and deadlines exactly as spoken. Report only what was actually " +
+        "said — if something is unclear or was not discussed, say so rather than " +
+        "guessing, and mark uncertain speaker attributions with '(?)'. "
+
+    /**
+     * Empty sections are reported, not dropped: the reader has to be able to
+     * tell "we looked and found nothing" apart from "this was never
+     * considered". Prose templates opt out via [SummaryTemplate.omitEmptySections].
+     */
+    private const val RULES_NONE_IDENTIFIED = "When a heading has no content in the " +
+        "meeting, keep the heading and write \"None identified\" under it rather than " +
+        "omitting it. "
+
+    private const val RULES_OMIT_EMPTY = "Leave out any section that has no content " +
+        "rather than writing a placeholder. "
+
+    private const val RULES_TAIL = "Start directly with the summary: no preamble, no " +
+        "meta-commentary."
+
+    /** Shared rules for a heading-based template (the common case). */
+    const val OUTPUT_RULES = RULES_HEAD + RULES_NONE_IDENTIFIED + RULES_TAIL
+
+    /** Shared rules for prose templates that must not emit placeholders. */
+    const val OUTPUT_RULES_PROSE = RULES_HEAD + RULES_OMIT_EMPTY + RULES_TAIL
 
     /** Depth knob applied on top of any template ("brief"/"standard"/"detailed"). */
     fun depthInstructions(depth: String): String = when (depth) {
@@ -45,12 +76,39 @@ object SummaryTemplates {
         else -> "Length: scale to the meeting — short meetings get short summaries."
     }
 
-    /** The template as actually sent to the model: instructions + depth + rules. */
-    fun effective(template: SummaryTemplate, depth: String): SummaryTemplate =
-        template.copy(
+    /**
+     * The template as actually sent to the model: instructions + depth +
+     * shared rules — unless the template is [SummaryTemplate.verbatim], in
+     * which case its own text is used untouched.
+     */
+    fun effective(template: SummaryTemplate, depth: String): SummaryTemplate {
+        if (template.verbatim) return template
+        val rules = if (template.omitEmptySections) OUTPUT_RULES_PROSE else OUTPUT_RULES
+        return template.copy(
             llmInstructions = template.llmInstructions + " " +
-                depthInstructions(depth) + " " + OUTPUT_RULES
+                depthInstructions(depth) + " " + rules
         )
+    }
+
+    /**
+     * Tells a personal template who "you" is. Without a name the Note to
+     * Self template can only guess which commitments are the user's, so the
+     * instruction says so explicitly rather than letting the model invent an
+     * attribution. No-op for every other template.
+     */
+    fun personalised(template: SummaryTemplate, userName: String): SummaryTemplate {
+        if (template.key != "note_to_self") return template
+        val who = userName.trim()
+        val note = if (who.isNotBlank()) {
+            " The person who recorded this meeting is $who — treat statements by " +
+                "$who as \"you\", and only list commitments $who personally made."
+        } else {
+            " The recorder is not identified in the transcript. Cover the commitments " +
+                "and decisions that appear most personally relevant, and say in one " +
+                "line that the recorder could not be identified."
+        }
+        return template.copy(llmInstructions = template.llmInstructions + note)
+    }
 
     val ALL: List<SummaryTemplate> = listOf(
         SummaryTemplate(
@@ -134,7 +192,8 @@ object SummaryTemplates {
             llmInstructions = "Write a follow-up email to the attendees recapping this meeting. " +
                 "Structure: a 'Subject:' line, a one-line opener, key decisions, action items " +
                 "with owners and deadlines, and next steps. Professional, concise tone. Output " +
-                "only the email itself, ready to send."
+                "only the email itself, ready to send.",
+            omitEmptySections = true
         ),
         // Domain templates (pair well with the MedGemma / SaulLM models,
         // but work with any engine). Both are explicitly framed as drafts.
@@ -167,6 +226,60 @@ object SummaryTemplates {
                 "risks, action items for lawyer and client, and information still needed. " +
                 "Mark statements of law as the speaker's position, not established fact. " +
                 "This is a draft for attorney review, not legal advice."
+        ),
+        // User-authored: used EXACTLY as written (verbatim), because it
+        // carries its own complete format and a hard length contract that
+        // the depth clause would fight.
+        SummaryTemplate(
+            key = "exec_summary",
+            labelRes = R.string.template_exec_summary,
+            verbatim = true,
+            llmInstructions = """Summarize the meeting transcript. Follow this exact format:
+
+## Executive Summary
+2-4 sentences covering the meeting's purpose and most important outcomes.
+
+## Key Decisions
+- Bullet list of decisions made. One per line. Include who made or owns each decision if stated.
+
+## Action Items
+- Bullet list in the format: [Owner] — [Task] — [Due date if stated]
+
+## Open Questions
+- Bullet list of unresolved issues or items deferred to a future meeting.
+
+Rules:
+- Use only information from the transcript. Do not add outside knowledge.
+- Attribute statements to speakers by the names used in the transcript.
+- Keep the entire output under 300 words.
+- If a section has no content, write "None identified" under that heading."""
+        ),
+        // A private reminder rather than minutes: written to the recorder,
+        // about what THEY owe and need to remember. OWNER_PLACEHOLDER is
+        // swapped for the user's name when one is known (see AppSettings.userName).
+        SummaryTemplate(
+            key = "note_to_self",
+            labelRes = R.string.template_note_to_self,
+            verbatim = true,
+            llmInstructions = """Write a short personal note to the person who recorded this meeting - informal, second person, as if reminding them weeks later.
+
+## What this was about
+One or two sentences of context, enough to jog the memory.
+
+## What you committed to
+- Anything you said you would do, with any date mentioned. Be specific.
+
+## What you need to know
+- Decisions, changes or information that affects you, in plain language.
+
+## What to raise next time
+- Open questions, things you meant to say, or items deferred.
+
+Rules:
+- Use only what is in the transcript; never invent a commitment.
+- Write to "you", conversationally - this is a private reminder, not minutes.
+- Keep it short - well under 250 words.
+- If a section has no content, write "None identified"."""
         ),
         SummaryTemplate(
             key = "matter",

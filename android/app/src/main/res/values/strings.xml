@@ -132,6 +132,36 @@
     <string name="cal_diag_checked_at">Last checked %1$s</string>
     <string name="cal_diag_footer">Recap re-checks hourly and whenever the calendar syncs. Use "Re-check now" after changing a calendar setting.</string>
     <string name="cal_diag_recheck">Re-check now</string>
+
+    <!-- New summary templates -->
+    <string name="template_exec_summary">Executive Summary</string>
+    <string name="template_note_to_self">Note to Self</string>
+    <string name="depth_locked">This template sets its own length</string>
+
+    <!-- Rename a meeting -->
+    <string name="rename_meeting">Rename…</string>
+    <string name="rename_meeting_title">Rename meeting</string>
+    <string name="rename_hint">Meeting name</string>
+    <string name="renamed">Renamed</string>
+
+    <!-- Transcript text size -->
+    <string name="setting_text_size">Transcript text size</string>
+    <string name="text_size_small">Small</string>
+    <string name="text_size_medium">Medium</string>
+    <string name="text_size_large">Large</string>
+
+    <!-- Topic chapters -->
+    <string name="topics_working">Finding topics…</string>
+    <string name="topics_failed">Couldn\'t detect topics: %1$s</string>
+    <string name="topics_offline_note">Topics found without AI (offline keywords)</string>
+    <string name="chapter_meta">%1$d lines · %2$s</string>
+    <string name="chapter_expand_all">Expand all</string>
+    <string name="chapter_collapse_all">Collapse all</string>
+
+    <!-- Who the user is (personalises Note to Self) -->
+    <string name="setting_me">Your name</string>
+    <string name="setting_me_desc">Used by the Note to Self summary to tell your commitments apart from everyone else\'s. Stays on this device.</string>
+    <string name="setting_me_hint">e.g. Alex</string>
     <string name="percent_fmt">%1$d%%</string>
 
     <string name="topics_title">Topics</string>

@@ -146,6 +146,11 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         recordDot = findViewById(R.id.recordDot)
         transcriptRecycler = findViewById(R.id.transcriptRecycler)
         transcriptAdapter = LiveTranscriptAdapter { index -> assignSpeaker(index) }
+        transcriptAdapter.textSizeSp = when (AppSettings(this).transcriptTextSize) {
+            "small" -> 13.5f
+            "large" -> 17f
+            else -> 15f
+        }
         transcriptRecycler.layoutManager = LinearLayoutManager(this)
         transcriptRecycler.adapter = transcriptAdapter
         speakerChipScroll = findViewById(R.id.speakerChipScroll)
@@ -200,6 +205,10 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             }
         )
         notesInput.addTextChangedListener(simpleWatcher { service?.updateNotes(it) })
+        // With the keyboard up there is not enough room for the orb, the
+        // timer AND the notes field, so typing collapses the capture header
+        // and gives the space to notes.
+        notesInput.setOnFocusChangeListener { _, hasFocus -> setNotesFocusMode(hasFocus) }
     }
 
     /**
@@ -650,6 +659,25 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     }
 
     // --- Calendar prefill -------------------------------------------------
+
+    /**
+     * Notes-first layout while typing: hides the orb/timer block and lets the
+     * notes field take the freed height. Recording is unaffected — this is
+     * purely how the screen is laid out.
+     */
+    private fun setNotesFocusMode(active: Boolean) {
+        val header = findViewById<View>(R.id.captureHeaderBlock) ?: return
+        header.visibility = if (active) View.GONE else View.VISIBLE
+        val transcript = findViewById<View>(R.id.transcriptRecycler)
+        (transcript?.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+            lp.weight = if (active) 1f else 3f
+            transcript.layoutParams = lp
+        }
+        (notesInput.layoutParams as? LinearLayout.LayoutParams)?.let { lp ->
+            lp.weight = if (active) 4f else 2f
+            notesInput.layoutParams = lp
+        }
+    }
 
     private fun requestCalendarPrefill(manual: Boolean) {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR)

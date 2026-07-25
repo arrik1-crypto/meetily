@@ -59,6 +59,17 @@
         <!-- targetSdk 35 enforces edge-to-edge; opt out for now so the
              existing layouts keep their insets (attr ignored below API 35). -->
         <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
+        <!-- Without these the status bar defaults to colorPrimary and reads as
+             a solid accent band above the pale surface. -->
+        <item name="android:statusBarColor">@color/bg</item>
+        <item name="android:navigationBarColor">@color/bg</item>
+        <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/light_system_bars</item>
+        <!-- Dialogs: appcompat AlertDialog.Builder resolves alertDialogTheme,
+             MaterialAlertDialogBuilder resolves materialAlertDialogTheme. Set
+             BOTH or dialogs fall back to the unstyled system look. -->
+        <item name="alertDialogTheme">@style/ThemeOverlay.Nocturne.Dialog</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.Nocturne.Dialog</item>
         <item name="colorPrimary">@color/accent</item>
         <item name="colorOnPrimary">@color/accent_on</item>
         <item name="colorPrimaryContainer">@color/accent_container</item>
@@ -92,5 +103,41 @@
         <item name="textAppearanceLabelLarge">@style/TextAppearance.Nocturne.LabelLarge</item>
         <item name="textAppearanceLabelMedium">@style/TextAppearance.Nocturne.LabelMedium</item>
         <item name="textAppearanceLabelSmall">@style/TextAppearance.Nocturne.LabelSmall</item>
+    </style>
+
+    <!-- Dialog identity: without this every AlertDialog renders as an
+         unstyled system box that ignores the Nocturne surface, corners and
+         type. Applied theme-wide via alertDialogTheme + materialAlertDialogTheme. -->
+    <style name="ThemeOverlay.Nocturne.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/surface_soft</item>
+        <item name="colorSurfaceContainerHigh">@color/surface_soft</item>
+        <item name="android:colorBackground">@color/surface_soft</item>
+        <item name="colorOnSurface">@color/ink</item>
+        <item name="colorOnSurfaceVariant">@color/ink_soft</item>
+        <item name="android:textColorPrimary">@color/ink</item>
+        <item name="android:textColorSecondary">@color/ink_soft</item>
+        <item name="dialogCornerRadius">28dp</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearance.Nocturne.Dialog</item>
+        <item name="materialAlertDialogTitleTextStyle">
+            @style/MaterialAlertDialog.Nocturne.Title
+        </item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.Nocturne.DialogButton</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.Nocturne.DialogButton</item>
+        <item name="buttonBarNeutralButtonStyle">@style/Widget.Nocturne.DialogButton</item>
+    </style>
+
+    <style name="ShapeAppearance.Nocturne.Dialog" parent="ShapeAppearance.Material3.Corner.ExtraLarge">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">28dp</item>
+    </style>
+
+    <style name="MaterialAlertDialog.Nocturne.Title"
+        parent="MaterialAlertDialog.Material3.Title.Text">
+        <item name="android:textColor">@color/ink</item>
+        <item name="android:textAppearance">@style/TextAppearance.Nocturne.TitleMedium</item>
+    </style>
+
+    <style name="Widget.Nocturne.DialogButton" parent="Widget.Material3.Button.TextButton.Dialog">
+        <item name="android:textColor">?attr/colorPrimary</item>
     </style>
 </resources>

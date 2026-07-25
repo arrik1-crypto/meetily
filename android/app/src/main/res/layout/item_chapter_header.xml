@@ -1,25 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Topic-chapter marker between transcript lines (Nocturne section label). -->
+<!-- Topic-chapter marker between transcript lines (Nocturne section label).
+     Tappable: collapses/expands the lines belonging to this topic. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
+    android:background="?attr/selectableItemBackground"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingTop="18dp"
-    android:paddingBottom="4dp">
-
-    <View
-        android:layout_width="14dp"
-        android:layout_height="2dp"
-        android:background="?attr/colorPrimary" />
+    android:paddingBottom="6dp">
 
     <TextView
-        android:id="@+id/chapterTitle"
+        android:id="@+id/chapterChevron"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:letterSpacing="0.08"
-        android:textAllCaps="true"
-        android:textAppearance="?attr/textAppearanceLabelMedium"
-        android:textColor="?attr/colorPrimary" />
+        android:minWidth="18dp"
+        android:text="\u25B8"
+        android:textColor="?attr/colorPrimary"
+        android:textSize="13sp" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/chapterTitle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:letterSpacing="0.08"
+            android:textAllCaps="true"
+            android:textAppearance="?attr/textAppearanceLabelMedium"
+            android:textColor="?attr/colorPrimary" />
+
+        <TextView
+            android:id="@+id/chapterMeta"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceBodySmall"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+    </LinearLayout>
 </LinearLayout>

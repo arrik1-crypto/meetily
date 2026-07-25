@@ -53,6 +53,50 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
+                    <!-- Transcript readability: stacks on top of the system
+                         font scale, for people who do not want to enlarge
+                         every app. -->
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/setting_text_size"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <com.google.android.material.button.MaterialButtonToggleGroup
+                        android:id="@+id/textSizeToggle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:layout_marginBottom="18dp"
+                        app:selectionRequired="true"
+                        app:singleSelection="true">
+
+                        <Button
+                            android:id="@+id/textSizeSmall"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/text_size_small" />
+
+                        <Button
+                            android:id="@+id/textSizeMedium"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/text_size_medium" />
+
+                        <Button
+                            android:id="@+id/textSizeLarge"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="@string/text_size_large" />
+                    </com.google.android.material.button.MaterialButtonToggleGroup>
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
@@ -311,7 +355,34 @@
                             android:textAppearance="?attr/textAppearanceBodySmall"
                             android:textColor="?attr/colorOnSurfaceVariant" />
 
-                        <!-- Domain starter glossaries appended to the field
+                        <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:hint="@string/setting_me"
+                        app:boxCornerRadiusBottomEnd="14dp"
+                        app:boxCornerRadiusBottomStart="14dp"
+                        app:boxCornerRadiusTopEnd="14dp"
+                        app:boxCornerRadiusTopStart="14dp">
+
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/userNameInput"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:importantForAutofill="no"
+                            android:inputType="textPersonName|textCapWords"
+                            android:textSize="15sp" />
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/setting_me_desc"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <!-- Domain starter glossaries appended to the field
                              above; users then prune/extend them. -->
                         <LinearLayout
                             android:layout_width="match_parent"

@@ -271,6 +271,26 @@ class SettingsActivity : AppCompatActivity() {
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
         findViewById<android.widget.EditText>(R.id.vocabInput).setText(settings.customVocab)
+        findViewById<android.widget.EditText>(R.id.userNameInput).setText(settings.userName)
+        findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(
+            R.id.textSizeToggle
+        ).apply {
+            check(
+                when (settings.transcriptTextSize) {
+                    "small" -> R.id.textSizeSmall
+                    "large" -> R.id.textSizeLarge
+                    else -> R.id.textSizeMedium
+                }
+            )
+            addOnButtonCheckedListener { _, checkedId, isChecked ->
+                if (!isChecked) return@addOnButtonCheckedListener
+                settings.transcriptTextSize = when (checkedId) {
+                    R.id.textSizeSmall -> "small"
+                    R.id.textSizeLarge -> "large"
+                    else -> "medium"
+                }
+            }
+        }
         findViewById<View>(R.id.calendarCheckButton).setOnClickListener {
             startActivity(Intent(this, CalendarDiagnosticsActivity::class.java))
         }
@@ -361,6 +381,8 @@ class SettingsActivity : AppCompatActivity() {
             findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
         settings.customVocab =
             findViewById<android.widget.EditText>(R.id.vocabInput).text.toString().trim()
+        settings.userName =
+            findViewById<android.widget.EditText>(R.id.userNameInput).text.toString().trim()
         settings.saveAudio = findViewById<MaterialSwitch>(R.id.saveAudioSwitch).isChecked
         settings.llmBaseUrl = urlInput.text.toString().trim()
         settings.llmApiKey = keyInput.text.toString().trim()

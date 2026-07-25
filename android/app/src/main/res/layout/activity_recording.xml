@@ -53,13 +53,20 @@
             android:id="@+id/calendarButton"
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:layout_height="wrap_content"
+            android:minHeight="36dp"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
             android:text="@string/from_calendar"
             android:textColor="?attr/colorPrimary"
             app:icon="@drawable/ic_calendar"
             app:iconTint="?attr/colorPrimary" />
 
+        <!-- Hidden while the notes field has focus, so the keyboard leaves a
+             usable writing area instead of a two-line sliver (see
+             RecordingActivity.setNotesFocusMode). -->
         <LinearLayout
+            android:id="@+id/captureHeaderBlock"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="8dp"

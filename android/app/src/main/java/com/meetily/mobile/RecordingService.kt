@@ -395,8 +395,11 @@ class RecordingService : Service() {
     private fun completeFinish(onDone: ((String) -> Unit)?) {
         if (finished) return
         finished = true
-        // All chunks are transcribed by now (finish() barriers on the
-        // transcriber queue), so the merge sees the complete session.
+        // On the normal path finish() has barriered on the transcriber
+        // queue, so the merge sees every cluster. On the watchdog/paused/
+        // discard paths it may not have — late segments then keep their
+        // original cluster ids, which is why appendLateSegment resolves
+        // names through clusterNames rather than assuming a remap.
         applyClusterMerge()
         teardownEngines()
         saveNow()
@@ -664,7 +667,14 @@ class RecordingService : Service() {
             } else null,
             onSegment = { text, speaker, clusterId, audioMs, words ->
                 main.post {
-                    if (active) appendSegment(text, speaker, clusterId, audioMs, words)
+                    if (active) {
+                        appendSegment(text, speaker, clusterId, audioMs, words)
+                    } else {
+                        // The session already finished (the 15 s watchdog can
+                        // fire while chunks are still transcribing). Keeping
+                        // it silently dropped the tail of long meetings.
+                        appendLateSegment(text, speaker, clusterId, audioMs, words)
+                    }
                 }
             },
             onProcessingChange = { processing ->
@@ -688,6 +698,40 @@ class RecordingService : Service() {
     }
 
     // --- Shared segment handling -----------------------------------------
+
+    /**
+     * A transcript chunk that finished after the session was closed out.
+     * Persisted straight to the stored meeting so the last words of a long
+     * recording are not lost; the open meeting screen picks it up on reload.
+     */
+    private fun appendLateSegment(
+        text: String,
+        speaker: String?,
+        clusterId: Int?,
+        audioMs: Long?,
+        words: List<com.meetily.mobile.data.WordStamp>
+    ) {
+        val id = meetingId
+        if (id.isBlank() || text.isBlank()) return
+        Thread {
+            try {
+                val target = store.load(id) ?: return@Thread
+                target.segments.add(
+                    TranscriptSegment(
+                        timestampMs = System.currentTimeMillis(),
+                        text = text,
+                        speaker = speaker ?: clusterId?.let { clusterNames[it] },
+                        highlighted = false,
+                        clusterId = clusterId,
+                        audioMs = if (audioFileName != null) audioMs else null,
+                        words = if (audioFileName != null && words.isNotEmpty()) words else null
+                    )
+                )
+                store.save(target)
+            } catch (_: Exception) {
+            }
+        }.start()
+    }
 
     private fun appendSegment(
         text: String,

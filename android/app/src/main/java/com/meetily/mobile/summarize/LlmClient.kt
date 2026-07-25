@@ -157,6 +157,82 @@ object LlmClient {
         }
     }
 
+    /** Characters per chapter-detection window; sized to fit the on-device budget. */
+    const val CHAPTER_WINDOW_CHARS = 11_000
+
+    /**
+     * Line ranges to send for chapter detection. A single call truncates to
+     * the model's context, so a long meeting would only ever be chaptered at
+     * its beginning; windowing covers the whole transcript. Pure — tested.
+     */
+    fun chapterWindows(
+        lineLengths: List<Int>,
+        budget: Int = CHAPTER_WINDOW_CHARS
+    ): List<IntRange> {
+        if (lineLengths.isEmpty()) return emptyList()
+        val out = mutableListOf<IntRange>()
+        var start = 0
+        var used = 0
+        for (i in lineLengths.indices) {
+            // +8 covers the "123: " prefix and newline added per line.
+            val cost = lineLengths[i] + 8
+            if (used > 0 && used + cost > budget) {
+                out.add(start..(i - 1))
+                start = i
+                used = 0
+            }
+            used += cost
+        }
+        out.add(start..(lineLengths.size - 1))
+        return out
+    }
+
+    /**
+     * Merges per-window chapter marks: sorts by line, drops duplicates and
+     * marks closer together than [minGap] lines (window seams produce a
+     * spurious chapter at every boundary). Pure — tested.
+     */
+    fun mergeChapterMarks(
+        marks: List<Pair<Int, String>>,
+        minGap: Int = 3
+    ): List<Pair<Int, String>> {
+        val sorted = marks.sortedBy { it.first }
+        val out = mutableListOf<Pair<Int, String>>()
+        for (mark in sorted) {
+            val previous = out.lastOrNull()
+            if (previous != null && mark.first - previous.first < minGap) continue
+            out.add(mark)
+        }
+        return out
+    }
+
+    /**
+     * [chapters] applied across the whole transcript in windows, with each
+     * window's line numbers mapped back to absolute positions. [onWindow]
+     * reports (index, total) for progress.
+     */
+    fun chaptersWindowed(
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        localOnly: Boolean,
+        lines: List<String>,
+        onWindow: ((Int, Int) -> Unit)? = null
+    ): List<Pair<Int, String>> {
+        val windows = chapterWindows(lines.map { it.length })
+        val collected = mutableListOf<Pair<Int, String>>()
+        for ((index, range) in windows.withIndex()) {
+            onWindow?.invoke(index + 1, windows.size)
+            val slice = lines.subList(range.first, range.last + 1)
+            val part = chapters(baseUrl, apiKey, model, localOnly, slice)
+            for ((line, title) in part) {
+                val absolute = range.first + line
+                if (absolute in lines.indices) collected.add(absolute to title)
+            }
+        }
+        return mergeChapterMarks(collected)
+    }
+
     /**
      * Topic separation: asks the LLM to mark where new topics start in a
      * numbered transcript. Returns (lineIndex, chapterTitle) pairs sorted by

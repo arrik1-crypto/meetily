@@ -45,7 +45,19 @@ object LocalLlm {
     private var appContext: Context? = null
     private var ptr = 0L
     private var loadedKey: String? = null
-    private val lock = Any()
+
+    /**
+     * Guards the native handle. A ReentrantLock rather than a monitor so
+     * [release] can DECLINE to wait: it is called from the main thread on
+     * memory pressure (RecapApp.onTrimMemory) and from Settings, and
+     * inference holds this lock for minutes. Blocking there froze the whole
+     * app and risked an ANR.
+     */
+    private val lock = java.util.concurrent.locks.ReentrantLock()
+
+    /** Set when a release arrived mid-inference; honoured when it finishes. */
+    @Volatile
+    private var releasePending = false
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -94,7 +106,9 @@ object LocalLlm {
 
         var pairs = toPairs(messages)
 
-        synchronized(lock) {
+        lock.lock()
+        try {
+            releasePending = false
             ensureLoaded(context, model)
 
             // Map-reduce: when one message (in practice, the transcript) far
@@ -123,6 +137,11 @@ object LocalLlm {
                 throw IllegalStateException("On-device model returned an empty response")
             }
             return reply
+        } finally {
+            // A release that arrived mid-inference was deferred rather than
+            // blocking its caller; honour it now, off the main thread.
+            if (releasePending) freeLocked()
+            lock.unlock()
         }
     }
 
@@ -199,15 +218,34 @@ object LocalLlm {
         }
     }
 
-    /** Frees the loaded model (memory pressure, model switch, shutdown). */
+    /**
+     * Frees the loaded model (memory pressure, model switch, shutdown).
+     *
+     * NEVER BLOCKS. Callers include the main thread (onTrimMemory, deleting a
+     * model in Settings) and inference can hold the lock for minutes, so when
+     * the model is busy this records the request and returns; the generation
+     * frees it on the way out.
+     */
     fun release() {
-        synchronized(lock) {
-            if (ptr != 0L) {
-                LlamaBridge.freeModel(ptr)
-                ptr = 0L
-                loadedKey = null
-            }
+        if (!lock.tryLock()) {
+            releasePending = true
+            return
         }
+        try {
+            freeLocked()
+        } finally {
+            lock.unlock()
+        }
+    }
+
+    /** Caller must hold [lock]. */
+    private fun freeLocked() {
+        if (ptr != 0L) {
+            LlamaBridge.freeModel(ptr)
+            ptr = 0L
+            loadedKey = null
+        }
+        releasePending = false
     }
 
     private fun ensureLoaded(context: Context, model: LocalLlmModel) {

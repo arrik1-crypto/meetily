@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Light system bars mean DARK icons, which is what the pale day
+         surface needs. Overridden in values-night. Kept as a bool rather
+         than a night-qualified theme, because a night <style> would replace
+         the whole day theme instead of extending it. -->
+    <bool name="light_system_bars">true</bool>
+</resources>
