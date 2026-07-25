@@ -95,7 +95,6 @@ class MainActivity : AppCompatActivity() {
             warning: String?
         ) {
             if (isFinishing || isDestroyed) return
-            clearWork(importWork)
             importWork = null
             importListedId = null
             refresh() // the imported meeting (or its final state) shows up
@@ -146,7 +145,6 @@ class MainActivity : AppCompatActivity() {
 
         override fun onSummaryDone(meetingId: String, failed: Boolean) {
             if (isFinishing || isDestroyed) return
-            clearWork(summaryWork)
             summaryWork = null
             // currentTitle/currentMode are still set when observers hear
             // about the finish.
@@ -194,17 +192,20 @@ class MainActivity : AppCompatActivity() {
     /** The import meeting the list has already been reloaded for. */
     private var importListedId: String? = null
 
-    private fun clearWork(work: Work?) {
-        work?.meetingId?.let { adapter.setProgress(it, null) }
-    }
+    // The card each observer is currently painting, so a run that moves to a
+    // different meeting (or ends) takes its progress row with it instead of
+    // leaving a frozen bar behind on the old card.
+    private var importPaintedId: String? = null
+    private var summaryPaintedId: String? = null
 
     private fun syncProgressViews() {
-        renderWork(
-            importWork, importBanner, importBannerName, importBannerBar, importBannerPct
+        importPaintedId = renderWork(
+            importWork, importPaintedId,
+            importBanner, importBannerName, importBannerBar, importBannerPct
         )
-        renderWork(
-            summaryWork, summaryBanner, summaryBannerName, summaryBannerBar,
-            summaryBannerPct
+        summaryPaintedId = renderWork(
+            summaryWork, summaryPaintedId,
+            summaryBanner, summaryBannerName, summaryBannerBar, summaryBannerPct
         )
     }
 
@@ -217,21 +218,28 @@ class MainActivity : AppCompatActivity() {
      */
     private fun renderWork(
         work: Work?,
+        paintedId: String?,
         banner: View,
         name: TextView,
         bar: com.google.android.material.progressindicator.LinearProgressIndicator,
         pct: TextView
-    ) {
+    ): String? {
+        // Whatever this observer painted last, if it is not what it is
+        // painting now, has to be wiped first — including when the work has
+        // finished entirely.
+        if (paintedId != null && paintedId != work?.meetingId) {
+            adapter.setProgress(paintedId, null)
+        }
         if (work == null) {
             banner.visibility = View.GONE
-            return
+            return null
         }
         val inline = work.meetingId != null && adapter.setProgress(
             work.meetingId, MeetingAdapter.Progress(work.inlineLabel, work.percent)
         )
         if (inline) {
             banner.visibility = View.GONE
-            return
+            return work.meetingId
         }
         banner.visibility = View.VISIBLE
         name.text = work.bannerTitle
@@ -245,6 +253,8 @@ class MainActivity : AppCompatActivity() {
         }
         if (!wantIndeterminate) bar.progress = work.percent
         pct.text = if (work.percent < 0) "" else getString(R.string.percent_fmt, work.percent)
+        // Nothing was painted into a card, so there is nothing to wipe later.
+        return null
     }
 
     override fun onStart() {
@@ -257,7 +267,6 @@ class MainActivity : AppCompatActivity() {
             )
             importBound = true
         } else {
-            clearWork(importWork)
             importWork = null
         }
         if (SummaryService.isRunning) {
@@ -268,7 +277,6 @@ class MainActivity : AppCompatActivity() {
             )
             summaryBound = true
         } else {
-            clearWork(summaryWork)
             summaryWork = null
         }
         syncProgressViews()
@@ -704,12 +712,16 @@ class MainActivity : AppCompatActivity() {
         stored.starred = starred
         store.save(stored)
         meeting.starred = starred // the list holds this instance
-        if (flaggedOnly && !starred) {
-            applyFilter() // it no longer belongs in the current view
+        // Chips first: unflagging the last flagged meeting drops the Flagged
+        // filter entirely, and filtering before that would leave the library
+        // rendered empty with nothing selected to explain why.
+        val wasFlagFiltered = flaggedOnly
+        rebuildFilterChips()
+        if (wasFlagFiltered) {
+            applyFilter() // the flagged set changed, or the filter just went
         } else {
             adapter.refreshMeeting(meeting.id)
         }
-        rebuildFilterChips()
     }
 
     private fun confirmDelete(meeting: Meeting) {

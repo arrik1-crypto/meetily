@@ -235,9 +235,18 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun refreshSummaryFromStore(reveal: Boolean) {
         val m = meeting ?: return
         val saved = store.load(m.id) ?: return
-        if (saved.summary == m.summary && saved.actionItems == m.actionItems) return
+        if (saved.summary == m.summary &&
+            saved.actionItems == m.actionItems &&
+            saved.summaryStale == m.summaryStale
+        ) {
+            return
+        }
         m.summary = saved.summary
         m.actionItems = saved.actionItems
+        // Regenerating settles the "transcript changed" flag on disk; without
+        // copying it back, the hint would linger here and the next save from
+        // this screen would write the stale flag out again.
+        m.summaryStale = saved.summaryStale
         progress.visibility = View.GONE
         renderSummary(m.summary)
         renderActionItems(m)
