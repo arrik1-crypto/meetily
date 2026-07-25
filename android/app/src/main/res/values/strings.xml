@@ -327,6 +327,8 @@
     <string name="check_ready_notif_body">Tap to compare the two transcripts.</string>
     <string name="check_ready_prompt">A second pass has finished for this meeting. Look at the differences now?</string>
     <string name="check_cancelled">Check cancelled. Your transcript is unchanged.</string>
+    <string name="check_incomplete_notif">Transcript check incomplete</string>
+    <string name="check_incomplete_body">The second pass only reached part of the recording, so there was nothing reliable to compare against. Your transcript is unchanged.</string>
     <string name="check_nothing_to_review">There\'s no finished check waiting for this meeting.</string>
     <string name="check_nothing_to_apply">Nothing to apply.</string>
     <string name="check_agree_title">Both models agree</string>

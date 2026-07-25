@@ -154,6 +154,29 @@ class TranscriptReconcileTest {
     }
 
     @Test
+    fun aWholesaleSwapKeepsLinesTheSecondPassWasSilentOn() {
+        // What "Use the new transcript" accepts: every difference the new
+        // pass actually has words for. A block it heard nothing in is left
+        // alone — dropping a line is a per-span decision, made after looking.
+        val current = listOf(
+            seg(0, "shared line"),
+            seg(20_000, "quiet aside"),
+            seg(40_000, "misheard word")
+        )
+        val fresh = listOf(seg(0, "shared line"), seg(40_000, "misheard ward"))
+        val blocks = TranscriptReconcile.align(current, fresh)
+        val wholesale = TranscriptReconcile.differences(blocks)
+            .filter { it.freshIndices.isNotEmpty() }
+            .map { it.ordinal }
+            .toSet()
+        val merged = TranscriptReconcile.merge(current, fresh, blocks, wholesale)
+        assertEquals(
+            listOf("shared line", "quiet aside", "misheard ward"),
+            merged.map { it.text }
+        )
+    }
+
+    @Test
     fun mergedOutputStaysInAudioOrder() {
         val current = List(4) { seg(it * 5_000L, "old $it") }
         val fresh = List(4) { seg(it * 5_000L, "new $it") }

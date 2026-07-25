@@ -191,6 +191,23 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     /**
+     * The newest transcript timestamp this screen has seen on disk. Anything
+     * later than this that turns up is a line another writer appended;
+     * anything at or before it that is missing from our copy is a line the
+     * user deleted, and must stay deleted.
+     */
+    private var segmentsSeenThroughMs = Long.MIN_VALUE
+
+    /** Saves without erasing a line that landed while this screen was open. */
+    private fun persist(m: Meeting) {
+        store.saveMerging(m, segmentsSeenThroughMs)
+        segmentsSeenThroughMs = maxOf(
+            segmentsSeenThroughMs,
+            com.meetily.mobile.data.MeetingMerge.highWaterMs(m.segments)
+        )
+    }
+
+    /**
      * Picks up transcript lines that landed on disk while this screen held an
      * older copy — the recording service can still deliver a final chunk after
      * the session closes. Folds rather than replaces: this copy carries the
@@ -199,7 +216,9 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun refreshSegmentsFromStore() {
         val m = meeting ?: return
         val saved = store.load(m.id) ?: return
-        if (com.meetily.mobile.data.MeetingMerge.foldLateSegments(m, saved) == 0) return
+        val merge = com.meetily.mobile.data.MeetingMerge
+        if (merge.foldLateSegments(m, saved, segmentsSeenThroughMs) == 0) return
+        segmentsSeenThroughMs = merge.highWaterMs(m.segments)
         renderMeta(m)
         renderTranscript(m)
         renderStats(m)
@@ -234,7 +253,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             val m = meeting
             if (success && file != null && file.exists() && file.length() > 0 && m != null) {
                 m.photos.add(file.name)
-                store.saveMerging(m)
+                persist(m)
                 renderPhotos(m)
                 ocrPhoto(m, file.name)
             } else {
@@ -319,6 +338,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         titleView.text = m.title
         dateView.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(m.createdAtMs))
+        segmentsSeenThroughMs = com.meetily.mobile.data.MeetingMerge.highWaterMs(m.segments)
         renderMeta(m)
 
         headerView.findViewById<View>(R.id.generateButton).setOnClickListener {
@@ -570,7 +590,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         m.segments[index] = m.segments[index].copy(
             highlighted = !m.segments[index].highlighted
         )
-        store.saveMerging(m)
+        persist(m)
         transcriptAdapter.update(index, m.segments[index])
     }
 
@@ -610,7 +630,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                         }
                     }
                     addAttendee(name)
-                    store.saveMerging(m)
+                    persist(m)
                     renderTranscript(m)
                     promptVoiceprintUpdate(name, tagged)
                 }
@@ -619,7 +639,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (index !in m.segments.indices) return@show
             m.segments[index] = m.segments[index].copy(speaker = name)
             if (!name.isNullOrBlank()) addAttendee(name)
-            store.saveMerging(m)
+            persist(m)
             transcriptAdapter.update(index, m.segments[index])
             if (!name.isNullOrBlank()) {
                 promptVoiceprintUpdate(name, listOf(index))
@@ -661,7 +681,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             m.notes = newNotes
             m.attendees = newAttendees
             m.tags = newTags
-            store.saveMerging(m)
+            persist(m)
         }
     }
 
@@ -677,7 +697,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (offline.isNotBlank()) {
             m.title = offline
             titleView.text = offline
-            store.saveMerging(m)
+            persist(m)
         }
         if (settings.useLlm && settings.llmConfigured) {
             val baseUrl = settings.llmBaseUrl
@@ -694,7 +714,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                             if (isFinishing || isDestroyed) return@runOnUiThread
                             m.title = generated
                             titleView.text = generated
-                            store.saveMerging(m)
+                            persist(m)
                         }
                     }
                 } catch (_: Exception) {
@@ -744,7 +764,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     val updated = m.actionItems[index].copy(done = checked)
                     m.actionItems[index] = updated
                     applyStrike(text, checked)
-                    store.saveMerging(m)
+                    persist(m)
                     val at = updated.remindAtMs
                     if (at != null) {
                         if (checked) {
@@ -840,7 +860,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         val item = m.actionItems[index].copy(remindAtMs = atMs, done = false)
         m.actionItems[index] = item
-        store.saveMerging(m)
+        persist(m)
         Reminders.scheduleActionItem(this, m.id, item.task, atMs)
         renderActionItems(m)
         Toast.makeText(
@@ -860,7 +880,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         val item = m.actionItems[index]
         Reminders.cancelActionItem(this, m.id, item.task)
         m.actionItems[index] = item.copy(remindAtMs = null)
-        store.saveMerging(m)
+        persist(m)
         renderActionItems(m)
     }
 
@@ -874,7 +894,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     if (removed.remindAtMs != null) {
                         Reminders.cancelActionItem(this, m.id, removed.task)
                     }
-                    store.saveMerging(m)
+                    persist(m)
                     renderActionItems(m)
                 }
             }
@@ -935,7 +955,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 m.photos.remove(name)
                 m.photoTexts.remove(name)
                 PhotoStore.delete(this, name)
-                store.saveMerging(m)
+                persist(m)
                 renderPhotos(m)
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -963,7 +983,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 file.outputStream().use { output -> input.copyTo(output) }
             } ?: throw RuntimeException("cannot open image")
             m.photos.add(file.name)
-            store.saveMerging(m)
+            persist(m)
             renderPhotos(m)
             ocrPhoto(m, file.name)
         } catch (_: Exception) {
@@ -978,7 +998,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         PhotoOcr.extract(this, file) { text ->
             if (text != null && name in m.photos) {
                 m.photoTexts[name] = text
-                store.saveMerging(m)
+                persist(m)
             }
         }
     }
@@ -1142,7 +1162,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 answerView.text = answer
                 askSend.isEnabled = true
                 m.qa.add(QaEntry(question, answer))
-                store.saveMerging(m)
+                persist(m)
             }
         }.start()
     }
@@ -1250,7 +1270,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     }
                 }
                 attendeesInput.setText(m.attendeesText())
-                store.saveMerging(m)
+                persist(m)
                 renderTranscript(m)
                 Toast.makeText(
                     this,
@@ -1457,7 +1477,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun toggleStar() {
         val m = meeting ?: return
         m.starred = !m.starred
-        store.saveMerging(m)
+        persist(m)
         invalidateOptionsMenu()
         Toast.makeText(
             this,
@@ -1804,7 +1824,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 } else {
                     m.segments[index] =
                         m.segments[index].copy(text = newText, words = null)
-                    store.saveMerging(m)
+                    persist(m)
                     transcriptAdapter.update(index, m.segments[index])
                 }
             }
@@ -1819,7 +1839,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setPositiveButton(R.string.delete) { _, _ ->
                 if (index !in m.segments.indices) return@setPositiveButton
                 m.segments.removeAt(index)
-                store.saveMerging(m)
+                persist(m)
                 renderTranscript(m)
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -1862,7 +1882,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
                 m.segments[index] = parts.first
                 m.segments.add(index + 1, parts.second)
-                store.saveMerging(m)
+                persist(m)
                 renderTranscript(m)
                 // Tag who said the second half right away.
                 assignSpeaker(index + 1)
@@ -2074,7 +2094,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         headerView.findViewById<View>(R.id.doneNotesButton).setOnClickListener {
             val m = meeting ?: return@setOnClickListener
             m.notes = notesInput.text.toString()
-            store.saveMerging(m)
+            persist(m)
             setNotesMode(viewMode = m.notes.isNotBlank())
         }
         headerView.findViewById<View>(R.id.fmtBold).setOnClickListener {
@@ -2142,7 +2162,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (m.notesOriginal.isBlank()) return
         m.notes = m.notesOriginal
         m.notesOriginal = ""
-        store.saveMerging(m)
+        persist(m)
         notesInput.setText(m.notes)
         renderNotes(m)
         syncNotesButtons()
@@ -2169,7 +2189,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         NotesRenderer.render(container, m.notes) { line ->
             m.notes = NotesMarkdown.toggleCheck(m.notes, line)
             notesInput.setText(m.notes)
-            store.saveMerging(m)
+            persist(m)
             renderNotes(m)
         }
     }
@@ -2206,7 +2226,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 throw RuntimeException("empty file")
             }
             m.attachmentsList.add(Attachment(file.name, display))
-            store.saveMerging(m)
+            persist(m)
             renderAttachments(m)
         } catch (_: Exception) {
             Toast.makeText(this, R.string.attach_failed, Toast.LENGTH_SHORT).show()
@@ -2315,7 +2335,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setPositiveButton(R.string.delete) { _, _ ->
                 m.attachmentsList.remove(attachment)
                 AttachmentStore.delete(this, attachment.file)
-                store.saveMerging(m)
+                persist(m)
                 renderAttachments(m)
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -2356,7 +2376,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 val name = input.text.toString().trim()
                 if (name.isBlank() || name == m.title) return@setPositiveButton
                 m.title = name
-                store.saveMerging(m)
+                persist(m)
                 titleView.text = name
                 Toast.makeText(this, R.string.renamed, Toast.LENGTH_SHORT).show()
             }
@@ -2383,7 +2403,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     which == m.chapters.size -> detectTopics(m)
                     else -> {
                         m.chapters.clear()
-                        store.saveMerging(m)
+                        persist(m)
                         renderTranscript(m)
                     }
                 }

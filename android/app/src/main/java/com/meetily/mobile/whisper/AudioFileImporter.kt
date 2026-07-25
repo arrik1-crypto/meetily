@@ -133,7 +133,19 @@ class AudioFileImporter(
         val recheck = recheckTarget != null
         // Timestamps are anchored so the imported meeting reads as having
         // just ended (base + in-file offset); refined once duration is known.
-        var baseMs = recheckTarget?.createdAtMs ?: System.currentTimeMillis()
+        var baseMs = if (recheckTarget != null) {
+            // Share the stored transcript's clock exactly. An import
+            // re-anchors its segments once the duration is known but leaves
+            // createdAtMs at the moment the import started, so the two are
+            // not the same instant. Deriving the base from a segment that
+            // carries both stamps is the only way accepted lines land in
+            // order among the ones they sit between.
+            recheckTarget.segments.firstOrNull { it.audioMs != null }
+                ?.let { it.timestampMs - (it.audioMs ?: 0L) }
+                ?: recheckTarget.createdAtMs
+        } else {
+            System.currentTimeMillis()
+        }
         val meeting = Meeting(
             id = recheckTarget?.id ?: UUID.randomUUID().toString(),
             title = recheckTarget?.title ?: title,

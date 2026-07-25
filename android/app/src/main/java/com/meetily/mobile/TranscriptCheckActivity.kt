@@ -189,7 +189,15 @@ class TranscriptCheckActivity : AppCompatActivity() {
             fresh.segments.toList(), pending.segments, fresh.createdAtMs
         )
         val accepted = if (wholesale) {
-            TranscriptReconcile.differences(liveBlocks).map { it.ordinal }.toSet()
+            // "Use the new transcript" means better words, never fewer lines.
+            // Where the second pass heard nothing — a quiet passage, a chunk
+            // it discarded as noise — the stored line stays. Dropping a line
+            // is only ever something the user chooses span by span, having
+            // seen it.
+            TranscriptReconcile.differences(liveBlocks)
+                .filter { it.freshIndices.isNotEmpty() }
+                .map { it.ordinal }
+                .toSet()
         } else {
             // Block ordinals are positions in an alignment that was computed
             // when the screen opened, so they cannot be trusted against a

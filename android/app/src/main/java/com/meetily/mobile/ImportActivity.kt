@@ -48,12 +48,13 @@ class ImportActivity : AppCompatActivity() {
             if (isFinishing || isDestroyed) return
             when {
                 meetingId != null && ImportService.isRecheck -> {
-                    // A cancelled check left the stored transcript alone and
-                    // threw its draft away — there is nothing to review.
-                    if (wasCancelled) {
+                    // A cancelled or partial check left the stored transcript
+                    // alone and threw its draft away — nothing to review.
+                    if (wasCancelled || warning != null) {
                         Toast.makeText(
                             this@ImportActivity,
-                            R.string.check_cancelled,
+                            if (wasCancelled) getString(R.string.check_cancelled)
+                            else getString(R.string.check_incomplete_body),
                             Toast.LENGTH_LONG
                         ).show()
                         finish()

@@ -184,9 +184,11 @@ class ImportService : Service() {
         resultError = error
         resultWarning = warning
         val recheckId = recheckMeetingId
-        if (recheckId != null && (cancelled || error != null)) {
-            // Nothing was written to the meeting, and a half-finished draft
-            // would only produce a misleading comparison.
+        if (recheckId != null && (cancelled || error != null || warning != null)) {
+            // Nothing was written to the meeting, and a partial draft would
+            // produce a comparison where the whole uncovered tail reads as
+            // "the new model went silent here" — which, accepted, would cut
+            // the transcript down to whatever the pass managed to reach.
             com.meetily.mobile.data.TranscriptDraft.delete(this, recheckId)
         }
         try {
@@ -280,7 +282,14 @@ class ImportService : Service() {
             .setSmallIcon(R.drawable.ic_download)
             .setAutoCancel(true)
             .setSilent(true)
-        if (meetingId != null && recheckMeetingId != null) {
+        if (meetingId != null && recheckMeetingId != null && warning != null) {
+            builder.setContentTitle(getString(R.string.check_incomplete_notif))
+                .setContentText(getString(R.string.check_incomplete_body))
+                .setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText(getString(R.string.check_incomplete_body))
+                )
+        } else if (meetingId != null && recheckMeetingId != null) {
             // The second pass is done but nothing has changed yet — the whole
             // point is that the user reviews it first.
             builder.setContentTitle(getString(R.string.check_ready_notif))
