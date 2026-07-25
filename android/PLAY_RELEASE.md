@@ -4,23 +4,46 @@ Everything needed to take Recap from this repo to the Play Store, in order.
 App ID: **com.recap.mobile** (permanent). Current release: v3.0.0-rc1
 (versionCode 48), targetSdk 35.
 
-## 1. One-time: add the signing secrets
+## 1. One-time: create the upload key and add the secrets
 
-You received four values with the upload keystore (SECRETS.txt). In GitHub:
-repo → Settings → Secrets and variables → Actions → New repository secret:
+Generate the key **on your own machine**, never on a build runner or in a
+container. It is the app's identity: anyone holding it can build an APK that
+installs over yours as an update. You need a JDK for `keytool` (Android
+Studio bundles one).
+
+```bash
+bash android/scripts/make_upload_key.sh ~/recap-signing
+```
+
+That writes `recap-upload.keystore` and a one-line `.base64` of it, generates
+a random password, and prints the four values to paste into GitHub: repo →
+Settings → Secrets and variables → Actions → New repository secret.
 
 | Secret | Value |
 |---|---|
-| `ANDROID_KEYSTORE_BASE64` | contents of `recap-upload.keystore.base64` (one long line) |
-| `ANDROID_KEYSTORE_PASSWORD` | from SECRETS.txt |
+| `ANDROID_KEYSTORE_BASE64` | the whole one-line contents of `recap-upload.keystore.base64` |
+| `ANDROID_KEYSTORE_PASSWORD` | printed by the script |
 | `ANDROID_KEY_ALIAS` | `recap-upload` |
-| `ANDROID_KEY_PASSWORD` | from SECRETS.txt |
+| `ANDROID_KEY_PASSWORD` | same as the store password (PKCS12 cannot differ) |
 
-Keep `recap-upload.keystore` + SECRETS.txt somewhere safe and private (a
-password manager). This is the **upload key** — with Play App Signing
-(enroll when creating the app; it is the default) Google holds the actual
-app signing key, so a lost upload key can be reset via Play support.
-**Never commit the keystore or passwords to the repo.**
+Back the keystore and password up somewhere private (a password manager)
+before going any further. This is the **upload key** — with Play App Signing
+(enroll when creating the app; it is the default) Google holds the actual app
+signing key, so a lost upload key can be reset via Play support. A lost key
+still means sideload updates can never install in place again.
+**Never commit the keystore or passwords to the repo** — `android/.gitignore`
+already excludes `*.keystore`, `*.jks` and `keystore.properties`.
+
+To prove it took, run **Build Android APK** twice and check both APKs carry
+the same certificate:
+
+```bash
+python3 android/scripts/apk_cert.py android/dist/meetily-android.apk
+```
+
+The SHA-256 it prints must equal the one the key script printed, on both
+builds. Two different values means the secrets are not being read and the
+runner is still falling back to a throwaway debug key.
 
 ### Why this matters before you even reach Play
 
