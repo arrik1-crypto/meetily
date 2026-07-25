@@ -87,4 +87,95 @@ a visible screen — but never the background work that dominates this app.
 
 ## #68 — GPU acceleration for Whisper / the local LLM
 
-_(findings below)_
+**Decision: do not ship a GPU backend. Spend the effort on CPU prefill
+instead.** If anyone wants to test the premise, run a correctness check, not
+a benchmark — see the end of this section.
+
+### The premise was wrong about the hardware
+
+The target device is a Pixel 10 Pro XL, and its Tensor G5 does **not** have a
+Mali/Immortalis GPU. Google dropped Arm here; it is an Imagination PowerVR
+D-Series `DXT-48-1536`. That single fact undoes most of what is written about
+llama.cpp on Android, because every published result — good or bad — is
+Adreno or Mali.
+
+### Why not
+
+1. **The GPU is currently wrong, not slow, for the quantisation we ship.**
+   Imagination's own developer forum carries a report that on
+   `DXT-48-1536`, every k-quant matmul shader from Q2_K through Q6_K
+   produces numerically incorrect results. Non-k-quants (Q4_0, Q5_0, Q8_0,
+   F16) are reported fine. Separately, PyTorch ExecuTorch's Vulkan backend
+   returns all-zero outputs on the same GPU. Two engines, two silent
+   wrong-answer bugs, one part.
+2. **Silent corruption is the worst possible failure for this app.** A crash
+   we can catch and fall back from. Subtly wrong matmuls in a summarizer
+   produce plausible, confidently wrong meeting summaries. Nobody files that
+   as a bug; they just stop trusting the app. A toggle does not help, because
+   there is nothing to detect at runtime.
+3. **We could not fix it, and neither could Google.** Imagination keeps
+   proprietary control of the DXT drivers. The Pixel 10 waited from launch
+   until Android 16 QPR3 for its first driver bump.
+4. **ggml has no PowerVR path at all.** `ggml-vulkan.cpp` defines vendor IDs
+   for AMD, Apple, Intel, NVIDIA and Qualcomm only; its architecture enum has
+   no Imagination entry, so PowerVR falls to `OTHER` — no shader-variant
+   tuning, no driver workarounds. (Mali is `OTHER` too.)
+5. **Upstream does not ship this configuration.** llama.cpp's own Android
+   release artifact is CPU-only; so is whisper.cpp's Android example. The
+   "how do I build llama.cpp with Vulkan for Android" issue has been open and
+   unanswered since Feb 2025. We would own the integration alone.
+6. **It costs about +12.5 MB of APK** (roughly +50% on our ~27 MB), paid once
+   across both engines since they share ggml, and shipped to every device
+   including the overwhelming majority that are not Pixel 10.
+
+The OpenCL backend is confirmed Adreno/Qualcomm-only by its own
+documentation, so it is not an alternative here.
+
+### What the upside would have been, honestly
+
+Prefill is genuinely the workload a mobile GPU wins, and prefill is exactly
+what our map-reduce summarizer is bound by. The best-documented Android case
+(Adreno 830 via OpenCL) shows ~23× on prefill for a 1.5B model and ~3.7× for
+7B — while **token generation got slower** on the 7B, because per-token
+sync overhead beats the gain once you are memory-bandwidth-bound. So even in
+the good case the design would be GPU-for-prefill, CPU-for-decode, never a
+blanket offload.
+
+On power: the literature says GPU offload is probably more energy-efficient
+per token for prefill-shaped work and a wash for decode, but sustained-load
+studies find phones throttling ~44% within a couple of iterations regardless
+of backend. Power efficiency is not a strong argument in either direction for
+a multi-minute job on a phone.
+
+### Two things worth doing instead
+
+1. **Attack prefill on the CPU path.** Confirm we are actually getting the
+   Armv9 i8mm/SVE kernels (`GGML_CPU_ALL_VARIANTS`, correct `-march`) — a
+   missed path costs multiples on prefill GEMMs for free, with no correctness
+   risk. Then reduce the work itself: bigger map chunks amortise better, and
+   our system prompt is identical on every map call, so prompt-prefix KV
+   caching is nearly free. That is likely to beat a GPU speedup we cannot
+   ship.
+2. **One free experiment on the sherpa side:** try `provider = "xnnpack"`
+   instead of `"cpu"`. sherpa-onnx falls back to CPU with a log line if the
+   EP is absent, so it cannot break anything. Note that NNAPI is a dead end
+   twice over — deprecated by Google in Android 15 and by ONNX Runtime, and
+   the prebuilt sherpa-onnx Android libraries are built at `android-21`,
+   which compiles the NNAPI EP out entirely. Setting `provider = "nnapi"`
+   today silently gives you CPU. There is no QNN provider in sherpa-onnx at
+   all, and it would be Qualcomm-only regardless.
+
+### If someone wants to test this anyway
+
+Timebox it to a day and make it a **correctness** test. Build with
+`-DGGML_VULKAN=ON` (CI-wise this is easy: `glslc`, `libvulkan-dev` and
+`spirv-headers` are apt packages, the shader generator is a host tool, and
+ggml's CMake supports cross-compiling it) and run `test-backend-ops` on the
+device. Do not benchmark first. If `MUL_MAT` fails for our quant type — which
+the Imagination report says it will — that is the answer in one run, plus a
+reproducible artifact worth attaching to their thread.
+
+Revisit only if Imagination ships a driver fix **and** ggml gains a PowerVR
+vendor path. Six months is a reasonable interval; more often is wasted
+effort.
+
