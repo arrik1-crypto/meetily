@@ -99,6 +99,16 @@ class ImportService : Service() {
                 val uri = intent.data
                 if (isRunning || uri == null) return START_NOT_STICKY
                 isRunning = true
+                // A bound client (the home screen) keeps this instance alive
+                // past stopSelf(), so a second run can land on the same
+                // object. Without this reset it would start already finished
+                // — or already cancelled.
+                done = false
+                cancelled = false
+                percent = 0
+                resultMeetingId = null
+                resultError = null
+                resultWarning = null
                 recheckMeetingId = intent.getStringExtra(EXTRA_RECHECK_MEETING_ID)
                 isRecheck = recheckMeetingId != null
                 currentMeetingId = recheckMeetingId

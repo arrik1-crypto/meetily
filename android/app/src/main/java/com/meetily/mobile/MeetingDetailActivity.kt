@@ -1968,7 +1968,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.no_audio_kept, Toast.LENGTH_SHORT).show()
             return
         }
-        if (com.meetily.mobile.data.TranscriptDraft.pending(this, m.id) != null) {
+        if (com.meetily.mobile.data.TranscriptDraft.isPending(this, m.id)) {
             openCheckReview(m.id)
             return
         }
@@ -2061,7 +2061,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun maybeOfferCheckReview() {
         val m = meeting ?: return
         if (checkPromptShown || isFinishing || isDestroyed) return
-        if (com.meetily.mobile.data.TranscriptDraft.pending(this, m.id) == null) return
+        if (!com.meetily.mobile.data.TranscriptDraft.isPending(this, m.id)) return
         checkPromptShown = true
         AlertDialog.Builder(this)
             .setTitle(R.string.check_ready_notif)

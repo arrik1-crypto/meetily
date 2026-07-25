@@ -15,8 +15,11 @@ package com.meetily.mobile.data
  */
 object TranscriptReconcile {
 
-    /** Assumed length of the last segment, which has no successor to bound it. */
-    private const val TAIL_MS = 4_000L
+    private const val MIN_SPAN_MS = 800L
+    private const val MAX_SPAN_MS = 30_000L
+
+    /** Roughly 15 characters of speech a second. */
+    private const val MS_PER_CHAR = 66L
 
     /**
      * One stretch of audio and the segments each pass produced for it. Either
@@ -55,10 +58,34 @@ object TranscriptReconcile {
         }
     }
 
-    private fun ends(starts: LongArray): LongArray =
+    /**
+     * How long a segment is likely to run for, from its word timings where we
+     * have them and from its length otherwise.
+     *
+     * This has to be the segment's own span, not "up to wherever the next one
+     * starts". Treating segments as contiguous leaves no gaps anywhere, so a
+     * single millisecond of misalignment chains one block into the next and
+     * the whole meeting collapses into one undifferentiated block. Pauses are
+     * what separate blocks, and both engines cut at pauses.
+     */
+    private fun spanOf(segment: TranscriptSegment): Long {
+        val words = segment.words
+        if (!words.isNullOrEmpty()) {
+            return (words.last().ms + 400L).coerceIn(MIN_SPAN_MS, MAX_SPAN_MS)
+        }
+        return (segment.text.length * MS_PER_CHAR).coerceIn(MIN_SPAN_MS, MAX_SPAN_MS)
+    }
+
+    private fun ends(segments: List<TranscriptSegment>, starts: LongArray): LongArray =
         LongArray(starts.size) { i ->
-            if (i + 1 < starts.size) maxOf(starts[i + 1], starts[i] + 1)
-            else starts[i] + TAIL_MS
+            val own = starts[i] + spanOf(segments[i])
+            // Never let a generous estimate manufacture an overlap with the
+            // next segment; only a real pause is allowed to break a block.
+            if (i + 1 < starts.size) {
+                minOf(own, maxOf(starts[i + 1], starts[i] + 1))
+            } else {
+                own
+            }
         }
 
     fun normalize(text: String): String {
@@ -93,8 +120,8 @@ object TranscriptReconcile {
     ): List<Block> {
         val currentStart = offsets(current, baseMs)
         val freshStart = offsets(fresh, baseMs)
-        val currentEnd = ends(currentStart)
-        val freshEnd = ends(freshStart)
+        val currentEnd = ends(current, currentStart)
+        val freshEnd = ends(fresh, freshStart)
         val blocks = mutableListOf<Block>()
         var i = 0
         var j = 0

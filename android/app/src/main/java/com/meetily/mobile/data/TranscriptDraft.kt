@@ -30,6 +30,14 @@ object TranscriptDraft {
     private fun fileFor(context: Context, meetingId: String): File =
         File(dir(context), "$meetingId.json")
 
+    /**
+     * Sidecar written only once a pass finishes cleanly, so screens can ask
+     * "is there a check waiting?" with a file-exists test instead of parsing
+     * a whole second transcript on the main thread.
+     */
+    private fun readyFor(context: Context, meetingId: String): File =
+        File(dir(context), "$meetingId.ok")
+
     fun save(
         context: Context,
         meetingId: String,
@@ -52,9 +60,17 @@ object TranscriptDraft {
                 file.writeText(obj.toString())
                 tmp.delete()
             }
+            // Only after the content is on disk, so the marker can never
+            // promise a draft that is not there.
+            val ready = readyFor(context, meetingId)
+            if (complete && segments.isNotEmpty()) ready.writeText("1") else ready.delete()
         } catch (_: Exception) {
         }
     }
+
+    /** Cheap check for a finished pass — no parsing, safe on the main thread. */
+    fun isPending(context: Context, meetingId: String): Boolean =
+        readyFor(context, meetingId).exists() && fileFor(context, meetingId).exists()
 
     fun load(context: Context, meetingId: String): Draft? {
         val file = fileFor(context, meetingId)
@@ -83,6 +99,7 @@ object TranscriptDraft {
 
     fun delete(context: Context, meetingId: String) {
         try {
+            readyFor(context, meetingId).delete()
             fileFor(context, meetingId).delete()
         } catch (_: Exception) {
         }

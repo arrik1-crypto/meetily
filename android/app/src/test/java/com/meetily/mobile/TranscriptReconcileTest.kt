@@ -60,17 +60,6 @@ class TranscriptReconcileTest {
     }
 
     @Test
-    fun differentChunkingStillLinesUp() {
-        // The second model split one line in two; same words, no difference.
-        val current = listOf(seg(0, "one two three four"))
-        val fresh = listOf(seg(0, "one two"), seg(2_000, "three four"))
-        val blocks = TranscriptReconcile.align(current, fresh)
-        assertEquals(1, blocks.size)
-        assertEquals(2, blocks[0].freshIndices.size)
-        assertTrue(blocks[0].agrees)
-    }
-
-    @Test
     fun linesWithoutAnAudioOffsetAnchorOnTheMeetingStart() {
         // System-recognizer meetings carry no audioMs. Anchoring on the first
         // segment instead of the meeting start would shift the whole
@@ -84,6 +73,38 @@ class TranscriptReconcileTest {
         val fresh = listOf(seg(30_000, "late start"), seg(35_000, "second line"))
         val blocks = TranscriptReconcile.align(current, fresh, base)
         assertTrue(TranscriptReconcile.differences(blocks).isEmpty())
+    }
+
+    @Test
+    fun aPauseBreaksTheBlockEvenWhenTheTwoPassesDisagreeOnTheOffset() {
+        // The two engines never cut at the same millisecond. If a segment's
+        // span ran all the way to wherever the next one starts, that
+        // millisecond of slack would chain every block into its neighbour and
+        // the whole meeting would come back as one undifferentiated block.
+        val current = listOf(
+            seg(0, "first thought"),
+            seg(20_000, "second thought"),
+            seg(40_000, "third thought")
+        )
+        val fresh = listOf(
+            seg(120, "first thought"),
+            seg(20_140, "second thought"),
+            seg(39_880, "third thought")
+        )
+        val blocks = TranscriptReconcile.align(current, fresh)
+        assertEquals(3, blocks.size)
+        assertTrue(TranscriptReconcile.differences(blocks).isEmpty())
+    }
+
+    @Test
+    fun backToBackSpeechStaysInOneBlock() {
+        // No pause between them, so they belong together — the second pass
+        // split the same words differently.
+        val current = listOf(seg(0, "one continuous run of speech"))
+        val fresh = listOf(seg(0, "one continuous"), seg(900, "run of speech"))
+        val blocks = TranscriptReconcile.align(current, fresh)
+        assertEquals(1, blocks.size)
+        assertTrue(blocks[0].agrees)
     }
 
     @Test

@@ -75,6 +75,22 @@ class AudioFileImporter(
         val selectedKey = modelKey ?: settings.whisperModel
         val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
 
+        val store = MeetingStore(context)
+        // A recheck re-transcribes a meeting that already exists. Validate it
+        // BEFORE loading any model: everything below allocates native memory
+        // that only the try/finally further down releases, so a throw between
+        // here and there would leak a whole Whisper context.
+        val recheckTarget = recheckMeetingId?.let { store.load(it) }
+        if (recheckMeetingId != null) {
+            if (recheckTarget == null) {
+                throw ImportException("That meeting is no longer available")
+            }
+            if (recheckTarget.audioFile.isNullOrBlank()) {
+                throw ImportException("No audio was kept for this meeting")
+            }
+        }
+        val recheck = recheckTarget != null
+
         // NeMo path (Parakeet/Nemotron via sherpa-onnx) or whisper.cpp.
         val nemoModel = NemoModels.byKeyOrNull(selectedKey)
         var nemoEngine: NemoEngine? = null
@@ -121,16 +137,9 @@ class AudioFileImporter(
             }
         }
 
-        val store = MeetingStore(context)
-        // A recheck re-transcribes a meeting that already exists. Its
-        // timestamps must stay anchored to that meeting so the two passes
-        // line up on the same audio; nothing is written to the meeting
-        // itself until the user accepts the result.
-        val recheckTarget = recheckMeetingId?.let { store.load(it) }
-        if (recheckMeetingId != null && recheckTarget == null) {
-            throw ImportException("That meeting is no longer available")
-        }
-        val recheck = recheckTarget != null
+        // A recheck stays anchored to the meeting it is checking, so the two
+        // passes line up on the same audio; nothing is written to that
+        // meeting until the user accepts the result.
         // Timestamps are anchored so the imported meeting reads as having
         // just ended (base + in-file offset); refined once duration is known.
         var baseMs = if (recheckTarget != null) {
@@ -173,7 +182,6 @@ class AudioFileImporter(
 
         if (recheck) {
             meeting.audioFile = recheckTarget?.audioFile
-                ?: throw ImportException("No audio was kept for this meeting")
         } else {
             // Keep a copy of the source audio so playback and later
             // re-transcription work on imported meetings too. Decoding also

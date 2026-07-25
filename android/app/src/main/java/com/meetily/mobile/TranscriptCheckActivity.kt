@@ -43,6 +43,9 @@ class TranscriptCheckActivity : AppCompatActivity() {
     /** Block ordinals the user wants the new pass's text for. */
     private val acceptFresh = mutableSetOf<Int>()
 
+    /** Set when a rotation interrupted the span-by-span review. */
+    private var restoreReview = false
+
     private lateinit var loading: LinearProgressIndicator
     private lateinit var verdictPanel: View
     private lateinit var verdictView: TextView
@@ -82,6 +85,14 @@ class TranscriptCheckActivity : AppCompatActivity() {
         }
         meeting = loaded
         draft = pending
+        // Rotating re-runs the comparison over the same two transcripts, so
+        // the block ordinals come out identical and the user's picks can be
+        // restored onto them. Losing a long review to a screen rotation would
+        // be its own kind of data loss.
+        if (savedInstanceState != null) {
+            savedInstanceState.getIntArray(STATE_ACCEPTED)?.forEach { acceptFresh.add(it) }
+            restoreReview = savedInstanceState.getBoolean(STATE_REVIEWING, false)
+        }
 
         findViewById<View>(R.id.checkReviewButton).setOnClickListener { showReview() }
         findViewById<View>(R.id.checkUseNewButton).setOnClickListener {
@@ -110,7 +121,7 @@ class TranscriptCheckActivity : AppCompatActivity() {
                 blocks = aligned
                 diffs = different
                 loading.visibility = View.GONE
-                showVerdict()
+                if (restoreReview && different.isNotEmpty()) showReview() else showVerdict()
             }
         }.apply {
             name = "transcript-compare"
@@ -275,16 +286,25 @@ class TranscriptCheckActivity : AppCompatActivity() {
         val name = meeting?.audioFile ?: return
         val file = AudioStore.fileFor(this, name)
         if (!file.exists()) return
+        var created: MediaPlayer? = null
         try {
-            val active = player ?: MediaPlayer().apply {
-                setDataSource(file.absolutePath)
-                prepare()
-                player = this
+            val active = player ?: MediaPlayer().also { fresh ->
+                created = fresh
+                fresh.setDataSource(file.absolutePath)
+                fresh.prepare()
+                player = fresh
             }
             active.seekTo(ms.toInt())
             active.start()
         } catch (_: Exception) {
-            player?.release()
+            // Release whichever one we are holding — a player that failed in
+            // prepare() was never stored, so `player` alone would leak it.
+            (player ?: created)?.let {
+                try {
+                    it.release()
+                } catch (_: Exception) {
+                }
+            }
             player = null
         }
     }
@@ -377,7 +397,16 @@ class TranscriptCheckActivity : AppCompatActivity() {
         )
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putIntArray(STATE_ACCEPTED, acceptFresh.toIntArray())
+        outState.putBoolean(STATE_REVIEWING, reviewPanel.visibility == View.VISIBLE)
+    }
+
     companion object {
         const val EXTRA_MEETING_ID = "meeting_id"
+
+        private const val STATE_ACCEPTED = "accepted_blocks"
+        private const val STATE_REVIEWING = "reviewing"
     }
 }

@@ -78,9 +78,11 @@ class MeetingMergeTest {
 
     @Test
     fun foldPutsLateLinesInTimeOrder() {
-        val screen = meeting(seg(10, "ten"), seg(30, "thirty"))
+        // Two lines landed while the screen was away, and the disk copy does
+        // not necessarily list them in order.
+        val screen = meeting(seg(10, "ten"))
         val disk = meeting(seg(10, "ten"), seg(30, "thirty"), seg(20, "twenty"))
-        MeetingMerge.foldLateSegments(screen, disk, afterMs = 15L)
+        assertEquals(2, MeetingMerge.foldLateSegments(screen, disk, afterMs = 10L))
         assertEquals(listOf(10L, 20L, 30L), screen.segments.map { it.timestampMs })
     }
 
