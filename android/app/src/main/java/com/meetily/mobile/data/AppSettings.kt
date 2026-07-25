@@ -15,7 +15,16 @@ class AppSettings(context: Context) {
     /** AI engine: "endpoint" (OpenAI-compatible URL) or "local" (embedded llama.cpp). */
     var llmEngine: String
         get() = prefs.getString("llm_engine", "endpoint") ?: "endpoint"
-        set(value) = prefs.edit().putString("llm_engine", value).apply()
+        set(value) {
+            // Consent to unattended off-device summaries was given for the
+            // engine in force at the time. Changing engine re-asks rather
+            // than quietly inheriting the answer.
+            val edit = prefs.edit().putString("llm_engine", value)
+            if (value != prefs.getString("llm_engine", "endpoint")) {
+                edit.putBoolean("auto_summary_endpoint_ok", false)
+            }
+            edit.apply()
+        }
 
     /** Selected on-device GGUF model key (see LocalLlmModels). */
     var localLlmModel: String
@@ -112,6 +121,62 @@ class AppSettings(context: Context) {
     var autoCheckTranscript: Boolean
         get() = prefs.getBoolean("auto_check_transcript", false)
         set(value) = prefs.edit().putBoolean("auto_check_transcript", value).apply()
+
+    /**
+     * Hold the post-meeting accuracy pass back until the phone is on power.
+     * The pass is DEFERRED, not skipped: a meeting that ends off-charger
+     * queues and runs when you next plug in.
+     */
+    var autoCheckWhileChargingOnly: Boolean
+        get() = prefs.getBoolean("auto_check_charging_only", false)
+        set(value) = prefs.edit().putBoolean("auto_check_charging_only", value).apply()
+
+    /**
+     * After a recording ends, generate the AI summary without being asked.
+     * Runs only on the local engine unless [autoSummaryEndpointOk] is set —
+     * an endpoint engine would ship every meeting off-device with the user
+     * never pressing anything.
+     */
+    var autoSummarize: Boolean
+        get() = prefs.getBoolean("auto_summarize", false)
+        set(value) = prefs.edit().putBoolean("auto_summarize", value).apply()
+
+    /** "end" (as soon as the meeting stops) or "charging" (defer to power). */
+    var autoSummaryWhen: String
+        get() = prefs.getString("auto_summary_when", "end") ?: "end"
+        set(value) = prefs.edit().putString("auto_summary_when", value).apply()
+
+    /**
+     * Style for automatic summaries. Deliberately NOT [summaryTemplate],
+     * which is last-used and gets rewritten every time the user picks a
+     * template by hand — an automatic run must not drift with it.
+     */
+    var autoSummaryTemplate: String
+        get() = prefs.getString("auto_summary_template", "general") ?: "general"
+        set(value) = prefs.edit().putString("auto_summary_template", value).apply()
+
+    /**
+     * Explicit consent to run automatic summaries against a remote endpoint.
+     * Reset whenever the engine changes, so switching from local to endpoint
+     * re-asks instead of quietly inheriting the answer.
+     */
+    var autoSummaryEndpointOk: Boolean
+        get() = prefs.getBoolean("auto_summary_endpoint_ok", false)
+        set(value) = prefs.edit().putBoolean("auto_summary_endpoint_ok", value).apply()
+
+    /**
+     * True when an automatic summary may run unprompted right now: the
+     * engine is configured, and either it is fully on-device or the user has
+     * explicitly accepted that meetings leave the device.
+     */
+    val autoSummaryAllowed: Boolean
+        get() = autoSummarize && useLlm && llmConfigured &&
+            (llmEngine == "local" || autoSummaryEndpointOk)
+
+    /** Playback gain above the system ceiling, in dB (0 = off). */
+    var playbackBoostDb: Int
+        get() = prefs.getInt("playback_boost_db", 0)
+        set(value) = prefs.edit().putInt("playback_boost_db", value).apply()
 
     /** Whisper translate task: non-English speech comes out as English text
      *  (multilingual models only; English-only models ignore this). */

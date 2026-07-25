@@ -255,7 +255,11 @@ object LocalLlm {
             ptr = 0L
             loadedKey = null
         }
-        val threads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+        // Shared budget: a summary must not out-thread a live recording,
+        // and must leave the UI thread a core to run on.
+        val threads = com.meetily.mobile.data.HeavyWork.batchThreads(
+            com.meetily.mobile.RecordingService.isRunning
+        )
         val loaded = LlamaBridge.initModel(
             LocalLlmModels.fileFor(context, model).absolutePath, N_CTX, threads
         )

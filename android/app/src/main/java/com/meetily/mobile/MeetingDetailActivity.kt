@@ -684,6 +684,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onDestroy() {
         playerHandler.removeCallbacks(playerTick)
         playerReady = false
+        releaseBoost()
         try {
             player?.release()
         } catch (_: Exception) {
@@ -1568,6 +1569,14 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var skipSilenceButton: ImageButton
     private var playbackSpeed = 1.0f
     private var skipSilence = false
+    private lateinit var playerBoostButton: TextView
+    private var boostDb = 0
+    /**
+     * Gain stage bound to the player's audio session. MediaPlayer.setVolume
+     * is clamped to 1.0 and can only attenuate, so raising a quiet meeting
+     * above the system ceiling needs an audio effect.
+     */
+    private var boost: android.media.audiofx.LoudnessEnhancer? = null
 
     /** Speech spans over the audio timeline; built lazily for skip-silence. */
     private val speechSpans: List<com.meetily.mobile.whisper.SpeechSpans.Span> by lazy {
@@ -1657,6 +1666,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         playbackSpeed = settings.playbackSpeed
         renderSpeedLabel()
         playerSpeedButton.setOnClickListener { cyclePlaybackSpeed() }
+        playerBoostButton = findViewById(R.id.playerBoost)
+        boostDb = settings.playbackBoostDb
+        renderBoostLabel()
+        playerBoostButton.setOnClickListener { cycleBoost() }
         skipSilence = settings.skipSilence && speechSpans.isNotEmpty()
         renderSkipSilence()
         skipSilenceButton.setOnClickListener {
@@ -1697,6 +1710,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 updatePlayerUi(p)
             }
             playerReady = true
+            attachBoost(p)
             playerSeek.max = p.duration.coerceAtLeast(1)
             player = p
             updatePlayerUi(p)
@@ -1731,6 +1745,69 @@ class MeetingDetailActivity : AppCompatActivity() {
             playPauseButton.setImageResource(R.drawable.ic_pause)
         }
         playerHandler.post(playerTick)
+    }
+
+    // --- Volume boost -------------------------------------------------
+
+    /**
+     * Attaches the gain stage to [p]'s audio session.
+     *
+     * Not every device provides the effect — construction throws on some
+     * ROMs — so a failure hides the control rather than killing playback.
+     */
+    private fun attachBoost(p: MediaPlayer) {
+        releaseBoost()
+        if (boostDb <= 0) return
+        boost = try {
+            android.media.audiofx.LoudnessEnhancer(p.audioSessionId).apply {
+                setTargetGain(boostDb * 100) // millibels
+                enabled = true
+            }
+        } catch (_: Throwable) {
+            playerBoostButton.visibility = View.GONE
+            null
+        }
+    }
+
+    private fun releaseBoost() {
+        try {
+            boost?.release()
+        } catch (_: Exception) {
+        }
+        boost = null
+    }
+
+    private fun cycleBoost() {
+        val steps = intArrayOf(0, 4, 8, 12)
+        val at = steps.indexOfFirst { it == boostDb }
+        boostDb = steps[(at + 1).mod(steps.size)]
+        settings.playbackBoostDb = boostDb
+        renderBoostLabel()
+        val active = boost
+        if (boostDb <= 0) {
+            releaseBoost()
+        } else if (active != null) {
+            try {
+                active.setTargetGain(boostDb * 100)
+                active.enabled = true
+            } catch (_: Throwable) {
+                releaseBoost()
+            }
+        } else {
+            player?.let { attachBoost(it) }
+        }
+        if (boostDb > 0) {
+            Toast.makeText(this, R.string.playback_boost_noise, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun renderBoostLabel() {
+        playerBoostButton.text = if (boostDb <= 0) {
+            getString(R.string.playback_boost_off)
+        } else {
+            getString(R.string.playback_boost_on, boostDb)
+        }
+        playerBoostButton.alpha = if (boostDb <= 0) 0.45f else 1.0f
     }
 
     private fun updatePlayerUi(p: MediaPlayer) {

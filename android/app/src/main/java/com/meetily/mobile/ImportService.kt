@@ -31,9 +31,10 @@ class ImportService : Service() {
         /**
          * [meetingId] is null until the run knows which meeting it is filling
          * — the home screen uses it to put progress inside that meeting's own
-         * card instead of a floating banner.
+         * card instead of a floating banner. [detail] is a human-readable
+         * "how far, how much longer" line, blank until it can be estimated.
          */
-        fun onImportProgress(meetingId: String?, percent: Int)
+        fun onImportProgress(meetingId: String?, percent: Int, detail: String)
 
         /**
          * error != null means the import failed outright (nothing kept);
@@ -60,7 +61,7 @@ class ImportService : Service() {
         if (done) {
             observer.onImportDone(resultMeetingId, cancelled, resultError, resultWarning)
         } else {
-            observer.onImportProgress(currentMeetingId, percent)
+            observer.onImportProgress(currentMeetingId, percent, detail)
         }
     }
 
@@ -79,6 +80,9 @@ class ImportService : Service() {
 
     @Volatile private var cancelled = false
     @Volatile private var percent = 0
+    @Volatile private var detail = ""
+    /** When the wake lock was last taken, so a long run can renew it. */
+    @Volatile private var wakeLockAcquiredMs = 0L
     private var done = false
     private var resultMeetingId: String? = null
     private var resultError: String? = null
@@ -106,6 +110,7 @@ class ImportService : Service() {
                 done = false
                 cancelled = false
                 percent = 0
+                detail = ""
                 resultMeetingId = null
                 resultError = null
                 resultWarning = null
@@ -120,20 +125,49 @@ class ImportService : Service() {
                 // A dataSync service keeps the process alive but NOT the CPU:
                 // without this, a long import stalls or dies once the screen
                 // has been off for a while.
-                try {
-                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-                    wakeLock = pm.newWakeLock(
-                        PowerManager.PARTIAL_WAKE_LOCK, "meetily:import"
-                    ).apply {
-                        setReferenceCounted(false)
-                        acquire(3 * 60 * 60 * 1000L)
-                    }
-                } catch (_: Exception) {
+                acquireWakeLock()
+                if (recheckMeetingId != null) {
+                    com.meetily.mobile.data.JobQueue.markRunning(
+                        this, com.meetily.mobile.data.JobQueue.KIND_CHECK,
+                        recheckMeetingId!!, modelKey.orEmpty()
+                    )
                 }
                 runImport(uri)
             }
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * Takes (or renews) the CPU wake lock.
+     *
+     * Every acquisition carries a timeout so a wedged thread can never pin
+     * the CPU forever, but a single up-front timeout is a trap: a long import
+     * on a heavy model outlives it, the lock quietly releases, the device
+     * suspends with the screen off, and the run stalls indefinitely behind a
+     * progress bar that still looks alive. Renewing from the progress
+     * callback keeps the lock alive exactly as long as work is happening,
+     * and no longer.
+     */
+    private fun acquireWakeLock() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val lock = wakeLock ?: pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, "meetily:import"
+            ).also {
+                it.setReferenceCounted(false)
+                wakeLock = it
+            }
+            lock.acquire(WAKE_LOCK_MS)
+            wakeLockAcquiredMs = System.currentTimeMillis()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun renewWakeLockIfStale() {
+        if (System.currentTimeMillis() - wakeLockAcquiredMs >= WAKE_LOCK_RENEW_MS) {
+            acquireWakeLock()
+        }
     }
 
     private fun runImport(uri: Uri) {
@@ -156,16 +190,19 @@ class ImportService : Service() {
                             }
                         }
                     },
-                    onProgress = { p ->
+                    onProgress = { p, text ->
                         percent = p
+                        detail = text
+                        renewWakeLockIfStale()
                         main.post {
                             if (isRunning) {
                                 val id = currentMeetingId
-                                observers.forEach { it.onImportProgress(id, p) }
-                                updateNotification(p)
+                                observers.forEach { it.onImportProgress(id, p, text) }
+                                updateNotification(p, text)
                             }
                         }
                     },
+                    recordingActive = { RecordingService.isRunning },
                     cancelled = { cancelled }
                 )
             } catch (e: Exception) {
@@ -206,13 +243,22 @@ class ImportService : Service() {
         } catch (_: Exception) {
         }
         wakeLock = null
+        if (recheckId != null) {
+            com.meetily.mobile.data.JobQueue.finished(
+                this, com.meetily.mobile.data.JobQueue.KIND_CHECK, recheckId
+            )
+        }
         observers.forEach { it.onImportDone(meetingId, cancelled, error, warning) }
-        stopForegroundCompat()
         if (!cancelled) postCompletionNotification(meetingId, error, warning)
         // isRecheck / currentMeetingId deliberately survive the run: an
         // observer that binds after the finish still needs to know what just
         // happened. Both are reset by the next ACTION_START.
         isRunning = false
+        // Hand over to the next queued job while this service is still in the
+        // foreground — that is what makes starting one legal at all on
+        // Android 12+, and it is what serialises the queue.
+        JobGate.drain(this)
+        stopForegroundCompat()
         stopSelf()
     }
 
@@ -244,7 +290,7 @@ class ImportService : Service() {
         }
     }
 
-    private fun buildNotification(progress: Int): Notification {
+    private fun buildNotification(progress: Int, text: String = detail): Notification {
         val openIntent = PendingIntent.getActivity(
             this, 1,
             Intent(this, ImportActivity::class.java)
@@ -265,7 +311,9 @@ class ImportService : Service() {
                     getString(R.string.import_notif_title, sourceName)
                 }
             )
-            .setContentText(getString(R.string.import_status_running, progress))
+            .setContentText(
+                text.ifBlank { getString(R.string.import_status_running, progress) }
+            )
             .setProgress(100, progress, progress == 0)
             .setOngoing(true)
             .setSilent(true)
@@ -274,10 +322,10 @@ class ImportService : Service() {
             .build()
     }
 
-    private fun updateNotification(progress: Int) {
+    private fun updateNotification(progress: Int, text: String = detail) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
-            manager.notify(NOTIF_ID, buildNotification(progress))
+            manager.notify(NOTIF_ID, buildNotification(progress, text))
         } catch (_: SecurityException) {
         }
     }
@@ -381,5 +429,9 @@ class ImportService : Service() {
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45
+
+        /** Held in renewable slices rather than one long up-front bet. */
+        private const val WAKE_LOCK_MS = 30 * 60 * 1000L
+        private const val WAKE_LOCK_RENEW_MS = 10 * 60 * 1000L
     }
 }

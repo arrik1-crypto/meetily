@@ -74,6 +74,20 @@
             android:textColor="?attr/colorPrimary"
             android:textStyle="bold" />
 
+        <!-- Cycles off → +4 → +8 → +12 dB above the system volume ceiling. -->
+        <TextView
+            android:id="@+id/playerBoost"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginStart="6dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/playback_boost"
+            android:gravity="center"
+            android:minWidth="44dp"
+            android:textAppearance="?attr/textAppearanceLabelLarge"
+            android:textColor="?attr/colorPrimary"
+            android:textStyle="bold" />
+
         <!-- Skip-silence toggle: jumps playback over non-speech stretches. -->
         <ImageButton
             android:id="@+id/skipSilenceButton"

@@ -27,6 +27,7 @@ import com.meetily.mobile.data.BackupManager
 import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.security.AppLock
+import com.meetily.mobile.summarize.SummaryTemplates
 import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.security.BackupCrypto
 import com.meetily.mobile.whisper.CaptureTuning
@@ -272,6 +273,7 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
         findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked =
             settings.autoCheckTranscript
+        setUpAutoWork()
         findViewById<android.widget.EditText>(R.id.vocabInput).setText(settings.customVocab)
         findViewById<android.widget.EditText>(R.id.userNameInput).setText(settings.userName)
         findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(
@@ -370,6 +372,117 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Automatic post-meeting work: the charging qualifier for the accuracy
+     * pass, and the automatic summary with its style and timing.
+     */
+    private fun setUpAutoWork() {
+        val autoCheck = findViewById<MaterialSwitch>(R.id.autoCheckSwitch)
+        val charging = findViewById<MaterialSwitch>(R.id.autoCheckChargingSwitch)
+        charging.isChecked = settings.autoCheckWhileChargingOnly
+        charging.isEnabled = autoCheck.isChecked
+        autoCheck.setOnCheckedChangeListener { _, on -> charging.isEnabled = on }
+
+        val autoSummary = findViewById<MaterialSwitch>(R.id.autoSummarySwitch)
+        val styleButton =
+            findViewById<com.google.android.material.button.MaterialButton>(
+                R.id.autoSummaryStyleButton
+            )
+        val whenButton =
+            findViewById<com.google.android.material.button.MaterialButton>(
+                R.id.autoSummaryWhenButton
+            )
+
+        fun renderAutoSummary() {
+            val on = autoSummary.isChecked
+            styleButton.isEnabled = on
+            whenButton.isEnabled = on
+            val template = SummaryTemplates.allWithCustom(this)
+                .firstOrNull { it.key == settings.autoSummaryTemplate }
+            styleButton.text = getString(
+                R.string.setting_auto_summary_style,
+                template?.label(this) ?: getString(R.string.template_general)
+            )
+            whenButton.text = getString(
+                R.string.setting_auto_summary_when,
+                getString(
+                    if (settings.autoSummaryWhen == "charging") {
+                        R.string.auto_summary_when_charging
+                    } else {
+                        R.string.auto_summary_when_end
+                    }
+                )
+            )
+        }
+
+        autoSummary.isChecked = settings.autoSummarize
+        renderAutoSummary()
+        autoSummary.setOnCheckedChangeListener { _, on ->
+            if (on && !confirmEndpointSummaries()) {
+                autoSummary.isChecked = false
+                return@setOnCheckedChangeListener
+            }
+            settings.autoSummarize = on
+            renderAutoSummary()
+        }
+        styleButton.setOnClickListener {
+            val templates = SummaryTemplates.allWithCustom(this)
+            val current = templates
+                .indexOfFirst { it.key == settings.autoSummaryTemplate }
+                .coerceAtLeast(0)
+            AlertDialog.Builder(this)
+                .setTitle(R.string.setting_auto_summary_style_title)
+                .setSingleChoiceItems(
+                    templates.map { it.label(this) }.toTypedArray(), current
+                ) { dialog, which ->
+                    settings.autoSummaryTemplate = templates[which].key
+                    renderAutoSummary()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+        whenButton.setOnClickListener {
+            val keys = arrayOf("end", "charging")
+            val labels = arrayOf(
+                getString(R.string.auto_summary_when_end),
+                getString(R.string.auto_summary_when_charging)
+            )
+            AlertDialog.Builder(this)
+                .setTitle(R.string.setting_auto_summary_when_title)
+                .setSingleChoiceItems(
+                    labels, keys.indexOf(settings.autoSummaryWhen).coerceAtLeast(0)
+                ) { dialog, which ->
+                    settings.autoSummaryWhen = keys[which]
+                    renderAutoSummary()
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    /**
+     * An automatic summary against a remote endpoint would send the full text
+     * of every meeting off-device with the user never pressing anything. That
+     * needs saying out loud once, and re-saying if the engine changes.
+     */
+    private fun confirmEndpointSummaries(): Boolean {
+        if (settings.llmEngine == "local") return true
+        if (settings.autoSummaryEndpointOk) return true
+        AlertDialog.Builder(this)
+            .setTitle(R.string.auto_summary_endpoint_title)
+            .setMessage(R.string.auto_summary_endpoint_body)
+            .setPositiveButton(R.string.auto_summary_endpoint_yes) { _, _ ->
+                settings.autoSummaryEndpointOk = true
+                settings.autoSummarize = true
+                findViewById<MaterialSwitch>(R.id.autoSummarySwitch).isChecked = true
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+        return false
+    }
+
     private fun persistAll() {
         settings.useLlm = useLlmSwitch.isChecked
         settings.preferOfflineRecognition = offlineSwitch.isChecked
@@ -383,6 +496,8 @@ class SettingsActivity : AppCompatActivity() {
             findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
         settings.autoCheckTranscript =
             findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked
+        settings.autoCheckWhileChargingOnly =
+            findViewById<MaterialSwitch>(R.id.autoCheckChargingSwitch).isChecked
         settings.customVocab =
             findViewById<android.widget.EditText>(R.id.vocabInput).text.toString().trim()
         settings.userName =

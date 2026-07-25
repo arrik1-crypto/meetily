@@ -402,7 +402,7 @@ class RecordingService : Service() {
         // names through clusterNames rather than assuming a remap.
         applyClusterMerge()
         teardownEngines()
-        saveNow()
+        saveAndDrain()
         store.clearActive()
         active = false
         isRunning = false
@@ -410,6 +410,7 @@ class RecordingService : Service() {
         observer?.onFinished(id)
         onDone?.invoke(id)
         maybeStartAutoCheck(id)
+        maybeStartAutoSummary(id)
         stopForegroundCompat()
         stopSelf()
     }
@@ -423,11 +424,14 @@ class RecordingService : Service() {
     private fun maybeStartAutoCheck(meetingId: String) {
         try {
             if (!settings.autoCheckTranscript) return
-            if (ImportService.isRunning) return
             val audio = audioFileName ?: return
             if (!AudioStore.exists(this, audio)) return
-            if (segments.size < 4) return
-            if (!batteryAllowsHeavyWork()) return
+            if (segments.size < MIN_SEGMENTS_FOR_AUTO_WORK) return
+            val chargingOnly = settings.autoCheckWhileChargingOnly
+            // When the user has asked to wait for a charger the pass is
+            // deferred, not skipped, so the battery check does not apply —
+            // it will run on power, which is the whole point.
+            if (!chargingOnly && !Power.allowsHeavyWork(this)) return
             val current = if (settings.transcriptionEngine == "whisper") {
                 settings.whisperModel
             } else {
@@ -440,34 +444,37 @@ class RecordingService : Service() {
                     com.meetily.mobile.whisper.TranscriptionModels.sizeMb(it)
                 }
                 .firstOrNull { it != current } ?: return
-            val start = Intent(this, ImportService::class.java)
-                .setAction(ImportService.ACTION_START)
-                .setData(AudioStore.uriFor(this, AudioStore.fileFor(this, audio)))
-                .putExtra(
-                    ImportService.EXTRA_NAME,
-                    title.ifBlank { getString(R.string.import_title) }
-                )
-                .putExtra(ImportService.EXTRA_MODEL, model)
-                .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, meetingId)
-                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                startForegroundService(start)
-            } else {
-                startService(start)
-            }
+            JobGate.requestCheck(this, meetingId, model, chargingOnly)
         } catch (_: Throwable) {
             // Strictly a bonus pass: it must never stop a meeting finishing.
         }
     }
 
-    private fun batteryAllowsHeavyWork(): Boolean = try {
-        val manager = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
-        manager.isCharging ||
-            manager.getIntProperty(
-                android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY
-            ) >= 40
-    } catch (_: Exception) {
-        true
+    /**
+     * Optional post-meeting summary.
+     *
+     * If the accuracy pass above is also on, this deliberately does NOT wait
+     * for it: that pass stages a draft and requires the user to review it, so
+     * waiting could wait forever. The summary is written from the transcript
+     * as it stands, and accepting a check later marks it stale so the meeting
+     * offers a regenerate.
+     */
+    private fun maybeStartAutoSummary(meetingId: String) {
+        try {
+            if (!settings.autoSummaryAllowed) return
+            if (segments.size < MIN_SEGMENTS_FOR_AUTO_WORK) return
+            val chargingOnly = settings.autoSummaryWhen == "charging"
+            if (!chargingOnly && !Power.allowsHeavyWork(this)) return
+            // Series memory still wins, so a standup keeps summarising as a
+            // standup; otherwise the explicit automatic-summary style.
+            val seriesKey =
+                com.meetily.mobile.search.MeetingGroups.normalizeTitle(title)
+            val template = settings.seriesTemplate(seriesKey)
+                ?: settings.autoSummaryTemplate
+            JobGate.requestSummary(this, meetingId, template, chargingOnly)
+        } catch (_: Throwable) {
+            // Same rule: a bonus pass must never break finishing a meeting.
+        }
     }
 
     /** Discards the in-progress recording and its media entirely. */
@@ -476,6 +483,13 @@ class RecordingService : Service() {
         finished = true
         teardownEngines()
         main.removeCallbacks(saveRunnable)
+        // Kill any queued snapshot first: an in-flight write landing after
+        // the delete would recreate the meeting the user just discarded.
+        try {
+            saveExecutor.shutdownNow()
+            saveExecutor.awaitTermination(1, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: Exception) {
+        }
         store.clearActive()
         store.delete(meetingId)
         for (name in photos) {
@@ -644,7 +658,7 @@ class RecordingService : Service() {
             .byKeyOrNull(settings.whisperModel)
         val nemoEngine = nemoModel?.let {
             com.meetily.mobile.whisper.NemoEngine.create(
-                this, it, Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+                this, it, com.meetily.mobile.data.HeavyWork.recordingThreads()
             )
         }
         val englishOnly = nemoModel?.englishOnly ?: model.englishOnly
@@ -872,10 +886,44 @@ class RecordingService : Service() {
         main.postDelayed(saveRunnable, 2500)
     }
 
+    /**
+     * Single writer thread for the periodic snapshots.
+     *
+     * buildMeeting() reads live capture state so it has to run on the main
+     * thread, but MeetingStore.save() is a full JSON serialise plus a file
+     * write whose cost grows with the transcript. Doing that on the main
+     * thread every 2.5 seconds is invisible on an idle phone and an ANR when
+     * something else is hammering storage. One executor also keeps the
+     * writes ordered, so a slow one can never land on top of a newer one.
+     */
+    private val saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor {
+        Thread(it, "meeting-save")
+    }
+
     private fun saveNow() {
         main.removeCallbacks(saveRunnable)
         saveScheduled = false
-        store.save(buildMeeting())
+        val snapshot = buildMeeting()
+        try {
+            saveExecutor.execute { store.save(snapshot) }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Shut down by the final flush; that write already happened.
+        }
+    }
+
+    /**
+     * Final snapshot, with a bounded wait so the meeting is on disk before
+     * the service reports itself finished. Writes are small and there is at
+     * most one queued, so this returns in milliseconds; the timeout exists
+     * only so a wedged filesystem cannot hang the main thread.
+     */
+    private fun saveAndDrain() {
+        saveNow()
+        try {
+            saveExecutor.shutdown()
+            saveExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: Exception) {
+        }
     }
 
     private fun buildMeeting(): Meeting = Meeting(
@@ -1051,13 +1099,19 @@ class RecordingService : Service() {
         // recovers it.
         if (active && !finished) {
             teardownEngines()
-            saveNow()
+            saveAndDrain()
         }
         isRunning = false
         super.onDestroy()
     }
 
     companion object {
+        /**
+         * Below this a meeting is a false start or a stray few seconds, and
+         * spending a heavy pass on it is worse than useless.
+         */
+        private const val MIN_SEGMENTS_FOR_AUTO_WORK = 4
+
         const val ACTION_START = "com.meetily.mobile.action.START"
         const val ACTION_TOGGLE_PAUSE = "com.meetily.mobile.action.TOGGLE_PAUSE"
         const val ACTION_FINISH = "com.meetily.mobile.action.FINISH"
@@ -1110,7 +1164,7 @@ class RecordingService : Service() {
         // If the user swipes the app away mid-recording, save and stop cleanly.
         if (active && !finished) {
             teardownEngines()
-            saveNow()
+            saveAndDrain()
             store.clearActive()
             active = false
         }

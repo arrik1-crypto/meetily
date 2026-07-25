@@ -691,4 +691,44 @@
         <item quantity="one">Apply %1$d change</item>
         <item quantity="other">Apply %1$d changes</item>
     </plurals>
+
+    <!-- Import progress detail (v3.4.0): a percentage alone cannot tell a
+         working import from a dead one on a long file. -->
+    <string name="import_detail">%1$d of %2$d min done</string>
+    <string name="import_detail_eta">%1$d of %2$d min done \u00b7 about %3$d min left</string>
+    <string name="card_progress_transcribing_detail">Transcribing \u00b7 %1$s</string>
+    <string name="card_progress_checking_detail">Checking \u00b7 %1$s</string>
+
+    <!-- Deferred and interrupted background work -->
+    <string name="queued_channel_name">Queued work</string>
+    <plurals name="queued_ready_title">
+        <item quantity="one">%d job is ready to run</item>
+        <item quantity="other">%d jobs are ready to run</item>
+    </plurals>
+    <string name="queued_ready_body">Now that you are charging, open Recap to start it.</string>
+    <string name="resume_job_title">Resume interrupted work?</string>
+    <string name="resume_job_body">\u201c%1$s\u201d was still being processed when Recap closed.</string>
+    <string name="resume_job_yes">Resume</string>
+    <string name="resume_job_no">Discard</string>
+
+    <!-- Playback volume boost -->
+    <string name="playback_boost">Volume boost</string>
+    <string name="playback_boost_off">0dB</string>
+    <string name="playback_boost_on">+%1$ddB</string>
+    <string name="playback_boost_noise">Boost raises room noise as well as voices.</string>
+
+    <!-- Automatic post-meeting work -->
+    <string name="setting_auto_check_charging">Only while charging</string>
+    <string name="setting_auto_check_charging_desc">Meetings that end off charger wait in a queue and run when you next plug in.</string>
+    <string name="setting_auto_summary">Summarise after the meeting</string>
+    <string name="setting_auto_summary_desc">Generate the AI summary without being asked. Heavy work runs one job at a time, never during a recording.</string>
+    <string name="setting_auto_summary_style">Style: %1$s</string>
+    <string name="setting_auto_summary_style_title">Automatic summary style</string>
+    <string name="setting_auto_summary_when">Run: %1$s</string>
+    <string name="setting_auto_summary_when_title">When to summarise</string>
+    <string name="auto_summary_when_end">When the meeting ends</string>
+    <string name="auto_summary_when_charging">When charging</string>
+    <string name="auto_summary_endpoint_title">Send every meeting to your endpoint?</string>
+    <string name="auto_summary_endpoint_body">Your AI engine is a remote endpoint, so an automatic summary would send the full text of every meeting there with no further prompting. Summaries stay on the device only with the on-device engine.</string>
+    <string name="auto_summary_endpoint_yes">Send automatically</string>
 </resources>

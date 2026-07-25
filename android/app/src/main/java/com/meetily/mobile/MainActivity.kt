@@ -56,7 +56,7 @@ class MainActivity : AppCompatActivity() {
     private var importBound = false
 
     private val importObserver = object : ImportService.Observer {
-        override fun onImportProgress(meetingId: String?, percent: Int) {
+        override fun onImportProgress(meetingId: String?, percent: Int, detail: String) {
             if (isFinishing || isDestroyed) return
             val recheck = ImportService.isRecheck
             val source = importService?.sourceName?.ifBlank { null }
@@ -68,11 +68,22 @@ class MainActivity : AppCompatActivity() {
                     else R.string.import_notif_title,
                     source
                 ),
-                inlineLabel = getString(
-                    if (recheck) R.string.card_progress_checking
-                    else R.string.card_progress_transcribing,
-                    percent
-                ),
+                // The detail line carries minutes done and minutes left. On a
+                // long file a percentage alone barely moves, which reads as a
+                // hang; this is what shows the run is alive.
+                inlineLabel = if (detail.isNotBlank()) {
+                    getString(
+                        if (recheck) R.string.card_progress_checking_detail
+                        else R.string.card_progress_transcribing_detail,
+                        detail
+                    )
+                } else {
+                    getString(
+                        if (recheck) R.string.card_progress_checking
+                        else R.string.card_progress_transcribing,
+                        percent
+                    )
+                },
                 percent = percent
             )
             // An import's meeting only reaches disk once its first line is
@@ -489,6 +500,45 @@ class MainActivity : AppCompatActivity() {
         )
         startIdleGlow()
         refresh()
+        // The foreground is the one place starting a service is always legal,
+        // so this is the reliable drain trigger — the charger broadcast can
+        // only ask the user to come here.
+        JobGate.drain(this)
+        offerInterruptedWork()
+    }
+
+    /**
+     * Offers back work that died with the process — a force-stop from an ANR
+     * dialog, or an out-of-memory kill.
+     *
+     * Deliberately a prompt rather than an automatic restart: the user may
+     * have closed the app precisely to stop this, and silently spending
+     * another twenty minutes of inference they thought they had killed would
+     * be its own bug.
+     */
+    private fun offerInterruptedWork() {
+        if (!JobGate.canStartBatch()) return
+        val job = com.meetily.mobile.data.JobQueue
+            .interrupted(com.meetily.mobile.data.JobQueue.load(this))
+            .firstOrNull { store.load(it.meetingId) != null } ?: return
+        val title = store.load(job.meetingId)?.title.orEmpty()
+        AlertDialog.Builder(this)
+            .setTitle(R.string.resume_job_title)
+            .setMessage(getString(R.string.resume_job_body, title))
+            .setPositiveButton(R.string.resume_job_yes) { _, _ ->
+                com.meetily.mobile.data.JobQueue
+                    .dequeue(this, job.kind, job.meetingId)
+                if (job.kind == com.meetily.mobile.data.JobQueue.KIND_SUMMARY) {
+                    JobGate.requestSummary(this, job.meetingId, job.payload, false)
+                } else {
+                    JobGate.requestCheck(this, job.meetingId, job.payload, false)
+                }
+            }
+            .setNegativeButton(R.string.resume_job_no) { _, _ ->
+                com.meetily.mobile.data.JobQueue
+                    .dequeue(this, job.kind, job.meetingId)
+            }
+            .show()
     }
 
     /** Long-press the orb: choose microphone or device audio (webinars). */

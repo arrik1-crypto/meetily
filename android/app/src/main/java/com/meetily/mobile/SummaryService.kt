@@ -100,6 +100,14 @@ class SummaryService : Service() {
             }
         } catch (_: Exception) {
         }
+        // Only a summary run is worth resuming after a process death: notes
+        // enhancement and speaker suggestions are quick, and re-running them
+        // unasked would be more surprising than useful.
+        if (currentMode == MODE_SUMMARY) {
+            com.meetily.mobile.data.JobQueue.markRunning(
+                this, com.meetily.mobile.data.JobQueue.KIND_SUMMARY, meetingId, templateKey
+            )
+        }
         when (currentMode) {
             MODE_NOTES -> runNotesEnhance(meetingId)
             MODE_SPEAKERS -> runSpeakerSuggest(meetingId)
@@ -306,8 +314,12 @@ class SummaryService : Service() {
         } catch (_: Exception) {
         }
         wakeLock = null
+        if (currentMode == MODE_SUMMARY) {
+            com.meetily.mobile.data.JobQueue.finished(
+                this, com.meetily.mobile.data.JobQueue.KIND_SUMMARY, meetingId
+            )
+        }
         observers.forEach { it.onSummaryDone(meetingId, failed) }
-        stopForegroundCompat()
         // Always announce completion — on-device runs take minutes, and the
         // user asked to see the finish from anywhere.
         postDoneNotification(meetingId, failed)
@@ -316,6 +328,11 @@ class SummaryService : Service() {
         currentTitle = ""
         currentMode = MODE_SUMMARY
         percent = -1
+        // Start the next queued job while this service is still foreground —
+        // that is what makes the start legal on Android 12+, and it is what
+        // keeps two heavy engines from ever overlapping.
+        JobGate.drain(this)
+        stopForegroundCompat()
         stopSelf()
     }
 

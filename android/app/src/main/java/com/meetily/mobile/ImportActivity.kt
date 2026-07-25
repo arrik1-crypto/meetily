@@ -32,11 +32,13 @@ class ImportActivity : AppCompatActivity() {
     private var opened = false
 
     private val observer = object : ImportService.Observer {
-        override fun onImportProgress(meetingId: String?, percent: Int) {
+        override fun onImportProgress(meetingId: String?, percent: Int, detail: String) {
             if (isFinishing || isDestroyed) return
             progress.isIndeterminate = percent == 0
             progress.progress = percent
-            statusView.text = getString(R.string.import_status_running, percent)
+            statusView.text = detail.ifBlank {
+                getString(R.string.import_status_running, percent)
+            }
         }
 
         override fun onImportDone(

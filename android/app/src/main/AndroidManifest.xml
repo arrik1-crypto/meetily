@@ -194,6 +194,19 @@
                 android:resource="@xml/widget_record_info" />
         </receiver>
 
+        <!-- Wakes work the user asked to defer until the phone is charging.
+             ACTION_POWER_CONNECTED is one of the few implicit broadcasts a
+             manifest receiver still gets; it does NOT exempt us from the
+             Android 12+ ban on starting a foreground service from the
+             background, so the receiver notifies rather than assuming. -->
+        <receiver
+            android:name=".PowerConnectedReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.intent.action.ACTION_POWER_CONNECTED" />
+            </intent-filter>
+        </receiver>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

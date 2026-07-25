@@ -69,11 +69,15 @@ class AudioFileImporter(
         recheckMeetingId: String? = null,
         /** Fires as soon as the target meeting id is known. */
         onMeetingCreated: ((String) -> Unit)? = null,
-        onProgress: (Int) -> Unit,
+        /** [detail] is a human-readable "how far, how much longer" line. */
+        onProgress: (Int, String) -> Unit,
+        /** True while a recording is live, so this run takes fewer cores. */
+        recordingActive: () -> Boolean = { false },
         cancelled: () -> Boolean
     ): Result {
         val selectedKey = modelKey ?: settings.whisperModel
-        val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+        val nThreads = com.meetily.mobile.data.HeavyWork.batchThreads(recordingActive())
+        val startedAtMs = System.currentTimeMillis()
 
         val store = MeetingStore(context)
         // A recheck re-transcribes a meeting that already exists. Validate it
@@ -229,37 +233,34 @@ class AudioFileImporter(
         var consumedSamples = 0L
         var chunkStartSample = 0L
         var pending = FloatArray(0) // partial frame carry-over
+        // Kept so the decoder's own progress ticks can carry the last
+        // "how much longer" line rather than blanking it between batches.
+        var lastDetail = ""
 
-        fun transcribeChunk(audio: FloatArray, startSample: Long) {
-            val clusterId = try {
-                val c = clusterer
-                val e = embedder
-                if (c != null && e != null) {
-                    c.assign(
-                        if (audio.size >= MIN_EMBED_SAMPLES) e.embed(audio) else null
-                    )
-                } else {
-                    null
-                }
-            } catch (_: Throwable) {
+        /** One cut chunk, waiting to be sent to Whisper as part of a batch. */
+        class Part(val audio: FloatArray, val startSample: Long, val clusterId: Int?)
+
+        val batch = mutableListOf<Part>()
+        var batchSamples = 0
+
+        fun clusterFor(audio: FloatArray): Int? = try {
+            val c = clusterer
+            val e = embedder
+            if (c != null && e != null) {
+                c.assign(if (audio.size >= MIN_EMBED_SAMPLES) e.embed(audio) else null)
+            } else {
                 null
             }
-            val padded = if (audio.size < sampleRate * 12 / 10) {
-                audio.copyOf(sampleRate * 12 / 10)
-            } else {
-                audio
-            }
-            val engine = nemoEngine
-            val (text, words) = if (engine != null) {
-                engine.transcribe(padded) ?: ("" to emptyList())
-            } else {
-                WhisperBridge.parseWords(
-                    WhisperBridge.transcribeWords(
-                        contextPtr, padded, language, nThreads, translate,
-                        Vocab.promptFor(settings.customVocab)
-                    )
-                )
-            }
+        } catch (_: Throwable) {
+            null
+        }
+
+        fun addSegment(
+            text: String,
+            startSample: Long,
+            words: List<com.meetily.mobile.data.WordStamp>,
+            clusterId: Int?
+        ) {
             if (text.isBlank() || isNoise(text)) return
             meeting.segments.add(
                 TranscriptSegment(
@@ -275,7 +276,117 @@ class AudioFileImporter(
                     } else null
                 )
             )
+        }
+
+        /** Progress line: how much audio is done, and how much longer. */
+        fun reportProgress() {
+            val doneMs = consumedSamples * 1000 / sampleRate
+            val percent = if (totalMs > 0) {
+                ((doneMs * 100) / totalMs).toInt().coerceIn(0, 100)
+            } else {
+                0
+            }
+            val left = ImportEta.remainingMinutes(
+                doneMs, totalMs, System.currentTimeMillis() - startedAtMs
+            )
+            lastDetail = when {
+                left != null -> context.getString(
+                    com.meetily.mobile.R.string.import_detail_eta,
+                    minutesOf(doneMs), minutesOf(totalMs), left.toInt()
+                )
+                totalMs > 0 -> context.getString(
+                    com.meetily.mobile.R.string.import_detail,
+                    minutesOf(doneMs), minutesOf(totalMs)
+                )
+                else -> ""
+            }
+            onProgress(percent, lastDetail)
+        }
+
+        /**
+         * Sends the accumulated chunks to Whisper as ONE call.
+         *
+         * Whisper encodes a full 30-second window however little audio it is
+         * handed, so a 6-second chunk costs as much as a 28-second one. Left
+         * per-chunk, a long meeting pays hundreds of full encoder passes for
+         * a few seconds of speech each. Batching to one window cuts that by
+         * roughly the ratio of chunk length to window length — and Whisper is
+         * more accurate with more context, not less, so nothing is traded
+         * away for it. Word timings put the per-chunk segments back together.
+         */
+        fun flushBatch() {
+            if (batch.isEmpty()) return
+            val parts = batch.toList()
+            batch.clear()
+            batchSamples = 0
+
+            val total = parts.sumOf { it.audio.size }
+            val buffer = FloatArray(maxOf(total, sampleRate * 12 / 10))
+            val spans = ArrayList<BatchSplit.Part>(parts.size)
+            var at = 0
+            for (part in parts) {
+                System.arraycopy(part.audio, 0, buffer, at, part.audio.size)
+                spans.add(
+                    BatchSplit.Part(
+                        at.toLong() * 1000 / sampleRate,
+                        part.audio.size.toLong() * 1000 / sampleRate
+                    )
+                )
+                at += part.audio.size
+            }
+
+            val (text, words) = WhisperBridge.parseWords(
+                WhisperBridge.transcribeWords(
+                    contextPtr, buffer, language, nThreads, translate,
+                    Vocab.promptFor(settings.customVocab)
+                )
+            )
+            if (text.isNotBlank()) {
+                if (parts.size == 1 || words.isEmpty()) {
+                    // Nothing to split on: keep it whole rather than guess.
+                    addSegment(text, parts.first().startSample, words, parts.first().clusterId)
+                } else {
+                    val perPart = BatchSplit.split(spans, words)
+                    for (i in parts.indices) {
+                        val partWords = perPart[i]
+                        if (partWords.isEmpty()) continue
+                        addSegment(
+                            partWords.joinToString(" ") { it.text },
+                            parts[i].startSample,
+                            partWords,
+                            parts[i].clusterId
+                        )
+                    }
+                }
+            }
             persist(complete = false)
+            reportProgress()
+        }
+
+        fun transcribeChunk(audio: FloatArray, startSample: Long) {
+            val clusterId = clusterFor(audio)
+            val engine = nemoEngine
+            if (engine == null) {
+                // Whisper: batch up to one encoder window.
+                if (batchSamples > 0 && batchSamples + audio.size > BATCH_LIMIT_SAMPLES) {
+                    flushBatch()
+                }
+                batch.add(Part(audio, startSample, clusterId))
+                batchSamples += audio.size
+                if (batchSamples >= BATCH_LIMIT_SAMPLES) flushBatch()
+                return
+            }
+            // NeMo: cost scales with the audio actually given, so batching
+            // buys nothing and would only coarsen the segments.
+            val padded = if (audio.size < sampleRate * 12 / 10) {
+                audio.copyOf(sampleRate * 12 / 10)
+            } else {
+                audio
+            }
+            val (text, words) = engine.transcribe(padded) ?: ("" to emptyList())
+            addSegment(text, startSample, words, clusterId)
+            persist(complete = false)
+            reportProgress()
         }
 
         fun cutChunk() {
@@ -330,7 +441,11 @@ class AudioFileImporter(
                         pending = data.copyOfRange(offset, data.size)
                     }
                 },
-                onProgress = onProgress,
+                // The decoder runs in lockstep with transcription (each PCM
+                // chunk is transcribed inside the callback), so its file
+                // position is a fair proxy for the bar. The detail line
+                // comes from the batches, which is where the time goes.
+                onProgress = { p -> onProgress(p, lastDetail) },
                 cancelled = cancelled
             )
             if (!recheck && durationMs > 0) {
@@ -350,6 +465,12 @@ class AudioFileImporter(
                 pending = FloatArray(0)
             }
             cutChunk()
+            // Whatever is still batched has to go through before the run is
+            // called complete, or the tail of every import is dropped. Not
+            // after a cancel though: a batch is a whole encoder window, so
+            // flushing one would keep the phone busy for a minute after the
+            // user asked it to stop.
+            if (!cancelled()) flushBatch()
 
             // Fuse clusters the online pass kept apart, then persist.
             val remap = clusterer?.mergePass().orEmpty()
@@ -447,7 +568,18 @@ class AudioFileImporter(
         return sqrt(sum / buffer.size).toFloat()
     }
 
+    /** Whole minutes, rounded, floored at 1 so short files never read "0". */
+    private fun minutesOf(ms: Long): Int =
+        (((ms + 30_000L) / 60_000L).coerceAtLeast(1L)).toInt()
+
     companion object {
         private const val MIN_EMBED_SAMPLES = 24_000 // 1.5 s at 16 kHz
+
+        /**
+         * One Whisper encoder window, less a margin. Whisper's analysis
+         * window is 30 s and it pads whatever it is given up to that, so
+         * this is the largest batch that stays inside a single pass.
+         */
+        private const val BATCH_LIMIT_SAMPLES = AudioFileDecoder.TARGET_RATE * 28
     }
 }

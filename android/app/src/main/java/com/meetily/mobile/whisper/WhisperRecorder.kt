@@ -70,7 +70,9 @@ class WhisperRecorder(
     private val gate = TeardownGate()
     @Volatile private var contextPtr = 0L
     @Volatile private var pendingJobs = 0
-    private val nThreads = Runtime.getRuntime().availableProcessors().coerceIn(2, 6)
+    // Live capture is realtime and its input is unrecoverable if it falls
+    // behind, so it is sized first and never yields to batch work.
+    private val nThreads = com.meetily.mobile.data.HeavyWork.recordingThreads()
 
     @SuppressLint("MissingPermission") // caller checks RECORD_AUDIO
     fun start() {
