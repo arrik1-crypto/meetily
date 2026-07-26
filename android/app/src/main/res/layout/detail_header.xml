@@ -560,7 +560,11 @@
         android:textColor="?attr/colorOnSurfaceVariant"
         android:visibility="gone" />
 
+    <!-- Hidden on the Summary tab: the transcript lines live in a separate
+         adapter below this header, so an always-visible heading sits over
+         nothing whenever the lines are not being shown. -->
     <TextView
+        android:id="@+id/transcriptHeading"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginTop="28dp"

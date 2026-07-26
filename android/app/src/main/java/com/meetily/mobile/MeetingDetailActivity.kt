@@ -79,6 +79,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var summaryView: TextView
     private lateinit var aiPanel: View
     private lateinit var tagHint: TextView
+    private lateinit var transcriptHeading: TextView
     private lateinit var topicsProgress:
         com.google.android.material.progressindicator.LinearProgressIndicator
     private lateinit var notesInput: EditText
@@ -349,6 +350,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         summaryView = headerView.findViewById(R.id.detailSummary)
         aiPanel = headerView.findViewById(R.id.aiPanel)
         tagHint = headerView.findViewById(R.id.tagHint)
+        transcriptHeading = headerView.findViewById(R.id.transcriptHeading)
         topicsProgress = headerView.findViewById(R.id.topicsProgress)
         notesInput = headerView.findViewById(R.id.detailNotes)
         attendeesInput = headerView.findViewById(R.id.detailAttendees)
@@ -525,8 +527,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         tagHint.text = getString(
             if (m.segments.isEmpty()) R.string.no_transcript else R.string.tap_to_tag_hint
         )
-        // Transcript lines belong to the Transcript tab only.
+        // Transcript lines belong to the Transcript tab only — and so does
+        // the heading that introduces them. On the Summary tab the lines are
+        // submitted empty, so a heading left behind stands over nothing.
         tagHint.visibility = if (onTranscriptTab) View.VISIBLE else View.GONE
+        transcriptHeading.visibility = if (onTranscriptTab) View.VISIBLE else View.GONE
         if (topicsRunning || speakersBusy) {
             // The status outlives a transcript re-render (tab switch, late
             // lines landing) — it is the only sign work is happening.
