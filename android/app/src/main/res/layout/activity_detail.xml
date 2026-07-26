@@ -88,6 +88,16 @@
             android:textColor="?attr/colorPrimary"
             android:textStyle="bold" />
 
+        <!-- Follow-along: highlights and scrolls the transcript with playback. -->
+        <ImageButton
+            android:id="@+id/followButton"
+            android:layout_width="44dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="@string/follow_playback"
+            android:src="@drawable/ic_follow"
+            app:tint="?attr/colorOnSurfaceVariant" />
+
         <!-- Skip-silence toggle: jumps playback over non-speech stretches. -->
         <ImageButton
             android:id="@+id/skipSilenceButton"

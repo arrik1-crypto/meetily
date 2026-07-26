@@ -188,6 +188,40 @@ class TranscriptLinesAdapter(
 
     private val metaSizeSp: Float get() = (textSizeSp - 4f).coerceAtLeast(9f)
 
+    // --- Playback follow ---------------------------------------------------
+
+    /** Segment being spoken right now, or -1 when not following. */
+    var activeSegment = -1
+        private set
+
+    /** Word within [activeSegment], or -1 when the line has no timings. */
+    private var activeWord = -1
+
+    /** Accent used behind the spoken word; set from the themed activity. */
+    var wordHighlightColor: Int = 0
+
+    /**
+     * Moves the follow highlight. Only the rows that actually change are
+     * rebound — this fires several times a second during playback, so a
+     * blanket notify would fight the scroll and burn the frame budget.
+     */
+    fun setActive(segmentIndex: Int, wordIndex: Int) {
+        if (segmentIndex == activeSegment && wordIndex == activeWord) return
+        val previous = activeSegment
+        activeSegment = segmentIndex
+        activeWord = wordIndex
+        if (previous != segmentIndex) rebindSegment(previous)
+        rebindSegment(segmentIndex)
+    }
+
+    fun clearActive() = setActive(-1, -1)
+
+    private fun rebindSegment(segmentIndex: Int) {
+        if (segmentIndex < 0) return
+        val position = segmentPositions.getOrNull(segmentIndex)?.takeIf { it >= 0 } ?: return
+        notifyItemChanged(position)
+    }
+
     fun submit(
         segments: List<TranscriptSegment>,
         chapters: List<com.meetily.mobile.data.Chapter> = emptyList(),
@@ -377,10 +411,12 @@ class TranscriptLinesAdapter(
             holder.speaker.visibility = View.VISIBLE
         }
         bindLineText(holder.text, row)
-        if (segment.highlighted) {
-            holder.itemView.setBackgroundResource(R.drawable.bg_line_highlight)
-        } else {
-            holder.itemView.background = holder.defaultBackground
+        when {
+            row.segIndex == activeSegment ->
+                holder.itemView.setBackgroundResource(R.drawable.bg_line_active)
+            segment.highlighted ->
+                holder.itemView.setBackgroundResource(R.drawable.bg_line_highlight)
+            else -> holder.itemView.background = holder.defaultBackground
         }
         holder.itemView.setOnClickListener {
             (rows.getOrNull(holder.bindingAdapterPosition) as? Row.LineRow)
@@ -413,11 +449,24 @@ class TranscriptLinesAdapter(
             return
         }
         val span = android.text.SpannableString(segment.text)
+        val spokenWord = if (row.segIndex == activeSegment) activeWord else -1
         var cursor = 0
         var any = false
-        for (word in words) {
+        for ((wordIndex, word) in words.withIndex()) {
             val at = segment.text.indexOf(word.text, cursor)
             if (at < 0) continue
+            if (wordIndex == spokenWord && wordHighlightColor != 0) {
+                span.setSpan(
+                    android.text.style.BackgroundColorSpan(wordHighlightColor),
+                    at, at + word.text.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                span.setSpan(
+                    android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                    at, at + word.text.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
             span.setSpan(
                 object : android.text.style.ClickableSpan() {
                     override fun onClick(widget: View) {

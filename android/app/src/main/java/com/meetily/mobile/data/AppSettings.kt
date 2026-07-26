@@ -173,6 +173,14 @@ class AppSettings(context: Context) {
         get() = autoSummarize && useLlm && llmConfigured &&
             (llmEngine == "local" || autoSummaryEndpointOk)
 
+    /**
+     * Highlight and scroll the transcript along with playback. On by default:
+     * it is the point of opening a meeting with the audio.
+     */
+    var followPlayback: Boolean
+        get() = prefs.getBoolean("follow_playback", true)
+        set(value) = prefs.edit().putBoolean("follow_playback", value).apply()
+
     /** Playback gain above the system ceiling, in dB (0 = off). */
     var playbackBoostDb: Int
         get() = prefs.getInt("playback_boost_db", 0)

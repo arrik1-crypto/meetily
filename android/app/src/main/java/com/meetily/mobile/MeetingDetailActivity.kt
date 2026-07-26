@@ -329,6 +329,19 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
         )
         recycler.adapter = ConcatAdapter(StaticViewAdapter(headerView), transcriptAdapter)
+        transcriptAdapter.wordHighlightColor = themeColor(
+            com.google.android.material.R.attr.colorPrimaryContainer
+        )
+        recycler.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrollStateChanged(view: RecyclerView, newState: Int) {
+                // A drag means the user is reading or tagging somewhere else.
+                // Stop moving the list under them; the highlight keeps going,
+                // and the follow button re-arms the scroll in one tap.
+                if (newState == RecyclerView.SCROLL_STATE_DRAGGING) {
+                    followScrolling = false
+                }
+            }
+        })
 
         titleView = headerView.findViewById(R.id.detailTitle)
         dateView = headerView.findViewById(R.id.detailDate)
@@ -539,6 +552,12 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (onTranscriptTab) m.chapters else emptyList(),
             collapseAllInitially = collapseFirst
         )
+        // Editing, splitting or accepting a second-pass check all renumber
+        // segments; a stale timeline would follow onto the wrong line.
+        rebuildFollowTimeline()
+        if (onTranscriptTab && followPlayback) {
+            player?.let { updateFollow(it.currentPosition.toLong()) }
+        }
     }
 
     /** Chapters are auto-collapsed once per screen, not on every re-render. */
@@ -1570,6 +1589,18 @@ class MeetingDetailActivity : AppCompatActivity() {
     private var playbackSpeed = 1.0f
     private var skipSilence = false
     private lateinit var playerBoostButton: TextView
+    private lateinit var followButton: ImageButton
+    /** Follow the transcript along with playback (highlight + auto-scroll). */
+    private var followPlayback = true
+    /**
+     * Cleared when the user drags the transcript themselves. Scrolling the
+     * list out from under someone who is reading or tagging is the fastest
+     * way to make a follow feature infuriating, so a drag wins and the
+     * toggle visibly turns off — one tap re-arms it.
+     */
+    private var followScrolling = true
+    /** (audio offset, segment index) for locatable lines; see PlaybackFollow. */
+    private var followTimeline: List<Pair<Long, Int>> = emptyList()
     private var boostDb = 0
     /**
      * Gain stage bound to the player's audio session. MediaPlayer.setVolume
@@ -1597,7 +1628,15 @@ class MeetingDetailActivity : AppCompatActivity() {
                     }
                 }
                 updatePlayerUi(p)
-                if (p.isPlaying) playerHandler.postDelayed(this, 400)
+                if (followPlayback) updateFollow(p.currentPosition.toLong())
+                if (p.isPlaying) {
+                    // Words last a few hundred milliseconds, so a 400 ms tick
+                    // visibly lags the audio. The extra work is one rebind of
+                    // a single row, and only when the word actually changes.
+                    playerHandler.postDelayed(
+                        this, if (followPlayback) FOLLOW_TICK_MS else IDLE_TICK_MS
+                    )
+                }
             }
         }
     }
@@ -1666,6 +1705,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         playbackSpeed = settings.playbackSpeed
         renderSpeedLabel()
         playerSpeedButton.setOnClickListener { cyclePlaybackSpeed() }
+        followButton = findViewById(R.id.followButton)
+        followPlayback = settings.followPlayback
+        renderFollowButton()
+        followButton.setOnClickListener { toggleFollow() }
         playerBoostButton = findViewById(R.id.playerBoost)
         boostDb = settings.playbackBoostDb
         renderBoostLabel()
@@ -1745,6 +1788,89 @@ class MeetingDetailActivity : AppCompatActivity() {
             playPauseButton.setImageResource(R.drawable.ic_pause)
         }
         playerHandler.post(playerTick)
+    }
+
+    // --- Playback follow ------------------------------------------------
+
+    /**
+     * Rebuilt whenever the transcript changes: accepting a second-pass check,
+     * splitting a line, or an edit can all renumber segments, and a stale
+     * timeline would highlight the wrong line.
+     */
+    private fun rebuildFollowTimeline() {
+        followTimeline = com.meetily.mobile.data.PlaybackFollow.timeline(
+            meeting?.segments.orEmpty()
+        )
+    }
+
+    private fun toggleFollow() {
+        followPlayback = !followPlayback
+        settings.followPlayback = followPlayback
+        // Turning it back on re-arms the auto-scroll that a drag suspended.
+        followScrolling = followPlayback
+        renderFollowButton()
+        if (followPlayback) {
+            player?.let { updateFollow(it.currentPosition.toLong()) }
+        } else {
+            transcriptAdapter.clearActive()
+        }
+    }
+
+    private fun renderFollowButton() {
+        followButton.alpha = if (followPlayback) 1.0f else 0.45f
+        followButton.setColorFilter(
+            themeColor(
+                if (followPlayback) {
+                    com.google.android.material.R.attr.colorPrimary
+                } else {
+                    com.google.android.material.R.attr.colorOnSurfaceVariant
+                }
+            )
+        )
+    }
+
+    /** Moves the highlight (and possibly the list) to [positionMs]. */
+    private fun updateFollow(positionMs: Long) {
+        if (!followPlayback) return
+        val segmentIndex = com.meetily.mobile.data.PlaybackFollow
+            .segmentAt(followTimeline, positionMs)
+        if (segmentIndex < 0) {
+            transcriptAdapter.clearActive()
+            return
+        }
+        val segment = meeting?.segments?.getOrNull(segmentIndex)
+        val words = segment?.words
+        val base = segment?.audioMs
+        val wordIndex = if (words.isNullOrEmpty() || base == null) {
+            -1
+        } else {
+            com.meetily.mobile.data.PlaybackFollow.wordAt(words, positionMs - base)
+        }
+        val moved = segmentIndex != transcriptAdapter.activeSegment
+        transcriptAdapter.setActive(segmentIndex, wordIndex)
+        if (moved && followScrolling) scrollToActive(segmentIndex)
+    }
+
+    /**
+     * Keeps the spoken line on screen without yanking the list on every line.
+     * Only acts when the line has drifted outside a comfortable band, so a
+     * reader a couple of lines ahead is left alone.
+     */
+    private fun scrollToActive(segmentIndex: Int) {
+        val recycler = findViewById<RecyclerView>(R.id.detailRecycler) ?: return
+        val manager = recycler.layoutManager as? LinearLayoutManager ?: return
+        // +1 for the header, which is its own adapter inside the ConcatAdapter.
+        val position = transcriptAdapter.positionOfSegment(segmentIndex) + 1
+        val holder = manager.findViewByPosition(position)
+        val height = recycler.height
+        if (holder != null && height > 0) {
+            val top = holder.top
+            val bottom = holder.bottom
+            val bandTop = height / 5
+            val bandBottom = height * 3 / 5
+            if (top in bandTop..bandBottom && bottom <= height) return
+        }
+        manager.scrollToPositionWithOffset(position, (height * 0.3f).toInt())
     }
 
     // --- Volume boost -------------------------------------------------
@@ -2694,6 +2820,14 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     companion object {
+        /**
+         * Follow refresh while playing. Words last a few hundred ms, so a
+         * slower tick visibly lags the audio; the cost is one row rebind, and
+         * only when the highlighted word actually changes.
+         */
+        private const val FOLLOW_TICK_MS = 90L
+        private const val IDLE_TICK_MS = 400L
+
         const val EXTRA_MEETING_ID = "meeting_id"
 
         /** Set by the accuracy check when the user asked to redo the summary. */

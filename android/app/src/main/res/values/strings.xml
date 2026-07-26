@@ -731,4 +731,7 @@
     <string name="auto_summary_endpoint_title">Send every meeting to your endpoint?</string>
     <string name="auto_summary_endpoint_body">Your AI engine is a remote endpoint, so an automatic summary would send the full text of every meeting there with no further prompting. Summaries stay on the device only with the on-device engine.</string>
     <string name="auto_summary_endpoint_yes">Send automatically</string>
+
+    <!-- Playback follow-along -->
+    <string name="follow_playback">Follow transcript during playback</string>
 </resources>

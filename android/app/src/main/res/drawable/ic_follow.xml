@@ -1,0 +1,24 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24"
+    android:tint="?attr/colorOnSurfaceVariant">
+    <!-- Text lines with a caret on the middle one: the reading position
+         moving down the transcript. -->
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M4,5h16v2H4z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M4,16h11v2H4z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M4,19h16v1.5H4z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M4,10h13v3.5H4z" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M19.2,10l2.6,1.75l-2.6,1.75z" />
+</vector>
