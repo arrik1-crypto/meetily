@@ -351,6 +351,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.privacyLink).setOnClickListener {
             startActivity(Intent(this, PrivacyActivity::class.java))
         }
+        findViewById<View>(R.id.licensesLink).setOnClickListener {
+            startActivity(Intent(this, LicensesActivity::class.java))
+        }
         findViewById<View>(R.id.reportBugLink).setOnClickListener {
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
@@ -875,7 +878,7 @@ class SettingsActivity : AppCompatActivity() {
             this,
             getString(R.string.manage_models),
             entriesProvider = {
-                com.meetily.mobile.whisper.TranscriptionModels.allKeys().map { key ->
+                com.meetily.mobile.whisper.TranscriptionModels.offeredKeys(this).map { key ->
                     ModelPickerSheet.Entry(
                         key = key,
                         title = com.meetily.mobile.whisper.TranscriptionModels

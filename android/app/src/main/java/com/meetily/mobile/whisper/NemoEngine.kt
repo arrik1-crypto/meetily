@@ -22,7 +22,9 @@ import java.io.File
  */
 class NemoEngine private constructor(
     private val offline: OfflineRecognizer?,
-    private val online: OnlineRecognizer?
+    private val online: OnlineRecognizer?,
+    /** See [NemoModel.languageOption]; null for models with no language prompt. */
+    private val languageOption: String? = null
 ) {
 
     /** Blocking; call from a worker thread. Null on any engine failure. */
@@ -41,6 +43,11 @@ class NemoEngine private constructor(
             } else if (online != null) {
                 val stream = online.createStream()
                 try {
+                    // Must be set before any audio: the recognizer reads it
+                    // when it builds the decoder's prompt for the first
+                    // chunk. Only multilingual checkpoints carry language-tag
+                    // tokens, so this is null for everything else.
+                    languageOption?.let { stream.setOption("language", it) }
                     stream.acceptWaveform(samples, SAMPLE_RATE)
                     // Tail padding pushes the last real frames through the
                     // streaming model's lookahead window.
@@ -110,7 +117,7 @@ class NemoEngine private constructor(
                             enableEndpoint = false
                         )
                     )
-                    NemoEngine(null, recognizer)
+                    NemoEngine(null, recognizer, model.languageOption)
                 } else {
                     val recognizer = OfflineRecognizer(
                         config = OfflineRecognizerConfig(

@@ -1003,6 +1003,17 @@
                 android:textColor="?attr/colorPrimary" />
 
             <TextView
+                android:id="@+id/licensesLink"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:paddingVertical="10dp"
+                android:text="@string/open_source_licenses"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?attr/colorPrimary" />
+
+            <TextView
                 android:id="@+id/reportBugLink"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

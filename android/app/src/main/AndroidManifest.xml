@@ -80,6 +80,11 @@
             android:parentActivityName=".SettingsActivity" />
 
         <activity
+            android:name=".LicensesActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity" />
+
+        <activity
             android:name=".OnboardingActivity"
             android:exported="false" />
 

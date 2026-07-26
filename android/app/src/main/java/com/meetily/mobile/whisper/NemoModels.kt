@@ -57,9 +57,30 @@ data class NemoModel(
     val files: List<NemoFile>,
     /** Streaming (OnlineRecognizer) vs offline (OfflineRecognizer). */
     val streaming: Boolean,
-    val englishOnly: Boolean
+    val englishOnly: Boolean,
+    /**
+     * The checkpoint takes a language-ID prompt, so each stream must be told
+     * which language to decode (see [languageOption]). Off for every model
+     * that shipped before Nemotron 3.5: those have no language-tag tokens,
+     * and setting the option on them would be a change with nothing to gain.
+     */
+    val languagePrompt: Boolean = false,
+    /**
+     * Superseded, and offered only to installs that already downloaded it.
+     * Removing the entry outright would strand those users: their selected
+     * model key would stop resolving and fall through to the whisper family.
+     */
+    val legacy: Boolean = false
 ) {
     val totalMb: Int get() = files.sumOf { it.sizeMb }
+
+    /**
+     * Value for sherpa-onnx's per-stream `"language"` option, or null when
+     * the model takes no language prompt. "auto" is an explicit, documented
+     * value for these exports — not the absence of a setting.
+     */
+    val languageOption: String?
+        get() = if (!languagePrompt) null else if (englishOnly) "en" else "auto"
 
     fun urlFor(file: NemoFile): String =
         "https://huggingface.co/$repo/resolve/main/${file.name}"
@@ -71,6 +92,20 @@ object NemoModels {
         NemoFile("encoder.int8.onnx", 622),
         NemoFile("decoder.int8.onnx", 7),
         NemoFile("joiner.int8.onnx", 2),
+        NemoFile("tokens.txt", 1)
+    )
+
+    /**
+     * Nemotron 3.5's parts, read off the published repo rather than assumed
+     * from its English sibling — the multilingual vocabulary makes the
+     * decoder and joiner several times larger, and the encoder is bigger
+     * too. Sizes only drive the progress bar and the "MB" label; the .ok
+     * sidecars decide completeness (see fileComplete).
+     */
+    private val NEMOTRON_35_INT8 = listOf(
+        NemoFile("encoder.int8.onnx", 658),
+        NemoFile("decoder.int8.onnx", 15),
+        NemoFile("joiner.int8.onnx", 10),
         NemoFile("tokens.txt", 1)
     )
 
@@ -91,17 +126,53 @@ object NemoModels {
             streaming = false,
             englishOnly = false
         ),
+        // Supersedes nemotron-en: same 600M cache-aware FastConformer-RNNT,
+        // plus language-ID prompt conditioning over 40 language-locales. It
+        // is the only fast path the app has for anything outside Parakeet
+        // v3's 25 European languages — Japanese and Korean (both in NVIDIA's
+        // transcription-ready tier) and Mandarin (broad-coverage: usable
+        // untuned, but not in the top tier) otherwise fall through to
+        // Whisper turbo, which costs ~3 minutes of compute per minute of
+        // audio against Parakeet's ~0.36.
+        //
+        // 1120 ms is the largest published chunk size. Chunks reach here
+        // already VAD-cut, so nothing downstream is latency-bound, and a
+        // larger chunk means fewer encoder invocations per second of audio.
+        NemoModel(
+            key = "nemotron-3.5",
+            displayName = "Nemotron 3.5 Streaming 0.6B (40 locales)",
+            repo = "csukuangfj2/sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-" +
+                "1120ms-int8-2026-06-11",
+            files = NEMOTRON_35_INT8,
+            streaming = true,
+            englishOnly = false,
+            languagePrompt = true
+        ),
         NemoModel(
             key = "nemotron-en",
             displayName = "Nemotron Streaming 0.6B (English)",
             repo = "csukuangfj/sherpa-onnx-nemotron-speech-streaming-en-0.6b-int8-2026-01-14",
             files = TRANSDUCER_INT8,
             streaming = true,
-            englishOnly = true
+            englishOnly = true,
+            legacy = true
         )
     )
 
     fun byKeyOrNull(key: String): NemoModel? = ALL.firstOrNull { it.key == key }
+
+    /**
+     * Models worth showing in a picker: everything current, plus any legacy
+     * model this install actually has on disk. A legacy model stays usable
+     * and deletable for whoever downloaded it, and is invisible to everyone
+     * else — so it costs nothing to a new install and strands no old one.
+     */
+    fun offered(context: Context): List<NemoModel> =
+        offered { isDownloaded(context, it) }
+
+    /** Context-free core of [offered], so the stranding rule is unit-testable. */
+    internal fun offered(downloaded: (NemoModel) -> Boolean): List<NemoModel> =
+        ALL.filter { !it.legacy || downloaded(it) }
 
     fun dir(context: Context, model: NemoModel): File =
         File(File(context.filesDir, "nemo-models"), model.key).apply { mkdirs() }

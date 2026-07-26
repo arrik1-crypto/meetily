@@ -60,7 +60,12 @@ object TranscriptionModels {
         "base.en", "base" -> 2
         "small.en-q5_1", "small-q5_1" -> 3
         "small.en", "small" -> 4
-        "nemotron-en" -> 5
+        // Same architecture and parameter count, so the same rank. Nemotron
+        // 3.5 covers far more languages, but nobody has measured its ENGLISH
+        // accuracy against the English-only sibling — and NVIDIA reports it
+        // on FLEURS rather than the Open ASR Leaderboard, so the published
+        // numbers do not compare. Ranking it higher would assert that.
+        "nemotron-en", "nemotron-3.5" -> 5
         "parakeet-tdt-v2", "parakeet-tdt-v3" -> 6
         "large-v3-turbo-q5_0" -> 7
         else -> 3
@@ -119,9 +124,17 @@ object TranscriptionModels {
         )
     }
 
-    /** All model keys for pickers, whisper family first. */
+    /**
+     * Every key the app can resolve, whisper family first — including
+     * superseded models, so a persisted setting never stops resolving.
+     * Pickers want [offeredKeys].
+     */
     fun allKeys(): List<String> =
         WhisperModels.ALL.map { it.key } + NemoModels.ALL.map { it.key }
+
+    /** Keys to show in a picker: see [NemoModels.offered]. */
+    fun offeredKeys(context: Context): List<String> =
+        WhisperModels.ALL.map { it.key } + NemoModels.offered(context).map { it.key }
 
     /** Keys of every model that is downloaded and runnable. */
     fun downloadedKeys(context: Context): List<String> =

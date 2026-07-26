@@ -513,6 +513,8 @@
     <string name="setting_local_only">Local-only AI</string>
     <string name="setting_local_only_desc">Only allow AI endpoints on this device or your private network (localhost, LAN, Tailscale). Turn off to permit cloud providers — transcripts will leave the device.</string>
     <string name="privacy_policy">Privacy policy</string>
+    <string name="open_source_licenses">Open-source licences</string>
+    <string name="licenses_unavailable">Could not load the notices: %1$s</string>
     <string name="report_bug">Report a bug</string>
 
     <!-- Model picker cards -->
