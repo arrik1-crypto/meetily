@@ -694,8 +694,8 @@
 
     <!-- Import progress detail (v3.4.0): a percentage alone cannot tell a
          working import from a dead one on a long file. -->
-    <string name="import_detail">%1$d of %2$d min done</string>
-    <string name="import_detail_eta">%1$d of %2$d min done \u00b7 about %3$d min left</string>
+    <string name="import_detail">%1$d/%2$d min</string>
+    <string name="import_detail_eta">%1$d/%2$d min \u00b7 ~%3$d min left</string>
     <string name="card_progress_transcribing_detail">Transcribing \u00b7 %1$s</string>
     <string name="card_progress_checking_detail">Checking \u00b7 %1$s</string>
 
