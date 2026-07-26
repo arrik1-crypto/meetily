@@ -217,22 +217,19 @@ class WhisperRecorder(
                     } else {
                         val ptr = contextPtr
                         if (ptr != 0L) {
-                            WhisperBridge.parseWords(
-                                WhisperBridge.transcribeWords(
-                                    ptr, padded, language, nThreads, translate, vocabPrompt
-                                )
-                            ).also {
-                                // Auto-detect costs a complete extra encoder
-                                // pass on EVERY call, and live capture has no
-                                // batching to spread it over — so pay it once
-                                // on the first chunk and pin the answer.
-                                if (language == "auto") {
-                                    WhisperBridge.lastLanguage(ptr)
-                                        ?.takeIf { l -> l.isNotBlank() }
-                                        ?.let { l -> language = l }
-                                }
-                            }
+                            val raw = WhisperBridge.transcribeWords(
+                                ptr, padded, language, nThreads, translate, vocabPrompt
                             )
+                            // Auto-detect costs a complete extra encoder pass
+                            // on EVERY call, and live capture has no batching
+                            // to spread it over — so pay it once on the first
+                            // chunk and pin the answer for the rest.
+                            if (language == "auto") {
+                                WhisperBridge.lastLanguage(ptr)
+                                    ?.takeIf { it.isNotBlank() && it != "auto" }
+                                    ?.let { language = it }
+                            }
+                            WhisperBridge.parseWords(raw)
                         } else {
                             null
                         }
