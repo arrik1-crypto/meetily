@@ -9,6 +9,29 @@
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
+/*
+ * The encoder is ~2.3 TFLOP per pass on large-v3-turbo and dominates the
+ * cost of a call. Two settings were making it run two or three times per
+ * whisper_full: language="auto" (which encodes once purely to read a
+ * language logit, then again for the real work) and no_timestamps=false
+ * (which lets the loop advance by a decoded timestamp and re-encode a
+ * second window over the trailing silence every chunk carries).
+ *
+ * Both are addressed below. This counter exists so the result can be
+ * measured instead of assumed: it should read 1 per call.
+ */
+static int g_encoder_passes = 0;
+
+static bool count_encoder_pass(struct whisper_context *ctx,
+                               struct whisper_state *state,
+                               void *user_data) {
+    (void) ctx;
+    (void) state;
+    (void) user_data;
+    g_encoder_passes++;
+    return true; /* never abort */
+}
+
 JNIEXPORT jlong JNICALL
 Java_com_meetily_mobile_whisper_WhisperBridge_initContext(
         JNIEnv *env, jobject thiz, jstring model_path) {
@@ -125,6 +148,30 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
  * word-level timings. Wire format (control chars can't appear in speech
  * text): for each word, 0x1e + start-ms (decimal) + 0x1f + word text.
  */
+/*
+ * The language whisper settled on for the most recent call, or NULL.
+ *
+ * Passing "auto" costs a COMPLETE extra encoder pass on every call: whisper
+ * encodes the window once just to read a language logit, then encodes it
+ * again to do the work. Detecting once and then passing the answer for the
+ * rest of the file removes that pass from every subsequent call — and is
+ * more accurate too, since auto-detect otherwise runs afresh on each batch
+ * of spliced, silence-stripped audio where a single misfire would poison
+ * the whole batch with no way for the caller to notice.
+ */
+JNIEXPORT jstring JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_lastLanguage(
+        JNIEnv *env, jobject thiz, jlong ptr) {
+    (void) thiz;
+    struct whisper_context *ctx = (struct whisper_context *) (intptr_t) ptr;
+    if (ctx == NULL) return NULL;
+    int id = whisper_full_lang_id(ctx);
+    if (id < 0) return NULL;
+    const char *str = whisper_lang_str(id);
+    if (str == NULL || str[0] == '\0') return NULL;
+    return (*env)->NewStringUTF(env, str);
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
         JNIEnv *env, jobject thiz, jlong ptr, jfloatArray samples,
@@ -144,6 +191,19 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
     params.n_threads = n_threads > 0 ? n_threads : 4;
     params.no_timestamps = false;
     params.token_timestamps = true;
+    /*
+     * Exactly one 30-second window per call. Without this, seek_delta comes
+     * from the decoder's last timestamp token and the loop only stops once
+     * it is within 100 ms of the end — but every chunk the importer cuts
+     * carries at least 0.8 s of trailing silence, eight times that margin,
+     * so the loop re-encoded a whole window over near-silence.
+     *
+     * Whisper's own segmentation is discarded anyway: the token walk below
+     * flattens every segment into one word stream and BatchSplit re-splits
+     * it by time. So there is nothing here for single_segment to lose.
+     */
+    params.single_segment = true;
+    params.encoder_begin_callback = count_encoder_pass;
     params.print_progress = false;
     params.print_realtime = false;
     params.print_special = false;
@@ -166,7 +226,10 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
         }
     }
 
+    g_encoder_passes = 0;
     int ret = whisper_full(ctx, params, pcm, (int) n_samples);
+    LOGI("whisper_full: %d encoder pass(es) for %d samples",
+         g_encoder_passes, (int) n_samples);
     (*env)->ReleaseFloatArrayElements(env, samples, pcm, JNI_ABORT);
     if (lang != NULL) {
         (*env)->ReleaseStringUTFChars(env, language, lang);

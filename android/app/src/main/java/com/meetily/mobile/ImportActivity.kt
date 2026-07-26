@@ -172,8 +172,11 @@ class ImportActivity : AppCompatActivity() {
                             key = key,
                             title = com.meetily.mobile.whisper.TranscriptionModels
                                 .displayName(key),
+                            // This is the moment a heavy model gets chosen
+                            // for a long file, so it is the moment to say what
+                            // that costs on this phone.
                             meta = com.meetily.mobile.whisper.TranscriptionModels
-                                .metaLine(this, key),
+                                .metaLineFor(this, key, sourceDurationMs(uri)),
                             downloaded = true,
                             selected = settings.whisperModel == key
                         )
@@ -224,6 +227,25 @@ class ImportActivity : AppCompatActivity() {
         }
         bindService(Intent(this, ImportService::class.java), connection, Context.BIND_AUTO_CREATE)
         bound = true
+    }
+
+    /**
+     * Container-reported length of the file being imported, for the model
+     * picker's time estimate. Best-effort: a source that will not report a
+     * duration simply gets no estimate rather than a wrong one.
+     */
+    private fun sourceDurationMs(uri: Uri): Long = try {
+        val mmr = android.media.MediaMetadataRetriever()
+        try {
+            mmr.setDataSource(this, uri)
+            mmr.extractMetadata(
+                android.media.MediaMetadataRetriever.METADATA_KEY_DURATION
+            )?.toLongOrNull() ?: 0L
+        } finally {
+            mmr.release()
+        }
+    } catch (_: Throwable) {
+        0L
     }
 
     private fun incomingUri(): Uri? {

@@ -2204,18 +2204,26 @@ class MeetingDetailActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.import_needs_whisper, Toast.LENGTH_LONG).show()
             return
         }
-        // Heaviest first: with no real-time budget a bigger model is the
-        // whole reason to run a second pass.
-        val ranked = downloaded.sortedByDescending {
-            com.meetily.mobile.whisper.TranscriptionModels.sizeMb(it)
-        }
-        val willUse = ranked.firstOrNull { it != m.transcriptModel } ?: ranked.first()
+        // Ranked by transcription quality and across families — a second
+        // Whisper size agrees with the first pass about most of what it gets
+        // wrong, and file size says nothing about speed.
+        val ranked = com.meetily.mobile.whisper.TranscriptionModels
+            .rankedForCheck(this, m.transcriptModel)
+            .ifEmpty { downloaded }
+        val willUse = ranked.first()
+        val audioMs = checkAudioMs(m)
         AlertDialog.Builder(this)
             .setTitle(R.string.check_accuracy_title)
             .setMessage(
+                // State the cost up front. The only speed signal before this
+                // was the word "slow" inside a model's display name, in the
+                // same parenthesis as "best accuracy" — and the first honest
+                // number arrived two minutes after committing to the run.
                 getString(
-                    R.string.check_accuracy_message,
-                    com.meetily.mobile.whisper.TranscriptionModels.displayName(willUse)
+                    R.string.check_accuracy_message_estimate,
+                    com.meetily.mobile.whisper.TranscriptionModels.displayName(willUse),
+                    com.meetily.mobile.whisper.ModelSpeed
+                        .estimateLabel(this, willUse, audioMs)
                 )
             )
             .setPositiveButton(R.string.check_accuracy_go) { _, _ ->
@@ -2224,6 +2232,14 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /** Audio length this check would cover, for the time estimate. */
+    private fun checkAudioMs(m: Meeting): Long {
+        m.segments.lastOrNull { it.audioMs != null }?.audioMs?.let { return it }
+        val first = m.segments.firstOrNull()?.timestampMs ?: return 0L
+        val last = m.segments.lastOrNull()?.timestampMs ?: return 0L
+        return (last - first).coerceAtLeast(0L)
     }
 
     private fun chooseCheckModel(m: Meeting, ranked: List<String>, preferred: String) {
@@ -2239,7 +2255,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                         meta = if (key == m.transcriptModel) {
                             getString(R.string.check_model_made_current)
                         } else {
-                            models.metaLine(this, key)
+                            models.metaLineFor(this, key, checkAudioMs(m))
                         },
                         downloaded = true,
                         selected = key == preferred

@@ -19,7 +19,7 @@ import kotlin.math.sqrt
  */
 class WhisperRecorder(
     private val modelPath: String,
-    private val language: String?, // null => auto-detect
+    private val languageHint: String?, // "auto" => detect on the first chunk
     /** Whisper translate task: any spoken language comes out as English text. */
     private val translate: Boolean = false,
     /** Custom-vocabulary glossary (see Vocab.promptFor); null = none. */
@@ -73,6 +73,14 @@ class WhisperRecorder(
     // Live capture is realtime and its input is unrecoverable if it falls
     // behind, so it is sized first and never yields to batch work.
     private val nThreads = com.meetily.mobile.data.HeavyWork.recordingThreads()
+
+    /**
+     * The language passed to whisper. Starts as [languageHint] (null means
+     * auto-detect) and is pinned to whatever whisper reports after the first
+     * successful chunk — auto-detect costs a complete extra encoder pass on
+     * every call, and live capture has no batching to spread it over.
+     */
+    @Volatile private var language: String? = languageHint
 
     @SuppressLint("MissingPermission") // caller checks RECORD_AUDIO
     fun start() {
@@ -213,6 +221,17 @@ class WhisperRecorder(
                                 WhisperBridge.transcribeWords(
                                     ptr, padded, language, nThreads, translate, vocabPrompt
                                 )
+                            ).also {
+                                // Auto-detect costs a complete extra encoder
+                                // pass on EVERY call, and live capture has no
+                                // batching to spread it over — so pay it once
+                                // on the first chunk and pin the answer.
+                                if (language == "auto") {
+                                    WhisperBridge.lastLanguage(ptr)
+                                        ?.takeIf { l -> l.isNotBlank() }
+                                        ?.let { l -> language = l }
+                                }
+                            }
                             )
                         } else {
                             null

@@ -437,13 +437,24 @@ class RecordingService : Service() {
             } else {
                 null
             }
-            // A second opinion from the same model is worth nothing.
-            val model = com.meetily.mobile.whisper.TranscriptionModels
-                .downloadedKeys(this)
-                .sortedByDescending {
-                    com.meetily.mobile.whisper.TranscriptionModels.sizeMb(it)
-                }
-                .firstOrNull { it != current } ?: return
+            // Ranked by transcription quality and across families, not by
+            // file size. Ranking by bytes put Parakeet (632 MB of files)
+            // above turbo Q (547 MB), and the "not the same model twice"
+            // rule then removed Parakeet precisely because it made the
+            // transcript — handing an unattended pass to the slowest model
+            // installed.
+            val ranked = com.meetily.mobile.whisper.TranscriptionModels
+                .rankedForCheck(this, current)
+            if (ranked.isEmpty()) return
+            // How long the audio is, so the choice can account for it.
+            val audioMs = segments.lastOrNull()?.audioMs ?: elapsedMs()
+            val speed = com.meetily.mobile.whisper.ModelSpeed
+            // Nothing unattended should quietly commit the phone to hours.
+            // Prefer the best model that can finish in a sane time; only if
+            // none can does the run get skipped, leaving the manual path —
+            // which now states the cost — as the way to ask for it anyway.
+            val model = ranked.firstOrNull { !speed.isLongRun(this, it, audioMs) }
+                ?: return
             JobGate.requestCheck(this, meetingId, model, chargingOnly)
         } catch (_: Throwable) {
             // Strictly a bonus pass: it must never stop a meeting finishing.
@@ -717,7 +728,7 @@ class RecordingService : Service() {
             modelPath = if (nemoEngine != null) "" else {
                 WhisperModels.fileFor(this, model).absolutePath
             },
-            language = if (englishOnly) "en" else "auto",
+            languageHint = if (englishOnly) "en" else "auto",
             // Translate + vocab prompts are whisper features; NeMo models
             // transcribe in the spoken language and ignore both.
             translate = nemoEngine == null &&

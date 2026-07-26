@@ -741,4 +741,10 @@
     <string name="import_queue_full">Too many imports are already waiting. Let some finish first.</string>
     <string name="import_queue_failed">That file could not be copied for the queue.</string>
     <string name="check_queued">Queued \u2014 the check will start when the current job finishes.</string>
+
+    <!-- Model time estimates: measured on this device, not guessed. -->
+    <string name="estimate_min">about %1$d min</string>
+    <string name="estimate_h_min">about %1$d h %2$d m</string>
+    <string name="model_card_meta_estimate">%1$s \u00b7 %2$s</string>
+    <string name="check_accuracy_message_estimate">Run the audio through %1$s and compare. Nothing is replaced without your review.\n\nOn this phone that is %2$s for this meeting.</string>
 </resources>

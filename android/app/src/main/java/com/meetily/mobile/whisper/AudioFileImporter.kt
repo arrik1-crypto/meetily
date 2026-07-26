@@ -111,6 +111,8 @@ class AudioFileImporter(
         val nemoModel = NemoModels.byKeyOrNull(selectedKey)
         var nemoEngine: NemoEngine? = null
         var contextPtr = 0L
+        // var, not val: set to the detected language after the first batch
+        // so "auto" is paid for once rather than on every call.
         var language = "en"
         var translate = false
         if (nemoModel != null) {
@@ -353,28 +355,47 @@ class AudioFileImporter(
                 at += part.audio.size
             }
 
-            val (text, words) = WhisperBridge.parseWords(
-                WhisperBridge.transcribeWords(
+            val raw = WhisperBridge.transcribeWords(
+                contextPtr, buffer, language, nThreads(), translate,
+                Vocab.promptFor(settings.customVocab)
+            )
+            // "auto" costs a whole extra encoder pass per call, so pay it
+            // once and pin the answer for the rest of the file. Whisper is
+            // also better placed to judge from the first real speech than
+            // from every later batch of spliced, silence-stripped audio.
+            if (language == "auto") {
+                WhisperBridge.lastLanguage(contextPtr)
+                    ?.takeIf { it.isNotBlank() && it != "auto" }
+                    ?.let { language = it }
+            }
+            val (text, words) = WhisperBridge.parseWords(raw)
+            if (words.isNotEmpty() && parts.size > 1) {
+                val perPart = BatchSplit.split(spans, words)
+                for (i in parts.indices) {
+                    val partWords = perPart[i]
+                    if (partWords.isEmpty()) continue
+                    addSegment(
+                        partWords.joinToString(" ") { it.text },
+                        parts[i].startSample,
+                        partWords,
+                        parts[i].clusterId
+                    )
+                }
+            } else if (words.isNotEmpty()) {
+                addSegment(text, parts.first().startSample, words, parts.first().clusterId)
+            } else {
+                // No word timings came back. parseWords derives the text FROM
+                // the words, so this also means no text — and the old code
+                // simply dropped the batch here. Pre-batching that lost one
+                // chunk; now it would lose up to 28 seconds of the meeting,
+                // silently. Fall back to the plain path, which asks for text
+                // without timings and carries the same one-encode guarantee.
+                val plain = WhisperBridge.transcribe(
                     contextPtr, buffer, language, nThreads(), translate,
                     Vocab.promptFor(settings.customVocab)
-                )
-            )
-            if (text.isNotBlank()) {
-                if (parts.size == 1 || words.isEmpty()) {
-                    // Nothing to split on: keep it whole rather than guess.
-                    addSegment(text, parts.first().startSample, words, parts.first().clusterId)
-                } else {
-                    val perPart = BatchSplit.split(spans, words)
-                    for (i in parts.indices) {
-                        val partWords = perPart[i]
-                        if (partWords.isEmpty()) continue
-                        addSegment(
-                            partWords.joinToString(" ") { it.text },
-                            parts[i].startSample,
-                            partWords,
-                            parts[i].clusterId
-                        )
-                    }
+                )?.trim().orEmpty()
+                if (plain.isNotBlank()) {
+                    addSegment(plain, parts.first().startSample, emptyList(), parts.first().clusterId)
                 }
             }
             persist(complete = false)

@@ -45,6 +45,15 @@ object WhisperBridge {
         prompt: String?
     ): String?
 
+    /**
+     * The language whisper settled on during the most recent call, or null.
+     *
+     * Passing "auto" costs a complete extra encoder pass every call — whisper
+     * encodes the window once just to read a language logit, then again to do
+     * the work. Detect once, then pass the answer for the rest of the file.
+     */
+    external fun lastLanguage(ptr: Long): String?
+
     /** Decodes [transcribeWords] output into (full text, word timings). */
     fun parseWords(
         raw: String?

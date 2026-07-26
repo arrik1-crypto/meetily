@@ -81,6 +81,9 @@ class ImportService : Service() {
     /** Staged copy this run adopts, when it came off the import queue. */
     private var adoptFile: String? = null
 
+    /** When this run began, so its throughput can be recorded on finish. */
+    @Volatile private var runStartedMs = 0L
+
     @Volatile private var cancelled = false
     @Volatile private var percent = 0
     @Volatile private var detail = ""
@@ -129,6 +132,7 @@ class ImportService : Service() {
                 // A dataSync service keeps the process alive but NOT the CPU:
                 // without this, a long import stalls or dies once the screen
                 // has been off for a while.
+                runStartedMs = System.currentTimeMillis()
                 acquireWakeLock()
                 if (recheckMeetingId != null) {
                     com.meetily.mobile.data.JobQueue.markRunning(
@@ -214,6 +218,17 @@ class ImportService : Service() {
                 )
             } catch (e: Exception) {
                 error = e.message ?: "unknown error"
+            }
+            // What this model actually cost on THIS phone. Every run has
+            // always measured it and thrown it away; keeping it is what lets
+            // the app quote an honest estimate before the next one starts.
+            result?.let { r ->
+                com.meetily.mobile.whisper.ModelSpeed.record(
+                    this,
+                    modelKey ?: AppSettings(this).whisperModel,
+                    r.coveredMs,
+                    System.currentTimeMillis() - runStartedMs
+                )
             }
             val warning = result?.takeIf { !cancelled && it.truncated }?.let { r ->
                 if (r.totalMs > 0) {
