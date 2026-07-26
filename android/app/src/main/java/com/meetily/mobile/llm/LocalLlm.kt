@@ -128,6 +128,7 @@ object LocalLlm {
             }
 
             val budgeted = budgetMessages(pairs, CHAR_BUDGET)
+            applyThreadBudget()
             val reply = stripThinking(
                 LlamaBridge.generate(ptr, pack(budgeted), MAX_REPLY_TOKENS)
                     ?.trim()
@@ -168,6 +169,7 @@ object LocalLlm {
             } else {
                 chunk
             }
+            applyThreadBudget()
             val part = try {
                 LlamaBridge.generate(
                     ptr,
@@ -257,9 +259,7 @@ object LocalLlm {
         }
         // Shared budget: a summary must not out-thread a live recording,
         // and must leave the UI thread a core to run on.
-        val threads = com.meetily.mobile.data.HeavyWork.batchThreads(
-            com.meetily.mobile.RecordingService.isRunning
-        )
+        val threads = currentThreadBudget()
         val loaded = LlamaBridge.initModel(
             LocalLlmModels.fileFor(context, model).absolutePath, N_CTX, threads
         )
@@ -308,4 +308,28 @@ object LocalLlm {
         }
         return out
     }
+
+    /**
+     * Threads this run may take right now.
+     *
+     * Read fresh rather than fixed at load: a recording can start long after
+     * a summary does, and its capture threads land on top of a pool sized for
+     * an idle phone. That surplus is what starves the UI thread.
+     */
+    private fun currentThreadBudget(): Int =
+        com.meetily.mobile.data.HeavyWork.batchThreads(
+            com.meetily.mobile.RecordingService.isRunning
+        )
+
+    /** Resizes the live context; safe only between generations. */
+    private fun applyThreadBudget() {
+        val handle = ptr
+        if (handle == 0L) return
+        try {
+            LlamaBridge.setThreads(handle, currentThreadBudget())
+        } catch (_: Throwable) {
+            // Older native lib without the export: keep the load-time pool.
+        }
+    }
+
 }

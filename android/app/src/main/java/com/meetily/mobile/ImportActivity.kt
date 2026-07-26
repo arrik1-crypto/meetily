@@ -154,20 +154,6 @@ class ImportActivity : AppCompatActivity() {
             finish()
             return
         }
-        if (RecordingService.isRunning) {
-            Toast.makeText(this, R.string.import_wait_recording, Toast.LENGTH_LONG).show()
-            finish()
-            return
-        }
-        if (ImportService.isRunning) {
-            Toast.makeText(this, R.string.import_busy, Toast.LENGTH_LONG).show()
-            bindService(
-                Intent(this, ImportService::class.java), connection, Context.BIND_AUTO_CREATE
-            )
-            bound = true
-            return
-        }
-
         val name = displayName(uri)
         fileNameView.text = name
 
@@ -199,7 +185,32 @@ class ImportActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Runs the file now, or copies it aside and queues it.
+     *
+     * Being busy used to end the story: a toast, and the file the user had
+     * just picked went nowhere. Queueing keeps the choice — including the
+     * model they chose for it.
+     */
     private fun startImport(uri: Uri, name: String, modelKey: String) {
+        val queued = JobGate.requestImport(this, uri, name, modelKey) { result ->
+            when (result) {
+                ImportQueue.Result.QUEUED -> Toast.makeText(
+                    this, getString(R.string.import_queued, name), Toast.LENGTH_LONG
+                ).show()
+                ImportQueue.Result.TOO_MANY -> Toast.makeText(
+                    this, R.string.import_queue_full, Toast.LENGTH_LONG
+                ).show()
+                ImportQueue.Result.FAILED -> Toast.makeText(
+                    this, R.string.import_queue_failed, Toast.LENGTH_LONG
+                ).show()
+            }
+            finish()
+        }
+        if (queued) {
+            statusView.text = getString(R.string.import_queueing)
+            return
+        }
         val start = Intent(this, ImportService::class.java)
             .setAction(ImportService.ACTION_START)
             .setData(uri)

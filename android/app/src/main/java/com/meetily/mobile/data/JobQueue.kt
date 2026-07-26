@@ -25,20 +25,47 @@ object JobQueue {
     const val KIND_SUMMARY = "summary"
 
     /**
+     * A file the user asked to import while something else was running. The
+     * audio is copied into app storage before queueing: the caller's
+     * content-URI grant dies with the sharing activity, so a queued job that
+     * only remembered the URI would find nothing there by the time it ran.
+     */
+    const val KIND_IMPORT = "import"
+
+    /**
      * A week away from a charger should not detonate on plug-in. Oldest
-     * entries fall off the back.
+     * automatic entries fall off the back.
      */
     const val MAX_JOBS = 5
 
+    /**
+     * Imports are user-initiated, so they are never silently dropped to make
+     * room — losing one is the exact bug the queue exists to fix. This is a
+     * sanity ceiling, refused at the door rather than trimmed from behind.
+     */
+    const val MAX_IMPORTS = 20
+
     data class Job(
         val kind: String,
+        /** Blank for an import: there is no meeting until it runs. */
         val meetingId: String,
-        /** Model key for a check, template key for a summary. */
+        /** Model key for a check or an import, template key for a summary. */
         val payload: String = "",
         val queuedAtMs: Long = 0L,
         /** Started but never finished, rather than deliberately deferred. */
-        val interrupted: Boolean = false
+        val interrupted: Boolean = false,
+        /** Import only: the staged copy in AudioStore, and its display name. */
+        val stagedFile: String = "",
+        val sourceName: String = ""
     )
+
+    /**
+     * Queue identity. Imports share a blank meeting id, so the staged file is
+     * what tells them apart — without it, queueing a second file would
+     * silently replace the first.
+     */
+    private fun sameJob(a: Job, b: Job): Boolean =
+        a.kind == b.kind && a.meetingId == b.meetingId && a.stagedFile == b.stagedFile
 
     // --- Pure list rules (unit tested) -------------------------------------
 
@@ -47,15 +74,23 @@ object JobQueue {
      * meeting can never queue twice, and trimming to [max].
      */
     fun add(existing: List<Job>, job: Job, max: Int = MAX_JOBS): List<Job> {
-        val without = existing.filterNot {
-            it.kind == job.kind && it.meetingId == job.meetingId
-        }
-        val grown = without + job
-        return if (grown.size <= max) grown else grown.takeLast(max)
+        val grown = existing.filterNot { sameJob(it, job) } + job
+        // Only the automatic jobs are trimmed; see MAX_IMPORTS.
+        val automatic = grown.filter { it.kind != KIND_IMPORT }
+        if (automatic.size <= max) return grown
+        val dropped = automatic.take(automatic.size - max).toSet()
+        return grown.filterNot { it in dropped }
     }
 
     fun remove(existing: List<Job>, kind: String, meetingId: String): List<Job> =
         existing.filterNot { it.kind == kind && it.meetingId == meetingId }
+
+    /** Removes one queued import by its staged file. */
+    fun removeStaged(existing: List<Job>, stagedFile: String): List<Job> =
+        existing.filterNot { it.kind == KIND_IMPORT && it.stagedFile == stagedFile }
+
+    fun importCount(existing: List<Job>): Int =
+        existing.count { it.kind == KIND_IMPORT }
 
     /** Deferred work, oldest first — what the drain walks. */
     fun runnable(existing: List<Job>): List<Job> = existing.filterNot { it.interrupted }
@@ -75,13 +110,17 @@ object JobQueue {
             val o = array.optJSONObject(i) ?: return@mapNotNull null
             val kind = o.optString("kind")
             val meetingId = o.optString("meetingId")
-            if (kind.isBlank() || meetingId.isBlank()) return@mapNotNull null
+            // An import legitimately has no meeting id yet.
+            if (kind.isBlank()) return@mapNotNull null
+            if (meetingId.isBlank() && kind != KIND_IMPORT) return@mapNotNull null
             Job(
                 kind = kind,
                 meetingId = meetingId,
                 payload = o.optString("payload"),
                 queuedAtMs = o.optLong("queuedAtMs"),
-                interrupted = o.optBoolean("interrupted")
+                interrupted = o.optBoolean("interrupted"),
+                stagedFile = o.optString("stagedFile"),
+                sourceName = o.optString("sourceName")
             )
         }
     } catch (_: Exception) {
@@ -98,6 +137,8 @@ object JobQueue {
                     .put("payload", job.payload)
                     .put("queuedAtMs", job.queuedAtMs)
                     .put("interrupted", job.interrupted)
+                    .put("stagedFile", job.stagedFile)
+                    .put("sourceName", job.sourceName)
             )
         }
         prefs(context).edit().putString("jobs", array.toString()).apply()
@@ -113,15 +154,26 @@ object JobQueue {
         save(context, remove(load(context), kind, meetingId))
     }
 
+    @Synchronized
+    fun dequeueStaged(context: Context, stagedFile: String) {
+        save(context, removeStaged(load(context), stagedFile))
+    }
+
     fun isQueued(context: Context, kind: String, meetingId: String): Boolean =
         load(context).any {
             it.kind == kind && it.meetingId == meetingId && !it.interrupted
         }
 
-    /** Deferred jobs still pointing at a meeting that exists. */
+    /** Deferred jobs whose target still exists. */
     fun pending(context: Context): List<Job> {
         val store = MeetingStore(context)
-        return runnable(load(context)).filter { store.load(it.meetingId) != null }
+        return runnable(load(context)).filter { job ->
+            if (job.kind == KIND_IMPORT) {
+                AudioStore.exists(context, job.stagedFile)
+            } else {
+                store.load(job.meetingId) != null
+            }
+        }
     }
 
     /**

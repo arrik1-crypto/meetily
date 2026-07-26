@@ -67,6 +67,11 @@ class AudioFileImporter(
          * [TranscriptDraft] for the user to compare and accept.
          */
         recheckMeetingId: String? = null,
+        /**
+         * A copy already staged in AudioStore by the import queue. Renamed
+         * into place rather than copied again — it is the same bytes.
+         */
+        adoptFile: String? = null,
         /** Fires as soon as the target meeting id is known. */
         onMeetingCreated: ((String) -> Unit)? = null,
         /** [detail] is a human-readable "how far, how much longer" line. */
@@ -76,7 +81,14 @@ class AudioFileImporter(
         cancelled: () -> Boolean
     ): Result {
         val selectedKey = modelKey ?: settings.whisperModel
-        val nThreads = com.meetily.mobile.data.HeavyWork.batchThreads(recordingActive())
+        /**
+         * Re-read per batch, not fixed at start. A recording that begins
+         * after the import does adds its own threads on top; sizing once, on
+         * an idle phone, leaves this run holding cores the UI thread needs.
+         * whisper.cpp takes n_threads per call, so this costs nothing.
+         */
+        fun nThreads(): Int =
+            com.meetily.mobile.data.HeavyWork.batchThreads(recordingActive())
         val startedAtMs = System.currentTimeMillis()
 
         val store = MeetingStore(context)
@@ -105,7 +117,7 @@ class AudioFileImporter(
             if (!NemoModels.isRuntimeAvailable()) {
                 throw ImportException("Speech runtime unavailable on this device")
             }
-            nemoEngine = NemoEngine.create(context, nemoModel, nThreads)
+            nemoEngine = NemoEngine.create(context, nemoModel, nThreads())
                 ?: throw ImportException("Could not load the ${nemoModel.displayName} model")
         } else {
             val model = WhisperModels.byKey(selectedKey)
@@ -194,13 +206,19 @@ class AudioFileImporter(
             // cannot.
             try {
                 val audioCopy = AudioStore.newImportFile(context, meeting.id, sourceName)
-                context.contentResolver.openInputStream(uri)?.use { input ->
-                    audioCopy.outputStream().use { input.copyTo(it) }
-                }
-                if (audioCopy.length() > 0) {
+                val staged = adoptFile?.let { AudioStore.fileFor(context, it) }
+                if (staged != null && staged.length() > 0 && staged.renameTo(audioCopy)) {
+                    // Queued import: the bytes are already ours.
                     meeting.audioFile = audioCopy.name
                 } else {
-                    audioCopy.delete()
+                    context.contentResolver.openInputStream(uri)?.use { input ->
+                        audioCopy.outputStream().use { input.copyTo(it) }
+                    }
+                    if (audioCopy.length() > 0) {
+                        meeting.audioFile = audioCopy.name
+                    } else {
+                        audioCopy.delete()
+                    }
                 }
             } catch (_: Exception) {
                 meeting.audioFile = null
@@ -337,7 +355,7 @@ class AudioFileImporter(
 
             val (text, words) = WhisperBridge.parseWords(
                 WhisperBridge.transcribeWords(
-                    contextPtr, buffer, language, nThreads, translate,
+                    contextPtr, buffer, language, nThreads(), translate,
                     Vocab.promptFor(settings.customVocab)
                 )
             )

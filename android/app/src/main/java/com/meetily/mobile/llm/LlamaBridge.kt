@@ -25,6 +25,13 @@ object LlamaBridge {
     external fun freeModel(ptr: Long)
 
     /**
+     * Resizes the thread pool between generations. Safe only when no decode
+     * is in flight — LocalLlm serialises every call, so the top of generate()
+     * is the one place that holds.
+     */
+    external fun setThreads(ptr: Long, nThreads: Int)
+
+    /**
      * [packedMessages]: per message, 0x1e + role + 0x1f + content. Returns
      * the assistant reply, or null on failure.
      */

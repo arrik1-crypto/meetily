@@ -103,6 +103,24 @@ Java_com_meetily_mobile_llm_LlamaBridge_freeModel(
 }
 
 /*
+ * Resizes the thread pool between generations.
+ *
+ * A recording can start after a summary is already under way, and its
+ * capture threads land on top of a pool that was sized for an idle phone.
+ * Called from LocalLlm at the top of each generate(), where no decode is in
+ * flight, so this never races a running batch.
+ */
+JNIEXPORT void JNICALL
+Java_com_meetily_mobile_llm_LlamaBridge_setThreads(
+        JNIEnv *env, jobject thiz, jlong ptr, jint n_threads) {
+    (void) env;
+    (void) thiz;
+    if (ptr == 0 || n_threads <= 0) return;
+    local_llm *llm = (local_llm *) (intptr_t) ptr;
+    llama_set_n_threads(llm->ctx, n_threads, n_threads);
+}
+
+/*
  * packed messages: per message, 0x1e + role + 0x1f + content. Parsed into
  * llama_chat_message entries pointing into a NUL-punched copy.
  */

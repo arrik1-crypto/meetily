@@ -78,6 +78,9 @@ class ImportService : Service() {
     /** Set when this run is a second pass over an existing meeting's audio. */
     private var recheckMeetingId: String? = null
 
+    /** Staged copy this run adopts, when it came off the import queue. */
+    private var adoptFile: String? = null
+
     @Volatile private var cancelled = false
     @Volatile private var percent = 0
     @Volatile private var detail = ""
@@ -115,6 +118,7 @@ class ImportService : Service() {
                 resultError = null
                 resultWarning = null
                 recheckMeetingId = intent.getStringExtra(EXTRA_RECHECK_MEETING_ID)
+                adoptFile = intent.getStringExtra(EXTRA_ADOPT_FILE)
                 isRecheck = recheckMeetingId != null
                 currentMeetingId = recheckMeetingId
                 sourceName = intent.getStringExtra(EXTRA_NAME).orEmpty()
@@ -182,6 +186,7 @@ class ImportService : Service() {
                     sourceName = sourceName,
                     modelKey = modelKey,
                     recheckMeetingId = recheckMeetingId,
+                    adoptFile = adoptFile,
                     onMeetingCreated = { id ->
                         currentMeetingId = id
                         main.post {
@@ -245,6 +250,10 @@ class ImportService : Service() {
         } catch (_: Exception) {
         }
         wakeLock = null
+        // Renamed into the meeting on success; anything left here means the
+        // run failed before that, and the staged copy would just leak.
+        adoptFile?.let { com.meetily.mobile.data.AudioStore.delete(this, it) }
+        adoptFile = null
         if (recheckId != null) {
             com.meetily.mobile.data.JobQueue.finished(
                 this, com.meetily.mobile.data.JobQueue.KIND_CHECK, recheckId
@@ -428,6 +437,7 @@ class ImportService : Service() {
         const val EXTRA_NAME = "source_name"
         const val EXTRA_MODEL = "model_key"
         const val EXTRA_RECHECK_MEETING_ID = "recheck_meeting_id"
+        const val EXTRA_ADOPT_FILE = "adopt_file"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45

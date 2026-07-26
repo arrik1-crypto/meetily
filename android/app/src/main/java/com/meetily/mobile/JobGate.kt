@@ -45,10 +45,15 @@ object JobGate {
         val next = JobQueue.pending(app).firstOrNull() ?: return
         // Taken off the queue first: a job that fails to start must not spin
         // forever on every drain trigger.
-        JobQueue.dequeue(app, next.kind, next.meetingId)
+        if (next.kind == JobQueue.KIND_IMPORT) {
+            JobQueue.dequeueStaged(app, next.stagedFile)
+        } else {
+            JobQueue.dequeue(app, next.kind, next.meetingId)
+        }
         when (next.kind) {
             JobQueue.KIND_SUMMARY -> startSummary(app, next.meetingId, next.payload)
             JobQueue.KIND_CHECK -> startCheck(app, next.meetingId, next.payload)
+            JobQueue.KIND_IMPORT -> startImport(app, next)
         }
     }
 
@@ -91,6 +96,46 @@ object JobGate {
             return
         }
         startCheck(app, meetingId, modelKey)
+    }
+
+    /**
+     * Starts an import now, or copies the file aside and queues it. Either
+     * way the user's selection is kept — the old behaviour dropped the file
+     * on the floor with only a toast to show for it.
+     */
+    fun requestImport(
+        context: Context,
+        uri: android.net.Uri,
+        sourceName: String,
+        modelKey: String,
+        onQueued: (ImportQueue.Result) -> Unit
+    ): Boolean {
+        if (canStartBatch()) return false
+        ImportQueue.stageAndQueue(context, uri, sourceName, modelKey, onQueued)
+        return true
+    }
+
+    private fun startImport(context: Context, job: JobQueue.Job) {
+        try {
+            val file = AudioStore.fileFor(context, job.stagedFile)
+            if (!file.exists() || file.length() <= 0L) return
+            val intent = Intent(context, ImportService::class.java)
+                .setAction(ImportService.ACTION_START)
+                .setData(android.net.Uri.fromFile(file))
+                .putExtra(ImportService.EXTRA_NAME, job.sourceName)
+                .putExtra(ImportService.EXTRA_MODEL, job.payload)
+                // The importer renames this into place rather than copying a
+                // second time; the service deletes it if the run never gets
+                // that far.
+                .putExtra(ImportService.EXTRA_ADOPT_FILE, job.stagedFile)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } catch (_: Throwable) {
+            JobQueue.enqueue(context, job)
+        }
     }
 
     private fun queue(context: Context, kind: String, meetingId: String, payload: String) {

@@ -101,6 +101,44 @@ class HeavyWorkQueueTest {
     }
 
     @Test
+    fun queueingTwoFilesKeepsBoth() {
+        // Imports share a blank meeting id, so without the staged file as
+        // identity the second pick would silently replace the first — the
+        // exact loss the queue exists to prevent.
+        val a = JobQueue.Job(JobQueue.KIND_IMPORT, "", "model", 1L, stagedFile = "a.m4a")
+        val b = JobQueue.Job(JobQueue.KIND_IMPORT, "", "model", 2L, stagedFile = "b.m4a")
+        val jobs = JobQueue.add(JobQueue.add(emptyList(), a), b)
+        assertEquals(2, jobs.size)
+        assertEquals(listOf("a.m4a", "b.m4a"), jobs.map { it.stagedFile })
+    }
+
+    @Test
+    fun automaticJobsAreTrimmedButImportsAreNot() {
+        // Deferred checks are a bonus and may be dropped; an import is a file
+        // the user explicitly picked.
+        var jobs = emptyList<JobQueue.Job>()
+        for (i in 1..4) {
+            jobs = JobQueue.add(
+                jobs,
+                JobQueue.Job(JobQueue.KIND_IMPORT, "", "m", i.toLong(), stagedFile = "f$i")
+            )
+        }
+        for (i in 1..8) {
+            jobs = JobQueue.add(jobs, job(JobQueue.KIND_SUMMARY, "m$i", i.toLong()))
+        }
+        assertEquals(4, jobs.count { it.kind == JobQueue.KIND_IMPORT })
+        assertEquals(JobQueue.MAX_JOBS, jobs.count { it.kind != JobQueue.KIND_IMPORT })
+    }
+
+    @Test
+    fun removingOneQueuedImportLeavesTheOthers() {
+        val a = JobQueue.Job(JobQueue.KIND_IMPORT, "", "m", 1L, stagedFile = "a")
+        val b = JobQueue.Job(JobQueue.KIND_IMPORT, "", "m", 2L, stagedFile = "b")
+        val left = JobQueue.removeStaged(JobQueue.add(JobQueue.add(emptyList(), a), b), "a")
+        assertEquals(listOf("b"), left.map { it.stagedFile })
+    }
+
+    @Test
     fun aRunMarkerReplacesTheDeferredEntryForTheSameMeeting() {
         // Queued while off charger, then actually started: one entry, now
         // flagged as in flight, so finishing it clears the right row.

@@ -734,4 +734,11 @@
 
     <!-- Playback follow-along -->
     <string name="follow_playback">Follow transcript during playback</string>
+
+    <!-- Import queue: being busy no longer drops the file the user picked. -->
+    <string name="import_queueing">Copying to the queue\u2026</string>
+    <string name="import_queued">\u201c%1$s\u201d is queued and will start when the current job finishes.</string>
+    <string name="import_queue_full">Too many imports are already waiting. Let some finish first.</string>
+    <string name="import_queue_failed">That file could not be copied for the queue.</string>
+    <string name="check_queued">Queued \u2014 the check will start when the current job finishes.</string>
 </resources>

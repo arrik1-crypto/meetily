@@ -2194,14 +2194,6 @@ class MeetingDetailActivity : AppCompatActivity() {
             openCheckReview(m.id)
             return
         }
-        if (RecordingService.isRunning) {
-            Toast.makeText(this, R.string.import_wait_recording, Toast.LENGTH_LONG).show()
-            return
-        }
-        if (ImportService.isRunning) {
-            Toast.makeText(this, R.string.import_busy, Toast.LENGTH_LONG).show()
-            return
-        }
         val downloaded = com.meetily.mobile.whisper.TranscriptionModels.downloadedKeys(this)
         if (downloaded.isEmpty()) {
             Toast.makeText(this, R.string.import_needs_whisper, Toast.LENGTH_LONG).show()
@@ -2255,6 +2247,13 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun startCheck(m: Meeting, modelKey: String) {
         val file = audioFileOrNull() ?: return
+        // The check reads the meeting's own saved audio, so there is nothing
+        // to stage — queueing it is enough when something else is running.
+        if (!JobGate.canStartBatch()) {
+            JobGate.requestCheck(this, m.id, modelKey, whenCharging = false)
+            Toast.makeText(this, R.string.check_queued, Toast.LENGTH_LONG).show()
+            return
+        }
         val start = Intent(this, ImportService::class.java)
             .setAction(ImportService.ACTION_START)
             .setData(AudioStore.uriFor(this, file))
