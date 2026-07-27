@@ -553,6 +553,23 @@
                             android:layout_marginTop="8dp"
                             android:textColor="?attr/colorOnSurface" />
 
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/autoTitleSwitch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:text="@string/setting_auto_title"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/setting_auto_title_desc"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"

@@ -726,6 +726,8 @@
     <string name="setting_auto_summary_desc">Generate the AI summary without being asked. Heavy work runs one job at a time, never during a recording.</string>
     <string name="setting_auto_summary_style">Style: %1$s</string>
     <string name="setting_auto_summary_style_title">Automatic summary style</string>
+    <string name="setting_auto_title">Name meetings from the transcript</string>
+    <string name="setting_auto_title_desc">The first time you open a meeting, replace its date-and-time name with one taken from what was said. Off by default: meetings started from a calendar reminder already use that event\'s name.</string>
     <string name="setting_auto_summary_when">Run: %1$s</string>
     <string name="setting_auto_summary_when_title">When to summarise</string>
     <string name="auto_summary_when_end">When the meeting ends</string>

@@ -733,6 +733,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun maybeAutoTitle(m: Meeting) {
+        if (!settings.autoTitleFromTranscript) return
         val defaultTitle = getString(
             R.string.default_meeting_title,
             DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)

@@ -136,7 +136,8 @@ class RecordingService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startSessionIfNeeded(
-                intent.getBooleanExtra(EXTRA_DEVICE_AUDIO, false)
+                intent.getBooleanExtra(EXTRA_DEVICE_AUDIO, false),
+                intent.getStringExtra(EXTRA_INITIAL_TITLE).orEmpty()
             )
             ACTION_TOGGLE_PAUSE -> togglePause()
             ACTION_FINISH -> finishAndSave(null)
@@ -176,7 +177,10 @@ class RecordingService : Service() {
 
     // --- Session lifecycle ------------------------------------------------
 
-    private fun startSessionIfNeeded(deviceAudio: Boolean = false) {
+    private fun startSessionIfNeeded(
+        deviceAudio: Boolean = false,
+        initialTitle: String = ""
+    ) {
         if (active) return
         active = true
         deviceAudioMode = deviceAudio && Build.VERSION.SDK_INT >= 29
@@ -190,11 +194,18 @@ class RecordingService : Service() {
         clusterNames.clear()
         audioWriter = null
         audioFileName = null
-        title = getString(
-            R.string.default_meeting_title,
-            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                .format(Date(startedAtMs))
-        )
+        // The title has to arrive on THIS Intent rather than be pushed
+        // afterwards. start() uses startForegroundService, so onStartCommand
+        // is a queued main-thread message that runs after the caller has
+        // finished — anything set through updateTitle() in the meantime is
+        // overwritten by the assignment below.
+        title = initialTitle.ifBlank {
+            getString(
+                R.string.default_meeting_title,
+                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                    .format(Date(startedAtMs))
+            )
+        }
         store.markActive(meetingId)
         startForegroundNotification()
 
@@ -1136,6 +1147,9 @@ class RecordingService : Service() {
         const val ACTION_FINISH = "com.meetily.mobile.action.FINISH"
         const val EXTRA_DEVICE_AUDIO = "device_audio"
 
+        /** Title to open the session with; blank means "use the date". */
+        const val EXTRA_INITIAL_TITLE = "initial_title"
+
         private const val CHANNEL_ID = "recording"
         private const val NOTIF_ID = 1001
         // ~1.5 s of 16 kHz audio: shorter chunks embed unreliably.
@@ -1157,11 +1171,12 @@ class RecordingService : Service() {
         var runningSinceMs: Long? = null
             private set
 
-        fun start(context: Context, deviceAudio: Boolean = false) {
+        fun start(context: Context, deviceAudio: Boolean = false, initialTitle: String = "") {
             isRunning = true
             val intent = Intent(context, RecordingService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_DEVICE_AUDIO, deviceAudio)
+                .putExtra(EXTRA_INITIAL_TITLE, initialTitle)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

@@ -386,6 +386,9 @@ class SettingsActivity : AppCompatActivity() {
         charging.isEnabled = autoCheck.isChecked
         autoCheck.setOnCheckedChangeListener { _, on -> charging.isEnabled = on }
 
+        val autoTitle = findViewById<MaterialSwitch>(R.id.autoTitleSwitch)
+        autoTitle.isChecked = settings.autoTitleFromTranscript
+
         val autoSummary = findViewById<MaterialSwitch>(R.id.autoSummarySwitch)
         val styleButton =
             findViewById<com.google.android.material.button.MaterialButton>(
@@ -501,6 +504,8 @@ class SettingsActivity : AppCompatActivity() {
             findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked
         settings.autoCheckWhileChargingOnly =
             findViewById<MaterialSwitch>(R.id.autoCheckChargingSwitch).isChecked
+        settings.autoTitleFromTranscript =
+            findViewById<MaterialSwitch>(R.id.autoTitleSwitch).isChecked
         settings.customVocab =
             findViewById<android.widget.EditText>(R.id.vocabInput).text.toString().trim()
         settings.userName =

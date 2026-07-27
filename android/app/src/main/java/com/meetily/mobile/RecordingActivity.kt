@@ -125,6 +125,10 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private var deviceAudioRequested = false
 
+    /** Calendar event this session was launched for; blank/0 when not a nudge. */
+    private var nudgeTitle = ""
+    private var nudgeEventId = 0L
+
     private val projectionConsent = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -132,11 +136,11 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         if (result.resultCode == RESULT_OK && data != null) {
             RecordingService.pendingProjectionCode = result.resultCode
             RecordingService.pendingProjectionData = data
-            RecordingService.start(this, deviceAudio = true)
+            RecordingService.start(this, deviceAudio = true, initialTitle = nudgeTitle)
             Toast.makeText(this, R.string.device_audio_active, Toast.LENGTH_LONG).show()
         } else {
             Toast.makeText(this, R.string.device_audio_denied, Toast.LENGTH_LONG).show()
-            RecordingService.start(this)
+            RecordingService.start(this, initialTitle = nudgeTitle)
         }
     }
 
@@ -146,6 +150,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         setContentView(R.layout.activity_recording)
         deviceAudioRequested =
             intent?.getBooleanExtra(EXTRA_DEVICE_AUDIO, false) == true
+        readNudgeExtras(intent)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
 
         settings = AppSettings(this)
@@ -359,6 +364,14 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private fun startNewSession() {
         attached = true
+        // A nudge names the meeting. The service gets this on its start
+        // Intent (see EXTRA_INITIAL_TITLE); this only mirrors it into the
+        // field so the screen agrees with what was saved.
+        if (nudgeTitle.isNotBlank()) {
+            suppressWatchers = true
+            titleInput.setText(nudgeTitle)
+            suppressWatchers = false
+        }
         // Sync any values the user typed before the service connected.
         service?.let {
             it.updateTitle(titleInput.text.toString())
@@ -384,7 +397,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             try {
                 projectionConsent.launch(manager.createScreenCaptureIntent())
             } catch (_: Exception) {
-                RecordingService.start(this)
+                RecordingService.start(this, initialTitle = nudgeTitle)
             }
         } else {
             if (deviceAudioRequested) {
@@ -392,15 +405,21 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                     this, R.string.device_audio_needs_whisper, Toast.LENGTH_LONG
                 ).show()
             }
-            RecordingService.start(this)
+            RecordingService.start(this, initialTitle = nudgeTitle)
         }
         rebuildSpeakerChips()
         startTimer()
 
-        if (settings.calendarPrefill &&
-            ContextCompat.checkSelfPermission(this, Manifest.permission.READ_CALENDAR)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
+        val calendarReadable = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.READ_CALENDAR
+        ) == PackageManager.PERMISSION_GRANTED
+        if (nudgeEventId != 0L) {
+            // Never re-query on this path. findCurrentEvents picks whichever
+            // event starts closest to now, which can legitimately be a
+            // different one than the notification named — and the whole
+            // point here is that the title came from a specific reminder.
+            if (calendarReadable) mergeCalendarAttendees(nudgeEventId)
+        } else if (settings.calendarPrefill && calendarReadable) {
             loadCalendarEvents(manual = false)
         }
     }
@@ -753,6 +772,63 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         }.start()
     }
 
+    /**
+     * Reads the calendar-nudge identity off a launch Intent.
+     *
+     * Its presence is the entire signal: before this, a nudge tap and an orb
+     * tap arrived here byte-identical, so there was no way to tell whether
+     * the user had asserted "this recording is that meeting".
+     */
+    private fun readNudgeExtras(from: Intent?) {
+        val title = from?.getStringExtra(EXTRA_NUDGE_TITLE).orEmpty()
+        val id = from?.getLongExtra(EXTRA_NUDGE_EVENT_ID, 0L) ?: 0L
+        if (title.isNotBlank() && id != 0L) {
+            nudgeTitle = title
+            nudgeEventId = id
+        }
+    }
+
+    /**
+     * A nudge Intent carries FLAG_ACTIVITY_NEW_TASK, and this Activity
+     * declares no launchMode — so when the task is already rooted here (after
+     * a widget, tile, shortcut or earlier nudge launch) the system fronts the
+     * task and drops the Intent instead of calling onCreate. Re-reading it
+     * covers what can be covered; the rest degrades to the old behaviour of a
+     * date title, never to a title from the wrong meeting.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readNudgeExtras(intent)
+        // A session already under way keeps the title it started with:
+        // renaming a recording in progress from a notification the user may
+        // have tapped by accident would be worse than leaving it.
+        if (!attached && nudgeTitle.isNotBlank()) {
+            suppressWatchers = true
+            titleInput.setText(nudgeTitle)
+            suppressWatchers = false
+        }
+    }
+
+    /**
+     * Merges one known event's guests into the attendee field WITHOUT
+     * touching the title — the nudge path has already set that.
+     */
+    private fun mergeCalendarAttendees(eventId: Long) {
+        Thread {
+            val eventAttendees = CalendarHelper.attendeesFor(this, eventId)
+            if (eventAttendees.isEmpty()) return@Thread
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val merged = currentAttendees()
+                for (name in eventAttendees) {
+                    if (merged.none { it.equals(name, ignoreCase = true) }) merged.add(name)
+                }
+                attendeesInput.setText(merged.joinToString(", "))
+            }
+        }.start()
+    }
+
     private fun applyCalendarEvent(
         event: CalendarHelper.CalendarEvent,
         overwriteTitle: Boolean
@@ -761,7 +837,11 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             val eventAttendees = CalendarHelper.attendeesFor(this, event.eventId)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                if (overwriteTitle || titleInput.text.toString() == initialDefaultTitle) {
+                // Only an explicit "From calendar" tap renames the meeting.
+                // The automatic prefill still merges guests below, but a
+                // recording the user started from the orb keeps its date
+                // title — it was never asserted to be that calendar event.
+                if (overwriteTitle) {
                     titleInput.setText(event.title)
                 }
                 if (eventAttendees.isNotEmpty()) {
@@ -877,6 +957,14 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     companion object {
         const val EXTRA_DEVICE_AUDIO = "device_audio"
+
+        /**
+         * Set only by a calendar nudge notification, naming the event it was
+         * posted for. Its presence is what distinguishes "started from THIS
+         * meeting's reminder" from every other way in.
+         */
+        const val EXTRA_NUDGE_TITLE = "nudge_title"
+        const val EXTRA_NUDGE_EVENT_ID = "nudge_event_id"
         private const val PERMISSION_REQUEST = 4001
         private const val CALENDAR_REQUEST = 4002
         private const val NOTIF_REQUEST = 4003

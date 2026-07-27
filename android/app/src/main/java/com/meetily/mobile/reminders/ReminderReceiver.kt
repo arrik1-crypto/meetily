@@ -109,6 +109,19 @@ class ReminderReceiver : BroadcastReceiver() {
                     context,
                     eventCode,
                     Intent(context, RecordingActivity::class.java)
+                        // Naming the event is what separates "started from
+                        // THIS meeting's nudge" from any other way of
+                        // starting a recording.
+                        .putExtra(RecordingActivity.EXTRA_NUDGE_TITLE, event.title)
+                        .putExtra(RecordingActivity.EXTRA_NUDGE_EVENT_ID, event.eventId)
+                        // Load-bearing, not decoration. eventCode is
+                        // id % 400, so two events 400 apart share a request
+                        // code, and PendingIntent.filterEquals() ignores
+                        // extras but compares data — without a distinct URI,
+                        // FLAG_UPDATE_CURRENT would rewrite the first
+                        // event's extras and the notification would start a
+                        // recording named after the wrong meeting.
+                        .setData(nudgeUri(event.eventId, event.beginMs))
                         .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
@@ -136,6 +149,9 @@ class ReminderReceiver : BroadcastReceiver() {
                                 com.meetily.mobile.PreMeetingBriefActivity.EXTRA_QUERY,
                                 event.title
                             )
+                            // Same collision, same fix: the brief carries the
+                            // event title as an extra too.
+                            .setData(nudgeUri(event.eventId, event.beginMs))
                             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                         PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                     )
@@ -178,6 +194,14 @@ class ReminderReceiver : BroadcastReceiver() {
             manager.createNotificationChannel(NotificationChannel(id, name, importance))
         }
     }
+
+    /**
+     * A URI unique to one occurrence, so PendingIntents for two events whose
+     * ids are congruent modulo 400 stay distinct. Nothing resolves it — it
+     * exists purely so [PendingIntent.filterEquals] can tell them apart.
+     */
+    private fun nudgeUri(eventId: Long, beginMs: Long): android.net.Uri =
+        android.net.Uri.parse("recap://nudge/$eventId/$beginMs")
 
     private fun notify(context: Context, id: Int, notification: android.app.Notification) {
         val manager =

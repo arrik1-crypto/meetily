@@ -141,6 +141,19 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("auto_summarize", false)
         set(value) = prefs.edit().putBoolean("auto_summarize", value).apply()
 
+    /**
+     * Replace a meeting's date-and-time title with one derived from its
+     * transcript, the first time it is opened.
+     *
+     * Off by default. A recording is named for when it happened unless the
+     * user asserted otherwise (by starting it from a calendar reminder, or
+     * tapping "From calendar"); guessing a name from the words afterwards is
+     * the app overriding that, so it has to be asked for.
+     */
+    var autoTitleFromTranscript: Boolean
+        get() = prefs.getBoolean("auto_title_from_transcript", false)
+        set(value) = prefs.edit().putBoolean("auto_title_from_transcript", value).apply()
+
     /** "end" (as soon as the meeting stops) or "charging" (defer to power). */
     var autoSummaryWhen: String
         get() = prefs.getString("auto_summary_when", "end") ?: "end"
