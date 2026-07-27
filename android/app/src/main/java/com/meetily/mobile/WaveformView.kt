@@ -7,7 +7,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import com.google.android.material.color.MaterialColors
+import androidx.core.content.ContextCompat
 import com.meetily.mobile.data.Waveform
 
 /**
@@ -35,15 +35,11 @@ class WaveformView @JvmOverloads constructor(
     private val rect = RectF()
     private val density = context.resources.displayMetrics.density
 
-    private val played = MaterialColors.getColor(
-        this, com.google.android.material.R.attr.colorPrimary
-    )
-    private val unplayed = MaterialColors.getColor(
-        this, com.google.android.material.R.attr.colorOutlineVariant
-    )
-    private val head = MaterialColors.getColor(
-        this, com.google.android.material.R.attr.colorPrimary
-    )
+    // The design's own ramp: played bars accm, unplayed brd, playhead acc1.
+    // These are colour resources with night variants, so both themes follow.
+    private val played = ContextCompat.getColor(context, R.color.accm)
+    private val unplayed = ContextCompat.getColor(context, R.color.line_strong)
+    private val head = ContextCompat.getColor(context, R.color.accent)
 
     fun setBars(values: FloatArray) {
         bars = values

@@ -7,7 +7,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
-import com.google.android.material.color.MaterialColors
+import androidx.core.content.ContextCompat
 
 /**
  * Who was talking, across the length of the recording — one coloured run per
@@ -37,9 +37,7 @@ class SpeakerStripView @JvmOverloads constructor(
     private val rect = RectF()
     private val density = context.resources.displayMetrics.density
 
-    private val idle = MaterialColors.getColor(
-        this, com.google.android.material.R.attr.colorOutlineVariant
-    )
+    private val idle = ContextCompat.getColor(context, R.color.line_strong)
 
     /**
      * Up to three speaker colours, matching the design's S1/S2/S3. Beyond
@@ -47,18 +45,11 @@ class SpeakerStripView @JvmOverloads constructor(
      * eight speakers is better served by a repeating palette than by seven
      * shades nobody can tell apart.
      */
-    private val slotColors by lazy {
-        intArrayOf(
-            MaterialColors.getColor(this, com.google.android.material.R.attr.colorPrimary),
-            MaterialColors.getColor(
-                this, com.google.android.material.R.attr.colorTertiary,
-                MaterialColors.getColor(this, com.google.android.material.R.attr.colorSecondary)
-            ),
-            MaterialColors.getColor(
-                this, com.google.android.material.R.attr.colorSecondary
-            )
-        )
-    }
+    private val slotColors = intArrayOf(
+        ContextCompat.getColor(context, R.color.accent),
+        ContextCompat.getColor(context, R.color.accm),
+        ContextCompat.getColor(context, R.color.accd)
+    )
 
     fun colorForSlot(slot: Int): Int =
         if (slot < 0) idle else slotColors[slot % slotColors.size]

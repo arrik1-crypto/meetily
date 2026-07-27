@@ -2878,7 +2878,7 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun jumpToChapter(chapter: com.meetily.mobile.data.Chapter) {
         val m = meeting ?: return
-        if (!onTranscriptTab) switchTab(true)
+        if (!onTranscriptTab) switchTab(Tab.TRANSCRIPT)
         val segIndex = m.segments.indexOfFirst { it.timestampMs >= chapter.startMs }
         if (segIndex < 0) return
         val recycler = findViewById<RecyclerView>(R.id.detailRecycler)
@@ -2986,7 +2986,8 @@ class MeetingDetailActivity : AppCompatActivity() {
                     }
                 }
                 collapsedApplied = false // re-collapse around the new chapters
-                if (!onTranscriptTab) switchTab(true) else meeting?.let { renderTranscript(it) }
+                if (!onTranscriptTab) switchTab(Tab.TRANSCRIPT)
+                else meeting?.let { renderTranscript(it) }
                 when {
                     hadFailure != null -> Toast.makeText(
                         this, getString(R.string.topics_failed, hadFailure), Toast.LENGTH_LONG
