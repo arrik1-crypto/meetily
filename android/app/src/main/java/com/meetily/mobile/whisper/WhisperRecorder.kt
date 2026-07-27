@@ -61,6 +61,13 @@ class WhisperRecorder(
     private val silenceRms = 0.008f
     private val minSpeechRms = 0.012f
 
+    /**
+     * A blocking read is meant to block, so a run of instant empty returns
+     * means the source has gone away rather than gone quiet. Even in the worst
+     * case this is a fraction of a second before giving up.
+     */
+    private val maxEmptyReads = 50
+
     @Volatile private var running = false
     @Volatile private var paused = false
     private var audioThread: Thread? = null
@@ -158,9 +165,31 @@ class WhisperRecorder(
                 submitChunk(audio, speakerSupplier(), startMs)
             }
 
+            var emptyReads = 0
             while (running) {
                 val n = record.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
-                if (n <= 0) continue
+                if (n < 0) {
+                    // Negative codes are terminal for this AudioRecord, and
+                    // treating them as "nothing to read" turned a dead source
+                    // into a tight loop: 100% of a core, forever, while the UI
+                    // still said Listening and the transcript quietly stopped
+                    // growing. Device-audio capture hits this whenever the
+                    // MediaProjection is revoked or handed to another app.
+                    onError(readErrorMessage(n))
+                    break
+                }
+                if (n == 0) {
+                    // A blocking read yielding nothing means the source has
+                    // stopped producing. Tolerate a short run of it rather
+                    // than ending a live recording on one hiccup, but do not
+                    // spin on it indefinitely.
+                    if (++emptyReads > maxEmptyReads) {
+                        onError("Audio capture stopped delivering audio")
+                        break
+                    }
+                    continue
+                }
+                emptyReads = 0
                 if (paused) {
                     // Flush what was already captured BEFORE dropping the
                     // rest. Those frames went to frameSink on earlier passes,
@@ -259,6 +288,17 @@ class WhisperRecorder(
             pendingJobs--
             if (pendingJobs <= 0) onProcessingChange(false)
         }
+    }
+
+    /** Plain-language cause for a negative AudioRecord.read return. */
+    private fun readErrorMessage(code: Int): String = when (code) {
+        AudioRecord.ERROR_DEAD_OBJECT ->
+            "Audio capture ended — device audio was stopped or taken over"
+        AudioRecord.ERROR_INVALID_OPERATION ->
+            "Audio capture stopped unexpectedly"
+        AudioRecord.ERROR_BAD_VALUE ->
+            "Audio capture rejected the read buffer"
+        else -> "Audio capture failed (code $code)"
     }
 
     /** Whisper emits bracketed placeholders on silence, e.g. [BLANK_AUDIO]. */

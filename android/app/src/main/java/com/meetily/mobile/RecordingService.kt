@@ -1027,7 +1027,25 @@ class RecordingService : Service() {
         } ?: return null
         try {
             projection.registerCallback(
-                object : android.media.projection.MediaProjection.Callback() {}, main
+                object : android.media.projection.MediaProjection.Callback() {
+                    override fun onStop() {
+                        // The projection is the ONLY audio source in device
+                        // mode, so losing it means the recording is capturing
+                        // nothing. This callback was empty, which left the
+                        // notification saying Listening while the transcript
+                        // silently stopped growing — the user found out when
+                        // they opened the finished meeting.
+                        main.post {
+                            if (active && !finishing) {
+                                setStatus(
+                                    Status.ERROR,
+                                    getString(R.string.status_device_audio_ended)
+                                )
+                            }
+                        }
+                    }
+                },
+                main
             )
         } catch (_: Exception) {
         }

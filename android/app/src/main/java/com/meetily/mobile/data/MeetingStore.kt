@@ -34,13 +34,10 @@ class MeetingStore(context: Context) {
     }
 
     fun save(meeting: Meeting) {
-        val file = File(dir, "${meeting.id}.json")
-        val tmp = File(dir, "${meeting.id}.json.tmp")
-        tmp.writeText(meeting.toJson().toString())
-        if (!tmp.renameTo(file)) {
-            file.writeText(meeting.toJson().toString())
-            tmp.delete()
-        }
+        // Serialize once, outside the lock: Meeting is mutable and shared, so
+        // building the JSON twice (as the fallback path used to) could put two
+        // different snapshots into the two branches.
+        AtomicJson.write(dir, "${meeting.id}.json", meeting.toJson().toString())
     }
 
     /**
@@ -56,11 +53,17 @@ class MeetingStore(context: Context) {
      * the lines it deliberately removed.
      */
     fun saveMerging(meeting: Meeting, segmentsSeenThroughMs: Long) {
-        val onDisk = load(meeting.id)
-        if (onDisk != null) {
-            MeetingMerge.foldLateSegments(meeting, onDisk, segmentsSeenThroughMs)
+        // Read-modify-write, so it has to exclude other writers for the whole
+        // cycle — otherwise a segment that lands between the load and the save
+        // is folded into nothing and then overwritten, which is the exact loss
+        // this method exists to prevent.
+        AtomicJson.exclusive {
+            val onDisk = load(meeting.id)
+            if (onDisk != null) {
+                MeetingMerge.foldLateSegments(meeting, onDisk, segmentsSeenThroughMs)
+            }
+            save(meeting)
         }
-        save(meeting)
     }
 
     fun delete(id: String) {
