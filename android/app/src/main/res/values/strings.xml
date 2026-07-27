@@ -490,6 +490,7 @@
     <string name="backup_done">Backup saved</string>
     <string name="backup_failed">Backup failed: %1$s</string>
     <string name="restore_done">Restored %1$d meeting(s)</string>
+    <string name="restore_done_skipped">Restored %1$d meeting(s) — %2$d item(s) in the backup were damaged and were skipped. Anything already on this phone was left alone.</string>
     <string name="restore_failed">Restore failed: %1$s</string>
     <string name="backup_file_name">meetily-backup.zip</string>
     <string name="backup_enc_file_name">meetily-backup.recapbak</string>

@@ -830,9 +830,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun doRestore(uri: Uri, passphrase: CharArray?) {
         Thread {
-            var count = 0
+            var result = BackupManager.Restored(0, 0)
             val error = try {
-                count = contentResolver.openInputStream(uri)?.use {
+                result = contentResolver.openInputStream(uri)?.use {
                     BackupManager.import(this, it, passphrase)
                 } ?: throw RuntimeException("could not open file")
                 null
@@ -844,9 +844,15 @@ class SettingsActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (error == null) {
-                    Toast.makeText(
-                        this, getString(R.string.restore_done, count), Toast.LENGTH_LONG
-                    ).show()
+                    // A partly-restored backup has to say so. Reporting only
+                    // the successes is how a user comes to trust an archive
+                    // that is missing pieces.
+                    val message = if (result.skipped > 0) {
+                        getString(R.string.restore_done_skipped, result.meetings, result.skipped)
+                    } else {
+                        getString(R.string.restore_done, result.meetings)
+                    }
+                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
                 } else {
                     Toast.makeText(
                         this, getString(R.string.restore_failed, error), Toast.LENGTH_LONG

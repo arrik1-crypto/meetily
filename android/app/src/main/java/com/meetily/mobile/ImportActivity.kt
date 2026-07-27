@@ -160,6 +160,46 @@ class ImportActivity : AppCompatActivity() {
             finish()
             return
         }
+        // Ask before the service starts, not after.
+        //
+        // Sharing a file into Recap is an entry point in its own right — a new
+        // user can reach it without ever having tapped Record, which is where
+        // the only other request lives. On Android 13+ the permission is
+        // denied by default, so ImportService's startForeground notification
+        // was discarded: no progress, no cancel action (the screen's own back
+        // button says the import keeps running), and no "done" notification. A
+        // multi-minute transcription ran completely invisibly.
+        //
+        // Asked once and then continued either way, matching the record path:
+        // the import itself does not need the permission, only its visibility
+        // does.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            pendingStart = { beginImport(uri, downloaded) }
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            return
+        }
+        beginImport(uri, downloaded)
+    }
+
+    /** Set while the notification-permission dialog is up. */
+    private var pendingStart: (() -> Unit)? = null
+
+    private val notificationPermission =
+        registerForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+        ) { _ ->
+            // Granted or not, the import goes ahead — it just may run without
+            // a visible notification, exactly as the record path behaves.
+            val start = pendingStart
+            pendingStart = null
+            if (!isFinishing && !isDestroyed) start?.invoke()
+        }
+
+    private fun beginImport(uri: Uri, downloaded: List<String>) {
         // One downloaded model: nothing to choose. Otherwise ask which model
         // should transcribe THIS file (heavier models suit imports better
         // than live capture, so the per-run choice matters here).
