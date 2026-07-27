@@ -76,8 +76,8 @@
     <string name="import_done_notif">Import complete — tap to open</string>
     <string name="import_failed_notif">Import failed</string>
     <string name="import_incomplete_notif">Import incomplete</string>
-    <string name="import_truncated">Transcribed %1$s of %2$s. The audio was saved — open the meeting and use Re-transcribe (⋮) to try the rest again.</string>
-    <string name="import_stopped_early">Import stopped early (%1$s transcribed). The audio was saved — use Re-transcribe (⋮) on the meeting to try again.</string>
+    <string name="import_truncated">Transcribed %1$s of %2$s. The audio was saved — open the meeting and use “Check transcript accuracy” (⋮) to try the rest again.</string>
+    <string name="import_stopped_early">Import stopped early (%1$s transcribed). The audio was saved — use “Check transcript accuracy” (⋮) on the meeting to try again.</string>
     <string name="duration_min">%1$d min</string>
     <string name="duration_h_min">%1$d h %2$d min</string>
     <string name="download_channel_name">Model downloads</string>
@@ -154,7 +154,6 @@
     <string name="topics_working">Finding topics…</string>
     <string name="topics_failed">Couldn\'t detect topics: %1$s</string>
     <string name="topics_offline_note">Topics found without AI (offline keywords)</string>
-    <string name="chapter_meta">%1$d lines · %2$s</string>
     <string name="chapter_expand_all">Expand all</string>
     <string name="chapter_collapse_all">Collapse all</string>
 
@@ -567,6 +566,9 @@
     <string name="status_device_audio_ended">Device audio capture ended — stop and start again to resume</string>
     <string name="fgs_timeout_import">Android stopped this after its daily background time limit. The part that finished has been kept — start it again to continue.</string>
     <string name="status_paused">Paused</string>
+    <string name="status_loading_model">Loading the model…</string>
+    <string name="record_button">Record a meeting</string>
+    <string name="record_button_sources">Choose microphone or device audio</string>
     <string name="status_error">Recognition error (%1$s), retrying…</string>
     <string name="recognition_unavailable">Speech recognition is not available on this device. You can still take notes.</string>
     <string name="mic_permission_denied">Microphone permission denied — transcription disabled. You can still take notes.</string>
@@ -689,6 +691,19 @@
     <plurals name="meeting_count">
         <item quantity="one">%1$d meeting</item>
         <item quantity="other">%1$d meetings</item>
+    </plurals>
+
+    <!-- Two forms, because a chapter whose segments carry no offsets has no
+         time span to show and the old single template left the separator
+         stranded after the count. -->
+    <plurals name="chapter_lines">
+        <item quantity="one">%1$d line</item>
+        <item quantity="other">%1$d lines</item>
+    </plurals>
+
+    <plurals name="chapter_lines_span">
+        <item quantity="one">%1$d line · %2$s</item>
+        <item quantity="other">%1$d lines · %2$s</item>
     </plurals>
 
     <plurals name="check_differences_title">

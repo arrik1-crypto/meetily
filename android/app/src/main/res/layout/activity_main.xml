@@ -92,12 +92,17 @@
             android:layout_gravity="center"
             android:background="@drawable/orb_glow" />
 
+        <!-- The one way to start a recording, so it has to be reachable with
+             a screen reader: the mic glyph inside is decorative and opted out,
+             and orbCaption below is a separate, unassociated node. -->
         <FrameLayout
             android:id="@+id/recordOrb"
             android:layout_width="118dp"
             android:layout_height="118dp"
             android:layout_gravity="center"
-            android:background="@drawable/orb">
+            android:background="@drawable/orb"
+            android:contentDescription="@string/record_button"
+            android:focusable="true">
 
             <ImageView
                 android:layout_width="36dp"

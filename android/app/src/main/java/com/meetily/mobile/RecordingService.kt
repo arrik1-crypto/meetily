@@ -122,6 +122,9 @@ class RecordingService : Service() {
     private val mutedStreams = mutableListOf<Int>()
     private var whisperRecorder: WhisperRecorder? = null
 
+    /** A model load is in flight, so whisperRecorder is null but claimed. */
+    private var whisperStarting = false
+
     private var saveScheduled = false
 
     override fun onCreate() {
@@ -172,8 +175,20 @@ class RecordingService : Service() {
      */
     fun startedAt(): Long = startedAtMs
 
-    fun elapsedMs(): Long =
-        accumulatedMs + if (paused) 0L else SystemClock.elapsedRealtime() - lastResumeAt
+    /**
+     * Zero until the session is actually live. start() uses
+     * startForegroundService, so onStartCommand — where lastResumeAt is
+     * assigned — is a queued main-thread message that runs after the caller
+     * has returned and posted its first timer tick. Without the guard that
+     * tick subtracted zero from elapsedRealtime and rendered time since boot:
+     * a phone up for six days showed "142:07:33" for half a second, and much
+     * longer on the device-audio path, where start() waits on the consent
+     * dialog.
+     */
+    fun elapsedMs(): Long {
+        if (lastResumeAt == 0L) return accumulatedMs
+        return accumulatedMs + if (paused) 0L else SystemClock.elapsedRealtime() - lastResumeAt
+    }
 
     // --- Session lifecycle ------------------------------------------------
 
@@ -679,55 +694,116 @@ class RecordingService : Service() {
 
     // --- Whisper path -----------------------------------------------------
 
+    /**
+     * Loads whatever needs loading, then wires up the recorder.
+     *
+     * The whisper.cpp context is deliberately built on WhisperRecorder's own
+     * audio thread, but the sherpa-onnx models were not: NemoEngine.create
+     * builds onnxruntime sessions over a 622-658 MB int8 encoder, and the
+     * diarization embedder adds up to 109 MB on top. onStartCommand runs on
+     * the main thread, so with Parakeet or Nemotron selected the recording
+     * screen was frozen for several seconds at the exact moment the user
+     * tapped Record — long enough to trip the input-dispatch ANR.
+     *
+     * So: nothing heavy on this thread. The loads happen on a worker and
+     * [finishStartWhisper] does the wiring back on main, where all of this
+     * service's state lives.
+     */
     private fun startWhisper() {
-        if (whisperRecorder != null) return
+        if (whisperRecorder != null || whisperStarting) return
         val model = WhisperModels.byKey(settings.whisperModel)
         // NeMo path (Parakeet/Nemotron): loaded up front; null means "treat
         // as whisper" so a broken download degrades to the default model.
         val nemoModel = com.meetily.mobile.whisper.NemoModels
             .byKeyOrNull(settings.whisperModel)
-        val nemoEngine = nemoModel?.let {
-            com.meetily.mobile.whisper.NemoEngine.create(
-                this, it, com.meetily.mobile.data.HeavyWork.recordingThreads()
-            )
-        }
-        val englishOnly = nemoModel?.englishOnly ?: model.englishOnly
-
         // Optional acoustic diarization: only when enabled, the model is
         // downloaded, and the native stack loads. Failure of any piece
         // degrades silently to plain transcription.
-        var labeler: ((FloatArray) -> Int?)? = null
-        if (settings.diarizationEnabled) {
-            val dModel = DiarizationModels.byKey(settings.diarizationModel)
-            if (DiarizationModels.isDownloaded(this, dModel)) {
-                val created = SherpaEmbedder.create(
-                    DiarizationModels.fileFor(this, dModel).absolutePath
+        val dModel = if (settings.diarizationEnabled) {
+            DiarizationModels.byKey(settings.diarizationModel)
+                .takeIf { DiarizationModels.isDownloaded(this, it) }
+        } else {
+            null
+        }
+
+        if (nemoModel == null && dModel == null) {
+            // Pure whisper.cpp with no diarization: nothing to load here at
+            // all, so keep it synchronous and start capturing immediately.
+            finishStartWhisper(meetingId, model, null, null, null, null, null)
+            return
+        }
+
+        whisperStarting = true
+        // The session this load belongs to. Stopping and starting again while
+        // a 622 MB encoder is loading is slow but perfectly possible, and the
+        // engine the first session asked for must not be wired into the
+        // second one.
+        val session = meetingId
+        setStatus(Status.PROCESSING, getString(R.string.status_loading_model))
+        Thread {
+            val engine = nemoModel?.let {
+                com.meetily.mobile.whisper.NemoEngine.create(
+                    this, it, com.meetily.mobile.data.HeavyWork.recordingThreads()
                 )
-                if (created != null) {
-                    embedder = created
-                    diarizeModelKey = dModel.key
-                    val c = SpeakerClusterer()
-                    clusterer = c
-                    voiceProfiles = VoiceProfileStore.load(this)
-                    // Voiceprint rollover runs on the labeler's first call:
-                    // that's the transcription worker thread (the embedder's
-                    // normal home, so no lifecycle races) rather than the
-                    // service start path, and its main.post lands before the
-                    // first segment posts — so even the opening sentence is
-                    // matched against the converted profiles.
-                    val rolled = java.util.concurrent.atomic.AtomicBoolean(false)
-                    labeler = { audio ->
-                        if (rolled.compareAndSet(false, true)) {
-                            val updated = VoiceProfileStore.reembedForModel(
-                                this, dModel.key
-                            ) { created.embed(it) }
-                            main.post { if (active) voiceProfiles = updated }
-                        }
-                        c.assign(
-                            if (audio.size >= MIN_EMBED_SAMPLES) created.embed(audio) else null
-                        )
-                    }
+            }
+            val created = dModel?.let {
+                SherpaEmbedder.create(DiarizationModels.fileFor(this, it).absolutePath)
+            }
+            val profiles = if (created != null) VoiceProfileStore.load(this) else null
+            main.post {
+                finishStartWhisper(session, model, nemoModel, engine, dModel, created, profiles)
+            }
+        }.apply {
+            name = "whisper-model-load"
+            start()
+        }
+    }
+
+    private fun finishStartWhisper(
+        session: String,
+        model: com.meetily.mobile.whisper.WhisperModel,
+        nemoModel: com.meetily.mobile.whisper.NemoModel?,
+        nemoEngine: com.meetily.mobile.whisper.NemoEngine?,
+        dModel: com.meetily.mobile.whisper.DiarizationModel?,
+        created: SherpaEmbedder?,
+        profiles: List<VoiceProfile>?
+    ) {
+        // Stopped, or restarted, while the models were loading. Release what
+        // the worker built — nothing else owns it yet, so nothing else will.
+        // The flag is left alone in that case: it belongs to whichever load is
+        // in flight now, which is not this one.
+        if (!active || finishing || whisperRecorder != null || meetingId != session) {
+            nemoEngine?.release()
+            created?.release()
+            return
+        }
+        whisperStarting = false
+        val englishOnly = nemoModel?.englishOnly ?: model.englishOnly
+
+        var labeler: ((FloatArray) -> Int?)? = null
+        if (created != null && dModel != null) {
+            embedder = created
+            diarizeModelKey = dModel.key
+            val c = SpeakerClusterer()
+            clusterer = c
+            if (profiles != null) voiceProfiles = profiles
+            // Voiceprint rollover runs on the labeler's first call:
+            // that's the transcription worker thread (the embedder's
+            // normal home, so no lifecycle races) rather than the
+            // service start path, and its main.post lands before the
+            // first segment posts — so even the opening sentence is
+            // matched against the converted profiles.
+            val rolled = java.util.concurrent.atomic.AtomicBoolean(false)
+            labeler = { audio ->
+                if (rolled.compareAndSet(false, true)) {
+                    val updated = VoiceProfileStore.reembedForModel(
+                        this, dModel.key
+                    ) { created.embed(it) }
+                    main.post { if (active) voiceProfiles = updated }
                 }
+                c.assign(
+                    if (audio.size >= MIN_EMBED_SAMPLES) created.embed(audio) else null
+                )
             }
         }
 
@@ -795,7 +871,15 @@ class RecordingService : Service() {
                 main.post { if (active && !finishing) setStatus(Status.ERROR, message) }
             }
         ).also { it.start() }
-        setStatus(Status.LISTENING, getString(R.string.status_listening_whisper))
+        if (paused) {
+            // Pause tapped while the model was loading: togglePause found no
+            // recorder to tell, so honour it now rather than starting to
+            // capture behind a paused UI.
+            whisperRecorder?.pause()
+            setStatus(Status.PAUSED, getString(R.string.status_paused))
+        } else {
+            setStatus(Status.LISTENING, getString(R.string.status_listening_whisper))
+        }
     }
 
     // --- Shared segment handling -----------------------------------------
@@ -887,6 +971,9 @@ class RecordingService : Service() {
         restoreSystemSounds()
         whisperRecorder?.destroy()
         whisperRecorder = null
+        // A model load may still be in flight; finishStartWhisper sees the
+        // closed session and releases what it built rather than wiring it up.
+        whisperStarting = false
         try {
             mediaProjection?.stop()
         } catch (_: Exception) {

@@ -42,6 +42,11 @@ object AudioStore {
         FileProvider.getUriForFile(context, authority(context), file)
 
     fun delete(context: Context, name: String?) {
-        if (!name.isNullOrBlank()) fileFor(context, name).delete()
+        if (name.isNullOrBlank()) return
+        val file = fileFor(context, name)
+        file.delete()
+        // Waveform caches the computed bars beside the audio; without this it
+        // outlives the recording it describes, with nothing left to reach it.
+        File(file.absolutePath + ".peaks").delete()
     }
 }

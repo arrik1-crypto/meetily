@@ -170,9 +170,15 @@
 
         <receiver
             android:name=".reminders.ReminderReceiver"
-            android:exported="false">
+            android:exported="true">
             <!-- The calendar provider broadcasts this after a sync, so newly
-                 arrived meetings get an alarm armed without opening the app. -->
+                 arrived meetings get an alarm armed without opening the app.
+                 It comes from another UID, so exported="false" meant it was
+                 never delivered and the whole path was dead code: the only
+                 remaining re-arm was app launch and an inexact hourly sweep
+                 that Doze defers on a phone sitting on a desk. Exported is
+                 safe here — the branch this reaches only re-reads the
+                 calendar and re-arms an alarm, which is idempotent. -->
             <intent-filter>
                 <action android:name="android.intent.action.PROVIDER_CHANGED" />
                 <data android:scheme="content" />

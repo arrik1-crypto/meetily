@@ -419,9 +419,13 @@ class TranscriptLinesAdapter(
             holder.chevron.text = if (row.collapsed) "\u25B8" else "\u25BE"
             val ctx = holder.itemView.context
             holder.meta.text = if (row.span.isBlank()) {
-                ctx.getString(R.string.chapter_meta, row.lineCount, "")
+                ctx.resources.getQuantityString(
+                    R.plurals.chapter_lines, row.lineCount, row.lineCount
+                )
             } else {
-                ctx.getString(R.string.chapter_meta, row.lineCount, row.span)
+                ctx.resources.getQuantityString(
+                    R.plurals.chapter_lines_span, row.lineCount, row.lineCount, row.span
+                )
             }
             holder.meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, metaSizeSp)
             holder.itemView.setOnClickListener {

@@ -67,6 +67,7 @@ class SummaryService : Service() {
     @Volatile var percent = -1
         private set
     private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var wakeLockAcquiredMs = 0L
     private val main = Handler(Looper.getMainLooper())
 
     override fun onBind(intent: Intent?): IBinder = SummaryBinder()
@@ -93,16 +94,7 @@ class SummaryService : Service() {
         )
         createChannel()
         startForegroundCompat()
-        try {
-            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
-            wakeLock = pm.newWakeLock(
-                PowerManager.PARTIAL_WAKE_LOCK, "meetily:summary"
-            ).apply {
-                setReferenceCounted(false)
-                acquire(30 * 60 * 1000L)
-            }
-        } catch (_: Exception) {
-        }
+        acquireWakeLock()
         // Only a summary run is worth resuming after a process death: notes
         // enhancement and speaker suggestions are quick, and re-running them
         // unasked would be more surprising than useful.
@@ -298,9 +290,43 @@ class SummaryService : Service() {
         }
     }
 
+    /**
+     * A renewable slice rather than one fixed grant.
+     *
+     * A local summary is a map-reduce over however many sections the
+     * transcript has, with no wall-clock budget anywhere in LocalLlm, so a
+     * long meeting outlives any single lock. When it expired the device
+     * suspended with the screen off and the run stalled indefinitely behind a
+     * progress bar that still looked alive — and because JobQueue still had
+     * the job marked running, every queued import sat behind it. Renewing
+     * from the progress callback keeps the lock alive exactly as long as work
+     * is happening, and no longer. Same shape as ImportService.
+     */
+    private fun acquireWakeLock() {
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            val lock = wakeLock ?: pm.newWakeLock(
+                PowerManager.PARTIAL_WAKE_LOCK, "meetily:summary"
+            ).also {
+                it.setReferenceCounted(false)
+                wakeLock = it
+            }
+            lock.acquire(WAKE_LOCK_MS)
+            wakeLockAcquiredMs = System.currentTimeMillis()
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun renewWakeLockIfStale() {
+        if (System.currentTimeMillis() - wakeLockAcquiredMs >= WAKE_LOCK_RENEW_MS) {
+            acquireWakeLock()
+        }
+    }
+
     private fun setProgress(newPercent: Int, text: String) {
         percent = newPercent
         stage = text
+        renewWakeLockIfStale()
         main.post {
             if (isRunning) {
                 observers.forEach {
@@ -337,6 +363,7 @@ class SummaryService : Service() {
         } catch (_: Exception) {
         }
         wakeLock = null
+        wakeLockAcquiredMs = 0L
         if (currentMode == MODE_SUMMARY) {
             com.meetily.mobile.data.JobQueue.finished(
                 this, com.meetily.mobile.data.JobQueue.KIND_SUMMARY, meetingId
@@ -472,6 +499,9 @@ class SummaryService : Service() {
     }
 
     companion object {
+        private const val WAKE_LOCK_MS = 30 * 60 * 1000L
+        private const val WAKE_LOCK_RENEW_MS = 10 * 60 * 1000L
+
         @Volatile var isRunning = false
             private set
 

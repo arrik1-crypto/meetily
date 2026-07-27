@@ -94,7 +94,14 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private val timerTick = object : Runnable {
         override fun run() {
-            service?.let {
+            // Only once the session is live. startTimer() runs immediately
+            // after RecordingService.start(), and startForegroundService
+            // defers onStartCommand to a later main-thread message — so this
+            // first tick fires before the session's clock has been set, and
+            // used to render time since boot ("142:07:33" on a phone up for
+            // six days). The device-audio path makes that window much wider,
+            // because start() waits on the consent dialog.
+            service?.takeIf { it.active }?.let {
                 elapsedView.text = formatElapsed(it.elapsedMs())
                 // Picked up here rather than at startNewSession(): the
                 // service is started with startForegroundService, so

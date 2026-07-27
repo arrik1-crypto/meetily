@@ -23,7 +23,6 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
-import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.search.MeetingGroups
 
 class MainActivity : AppCompatActivity() {
@@ -399,13 +398,24 @@ class MainActivity : AppCompatActivity() {
         recycler.adapter = adapter
 
         orbCaption = findViewById(R.id.orbCaption)
-        findViewById<View>(R.id.recordOrb).setOnClickListener {
+        val orb = findViewById<View>(R.id.recordOrb)
+        orb.setOnClickListener {
             startActivity(Intent(this, RecordingActivity::class.java))
         }
-        findViewById<View>(R.id.recordOrb).setOnLongClickListener {
+        orb.setOnLongClickListener {
             showRecordSourceChooser()
             true
         }
+        // Without a label the long-press is announced as "long press" with no
+        // hint of what it does, so the microphone / device-audio choice is
+        // effectively hidden from a screen-reader user.
+        androidx.core.view.ViewCompat.replaceAccessibilityAction(
+            orb,
+            androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+                .AccessibilityActionCompat.ACTION_LONG_CLICK,
+            getString(R.string.record_button_sources),
+            null
+        )
         importBanner = findViewById(R.id.importBanner)
         importBannerName = findViewById(R.id.importBannerName)
         importBannerPct = findViewById(R.id.importBannerPct)
@@ -815,10 +825,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.delete_meeting_title)
             .setMessage(getString(R.string.delete_meeting_message, meeting.title))
             .setPositiveButton(R.string.delete) { _, _ ->
-                for (photo in meeting.photos) {
-                    PhotoStore.delete(this, photo)
-                }
-                AudioStore.delete(this, meeting.audioFile)
+                com.meetily.mobile.data.MeetingAssets.deleteAll(this, meeting)
                 store.delete(meeting.id)
                 refresh()
             }

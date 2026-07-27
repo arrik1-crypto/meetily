@@ -406,6 +406,19 @@ class MeetingDetailActivity : AppCompatActivity() {
         setUpNotesEditor()
 
         setUpTabs()
+        // Before the first render, not after: renderTranscript ->
+        // renderFollowsFrom is the only thing that makes the offer card
+        // visible, and nothing re-runs it on this path. Setting the flag
+        // afterwards left the card hidden on arrival from a finished
+        // recording — the one moment it exists for — and then popped it up
+        // out of context on the next unrelated re-render.
+        if (savedInstanceState == null &&
+            intent?.getBooleanExtra(EXTRA_OFFER_FOLLOW, false) == true
+        ) {
+            offerFollowLink = true
+            // Removed so a rotation cannot re-show a card already dismissed.
+            intent.removeExtra(EXTRA_OFFER_FOLLOW)
+        }
         renderSummary(m.summary)
         renderActionItems(m)
         renderTranscript(m)
@@ -420,13 +433,6 @@ class MeetingDetailActivity : AppCompatActivity() {
         setUpPlayer()
         renderStats(m)
         maybeAutoTitle(m)
-        if (savedInstanceState == null &&
-            intent?.getBooleanExtra(EXTRA_OFFER_FOLLOW, false) == true
-        ) {
-            offerFollowLink = true
-            // Removed so a rotation cannot re-show a card already dismissed.
-            intent.removeExtra(EXTRA_OFFER_FOLLOW)
-        }
         runRequestedAction(firstCreate = savedInstanceState == null)
     }
 
@@ -745,6 +751,9 @@ class MeetingDetailActivity : AppCompatActivity() {
                 playPauseButton.setImageResource(R.drawable.ic_play)
             }
         }
+        // A backgrounded screen has nothing to follow; the chain would
+        // otherwise keep waking the main thread every 90 ms.
+        playerHandler.removeCallbacks(playerTick)
     }
 
     override fun onDestroy() {
@@ -1245,12 +1254,25 @@ class MeetingDetailActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 getString(R.string.ask_failed, e.message ?: "unknown error")
             }
+            // SAVE FIRST, on this thread, against the stored copy. A local
+            // model can take minutes on a long transcript; rotating the phone
+            // or backing out during it used to throw away both the answer and
+            // the question, because the append only ran inside the UI hop
+            // below — which returns early once the screen is gone.
+            val entry = QaEntry(question, answer)
+            val saved = try {
+                store.mutate(m.id) { it.qa.add(entry) }
+            } catch (_: Exception) {
+                false
+            }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 answerView.text = answer
                 askSend.isEnabled = true
-                m.qa.add(QaEntry(question, answer))
-                persist(m)
+                // Keep the screen's copy in step with what was just written,
+                // so its own saves do not put the old list back.
+                m.qa.add(entry)
+                if (!saved) persist(m)
             }
         }.start()
     }
@@ -1893,7 +1915,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             p.start()
             applyPlaybackSpeed(p)
             playPauseButton.setImageResource(R.drawable.ic_pause)
-            playerHandler.post(playerTick)
+            restartTick()
         }
     }
 
@@ -1905,6 +1927,20 @@ class MeetingDetailActivity : AppCompatActivity() {
             applyPlaybackSpeed(p)
             playPauseButton.setImageResource(R.drawable.ic_pause)
         }
+        restartTick()
+    }
+
+    /**
+     * Exactly one live tick chain, always.
+     *
+     * playerTick reposts itself while the player is playing, so a bare post()
+     * starts an additional independent chain that nothing ever stops. Reviewing
+     * a meeting by tapping words — which is what word-level seek is for — used
+     * to leave one 90 ms chain per tap, each running updatePlayerUi and a
+     * reverse scan of the segment list on the main thread.
+     */
+    private fun restartTick() {
+        playerHandler.removeCallbacks(playerTick)
         playerHandler.post(playerTick)
     }
 
@@ -2083,21 +2119,30 @@ class MeetingDetailActivity : AppCompatActivity() {
         val waveform = headerView.findViewById<WaveformView>(R.id.waveform)
         val strip = headerView.findViewById<SpeakerStripView>(R.id.speakerStrip)
 
+        // The player was created lazily by play/seek only, so opening a
+        // meeting and tapping straight to Audio left it null: both seek
+        // callbacks below were no-ops, and the duration fell back to the last
+        // segment's offset — which on a recording left running past the last
+        // word is far short of the real length. The strip is scaled by that
+        // value once and never re-submitted, so the two stacked timelines
+        // disagreed for the life of the screen.
+        val ready = ensurePlayer()
+
         waveform.onSeek = { fraction ->
-            player?.let { p ->
+            ensurePlayer()?.let { p ->
                 val target = (fraction * p.duration).toInt()
                 p.seekTo(target)
                 updatePlayerUi(p)
             }
         }
         strip.onSeekMs = { ms ->
-            player?.let { p ->
+            ensurePlayer()?.let { p ->
                 p.seekTo(ms.toInt().coerceIn(0, p.duration))
                 updatePlayerUi(p)
             }
         }
 
-        val durationMs = (player?.duration?.toLong() ?: 0L).takeIf { it > 0L }
+        val durationMs = (ready?.duration?.toLong() ?: 0L).takeIf { it > 0L }
             ?: m.segments.mapNotNull { it.audioMs }.maxOrNull()
             ?: 0L
 

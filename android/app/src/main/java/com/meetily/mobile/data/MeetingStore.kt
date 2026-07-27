@@ -96,6 +96,25 @@ class MeetingStore(context: Context) {
         }
     }
 
+    /**
+     * Read-modify-write against the stored copy, under the write lock.
+     *
+     * For background work that owns one field and must not care what a screen
+     * did to the rest meanwhile: [block] receives the meeting as it is on
+     * disk right now, mutates it, and the result is written before any other
+     * writer gets in. Returns false when the meeting is gone.
+     *
+     * Doing this as load-then-save from the caller looks identical and is
+     * not: two of those interleave into a lost update, which is exactly how
+     * an answer generated over two minutes lands on top of a rename.
+     */
+    fun mutate(id: String, block: (Meeting) -> Unit): Boolean = AtomicJson.exclusive {
+        val target = load(id) ?: return@exclusive false
+        block(target)
+        save(target)
+        true
+    }
+
     fun delete(id: String) {
         File(dir, "$id.json").delete()
     }

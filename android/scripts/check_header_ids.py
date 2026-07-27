@@ -38,7 +38,12 @@ def main() -> int:
 
     offenders = []
     for lineno, line in enumerate(SOURCE.read_text().splitlines(), 1):
-        for match in re.finditer(r"(?P<recv>[\w.]*\.)?findViewById<[^>]+>\(R\.id\.(?P<id>\w+)\)", line):
+        # The type argument is optional: Kotlin infers it when the result is
+        # assigned to a typed property, and MeetingDetailActivity uses that
+        # bare form for its player views. Requiring <...> made this guard
+        # report OK on exactly the lines most likely to reintroduce the bug.
+        pattern = r"(?P<recv>[\w.]*\.)?findViewById(?:<[^>]+>)?\(R\.id\.(?P<id>\w+)\)"
+        for match in re.finditer(pattern, line):
             if match.group("id") not in header_ids:
                 continue
             receiver = match.group("recv")

@@ -93,14 +93,17 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- 48dp is the minimum touch target; the extra padding keeps the glyph
+         the same size it was. A miss used to land on the row underneath and
+         open the meeting, which reads as a successful tap of the wrong thing. -->
     <ImageButton
         android:id="@+id/meetingStar"
-        android:layout_width="34dp"
-        android:layout_height="34dp"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
         android:layout_marginStart="4dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/star_meeting"
-        android:padding="7dp"
+        android:padding="14dp"
         android:scaleType="fitCenter"
         android:src="@drawable/ic_star_outline" />
 
