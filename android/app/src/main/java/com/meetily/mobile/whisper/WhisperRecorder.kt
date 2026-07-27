@@ -162,8 +162,15 @@ class WhisperRecorder(
                 val n = record.read(frame, 0, frame.size, AudioRecord.READ_BLOCKING)
                 if (n <= 0) continue
                 if (paused) {
-                    // Keep draining the mic but throw the audio away.
-                    chunk = FloatArray(0)
+                    // Flush what was already captured BEFORE dropping the
+                    // rest. Those frames went to frameSink on earlier passes,
+                    // so they are in the saved recording — discarding them
+                    // here left the last sentence before a pause audible in
+                    // playback and absent from the transcript, the summary
+                    // and the action items, with nothing to indicate it.
+                    // cutChunk() no-ops once the buffer is empty, so the
+                    // remaining paused frames cost nothing.
+                    cutChunk()
                     silenceRun = 0f
                     chunkPeakRms = 0f
                     continue

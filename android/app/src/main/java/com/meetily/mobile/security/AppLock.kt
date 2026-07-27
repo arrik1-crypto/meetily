@@ -32,8 +32,16 @@ object AppLock {
     private var startedCount = 0
     private var lastAllStoppedAt = 0L
 
-    /** Set while LockActivity is alive, so it's only launched once. */
+    /**
+     * Set while a LockActivity launch is in flight, purely to avoid posting
+     * two launches for the same start. It is NOT an "already handled" flag:
+     * gating the lock check on it let any activity started while the lock
+     * screen was alive skip the gate entirely.
+     */
     @Volatile var lockScreenShowing = false
+
+    /** True once the user has authenticated this session (see GRACE_MS). */
+    fun isUnlocked(): Boolean = unlocked
 
     /** True when the device has any credential BiometricPrompt can use. */
     fun canUseLock(context: Context): Boolean =
@@ -89,7 +97,12 @@ object AppLock {
                 unlocked = false
             }
             startedCount++
-            if (activity !is LockActivity && !lockScreenShowing && shouldLock(activity)) {
+            // Deliberately NOT gated on lockScreenShowing. A cancelled
+            // biometric prompt leaves LockActivity alive with that flag still
+            // set, and anything started in that window — a notification tap,
+            // the widget, a share — was skipping the check and drawing
+            // meeting content over the unauthenticated lock screen.
+            if (activity !is LockActivity && shouldLock(activity)) {
                 lockScreenShowing = true
                 // Posted so the launch happens after the current lifecycle
                 // transaction, never from inside onStart dispatch (which can
@@ -98,7 +111,13 @@ object AppLock {
                 // next activity start re-runs the gate.
                 activity.window.decorView.post {
                     if (!activity.isFinishing && !activity.isDestroyed && !unlocked) {
-                        activity.startActivity(Intent(activity, LockActivity::class.java))
+                        activity.startActivity(
+                            Intent(activity, LockActivity::class.java)
+                                // No duplicate when it is already on top;
+                                // when it is not, a new one goes on top of
+                                // whatever just started, which is the point.
+                                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                        )
                     } else {
                         lockScreenShowing = false
                     }

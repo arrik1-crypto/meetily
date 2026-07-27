@@ -37,6 +37,14 @@ class LockActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        // A stale instance can be left underneath after an unlock — the gate
+        // now launches one per unauthenticated start, and only the top one is
+        // finished by the prompt. Standing down here keeps the back stack
+        // from re-prompting for an already-unlocked session.
+        if (AppLock.isUnlocked()) {
+            finish()
+            return
+        }
         if (!prompting) showPrompt()
     }
 
