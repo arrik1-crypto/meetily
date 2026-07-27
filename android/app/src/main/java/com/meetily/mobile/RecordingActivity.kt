@@ -94,7 +94,16 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private val timerTick = object : Runnable {
         override fun run() {
-            service?.let { elapsedView.text = formatElapsed(it.elapsedMs()) }
+            service?.let {
+                elapsedView.text = formatElapsed(it.elapsedMs())
+                // Picked up here rather than at startNewSession(): the
+                // service is started with startForegroundService, so
+                // startedAtMs is only assigned once the queued
+                // onStartCommand runs — after that method has returned.
+                // The adapter ignores a repeat of the same value, so this
+                // does real work exactly once.
+                transcriptAdapter.meetingStartMs = it.startedAt()
+            }
             handler.postDelayed(this, 500)
         }
     }
@@ -337,6 +346,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         notesInput.setText(svc.notesValue())
         suppressWatchers = false
 
+        // Before reset(), so the first bind already labels lines by their
+        // offset into the recording rather than the time of day.
+        transcriptAdapter.meetingStartMs = svc.startedAt()
         transcriptAdapter.reset(svc.segmentsSnapshot(), svc.currentPartial())
         scrollToBottom()
         statusView.text = svc.currentStatusText()

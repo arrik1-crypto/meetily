@@ -163,6 +163,14 @@ class RecordingService : Service() {
     fun notesValue(): String = notes
     fun photosSnapshot(): List<String> = photos.toList()
 
+    /**
+     * Wall clock at which this session started — the same value the saved
+     * meeting carries as createdAtMs. The live transcript needs it to label
+     * lines by their offset into the recording when audio is not being kept
+     * and the lines therefore have no audioMs of their own.
+     */
+    fun startedAt(): Long = startedAtMs
+
     fun elapsedMs(): Long =
         accumulatedMs + if (paused) 0L else SystemClock.elapsedRealtime() - lastResumeAt
 

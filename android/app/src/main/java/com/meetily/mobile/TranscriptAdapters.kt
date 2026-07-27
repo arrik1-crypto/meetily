@@ -6,9 +6,8 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
+import com.meetily.mobile.data.ElapsedTime
 import com.meetily.mobile.data.TranscriptSegment
-import java.text.DateFormat
-import java.util.Date
 
 /** Display name for a segment: manual tag, else auto cluster ("Speaker N"). */
 internal fun segmentSpeakerDisplay(
@@ -21,11 +20,18 @@ internal fun segmentSpeakerDisplay(
     return context.getString(R.string.speaker_cluster_label, cluster)
 }
 
+/**
+ * "★ 0:04:11 · Speaker 2" — time INTO the recording, not time of day.
+ *
+ * [meetingStartMs] is the recording's start; see [ElapsedTime] for why the
+ * label has to agree with what tapping the line seeks to.
+ */
 internal fun segmentTimeLabel(
     context: android.content.Context,
-    segment: TranscriptSegment
+    segment: TranscriptSegment,
+    meetingStartMs: Long
 ): String {
-    val time = DateFormat.getTimeInstance(DateFormat.SHORT).format(Date(segment.timestampMs))
+    val time = ElapsedTime.label(segment, meetingStartMs)
     val star = if (segment.highlighted) "★ " else ""
     val display = segmentSpeakerDisplay(context, segment)
     return if (display.isNullOrBlank()) "$star$time" else "$star$time · $display"
@@ -46,6 +52,19 @@ class LiveTranscriptAdapter(
     /** Body text size in sp; matches the meeting screen (see AppSettings). */
     var textSizeSp: Float = 15f
         set(value) {
+            field = value
+            notifyDataSetChanged()
+        }
+
+    /**
+     * When this recording started, so line labels can read as time INTO the
+     * meeting. Only used for lines with no audioMs — see [ElapsedTime].
+     */
+    var meetingStartMs: Long = 0L
+        set(value) {
+            // Polled once a second by the recording screen's timer, so a
+            // repeat must not redraw the list out from under the user.
+            if (field == value) return
             field = value
             notifyDataSetChanged()
         }
@@ -113,7 +132,8 @@ class LiveTranscriptAdapter(
             } else {
                 holder.itemView.background = null
             }
-            holder.time.text = segmentTimeLabel(holder.itemView.context, segment)
+            holder.time.text =
+                segmentTimeLabel(holder.itemView.context, segment, meetingStartMs)
             holder.text.text = segment.text
             holder.text.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
             holder.time.setTextSize(
@@ -187,6 +207,20 @@ class TranscriptLinesAdapter(
         }
 
     private val metaSizeSp: Float get() = (textSizeSp - 4f).coerceAtLeast(9f)
+
+    /**
+     * The meeting's start, so line labels and chapter spans read as time
+     * INTO the recording rather than time of day. See [ElapsedTime].
+     */
+    var meetingStartMs: Long = 0L
+        set(value) {
+            if (field == value) return
+            field = value
+            // rebuild(), not just notifyDataSetChanged(): a chapter's span is
+            // computed once and stored on its row, so redrawing alone would
+            // leave the spans reading as clock times.
+            rebuild()
+        }
 
     // --- Playback follow ---------------------------------------------------
 
@@ -294,19 +328,23 @@ class TranscriptLinesAdapter(
         notifyDataSetChanged()
     }
 
-    /** "09:15 – 09:28" for the lines a chapter owns, or "" when it owns none. */
+    /** "0:03:20 – 0:11:48" for the lines a chapter owns, or "" when none. */
     private fun spanLabel(segments: List<TranscriptSegment>, chapter: Int): String {
-        val fmt = DateFormat.getTimeInstance(DateFormat.SHORT)
         var first: Long? = null
         var last: Long? = null
         for (i in segments.indices) {
             if (segmentChapter.getOrNull(i) != chapter) continue
-            if (first == null) first = segments[i].timestampMs
-            last = segments[i].timestampMs
+            val at = ElapsedTime.offsetMs(segments[i], meetingStartMs)
+            if (first == null) first = at
+            last = at
         }
         val a = first ?: return ""
         val b = last ?: a
-        return if (a == b) fmt.format(Date(a)) else fmt.format(Date(a)) + " – " + fmt.format(Date(b))
+        return if (a == b) {
+            ElapsedTime.format(a)
+        } else {
+            ElapsedTime.format(a) + " – " + ElapsedTime.format(b)
+        }
     }
 
     fun toggleChapter(index: Int) {
@@ -394,8 +432,7 @@ class TranscriptLinesAdapter(
         }
         if (holder !is Holder || row !is Row.LineRow) return
         val segment = row.segment
-        val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
-        val time = timeFormat.format(Date(segment.timestampMs))
+        val time = ElapsedTime.label(segment, meetingStartMs)
         holder.time.text = if (segment.highlighted) "★ $time" else time
         holder.text.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
         holder.time.setTextSize(TypedValue.COMPLEX_UNIT_SP, metaSizeSp)

@@ -5,6 +5,7 @@ import android.graphics.pdf.PdfDocument
 import android.text.Layout
 import android.text.StaticLayout
 import android.text.TextPaint
+import com.meetily.mobile.data.ElapsedTime
 import com.meetily.mobile.data.Meeting
 import java.io.OutputStream
 import java.text.DateFormat
@@ -26,7 +27,6 @@ object MeetingExporter {
     fun markdown(meeting: Meeting): String {
         val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(meeting.createdAtMs))
-        val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
         return buildString {
             append("# ").append(meeting.title).append("\n\n")
             append("**Date:** ").append(date).append("\n\n")
@@ -56,7 +56,7 @@ object MeetingExporter {
                 for (seg in meeting.segments) {
                     append("- ")
                     if (seg.highlighted) append("★ ")
-                    append("**").append(timeFormat.format(Date(seg.timestampMs))).append("**")
+                    append("**").append(ElapsedTime.label(seg, meeting.createdAtMs)).append("**")
                     if (!seg.speaker.isNullOrBlank()) {
                         append(" *").append(seg.speaker).append("*")
                     }
@@ -74,7 +74,6 @@ object MeetingExporter {
     fun writePdf(meeting: Meeting, out: OutputStream) {
         val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(meeting.createdAtMs))
-        val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
         val doc = PdfDocument()
         val writer = PdfWriter(doc)
         try {
@@ -109,7 +108,7 @@ object MeetingExporter {
                 val transcript = meeting.segments.joinToString("\n") { seg ->
                     buildString {
                         if (seg.highlighted) append("★ ")
-                        append(timeFormat.format(Date(seg.timestampMs)))
+                        append(ElapsedTime.label(seg, meeting.createdAtMs))
                         if (!seg.speaker.isNullOrBlank()) {
                             append("  ").append(seg.speaker)
                         }

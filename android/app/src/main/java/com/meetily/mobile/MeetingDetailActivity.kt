@@ -548,6 +548,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             "large" -> 17f
             else -> 15f
         }
+        // Set before submit(): chapter spans are computed during the rebuild.
+        transcriptAdapter.meetingStartMs = m.createdAtMs
         // Chapters start collapsed the first time a meeting is opened, so a
         // chaptered transcript reads as an outline you drill into.
         val collapseFirst = onTranscriptTab && !collapsedApplied && m.chapters.isNotEmpty()
