@@ -1568,7 +1568,7 @@ class MeetingDetailActivity : AppCompatActivity() {
      * that just finished handed one over.
      */
     private fun renderFollowsFrom(m: Meeting) {
-        val line = findViewById<TextView>(R.id.followLinkLine)
+        val line = headerView.findViewById<TextView>(R.id.followLinkLine)
         val link = m.followsEvent
         if (link != null) {
             val stamp = java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault())
@@ -1580,7 +1580,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         } else {
             line.visibility = View.GONE
         }
-        val card = findViewById<View>(R.id.followOfferCard)
+        val card = headerView.findViewById<View>(R.id.followOfferCard)
         // Only when this screen was opened straight off the end of a
         // recording, nothing is linked yet, and the calendar is already
         // readable. Asking for calendar permission out of nowhere after a
@@ -1591,10 +1591,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             ) == android.content.pm.PackageManager.PERMISSION_GRANTED
         card.visibility = if (offer) View.VISIBLE else View.GONE
         if (offer) {
-            findViewById<View>(R.id.followChooseButton).setOnClickListener {
+            headerView.findViewById<View>(R.id.followChooseButton).setOnClickListener {
                 showFollowPicker()
             }
-            findViewById<View>(R.id.followDismissButton).setOnClickListener {
+            headerView.findViewById<View>(R.id.followDismissButton).setOnClickListener {
                 // Nothing persisted for a "no": the extra was one-shot and
                 // the overflow item remains. Zero new state for a negative.
                 offerFollowLink = false
