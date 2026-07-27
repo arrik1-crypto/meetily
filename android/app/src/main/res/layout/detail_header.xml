@@ -76,6 +76,65 @@
         </LinearLayout>
     </LinearLayout>
 
+    <!-- Offered once, straight after a recording stops. A card rather than a
+         dialog: a dialog would interrupt someone who opened the meeting to
+         read it, and this is an invitation, not a question that must be
+         answered. "Not now" only hides it — nothing is persisted for a
+         negative answer; the overflow item is the permanent route. -->
+    <LinearLayout
+        android:id="@+id/followOfferCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_ai_panel"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/follow_offer_title"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
+
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/followChooseButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:text="@string/follow_choose"
+                android:textColor="?attr/colorOnSurface" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/followDismissButton"
+                style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="44dp"
+                android:layout_marginStart="4dp"
+                android:text="@string/follow_not_now" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Shown whenever a link exists, on every visit. -->
+    <TextView
+        android:id="@+id/followLinkLine"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:background="?attr/selectableItemBackground"
+        android:drawablePadding="8dp"
+        android:paddingVertical="6dp"
+        android:textAppearance="?attr/textAppearanceBodySmall"
+        android:textColor="?attr/colorPrimary"
+        android:visibility="gone" />
+
     <!-- Nocturne segmented tabs: Summary | Transcript. -->
     <LinearLayout
         android:layout_width="match_parent"

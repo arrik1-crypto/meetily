@@ -213,6 +213,13 @@ class MeetingDetailActivity : AppCompatActivity() {
     private var segmentsSeenThroughMs = Long.MIN_VALUE
 
     /** Saves without erasing a line that landed while this screen was open. */
+    /**
+     * True when this screen was opened straight off the end of a recording
+     * and should offer the follow-on link once. Cleared as soon as it is
+     * answered either way, and never persisted.
+     */
+    private var offerFollowLink = false
+
     private fun persist(m: Meeting) {
         store.saveMerging(m, segmentsSeenThroughMs)
         segmentsSeenThroughMs = maxOf(
@@ -413,6 +420,13 @@ class MeetingDetailActivity : AppCompatActivity() {
         setUpPlayer()
         renderStats(m)
         maybeAutoTitle(m)
+        if (savedInstanceState == null &&
+            intent?.getBooleanExtra(EXTRA_OFFER_FOLLOW, false) == true
+        ) {
+            offerFollowLink = true
+            // Removed so a rotation cannot re-show a card already dismissed.
+            intent.removeExtra(EXTRA_OFFER_FOLLOW)
+        }
         runRequestedAction(firstCreate = savedInstanceState == null)
     }
 
@@ -524,6 +538,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun renderTranscript(m: Meeting) {
+        renderFollowsFrom(m)
         tagHint.text = getString(
             if (m.segments.isEmpty()) R.string.no_transcript else R.string.tap_to_tag_hint
         )
@@ -1521,6 +1536,72 @@ class MeetingDetailActivity : AppCompatActivity() {
         return super.onPrepareOptionsMenu(menu)
     }
 
+    // --- "Follows on from" ---------------------------------------------------
+
+    /**
+     * Renders the link line, and the one-shot offer card when the recording
+     * that just finished handed one over.
+     */
+    private fun renderFollowsFrom(m: Meeting) {
+        val line = findViewById<TextView>(R.id.followLinkLine)
+        val link = m.followsEvent
+        if (link != null) {
+            val stamp = java.text.SimpleDateFormat("EEE d MMM", java.util.Locale.getDefault())
+            line.text = getString(
+                R.string.follow_linked, link.title, stamp.format(Date(link.beginMs))
+            )
+            line.visibility = View.VISIBLE
+            line.setOnClickListener { showFollowPicker() }
+        } else {
+            line.visibility = View.GONE
+        }
+        val card = findViewById<View>(R.id.followOfferCard)
+        // Only when this screen was opened straight off the end of a
+        // recording, nothing is linked yet, and the calendar is already
+        // readable. Asking for calendar permission out of nowhere after a
+        // recording would be intrusive, and the overflow route always works.
+        val offer = offerFollowLink && link == null &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.READ_CALENDAR
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        card.visibility = if (offer) View.VISIBLE else View.GONE
+        if (offer) {
+            findViewById<View>(R.id.followChooseButton).setOnClickListener {
+                showFollowPicker()
+            }
+            findViewById<View>(R.id.followDismissButton).setOnClickListener {
+                // Nothing persisted for a "no": the extra was one-shot and
+                // the overflow item remains. Zero new state for a negative.
+                offerFollowLink = false
+                card.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun showFollowPicker() {
+        val m = meeting ?: return
+        CalendarFollowSheet.show(
+            activity = this,
+            beforeMs = m.createdAtMs,
+            hasExistingLink = m.followsEvent != null
+        ) { picked ->
+            val current = meeting ?: return@show
+            current.followsEvent = picked
+            // Through persist(), i.e. saveMerging: this screen holds the
+            // user's unsaved notes and attendee edits, so a load-then-save
+            // would drop them.
+            persist(current)
+            offerFollowLink = false
+            renderFollowsFrom(current)
+            Toast.makeText(
+                this,
+                if (picked == null) getString(R.string.follow_unlinked)
+                else getString(R.string.follow_linked_toast, picked.title),
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
     private fun toggleStar() {
         val m = meeting ?: return
         m.starred = !m.starred
@@ -1562,6 +1643,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             R.id.action_topics -> {
                 topicsAction()
                 true
+            }
+            R.id.action_follows_from -> {
+                showFollowPicker()
+                return true
             }
             R.id.action_pre_brief -> {
                 meeting?.let {
@@ -2851,6 +2936,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         private const val FOLLOW_TICK_MS = 90L
         private const val IDLE_TICK_MS = 400L
 
+        /**
+         * Set only by RecordingActivity when a recording has just finished,
+         * so the follow-on offer appears once rather than on every visit.
+         */
+        const val EXTRA_OFFER_FOLLOW = "offer_follow"
         const val EXTRA_MEETING_ID = "meeting_id"
 
         /** Set by the accuracy check when the user asked to redo the summary. */

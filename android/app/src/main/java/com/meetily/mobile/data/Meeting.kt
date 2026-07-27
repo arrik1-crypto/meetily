@@ -9,6 +9,20 @@ data class WordStamp(
     val text: String
 )
 
+/**
+ * One occurrence of a calendar event, copied at the moment the user linked
+ * it. [eventId] is kept for provenance only and is never re-resolved.
+ *
+ * There is deliberately no way to say "the series". A follow-up follows from
+ * one specific earlier conversation, not from every Monday standup, so the
+ * ambiguous choice simply cannot be expressed.
+ */
+data class FollowsEvent(
+    val title: String,
+    val beginMs: Long,
+    val eventId: Long
+)
+
 data class TranscriptSegment(
     val timestampMs: Long,
     val text: String,
@@ -87,7 +101,17 @@ data class Meeting(
      * accuracy check), so the screen can say the summary is out of date
      * instead of silently regenerating or silently lying.
      */
-    var summaryStale: Boolean = false
+    var summaryStale: Boolean = false,
+    /**
+     * An earlier calendar event this conversation follows on from, asserted
+     * by the user and never inferred.
+     *
+     * A DEAD SNAPSHOT, not a pointer: the calendar is read once, when the
+     * link is made, and never dereferenced again. Permission revoked, event
+     * deleted, event retitled, provider wiped, phone migrated — this still
+     * renders, because rendering never touches a ContentResolver.
+     */
+    var followsEvent: FollowsEvent? = null
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -190,6 +214,15 @@ data class Meeting(
         }
         if (summaryStale) {
             obj.put("summaryStale", true)
+        }
+        followsEvent?.let { link ->
+            obj.put(
+                "followsEvent",
+                JSONObject()
+                    .put("title", link.title)
+                    .put("beginMs", link.beginMs)
+                    .put("eventId", link.eventId)
+            )
         }
         return obj
     }
@@ -341,6 +374,21 @@ data class Meeting(
             meeting.starred = obj.optBoolean("starred", false)
             meeting.transcriptModel = obj.optString("transcriptModel", "").ifBlank { null }
             meeting.summaryStale = obj.optBoolean("summaryStale", false)
+            // opt* only, and a blank title prunes the whole link to null.
+            // A throw here would not cost the link, it would cost the
+            // MEETING: fromJson failures are swallowed by mapNotNull in
+            // MeetingStore.list(), so the meeting would vanish with nothing
+            // logged anywhere.
+            obj.optJSONObject("followsEvent")?.let { link ->
+                val title = link.optString("title", "")
+                if (title.isNotBlank()) {
+                    meeting.followsEvent = FollowsEvent(
+                        title = title,
+                        beginMs = link.optLong("beginMs", 0L),
+                        eventId = link.optLong("eventId", 0L)
+                    )
+                }
+            }
             return meeting
         }
     }

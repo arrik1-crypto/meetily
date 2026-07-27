@@ -684,6 +684,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             startActivity(
                 Intent(this, MeetingDetailActivity::class.java)
                     .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meetingId)
+                    // A conversation that just ended is exactly when the
+                    // user knows what it followed on from.
+                    .putExtra(MeetingDetailActivity.EXTRA_OFFER_FOLLOW, true)
             )
         } catch (_: Exception) {
             // Background-launch restrictions can block this when finishing from

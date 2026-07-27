@@ -41,6 +41,54 @@ class MeetingTest {
         assertTrue(!plain.has("summaryStale"))
     }
 
+    // --- "Follows on from" ---------------------------------------------------
+
+    @Test
+    fun json_roundTripsTheFollowsOnFromLink() {
+        val meeting = Meeting(id = "m3", title = "Follow-up", createdAtMs = 100L).apply {
+            followsEvent = com.meetily.mobile.data.FollowsEvent(
+                title = "Q3 roadmap review", beginMs = 50L, eventId = 77L
+            )
+        }
+        val restored = Meeting.fromJson(meeting.toJson())
+        assertEquals("Q3 roadmap review", restored.followsEvent?.title)
+        assertEquals(50L, restored.followsEvent?.beginMs)
+        assertEquals(77L, restored.followsEvent?.eventId)
+    }
+
+    @Test
+    fun json_omitsTheLinkWhenThereIsNone() {
+        assertTrue(!Meeting(id = "m4", title = "x", createdAtMs = 0L).toJson().has("followsEvent"))
+    }
+
+    @Test
+    fun json_aMalformedLinkCostsTheLinkAndNotTheMeeting() {
+        // fromJson failures are swallowed by mapNotNull in MeetingStore.list(),
+        // so throwing here would make the whole meeting disappear with nothing
+        // logged. A blank title prunes the link and leaves everything else.
+        val obj = org.json.JSONObject()
+            .put("id", "m5")
+            .put("title", "Survivor")
+            .put("createdAtMs", 5L)
+            .put("followsEvent", org.json.JSONObject().put("beginMs", "not a number"))
+        val restored = Meeting.fromJson(obj)
+        assertEquals("Survivor", restored.title)
+        assertEquals(null, restored.followsEvent)
+    }
+
+    @Test
+    fun json_aLinkWithNoTitleIsNotALink() {
+        val obj = org.json.JSONObject()
+            .put("id", "m6")
+            .put("title", "x")
+            .put("createdAtMs", 0L)
+            .put(
+                "followsEvent",
+                org.json.JSONObject().put("title", "   ").put("beginMs", 1L).put("eventId", 2L)
+            )
+        assertEquals(null, Meeting.fromJson(obj).followsEvent)
+    }
+
     @Test
     fun parseAttendees_splitsTrimsAndDedupes() {
         val result = Meeting.parseAttendees("Alice, Bob ; alice\nCarol,")

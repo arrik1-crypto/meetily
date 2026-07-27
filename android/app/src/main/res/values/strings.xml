@@ -726,6 +726,21 @@
     <string name="setting_auto_summary_desc">Generate the AI summary without being asked. Heavy work runs one job at a time, never during a recording.</string>
     <string name="setting_auto_summary_style">Style: %1$s</string>
     <string name="setting_auto_summary_style_title">Automatic summary style</string>
+    <!-- Follows-on-from linking -->
+    <string name="follow_sheet_title">Follows on from…</string>
+    <string name="follow_no_events">No earlier meetings found</string>
+    <string name="follow_no_events_sub">Nothing in your calendar before this recording in that window.</string>
+    <string name="follow_look_further">Look further back</string>
+    <string name="follow_remove_link">Remove link</string>
+    <string name="follow_needs_calendar_title">Calendar access needed</string>
+    <string name="follow_needs_calendar_body">To offer earlier meetings to link to, Recap needs permission to read your calendar. It is read once, when you pick an event, and only the name and time are saved with this meeting.</string>
+    <string name="follow_offer_title">Does this follow on from an earlier meeting?</string>
+    <string name="follow_choose">Choose event…</string>
+    <string name="follow_not_now">Not now</string>
+    <string name="follow_menu">Follows on from…</string>
+    <string name="follow_linked">Follows on from %1$s · %2$s</string>
+    <string name="follow_linked_toast">Linked to %1$s</string>
+    <string name="follow_unlinked">Link removed</string>
     <string name="setting_auto_title">Name meetings from the transcript</string>
     <string name="setting_auto_title_desc">The first time you open a meeting, replace its date-and-time name with one taken from what was said. Off by default: meetings started from a calendar reminder already use that event\'s name.</string>
     <string name="setting_auto_summary_when">Run: %1$s</string>

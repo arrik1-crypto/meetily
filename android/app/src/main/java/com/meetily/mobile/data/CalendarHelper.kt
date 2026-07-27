@@ -209,6 +209,62 @@ object CalendarHelper {
         return events.sortedBy { abs(it.beginMs - now) }
     }
 
+    /**
+     * Events that finished before [beforeMs], newest first — the candidates
+     * for "this conversation follows on from…".
+     *
+     * [beforeMs] is the meeting's own start, not now: a recording may be
+     * linked days after it happened, and the events worth offering are the
+     * ones that preceded the RECORDING.
+     *
+     * The projection is deliberately identical to [findCurrentEvents]. Every
+     * query in this file swallows its exception and returns an empty list, so
+     * a column that one OEM's Instances view rejects is indistinguishable
+     * from "no events" — and adding one here could silently kill calendar
+     * prefill and the nudges along with it.
+     */
+    fun pastEvents(
+        context: Context,
+        beforeMs: Long,
+        windowMs: Long = 14L * 24 * 60 * 60 * 1000,
+        limit: Int = 40
+    ): List<CalendarEvent> {
+        val uriBuilder = CalendarContract.Instances.CONTENT_URI.buildUpon()
+        ContentUris.appendId(uriBuilder, beforeMs - windowMs)
+        ContentUris.appendId(uriBuilder, beforeMs)
+
+        val projection = arrayOf(
+            CalendarContract.Instances.EVENT_ID,
+            CalendarContract.Instances.TITLE,
+            CalendarContract.Instances.BEGIN,
+            CalendarContract.Instances.END,
+            CalendarContract.Instances.ALL_DAY
+        )
+
+        val events = mutableListOf<CalendarEvent>()
+        try {
+            context.contentResolver.query(
+                uriBuilder.build(), projection, null, null,
+                CalendarContract.Instances.BEGIN + " DESC"
+            )?.use { cursor ->
+                while (cursor.moveToNext() && events.size < limit) {
+                    if (cursor.getInt(4) != 0) continue // all-day: not a meeting
+                    val begin = cursor.getLong(2)
+                    // The Instances window is inclusive at both ends, so the
+                    // recording's own event would otherwise offer itself.
+                    if (begin >= beforeMs) continue
+                    val title = cursor.getString(1)?.trim().orEmpty().ifBlank { UNTITLED }
+                    events.add(
+                        CalendarEvent(cursor.getLong(0), title, begin, cursor.getLong(3))
+                    )
+                }
+            }
+        } catch (_: Exception) {
+            return emptyList()
+        }
+        return events
+    }
+
     /** Non-declined attendee display names (falls back to prettified email). */
     fun attendeesFor(context: Context, eventId: Long): List<String> {
         val names = mutableListOf<String>()

@@ -38,6 +38,10 @@
         android:title="@string/pre_brief_title"
         app:showAsAction="never" />
     <item
+        android:id="@+id/action_follows_from"
+        android:title="@string/follow_menu"
+        app:showAsAction="never" />
+    <item
         android:id="@+id/action_share_audio"
         android:title="@string/share_audio"
         app:showAsAction="never" />
