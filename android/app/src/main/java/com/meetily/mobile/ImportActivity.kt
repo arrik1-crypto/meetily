@@ -130,8 +130,15 @@ class ImportActivity : AppCompatActivity() {
         }
 
         val uri = incomingUri()
-        if (uri == null) {
-            // Reopened from the progress notification: just observe.
+        // A re-created Activity still carries its original intent, so reading
+        // the uri again would start the SAME file a second time — JobGate
+        // would find an import running, stage another copy and queue it, and
+        // the user would end up with the meeting twice. Portrait is pinned so
+        // rotation is not a trigger, but scheduled dark-theme switching at
+        // sunset is, along with font or display-size changes, locale changes
+        // and a process-death restore during a long import.
+        if (uri == null || savedInstanceState != null) {
+            // Reopened from the progress notification, or re-created: observe.
             if (ImportService.isRunning) {
                 bindService(
                     Intent(this, ImportService::class.java), connection, Context.BIND_AUTO_CREATE

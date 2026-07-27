@@ -571,11 +571,33 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * Serialises library loads, so a burst of refreshes cannot apply out of
+     * order and show an older library over a newer one.
+     */
+    private val libraryLoader = java.util.concurrent.Executors.newSingleThreadExecutor {
+        Thread(it, "library-load")
+    }
+
     private fun refresh() {
-        allMeetings = store.list()
-        searchInput.visibility = if (allMeetings.isEmpty()) View.GONE else View.VISIBLE
-        rebuildFilterChips()
-        applyFilter()
+        // store.list() reads and JSON-parses EVERY meeting file, every segment
+        // included. Invisible with ten meetings, a stall you can feel with
+        // hundreds — and this is the resume path, so the cost lands on the
+        // most-used interaction in the app and grows the longer it is used.
+        libraryLoader.execute {
+            val loaded = try {
+                store.list()
+            } catch (_: Throwable) {
+                return@execute
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                allMeetings = loaded
+                searchInput.visibility = if (allMeetings.isEmpty()) View.GONE else View.VISIBLE
+                rebuildFilterChips()
+                applyFilter()
+            }
+        }
     }
 
     /** One chip per tag (#tag) and per recurring series (title ×N). */

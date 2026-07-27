@@ -558,6 +558,13 @@ object LlmClient {
         val connection = URL(endpoint).openConnection() as HttpURLConnection
         try {
             connection.requestMethod = "POST"
+            // EndpointGuard vets the URL that was configured; it cannot vet
+            // one the server picks afterwards. HttpURLConnection follows
+            // redirects by default, so an approved endpoint could 302 the
+            // request — transcript and all — anywhere it liked, and "local
+            // only" would silently stop meaning anything. A redirect is not
+            // something a chat-completions endpoint needs.
+            connection.instanceFollowRedirects = false
             connection.connectTimeout = 20_000
             connection.readTimeout = 180_000
             connection.doOutput = true

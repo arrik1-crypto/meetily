@@ -447,7 +447,7 @@ class TranscriptLinesAdapter(
                 if (segment.speaker.isNullOrBlank()) 0.55f else 1f
             holder.speaker.visibility = View.VISIBLE
         }
-        bindLineText(holder.text, row)
+        bindLineText(holder.text, row, holder.itemView)
         when {
             row.segIndex == activeSegment ->
                 holder.itemView.setBackgroundResource(R.drawable.bg_line_active)
@@ -474,7 +474,7 @@ class TranscriptLinesAdapter(
      * displayed text sequentially, so lightly edited text degrades gracefully
      * (unmatched words just lose their span).
      */
-    private fun bindLineText(view: TextView, row: Row.LineRow) {
+    private fun bindLineText(view: TextView, row: Row.LineRow, rowView: View) {
         val segment = row.segment
         val words = segment.words
         val wordTap = onWordTap
@@ -523,6 +523,25 @@ class TranscriptLinesAdapter(
         view.text = span
         view.movementMethod =
             if (any) android.text.method.LinkMovementMethod.getInstance() else null
+        if (any) {
+            // Setting a movement method on Spannable text makes this TextView
+            // focusable, clickable AND long-clickable, so it consumed touches
+            // the row was listening for. Every whisper line carries word
+            // timings, so on a normal transcript long-press did nothing —
+            // and long-press is the only way to reach the line actions (edit,
+            // tag, split). Hand both gestures back to the row.
+            //
+            // Word taps still work: LinkMovementMethod consumes ACTION_UP only
+            // when it lands on a span, so a tap on a word seeks and a tap
+            // anywhere else falls through to the click listener below.
+            view.setOnClickListener { rowView.performClick() }
+            view.setOnLongClickListener { rowView.performLongClick() }
+        } else {
+            view.setOnClickListener(null)
+            view.setOnLongClickListener(null)
+            view.isClickable = false
+            view.isLongClickable = false
+        }
     }
 
     companion object {
