@@ -93,7 +93,9 @@ object BackupManager {
         }
         val stream = if (got == header.size && BackupCrypto.isEncryptedHeader(header)) {
             checkNotNull(passphrase) { "This backup is encrypted; a passphrase is required." }
-            BackupCrypto.decryptingStream(passphrase, pushback)
+            // The magic decides which reader: archives written before the
+            // format was framed are still restorable.
+            BackupCrypto.decryptingStream(passphrase, pushback, header)
         } else {
             pushback.unread(header, 0, got)
             pushback
