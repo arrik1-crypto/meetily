@@ -565,6 +565,7 @@
     <string name="status_hearing_speech">Hearing speech</string>
     <string name="status_processing">Transcribing</string>
     <string name="status_device_audio_ended">Device audio capture ended — stop and start again to resume</string>
+    <string name="fgs_timeout_import">Android stopped this after its daily background time limit. The part that finished has been kept — start it again to continue.</string>
     <string name="status_paused">Paused</string>
     <string name="status_error">Recognition error (%1$s), retrying…</string>
     <string name="recognition_unavailable">Speech recognition is not available on this device. You can still take notes.</string>

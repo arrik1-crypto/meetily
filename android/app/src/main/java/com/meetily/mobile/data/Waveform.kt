@@ -23,16 +23,29 @@ object Waveform {
     const val BARS = 54
 
     /**
-     * Cached bars for [audioFile], or null when it has never been computed.
-     * Cheap: reads a small text sidecar, no decoding.
+     * Leading field of the sidecar. Bumped whenever the bars a given file
+     * produces change, so already-cached ones are recomputed instead of
+     * served forever — fixing the maths otherwise does nothing for anyone
+     * who had already opened the Audio tab, which is the whole audience for
+     * the fix. Version 1 (no marker) capped at ~17 minutes of audio and drew
+     * anything longer wrong.
+     */
+    private const val CACHE_VERSION = "2"
+
+    /**
+     * Cached bars for [audioFile], or null when it has never been computed
+     * or was computed by an older version. Cheap: reads a small text
+     * sidecar, no decoding.
      */
     fun cached(context: Context, audioFile: String): FloatArray? {
         val file = sidecar(context, audioFile)
         if (!file.exists()) return null
         return try {
             val parts = file.readText().trim().split(",")
-            if (parts.size != BARS) return null
-            FloatArray(BARS) { parts[it].toFloat() }
+            // A version-1 sidecar has exactly BARS fields and no marker, so
+            // it fails this check and is recomputed over.
+            if (parts.size != BARS + 1 || parts[0] != CACHE_VERSION) return null
+            FloatArray(BARS) { parts[it + 1].toFloat() }
         } catch (_: Exception) {
             null
         }
@@ -78,7 +91,8 @@ object Waveform {
     private fun save(context: Context, audioFile: String, bars: FloatArray) {
         try {
             sidecar(context, audioFile).writeText(
-                bars.joinToString(",") { String.format(java.util.Locale.US, "%.4f", it) }
+                CACHE_VERSION + "," +
+                    bars.joinToString(",") { String.format(java.util.Locale.US, "%.4f", it) }
             )
         } catch (_: Exception) {
             // A cache that cannot be written just means recomputing later.

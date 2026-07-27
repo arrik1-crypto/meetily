@@ -359,6 +359,32 @@ class ImportService : Service() {
         }
     }
 
+    /**
+     * Android 15 caps a dataSync foreground service at six hours per day for
+     * apps targeting SDK 35, and an app that does not stop when told is
+     * killed with ForegroundServiceDidNotStopInTimeException.
+     *
+     * That is not a limit this app comfortably sits under: CPU transcription
+     * runs at two to three times realtime, so a pair of long meetings in one
+     * day reaches it. Nothing here overrode onTimeout, so the outcome was a
+     * crash with a partial transcript and no explanation.
+     *
+     * Stopping has to be immediate — the compliance window is seconds, far
+     * less than a whisper batch — so the flag is set for the worker to unwind
+     * against and the service gives up the foreground straight away. Whatever
+     * has been transcribed so far is already saved batch by batch.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        cancelled = true
+        postCompletionNotification(
+            currentMeetingId, getString(R.string.fgs_timeout_import), null
+        )
+        isRunning = false
+        stopForegroundCompat()
+        stopSelf()
+    }
+
     private fun postCompletionNotification(
         meetingId: String?,
         error: String?,

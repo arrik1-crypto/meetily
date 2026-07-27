@@ -311,6 +311,26 @@ class SummaryService : Service() {
         }
     }
 
+    /**
+     * Android 15 caps a dataSync foreground service at six hours per day for
+     * apps targeting SDK 35 and kills an app that does not stop when told.
+     * A local LLM summarising a long meeting is squarely in that budget once
+     * an import has already spent part of it, and nothing overrode this — so
+     * the outcome was a crash rather than a stop. See ImportService.onTimeout.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        // Reported as a failure, because that is what it is from the user's
+        // side: no summary, and re-running it is the way to get one.
+        postDoneNotification(currentMeetingId, true)
+        isRunning = false
+        currentMeetingId = ""
+        currentTitle = ""
+        percent = -1
+        stopForegroundCompat()
+        stopSelf()
+    }
+
     private fun finishRun(meetingId: String, failed: Boolean = false) {
         try {
             wakeLock?.release()

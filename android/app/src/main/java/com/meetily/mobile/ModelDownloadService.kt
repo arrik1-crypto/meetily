@@ -280,6 +280,23 @@ class ModelDownloadService : Service() {
         }
     }
 
+    /**
+     * Android 15 caps a dataSync foreground service at six hours per day for
+     * apps targeting SDK 35 and kills an app that does not stop when told.
+     * Reachable here on a slow connection with several multi-hundred-megabyte
+     * models queued. See ImportService.onTimeout.
+     */
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        cancelled = true
+        queue.clear()
+        queuedCount = 0
+        postCompletionNotification()
+        isRunning = false
+        stopForegroundCompat()
+        stopSelf()
+    }
+
     private fun postCompletionNotification() {
         if (finished.isEmpty()) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager

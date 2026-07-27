@@ -31,8 +31,8 @@ android {
         applicationId = "com.recap.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 82
-        versionName = "3.10.5-beta1"
+        versionCode = 83
+        versionName = "3.10.6-beta1"
 
         // No ndk.abiFilters here: AGP forbids it alongside ABI splits. The
         // splits.abi.include list below is the single source of built ABIs.

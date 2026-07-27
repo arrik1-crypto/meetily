@@ -66,6 +66,36 @@ class MeetingStore(context: Context) {
         }
     }
 
+    /**
+     * Saves only what a transcription pass owns — the segments, the audio
+     * file and the model that produced them — onto whatever is on disk.
+     *
+     * An import holds one Meeting object for its whole run and writes the
+     * entire thing back every batch, which for an hour of audio is many
+     * minutes. The meeting is in the library from the start (its card shows
+     * the import progress), so the user can open it and rename it, tag it,
+     * star it or take notes while it runs — and the next batch write put all
+     * of that back the way it was at construction, with no error and nothing
+     * to undo.
+     *
+     * The write lock does NOT solve this on its own: a lost update is not a
+     * torn file. The fix has to be about which side owns which field.
+     */
+    fun saveTranscription(meeting: Meeting) {
+        AtomicJson.exclusive {
+            val onDisk = load(meeting.id)
+            if (onDisk == null) {
+                save(meeting)
+                return@exclusive
+            }
+            onDisk.segments.clear()
+            onDisk.segments.addAll(meeting.segments)
+            onDisk.audioFile = meeting.audioFile
+            onDisk.transcriptModel = meeting.transcriptModel
+            save(onDisk)
+        }
+    }
+
     fun delete(id: String) {
         File(dir, "$id.json").delete()
     }

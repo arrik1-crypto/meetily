@@ -194,7 +194,10 @@ class AudioFileImporter(
                     context, meeting.id, selectedKey, meeting.segments, complete
                 )
             } else {
-                store.save(meeting)
+                // Not a plain save: the meeting is visible and editable in
+                // the library for the whole run, so anything the user changes
+                // meanwhile has to survive the next batch.
+                store.saveTranscription(meeting)
             }
         }
 
@@ -580,7 +583,7 @@ class AudioFileImporter(
             }
             // Partial transcript exists — keep it rather than fail the whole
             // import silently; the caller surfaces how far it got.
-            store.save(meeting)
+            store.saveTranscription(meeting)
             return Result(
                 meeting.id,
                 consumedSamples * 1000 / sampleRate,
