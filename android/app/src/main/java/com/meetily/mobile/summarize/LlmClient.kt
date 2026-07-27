@@ -547,7 +547,7 @@ object LlmClient {
         if (com.meetily.mobile.llm.LocalLlm.isSelected()) {
             return com.meetily.mobile.llm.LocalLlm.chat(messages, allowMapReduce)
         }
-        EndpointGuard.check(baseUrl, localOnly)
+        val vetted = EndpointGuard.vet(baseUrl, localOnly)
         val endpoint = baseUrl.trimEnd('/') + "/chat/completions"
 
         val body = JSONObject()
@@ -557,6 +557,24 @@ object LlmClient {
 
         val connection = URL(endpoint).openConnection() as HttpURLConnection
         try {
+            // Send to the address the guard approved, not to whatever the name
+            // resolves to a second time on the way to the socket. Certificate
+            // and hostname verification are untouched — see
+            // PinnedAddressSocketFactory.
+            //
+            // https only. Plain HttpURLConnection exposes no socket factory,
+            // so a cleartext endpoint still does its own lookup; what protects
+            // it is that vet() re-resolved and refused unless every answer was
+            // private, which narrows the window to the moment between that
+            // check and the connect rather than closing it. Cleartext is
+            // already confined to the private network by the guard's first
+            // rule, and the common local setups (an Ollama box at
+            // http://192.168.x.y or http://localhost) are IP literals that
+            // never touch DNS and so have no window at all.
+            if (connection is javax.net.ssl.HttpsURLConnection && vetted.pinned.isNotEmpty()) {
+                connection.sslSocketFactory = com.meetily.mobile.security
+                    .PinnedAddressSocketFactory(connection.sslSocketFactory, vetted.pinned)
+            }
             connection.requestMethod = "POST"
             // EndpointGuard vets the URL that was configured; it cannot vet
             // one the server picks afterwards. HttpURLConnection follows
