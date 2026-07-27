@@ -56,7 +56,17 @@ object JobQueue {
         val interrupted: Boolean = false,
         /** Import only: the staged copy in AudioStore, and its display name. */
         val stagedFile: String = "",
-        val sourceName: String = ""
+        val sourceName: String = "",
+        /**
+         * The user asked for this to wait for a charger.
+         *
+         * It has to live on the job, not just at the call that queued it.
+         * Without it the preference held only until the next drain trigger:
+         * the job queued correctly off-charger, and then opening the app —
+         * still on battery — drained it anyway, which is precisely what the
+         * setting exists to prevent.
+         */
+        val chargingOnly: Boolean = false
     )
 
     /**
@@ -95,6 +105,16 @@ object JobQueue {
     /** Deferred work, oldest first — what the drain walks. */
     fun runnable(existing: List<Job>): List<Job> = existing.filterNot { it.interrupted }
 
+    /**
+     * The next job that may start given the current power state, or null.
+     *
+     * A charging-only job off power is SKIPPED, not blocking: an accuracy
+     * check waiting for a charger must not hold up a summary the user asked
+     * to run at the end of the meeting, or an import they just picked.
+     */
+    fun nextRunnable(existing: List<Job>, charging: Boolean): Job? =
+        runnable(existing).firstOrNull { !it.chargingOnly || charging }
+
     /** Work that died mid-run and needs the user's say-so to restart. */
     fun interrupted(existing: List<Job>): List<Job> = existing.filter { it.interrupted }
 
@@ -120,7 +140,10 @@ object JobQueue {
                 queuedAtMs = o.optLong("queuedAtMs"),
                 interrupted = o.optBoolean("interrupted"),
                 stagedFile = o.optString("stagedFile"),
-                sourceName = o.optString("sourceName")
+                sourceName = o.optString("sourceName"),
+                // Absent in jobs queued before this field existed; false
+                // reproduces exactly what those jobs did.
+                chargingOnly = o.optBoolean("chargingOnly")
             )
         }
     } catch (_: Exception) {
@@ -139,6 +162,7 @@ object JobQueue {
                     .put("interrupted", job.interrupted)
                     .put("stagedFile", job.stagedFile)
                     .put("sourceName", job.sourceName)
+                    .put("chargingOnly", job.chargingOnly)
             )
         }
         prefs(context).edit().putString("jobs", array.toString()).apply()

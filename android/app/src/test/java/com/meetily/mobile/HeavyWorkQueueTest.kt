@@ -44,8 +44,48 @@ class HeavyWorkQueueTest {
 
     // --- Queue rules --------------------------------------------------------
 
-    private fun job(kind: String, id: String, at: Long = 0L, interrupted: Boolean = false) =
-        JobQueue.Job(kind, id, "payload", at, interrupted)
+    private fun job(
+        kind: String,
+        id: String,
+        at: Long = 0L,
+        interrupted: Boolean = false,
+        chargingOnly: Boolean = false
+    ) = JobQueue.Job(kind, id, "payload", at, interrupted, chargingOnly = chargingOnly)
+
+    // --- "When charging" actually meaning charging ---------------------------
+
+    @Test
+    fun aJobWaitingForPowerDoesNotRunOffCharger() {
+        // The bug: "when charging" was enforced only where the job was
+        // queued. Once in the queue it carried no such mark, so the next
+        // drain trigger — an activity resuming was enough — ran it on
+        // battery, which is exactly what the setting exists to prevent.
+        val queued = listOf(job(JobQueue.KIND_SUMMARY, "m1", 1L, chargingOnly = true))
+        assertEquals(null, JobQueue.nextRunnable(queued, charging = false))
+        assertEquals("m1", JobQueue.nextRunnable(queued, charging = true)?.meetingId)
+    }
+
+    @Test
+    fun aJobWaitingForPowerDoesNotBlockOneThatIsNot() {
+        // Skipped, not blocking: an accuracy check deferred to a charger
+        // must not hold back a summary the user asked to run at the end of
+        // the meeting, or an import they just picked by hand.
+        val jobs = listOf(
+            job(JobQueue.KIND_CHECK, "m1", 1L, chargingOnly = true),
+            job(JobQueue.KIND_SUMMARY, "m2", 2L)
+        )
+        assertEquals("m2", JobQueue.nextRunnable(jobs, charging = false)?.meetingId)
+        // On power the older one goes first again — order is still FIFO.
+        assertEquals("m1", JobQueue.nextRunnable(jobs, charging = true)?.meetingId)
+    }
+
+    @Test
+    fun anInterruptedJobIsNeverDrainedEvenOnPower() {
+        val jobs = listOf(
+            job(JobQueue.KIND_SUMMARY, "m1", 1L, interrupted = true, chargingOnly = true)
+        )
+        assertEquals(null, JobQueue.nextRunnable(jobs, charging = true))
+    }
 
     @Test
     fun theSameMeetingNeverQueuesTwiceForTheSameKind() {

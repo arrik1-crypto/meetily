@@ -42,7 +42,12 @@ object JobGate {
     fun drain(context: Context) {
         if (!canStartBatch()) return
         val app = context.applicationContext
-        val next = JobQueue.pending(app).firstOrNull() ?: return
+        // The power state is re-read at every drain, not trusted from when
+        // the job was queued. "When charging" has to mean charging NOW —
+        // otherwise merely opening the app off-charger runs the work the
+        // setting was meant to hold back.
+        val next = JobQueue.nextRunnable(JobQueue.pending(app), Power.isCharging(app))
+            ?: return
         // Taken off the queue first: a job that fails to start must not spin
         // forever on every drain trigger.
         if (next.kind == JobQueue.KIND_IMPORT) {
@@ -51,8 +56,10 @@ object JobGate {
             JobQueue.dequeue(app, next.kind, next.meetingId)
         }
         when (next.kind) {
-            JobQueue.KIND_SUMMARY -> startSummary(app, next.meetingId, next.payload)
-            JobQueue.KIND_CHECK -> startCheck(app, next.meetingId, next.payload)
+            JobQueue.KIND_SUMMARY ->
+                startSummary(app, next.meetingId, next.payload, next.chargingOnly)
+            JobQueue.KIND_CHECK ->
+                startCheck(app, next.meetingId, next.payload, next.chargingOnly)
             JobQueue.KIND_IMPORT -> startImport(app, next)
         }
     }
@@ -69,14 +76,14 @@ object JobGate {
     ) {
         val app = context.applicationContext
         if (whenCharging && !Power.isCharging(app)) {
-            queue(app, JobQueue.KIND_SUMMARY, meetingId, templateKey)
+            queue(app, JobQueue.KIND_SUMMARY, meetingId, templateKey, whenCharging)
             return
         }
         if (!canStartBatch()) {
-            queue(app, JobQueue.KIND_SUMMARY, meetingId, templateKey)
+            queue(app, JobQueue.KIND_SUMMARY, meetingId, templateKey, whenCharging)
             return
         }
-        startSummary(app, meetingId, templateKey)
+        startSummary(app, meetingId, templateKey, whenCharging)
     }
 
     /** As [requestSummary], for a post-meeting transcript accuracy check. */
@@ -88,14 +95,14 @@ object JobGate {
     ) {
         val app = context.applicationContext
         if (whenCharging && !Power.isCharging(app)) {
-            queue(app, JobQueue.KIND_CHECK, meetingId, modelKey)
+            queue(app, JobQueue.KIND_CHECK, meetingId, modelKey, whenCharging)
             return
         }
         if (!canStartBatch()) {
-            queue(app, JobQueue.KIND_CHECK, meetingId, modelKey)
+            queue(app, JobQueue.KIND_CHECK, meetingId, modelKey, whenCharging)
             return
         }
-        startCheck(app, meetingId, modelKey)
+        startCheck(app, meetingId, modelKey, whenCharging)
     }
 
     /**
@@ -138,24 +145,44 @@ object JobGate {
         }
     }
 
-    private fun queue(context: Context, kind: String, meetingId: String, payload: String) {
+    private fun queue(
+        context: Context,
+        kind: String,
+        meetingId: String,
+        payload: String,
+        chargingOnly: Boolean = false
+    ) {
         JobQueue.enqueue(
             context,
-            JobQueue.Job(kind, meetingId, payload, System.currentTimeMillis())
+            JobQueue.Job(
+                kind, meetingId, payload, System.currentTimeMillis(),
+                chargingOnly = chargingOnly
+            )
         )
     }
 
-    private fun startSummary(context: Context, meetingId: String, templateKey: String) {
+    private fun startSummary(
+        context: Context,
+        meetingId: String,
+        templateKey: String,
+        chargingOnly: Boolean = false
+    ) {
         try {
             SummaryService.start(context, meetingId, templateKey)
         } catch (_: Throwable) {
             // Background foreground-service start refused (Android 12+), or
-            // the service died on the way up. Put it back.
-            queue(context, JobQueue.KIND_SUMMARY, meetingId, templateKey)
+            // the service died on the way up. Put it back — still marked as
+            // waiting for power, or the retry would escape the constraint.
+            queue(context, JobQueue.KIND_SUMMARY, meetingId, templateKey, chargingOnly)
         }
     }
 
-    private fun startCheck(context: Context, meetingId: String, modelKey: String) {
+    private fun startCheck(
+        context: Context,
+        meetingId: String,
+        modelKey: String,
+        chargingOnly: Boolean = false
+    ) {
         try {
             val meeting = MeetingStore(context).load(meetingId) ?: return
             val audio = meeting.audioFile ?: return
@@ -173,7 +200,7 @@ object JobGate {
                 context.startService(intent)
             }
         } catch (_: Throwable) {
-            queue(context, JobQueue.KIND_CHECK, meetingId, modelKey)
+            queue(context, JobQueue.KIND_CHECK, meetingId, modelKey, chargingOnly)
         }
     }
 }
