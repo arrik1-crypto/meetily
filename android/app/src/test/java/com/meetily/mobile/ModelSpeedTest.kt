@@ -42,6 +42,61 @@ class ModelSpeedTest {
         assertTrue("ranks must actually discriminate", ranks.distinct().size >= 4)
     }
 
+    // --- What the MANUAL check offers --------------------------------------
+
+    @Test
+    fun aManualCheckOffersEveryDownloadedModel() {
+        // The regression this pins: the manual picker was fed the
+        // cross-family list, so a Whisper transcript could not be re-run with
+        // a different Whisper model even though one was installed — and when
+        // exactly one cross-family model survived, no picker appeared at all
+        // and the run just started on it.
+        val downloaded = listOf(
+            "large-v3-turbo-q5_0", "small.en", "nemotron-3.5", "parakeet-tdt-v2"
+        )
+        val offered = TranscriptionModels.orderForCheck(downloaded, "large-v3-turbo-q5_0")
+        assertEquals(downloaded.size, offered.size)
+        assertTrue(offered.containsAll(downloaded))
+    }
+
+    @Test
+    fun theCrossFamilyModelsAreStillRecommendedFirst() {
+        val offered = TranscriptionModels.orderForCheck(
+            listOf("large-v3-turbo-q5_0", "small.en", "parakeet-tdt-v2"),
+            "large-v3-turbo-q5_0"
+        )
+        // Parakeet is the independent second opinion, so it leads.
+        assertEquals("parakeet-tdt-v2", offered.first())
+    }
+
+    @Test
+    fun theModelThatMadeTheTranscriptComesLast() {
+        // Offered, because re-running it is legitimate after a settings
+        // change — but it is the least useful second opinion.
+        val offered = TranscriptionModels.orderForCheck(
+            listOf("small.en", "large-v3-turbo-q5_0", "parakeet-tdt-v2"),
+            "small.en"
+        )
+        assertEquals("small.en", offered.last())
+    }
+
+    @Test
+    fun anUnknownOriginStillOffersEverything() {
+        // Meetings recorded before the model key was stored have none.
+        val downloaded = listOf("small.en", "parakeet-tdt-v2")
+        val offered = TranscriptionModels.orderForCheck(downloaded, null)
+        assertEquals(2, offered.size)
+        assertTrue(offered.containsAll(downloaded))
+    }
+
+    @Test
+    fun theOnlyInstalledModelIsStillOffered() {
+        assertEquals(
+            listOf("small.en"),
+            TranscriptionModels.orderForCheck(listOf("small.en"), "small.en")
+        )
+    }
+
     @Test
     fun whisperAndNemoAreDifferentFamilies() {
         assertNotEquals(

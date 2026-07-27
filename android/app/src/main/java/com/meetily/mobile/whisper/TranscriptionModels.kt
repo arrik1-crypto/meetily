@@ -125,6 +125,35 @@ object TranscriptionModels {
     }
 
     /**
+     * Every downloaded model, for a check the user is choosing BY HAND:
+     * the cross-family recommendations first, then everything else, then
+     * the model that made the current transcript.
+     *
+     * [rankedForCheck] hides same-family models on purpose, because an
+     * unattended pass is only worth running if it is independent. Applying
+     * that to a manual choice was a mistake — it silently removed models the
+     * user had downloaded, and when only one survived the picker did not
+     * appear at all and the run just started. Refusing to offer an installed
+     * model is not a safety feature; the person asking is the one who knows
+     * what they want.
+     */
+    fun allForCheck(context: Context, currentKey: String?): List<String> =
+        orderForCheck(downloadedKeys(context), currentKey)
+
+    /** Context-free core of [allForCheck], so the ordering is unit-testable. */
+    internal fun orderForCheck(downloaded: List<String>, currentKey: String?): List<String> {
+        val currentFamily = currentKey?.let { family(it) }
+        val cross = downloaded
+            .filter { it != currentKey && currentFamily != null && family(it) != currentFamily }
+            .sortedByDescending { qualityRank(it) }
+        val rest = downloaded.filter { it !in cross }.sortedByDescending { qualityRank(it) }
+        // The current model goes last: re-running it is legitimate (settings
+        // may have changed since) but it is the least useful second opinion.
+        val (current, others) = rest.partition { it == currentKey }
+        return cross + others + current
+    }
+
+    /**
      * Every key the app can resolve, whisper family first — including
      * superseded models, so a persisted setting never stops resolving.
      * Pickers want [offeredKeys].

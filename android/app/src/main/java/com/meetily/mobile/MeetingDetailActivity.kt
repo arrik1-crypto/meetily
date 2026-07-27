@@ -2432,6 +2432,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         val ranked = com.meetily.mobile.whisper.TranscriptionModels
             .rankedForCheck(this, m.transcriptModel)
             .ifEmpty { downloaded }
+        // The cross-family pick is only the RECOMMENDATION. The picker gets
+        // everything downloaded — see allForCheck.
+        val choices = com.meetily.mobile.whisper.TranscriptionModels
+            .allForCheck(this, m.transcriptModel)
+            .ifEmpty { downloaded }
         val willUse = ranked.first()
         val audioMs = checkAudioMs(m)
         AlertDialog.Builder(this)
@@ -2449,8 +2454,8 @@ class MeetingDetailActivity : AppCompatActivity() {
                 )
             )
             .setPositiveButton(R.string.check_accuracy_go) { _, _ ->
-                if (ranked.size == 1) startCheck(m, ranked.first())
-                else chooseCheckModel(m, ranked, willUse)
+                if (choices.size == 1) startCheck(m, choices.first())
+                else chooseCheckModel(m, choices, willUse)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
