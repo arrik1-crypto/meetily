@@ -539,6 +539,7 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun renderTranscript(m: Meeting) {
         renderFollowsFrom(m)
+        if (tab == Tab.AUDIO) renderAudioTab(m)
         tagHint.text = getString(
             if (m.segments.isEmpty()) R.string.no_transcript else R.string.tap_to_tag_hint
         )
@@ -587,40 +588,64 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     // --- Summary | Transcript segmented tabs --------------------------------
 
-    private var onTranscriptTab = false
+    private enum class Tab { SUMMARY, TRANSCRIPT, AUDIO }
+
+    private var tab = Tab.SUMMARY
+
+    /**
+     * Derived rather than stored: the transcript list, chapter collapsing and
+     * playback-follow all key off "am I on the transcript", and there is only
+     * one place that can now be true.
+     */
+    private val onTranscriptTab: Boolean get() = tab == Tab.TRANSCRIPT
 
     private fun setUpTabs() {
-        headerView.findViewById<View>(R.id.tabSummary).setOnClickListener { switchTab(false) }
-        headerView.findViewById<View>(R.id.tabTranscript).setOnClickListener { switchTab(true) }
+        headerView.findViewById<View>(R.id.tabSummary).setOnClickListener {
+            switchTab(Tab.SUMMARY)
+        }
+        headerView.findViewById<View>(R.id.tabTranscript).setOnClickListener {
+            switchTab(Tab.TRANSCRIPT)
+        }
+        headerView.findViewById<View>(R.id.tabAudio).setOnClickListener {
+            switchTab(Tab.AUDIO)
+        }
         applyTabState()
     }
 
-    private fun switchTab(transcript: Boolean) {
-        if (onTranscriptTab == transcript) return
-        onTranscriptTab = transcript
+    private fun switchTab(next: Tab) {
+        if (tab == next) return
+        tab = next
         applyTabState()
         meeting?.let { renderTranscript(it) }
+        if (next == Tab.AUDIO) meeting?.let { renderAudioTab(it) }
     }
 
     private fun applyTabState() {
         val tabSummary = headerView.findViewById<TextView>(R.id.tabSummary)
         val tabTranscript = headerView.findViewById<TextView>(R.id.tabTranscript)
-        val content = headerView.findViewById<View>(R.id.summaryTabContent)
+        val tabAudio = headerView.findViewById<TextView>(R.id.tabAudio)
+        val summaryContent = headerView.findViewById<View>(R.id.summaryTabContent)
+        val audioContent = headerView.findViewById<View>(R.id.audioTabContent)
         val active = themeColor(com.google.android.material.R.attr.colorOnPrimary)
         val inactive = themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant)
-        if (onTranscriptTab) {
-            tabSummary.setBackgroundResource(0)
-            tabTranscript.setBackgroundResource(R.drawable.bg_tab_active)
-            tabSummary.setTextColor(inactive)
-            tabTranscript.setTextColor(active)
-            content.visibility = View.GONE
-        } else {
-            tabSummary.setBackgroundResource(R.drawable.bg_tab_active)
-            tabTranscript.setBackgroundResource(0)
-            tabSummary.setTextColor(active)
-            tabTranscript.setTextColor(inactive)
-            content.visibility = View.VISIBLE
+
+        // A meeting that kept no audio has nothing for this tab to show, and
+        // an empty third tab reads as a broken feature rather than an absent
+        // one.
+        val hasAudio = meeting?.audioFile?.isNotBlank() == true
+        tabAudio.visibility = if (hasAudio) View.VISIBLE else View.GONE
+        if (!hasAudio && tab == Tab.AUDIO) tab = Tab.SUMMARY
+
+        for ((view, isActive) in listOf(
+            tabSummary to (tab == Tab.SUMMARY),
+            tabTranscript to (tab == Tab.TRANSCRIPT),
+            tabAudio to (tab == Tab.AUDIO)
+        )) {
+            view.setBackgroundResource(if (isActive) R.drawable.bg_tab_active else 0)
+            view.setTextColor(if (isActive) active else inactive)
         }
+        summaryContent.visibility = if (tab == Tab.SUMMARY) View.VISIBLE else View.GONE
+        audioContent.visibility = if (tab == Tab.AUDIO) View.VISIBLE else View.GONE
     }
 
     private fun themeColor(attr: Int): Int {
@@ -2036,6 +2061,115 @@ class MeetingDetailActivity : AppCompatActivity() {
             formatClock(p.currentPosition),
             formatClock(p.duration)
         )
+        if (tab == Tab.AUDIO) updateAudioTabPosition(p.currentPosition, p.duration)
+    }
+
+    // --- Audio tab -----------------------------------------------------------
+
+    private var waveformBars: FloatArray? = null
+    private var waveformLoading = false
+    private var speakerTurns: List<com.meetily.mobile.data.SpeakerTurns.Turn> = emptyList()
+
+    /**
+     * Builds the tab: the waveform (decoded once and cached), the speaker
+     * strip, and the legend. The player bar above stays exactly where it was
+     * — its volume boost, skip-silence and follow-along have no equivalent in
+     * the design's transport row, and moving playback behind a tab would hide
+     * follow-along at the moment it is most useful.
+     */
+    private fun renderAudioTab(m: Meeting) {
+        val audio = m.audioFile
+        if (audio.isNullOrBlank()) return
+        val waveform = headerView.findViewById<WaveformView>(R.id.waveform)
+        val strip = headerView.findViewById<SpeakerStripView>(R.id.speakerStrip)
+
+        waveform.onSeek = { fraction ->
+            player?.let { p ->
+                val target = (fraction * p.duration).toInt()
+                p.seekTo(target)
+                updatePlayerUi(p)
+            }
+        }
+        strip.onSeekMs = { ms ->
+            player?.let { p ->
+                p.seekTo(ms.toInt().coerceIn(0, p.duration))
+                updatePlayerUi(p)
+            }
+        }
+
+        val durationMs = (player?.duration?.toLong() ?: 0L).takeIf { it > 0L }
+            ?: m.segments.mapNotNull { it.audioMs }.maxOrNull()
+            ?: 0L
+
+        val built = com.meetily.mobile.data.SpeakerTurns.build(
+            m.segments, durationMs
+        ) { segment -> segmentSpeakerDisplay(this, segment) }
+        speakerTurns = built.turns
+        strip.submit(
+            built.turns.map { SpeakerStripView.Turn(it.startMs, it.endMs, it.slot) },
+            durationMs
+        )
+        renderSpeakerLegend(built.names, strip)
+
+        val cached = waveformBars ?: com.meetily.mobile.data.Waveform.cached(this, audio)
+        if (cached != null) {
+            waveformBars = cached
+            waveform.setBars(cached)
+        } else if (!waveformLoading) {
+            // Decoding an hour of AAC takes seconds, so it happens once on a
+            // worker thread and is cached beside the audio. Until then the
+            // view draws a flat placeholder rather than nothing.
+            waveformLoading = true
+            Thread {
+                val bars = com.meetily.mobile.data.Waveform.compute(this, audio)
+                runOnUiThread {
+                    waveformLoading = false
+                    if (isFinishing || isDestroyed || bars == null) return@runOnUiThread
+                    waveformBars = bars
+                    waveform.setBars(bars)
+                }
+            }.start()
+        }
+        updateAudioTabPosition(player?.currentPosition ?: 0, durationMs.toInt())
+    }
+
+    private fun renderSpeakerLegend(names: List<String>, strip: SpeakerStripView) {
+        val row = headerView.findViewById<LinearLayout>(R.id.speakerLegendRow)
+        row.removeAllViews()
+        row.visibility = if (names.isEmpty()) View.GONE else View.VISIBLE
+        val density = resources.displayMetrics.density
+        names.forEachIndexed { slot, name ->
+            val label = TextView(this)
+            label.text = name
+            label.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11f)
+            label.setTextColor(strip.colorForSlot(slot))
+            label.setPadding(0, 0, (12 * density).toInt(), 0)
+            row.addView(label)
+        }
+    }
+
+    /** Moves the playhead and the "now playing" line. Called on every tick. */
+    private fun updateAudioTabPosition(positionMs: Int, durationMs: Int) {
+        val waveform = headerView.findViewById<WaveformView>(R.id.waveform)
+        val strip = headerView.findViewById<SpeakerStripView>(R.id.speakerStrip)
+        val total = durationMs.coerceAtLeast(1)
+        waveform.setProgress(positionMs.toFloat() / total)
+        strip.setPositionMs(positionMs.toLong())
+
+        headerView.findViewById<TextView>(R.id.audioElapsed).text = formatClock(positionMs)
+        headerView.findViewById<TextView>(R.id.audioRemaining).text =
+            getString(R.string.audio_remaining, formatClock((total - positionMs).coerceAtLeast(0)))
+
+        val line = headerView.findViewById<TextView>(R.id.nowPlayingLine)
+        val spoken = meeting?.segments
+            ?.lastOrNull { (it.audioMs ?: Long.MAX_VALUE) <= positionMs.toLong() }
+        if (spoken == null || spoken.text.isBlank()) {
+            line.visibility = View.GONE
+        } else {
+            val who = segmentSpeakerDisplay(this, spoken)
+            line.visibility = View.VISIBLE
+            line.text = if (who.isNullOrBlank()) spoken.text else "$who — ${spoken.text}"
+        }
     }
 
     private fun formatClock(ms: Int): String {

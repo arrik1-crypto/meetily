@@ -244,7 +244,7 @@
 
     <!-- Custom vocabulary -->
     <string name="setting_vocab_hint">Custom vocabulary</string>
-    <string name="setting_vocab_desc">Names, acronyms, and jargon Whisper should recognize — comma separated (e.g. “Meetily, OKR, Anneke”). Applies to new recordings and imports.</string>
+    <string name="setting_vocab_desc">Names, acronyms, and jargon Whisper should recognize — comma separated (e.g. “Recap, OKR, Anneke”). Applies to new recordings and imports.</string>
 
     <string name="engine_endpoint">Private endpoint</string>
     <string name="engine_local">On-device</string>
@@ -457,6 +457,11 @@
     <string name="now_recording">Now recording</string>
     <string name="private_by_design">private by design</string>
     <string name="tap_to_record">Tap to record — nothing leaves this phone</string>
+    <!-- Used instead of the line above when the current settings mean audio
+         or transcripts CAN leave: a cloud-backed system recognizer, or a
+         remote summarisation endpoint. An absolute privacy claim that the
+         configuration does not keep is worse than a modest true one. -->
+    <string name="tap_to_record_mixed">Tap to record — runs on this phone by default</string>
     <string name="orb_recording_caption">Recording — tap to return</string>
     <string name="theme_toggle">Switch theme</string>
     <string name="import_pill">Import a recording</string>
@@ -726,6 +731,14 @@
     <string name="setting_auto_summary_desc">Generate the AI summary without being asked. Heavy work runs one job at a time, never during a recording.</string>
     <string name="setting_auto_summary_style">Style: %1$s</string>
     <string name="setting_auto_summary_style_title">Automatic summary style</string>
+    <!-- Audio tab -->
+    <string name="tab_audio">Audio</string>
+    <string name="audio_heading">Recording</string>
+    <string name="audio_kept_here">Kept on this phone</string>
+    <string name="audio_who_speaking">Who is speaking</string>
+    <string name="audio_remaining">-%1$s</string>
+    <string name="audio_no_waveform">Reading the recording…</string>
+
     <!-- Follows-on-from linking -->
     <string name="follow_sheet_title">Follows on from…</string>
     <string name="follow_no_events">No earlier meetings found</string>

@@ -492,8 +492,15 @@ class MainActivity : AppCompatActivity() {
             return
         }
         orbCaption.setText(
-            if (RecordingService.isRunning) R.string.orb_recording_caption
-            else R.string.tap_to_record
+            when {
+                RecordingService.isRunning -> R.string.orb_recording_caption
+                // Only claim it when the settings actually keep it. The
+                // system recognizer is cloud-backed on most phones, and a
+                // remote AI endpoint sends the transcript off-device — so
+                // the strong line is earned, not decorative.
+                staysOnDevice() -> R.string.tap_to_record
+                else -> R.string.tap_to_record_mixed
+            }
         )
         findViewById<ImageButton>(R.id.themeToggle).setImageResource(
             if (isNightNow()) R.drawable.ic_sun else R.drawable.ic_moon
@@ -795,6 +802,21 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * True when nothing this app does with a recording would leave the phone
+     * under the current settings: on-device transcription, and either no LLM
+     * or the embedded one.
+     */
+    private fun staysOnDevice(): Boolean {
+        val settings = AppSettings(this)
+        // "whisper" here means any on-device engine (whisper.cpp, Parakeet,
+        // Nemotron); anything else is the system recognizer, which on most
+        // phones is Google's and may process audio in the cloud.
+        if (settings.transcriptionEngine != "whisper") return false
+        if (!settings.useLlm) return true
+        return settings.llmEngine == "local"
     }
 
     private fun isNightNow(): Boolean =
