@@ -50,40 +50,17 @@ object Waveform {
         val source = AudioStore.fileFor(context, audioFile)
         if (!source.exists() || source.length() <= 0L) return null
 
-        // Accumulated per bar, then normalised. Which bar a sample lands in
-        // is only known once the total length is known, so sums are kept
-        // against a running sample count and folded at the end.
-        val sums = DoubleArray(BARS)
-        val counts = LongArray(BARS)
-        var total = 0L
-        // Two passes would mean decoding twice. Instead, collect into a
-        // coarse histogram far finer than BARS and fold it down once the
-        // length is known — bounded memory, one decode.
-        val fine = 4096
-        val fineSums = DoubleArray(fine)
-        val fineCounts = LongArray(fine)
-        var fineIndex = 0
-        var sinceStep = 0L
-        // ~0.25 s per fine bucket at 16 kHz; a 17-hour recording would still
-        // fit, and anything longer simply saturates the last bucket.
-        val samplesPerFine = 4_000L
+        // Which bar a sample belongs to depends on the total length, and the
+        // length is only known after decoding. Decoding twice is far too
+        // slow, so samples go into a histogram much finer than BARS and that
+        // is folded down at the end — bounded memory, one decode.
+        val histogram = LoudnessHistogram()
 
         val ok = try {
             AudioFileDecoder.decode(
                 context,
                 AudioStore.uriFor(context, source),
-                onPcm = { pcm ->
-                    for (sample in pcm) {
-                        val v = sample.toDouble()
-                        fineSums[fineIndex] += v * v
-                        fineCounts[fineIndex]++
-                        total++
-                        if (++sinceStep >= samplesPerFine && fineIndex < fine - 1) {
-                            sinceStep = 0
-                            fineIndex++
-                        }
-                    }
-                },
+                onPcm = { pcm -> histogram.add(pcm) },
                 onProgress = {},
                 cancelled = { false }
             )
@@ -91,20 +68,9 @@ object Waveform {
         } catch (_: Throwable) {
             false
         }
-        if (!ok || total <= 0L) return null
+        if (!ok || histogram.total <= 0L) return null
 
-        val used = fineIndex + 1
-        for (i in 0 until used) {
-            val bar = (i.toLong() * BARS / used).toInt().coerceIn(0, BARS - 1)
-            sums[bar] += fineSums[i]
-            counts[bar] += fineCounts[i]
-        }
-
-        val bars = FloatArray(BARS) { i ->
-            if (counts[i] <= 0L) 0f else Math.sqrt(sums[i] / counts[i]).toFloat()
-        }
-        val loudest = bars.max()
-        val normalised = if (loudest <= 0f) bars else FloatArray(BARS) { bars[it] / loudest }
+        val normalised = histogram.bars(BARS)
         save(context, audioFile, normalised)
         return normalised
     }

@@ -24,11 +24,50 @@ import com.meetily.mobile.data.MeetingStore
  */
 object JobGate {
 
-    /** True when nothing heavy is running and a batch job may start now. */
+    /**
+     * How long a start is assumed to be on its way before giving up on it.
+     * Only has to cover the binder round trip to ActivityManager and back
+     * into onStartCommand; the generous margin is so a start that is refused
+     * outright cannot wedge the gate.
+     */
+    private const val PENDING_START_WINDOW_MS = 10_000L
+
+    /**
+     * When a foreground start was issued but the service has not yet reported
+     * itself running. See [canStartBatch].
+     */
+    @Volatile
+    private var pendingStartAt = 0L
+
+    private fun startPending(): Boolean =
+        pendingStartAt != 0L &&
+            android.os.SystemClock.elapsedRealtime() - pendingStartAt < PENDING_START_WINDOW_MS
+
+    /** Called by a batch service the moment it marks itself running. */
+    fun onBatchStarted() {
+        pendingStartAt = 0L
+    }
+
+    /**
+     * True when nothing heavy is running and a batch job may start now.
+     *
+     * The isRunning flags alone are not enough. startForegroundService is
+     * ASYNCHRONOUS — the service's onStartCommand is delivered on a later
+     * main-thread message — so two requests in one main-thread turn both see
+     * "nothing running" and both start.
+     *
+     * That is not a corner case: RecordingService.finishSession clears its own
+     * isRunning and then calls maybeStartAutoCheck and maybeStartAutoSummary
+     * back to back, so with both auto-passes enabled EVERY finished recording
+     * kicked off a full re-transcription and a multi-GB LLM summary at the same
+     * time — the exact thrash rule 2 exists to prevent, on a phone that has
+     * just spent the whole meeting running Whisper.
+     */
     fun canStartBatch(): Boolean =
         !RecordingService.isRunning &&
             !ImportService.isRunning &&
-            !SummaryService.isRunning
+            !SummaryService.isRunning &&
+            !startPending()
 
     /**
      * Runs the next deferred job if the system can take one.
@@ -126,6 +165,7 @@ object JobGate {
         try {
             val file = AudioStore.fileFor(context, job.stagedFile)
             if (!file.exists() || file.length() <= 0L) return
+            pendingStartAt = android.os.SystemClock.elapsedRealtime()
             val intent = Intent(context, ImportService::class.java)
                 .setAction(ImportService.ACTION_START)
                 .setData(android.net.Uri.fromFile(file))
@@ -141,6 +181,7 @@ object JobGate {
                 context.startService(intent)
             }
         } catch (_: Throwable) {
+            pendingStartAt = 0L
             JobQueue.enqueue(context, job)
         }
     }
@@ -168,8 +209,10 @@ object JobGate {
         chargingOnly: Boolean = false
     ) {
         try {
+            pendingStartAt = android.os.SystemClock.elapsedRealtime()
             SummaryService.start(context, meetingId, templateKey)
         } catch (_: Throwable) {
+            pendingStartAt = 0L
             // Background foreground-service start refused (Android 12+), or
             // the service died on the way up. Put it back — still marked as
             // waiting for power, or the retry would escape the constraint.
@@ -194,12 +237,14 @@ object JobGate {
                 .putExtra(ImportService.EXTRA_MODEL, modelKey)
                 .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, meetingId)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            pendingStartAt = android.os.SystemClock.elapsedRealtime()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
                 context.startService(intent)
             }
         } catch (_: Throwable) {
+            pendingStartAt = 0L
             queue(context, JobQueue.KIND_CHECK, meetingId, modelKey, chargingOnly)
         }
     }

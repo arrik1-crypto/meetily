@@ -109,6 +109,9 @@ class ImportService : Service() {
                 val uri = intent.data
                 if (isRunning || uri == null) return START_NOT_STICKY
                 isRunning = true
+                // Closes JobGate's "a start is on its way" window; see
+                // JobGate.canStartBatch.
+                JobGate.onBatchStarted()
                 // A bound client (the home screen) keeps this instance alive
                 // past stopSelf(), so a second run can land on the same
                 // object. Without this reset it would start already finished

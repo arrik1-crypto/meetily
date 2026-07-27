@@ -77,6 +77,9 @@ class SummaryService : Service() {
         val templateKey = intent.getStringExtra(EXTRA_TEMPLATE).orEmpty()
         if (isRunning || meetingId.isBlank()) return START_NOT_STICKY
         isRunning = true
+        // Closes JobGate's "a start is on its way" window; see
+        // JobGate.canStartBatch.
+        JobGate.onBatchStarted()
         currentMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_SUMMARY
         currentMeetingId = meetingId
         currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
