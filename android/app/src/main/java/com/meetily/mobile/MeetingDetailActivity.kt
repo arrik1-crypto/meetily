@@ -274,6 +274,16 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (reveal) revealSummarySections()
     }
 
+    /**
+     * The JPEG the camera app is currently filling in.
+     *
+     * Saved across re-creation: this is the one photo-capturing screen the
+     * manifest does not orientation-lock, and while the camera app is in
+     * front this Activity is backgrounded and can be reclaimed. The result
+     * still arrives, but with the field back to null the callback took the
+     * failure branch, deleted nothing, and left the photo the user had just
+     * taken orphaned in filesDir/photos with no error shown.
+     */
     private var pendingPhotoFile: File? = null
     private val takePicture =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
@@ -312,6 +322,12 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before anything else: the activity-result registry replays a pending
+        // camera result once this screen restarts, and the callback needs the
+        // file back to know what it is looking at.
+        savedInstanceState?.getString(STATE_PENDING_PHOTO)?.let {
+            pendingPhotoFile = File(it)
+        }
         ThemeManager.apply(this)
         setContentView(R.layout.activity_detail)
 
@@ -1059,6 +1075,11 @@ class MeetingDetailActivity : AppCompatActivity() {
             .show()
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pendingPhotoFile?.let { outState.putString(STATE_PENDING_PHOTO, it.absolutePath) }
+    }
+
     private fun capturePhoto() {
         val m = meeting ?: return
         val file = PhotoStore.newPhotoFile(this, m.id)
@@ -1307,6 +1328,14 @@ class MeetingDetailActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.ai_busy, Toast.LENGTH_LONG).show()
             return
         }
+        // Refused rather than queued: JobQueue only carries summaries, checks
+        // and imports, so a queued speaker pass would come back as a plain
+        // summary. This is a short interactive action — asking again later is
+        // the right answer.
+        if (!JobGate.canStartBatch()) {
+            Toast.makeText(this, R.string.busy_heavy_job, Toast.LENGTH_LONG).show()
+            return
+        }
         saveEdits()
         SummaryService.start(this, m.id, "", SummaryService.MODE_SPEAKERS)
         Toast.makeText(this, R.string.speakers_started, Toast.LENGTH_LONG).show()
@@ -1526,6 +1555,15 @@ class MeetingDetailActivity : AppCompatActivity() {
 
         if (SummaryService.isRunning) {
             Toast.makeText(this, R.string.summary_busy, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // SummaryService.isRunning on its own is not admission control: a live
+        // recording or a running import would happily have a multi-GB GGUF
+        // loaded on top of it, which is the exact double-load JobGate exists
+        // to prevent. Queue instead — a summary is only ever delayed.
+        if (!JobGate.canStartBatch()) {
+            JobGate.requestSummary(this, m.id, template.key, whenCharging = false)
+            Toast.makeText(this, R.string.summary_queued, Toast.LENGTH_LONG).show()
             return
         }
         showSummarizingUi()
@@ -2664,6 +2702,12 @@ class MeetingDetailActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.summary_busy, Toast.LENGTH_SHORT).show()
             return
         }
+        // As with the speaker pass: notes enhancement has no queue kind, so
+        // it is refused rather than deferred into something else.
+        if (!JobGate.canStartBatch()) {
+            Toast.makeText(this, R.string.busy_heavy_job, Toast.LENGTH_LONG).show()
+            return
+        }
         SummaryService.start(
             this, m.id, settings.summaryTemplate, SummaryService.MODE_NOTES
         )
@@ -3125,6 +3169,7 @@ class MeetingDetailActivity : AppCompatActivity() {
          * Set only by RecordingActivity when a recording has just finished,
          * so the follow-on offer appears once rather than on every visit.
          */
+        private const val STATE_PENDING_PHOTO = "pending_photo"
         const val EXTRA_OFFER_FOLLOW = "offer_follow"
         const val EXTRA_MEETING_ID = "meeting_id"
 

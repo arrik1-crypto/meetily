@@ -80,6 +80,38 @@ object AppLock {
         }
     }
 
+    /**
+     * Every activity currently alive, so the flag can be pushed to all of
+     * them when the setting changes.
+     *
+     * Weak, so a leaked reference here can never keep an Activity alive.
+     */
+    private val liveActivities =
+        java.util.Collections.newSetFromMap(java.util.WeakHashMap<Activity, Boolean>())
+
+    /**
+     * Re-applies FLAG_SECURE to every live window.
+     *
+     * Applying it at creation time alone was not enough: turning on "block
+     * screenshots" in Settings only ever protected the Settings window, which
+     * was then finished. MainActivity and any open meeting were created
+     * earlier and kept their unprotected windows — still screenshottable,
+     * still in the recents thumbnail — while the UI said the protection was
+     * on. It only became true after those screens happened to be recreated,
+     * which the user has no way to know.
+     *
+     * This is called when the setting changes, not on every start, so the
+     * recreate-storm hazard the tracker's comment describes is untouched.
+     */
+    fun applySecureFlagToAll() {
+        for (activity in liveActivities.toList()) {
+            try {
+                if (!activity.isFinishing && !activity.isDestroyed) applySecureFlag(activity)
+            } catch (_: Exception) {
+            }
+        }
+    }
+
     private class Tracker : Application.ActivityLifecycleCallbacks {
 
         // FLAG_SECURE is decided once per window, before first draw. It is
@@ -87,6 +119,7 @@ object AppLock {
         // flags during a night-mode recreate storm churns the Surface at the
         // worst possible moment and has been seen to wedge the window.
         override fun onActivityCreated(activity: Activity, savedInstanceState: Bundle?) {
+            liveActivities.add(activity)
             applySecureFlag(activity)
         }
 
@@ -136,6 +169,8 @@ object AppLock {
         override fun onActivityResumed(activity: Activity) {}
         override fun onActivityPaused(activity: Activity) {}
         override fun onActivitySaveInstanceState(activity: Activity, outState: Bundle) {}
-        override fun onActivityDestroyed(activity: Activity) {}
+        override fun onActivityDestroyed(activity: Activity) {
+            liveActivities.remove(activity)
+        }
     }
 }

@@ -76,6 +76,34 @@ class TranscriptSplitterTest {
         assertNull(TranscriptSplitter.split(base, null, 1, editedText = "a         "))
     }
 
+    /**
+     * The regression that erased the tail of a meeting: splitting the last
+     * line right after a recording stopped produced a timestamp seconds into
+     * the future, which became the merge high-water mark and made a genuine
+     * late segment look already-seen.
+     */
+    @Test
+    fun estimateNeverRunsPastNow() {
+        val now = 1_700_000_000_000L
+        val live = base.copy(timestampMs = now - 500L)
+        val pos = live.text.indexOf("no wait")
+        val (_, second) = TranscriptSplitter.split(live, null, pos, nowMs = now)!!
+        // The raw estimate would be ~1.4 s past `now`.
+        assertTrue(second.timestampMs <= now)
+        assertTrue(second.timestampMs >= live.timestampMs)
+    }
+
+    @Test
+    fun estimateNeverRunsPastTheNextSegment() {
+        // A next segment only 100 ms away, so the pace estimate overshoots it
+        // — the fraction path is skipped because the span is used only when
+        // positive, and 100 ms of span still beats a 1.4 s guess.
+        val next = TranscriptSegment(timestampMs = base.timestampMs + 100L, text = "next")
+        val pos = base.text.indexOf("no wait")
+        val (_, second) = TranscriptSplitter.split(base, next, pos)!!
+        assertTrue(second.timestampMs < next.timestampMs)
+    }
+
     @Test
     fun nullAudioStaysNull() {
         val noAudio = base.copy(audioMs = null)

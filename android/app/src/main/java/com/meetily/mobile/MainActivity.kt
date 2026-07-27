@@ -35,6 +35,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var orbCaption: TextView
     private var allMeetings: List<Meeting> = emptyList()
 
+    /** Meeting id -> lowercased searchable text, built with the library load. */
+    private var searchBlobs: Map<String, String> = emptyMap()
+
     // Library filters: at most one active — flagged, a tag, or a series.
     private var selectedTag: String? = null
     private var selectedSeriesKey: String? = null
@@ -600,15 +603,41 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Throwable) {
                 return@execute
             }
+            // Built here, on the worker, once per load: the search box used to
+            // rebuild every meeting's full speaker-labelled transcript and
+            // lowercase it on EVERY keystroke, on the main thread. A
+            // five-character query did that five times over the whole library.
+            val blobs = try {
+                loaded.associate { it.id to searchBlobFor(it) }
+            } catch (_: Throwable) {
+                emptyMap()
+            }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 allMeetings = loaded
+                searchBlobs = blobs
                 searchInput.visibility = if (allMeetings.isEmpty()) View.GONE else View.VISIBLE
                 rebuildFilterChips()
                 applyFilter()
             }
         }
     }
+
+    /**
+     * Everything a query is matched against, lowercased once.
+     *
+     * Deliberately one string rather than a per-field scan: the fields are
+     * only ever tested with contains(), so joining them costs one pass and
+     * saves five allocations per meeting per keystroke.
+     */
+    private fun searchBlobFor(meeting: Meeting): String = buildString {
+        append(meeting.title).append('\n')
+        append(meeting.notes).append('\n')
+        append(meeting.summary).append('\n')
+        append(meeting.attendeesText()).append('\n')
+        append(meeting.tags.joinToString(" ")).append('\n')
+        append(meeting.transcriptTextWithSpeakers())
+    }.lowercase()
 
     /** One chip per tag (#tag) and per recurring series (title ×N). */
     private fun rebuildFilterChips() {
@@ -708,12 +737,10 @@ class MainActivity : AppCompatActivity() {
         }
         if (query.isNotBlank()) {
             filtered = filtered.filter { meeting ->
-                meeting.title.lowercase().contains(query) ||
-                    meeting.notes.lowercase().contains(query) ||
-                    meeting.summary.lowercase().contains(query) ||
-                    meeting.attendeesText().lowercase().contains(query) ||
-                    meeting.tags.any { it.lowercase().contains(query) } ||
-                    meeting.transcriptTextWithSpeakers().lowercase().contains(query)
+                // Falls back to the live scan only for a meeting that arrived
+                // after the last load (an import landing mid-session).
+                val blob = searchBlobs[meeting.id] ?: searchBlobFor(meeting)
+                blob.contains(query)
             }
         }
         adapter.submit(filtered)

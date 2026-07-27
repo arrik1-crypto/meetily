@@ -151,7 +151,6 @@ class ImportActivity : AppCompatActivity() {
             return
         }
 
-        val settings = AppSettings(this)
         val downloaded =
             com.meetily.mobile.whisper.TranscriptionModels.downloadedKeys(this)
         val whisperReady = downloaded.isNotEmpty()
@@ -161,38 +160,64 @@ class ImportActivity : AppCompatActivity() {
             finish()
             return
         }
-        val name = displayName(uri)
-        fileNameView.text = name
-
         // One downloaded model: nothing to choose. Otherwise ask which model
         // should transcribe THIS file (heavier models suit imports better
         // than live capture, so the per-run choice matters here).
-        if (downloaded.size == 1) {
-            startImport(uri, name, downloaded.first())
-        } else {
-            ModelPickerSheet.show(
-                this,
-                getString(R.string.import_choose_model),
-                entriesProvider = {
-                    downloaded.map { key ->
-                        ModelPickerSheet.Entry(
-                            key = key,
-                            title = com.meetily.mobile.whisper.TranscriptionModels
-                                .displayName(key),
-                            // This is the moment a heavy model gets chosen
-                            // for a long file, so it is the moment to say what
-                            // that costs on this phone.
-                            meta = com.meetily.mobile.whisper.TranscriptionModels
-                                .metaLineFor(this, key, sourceDurationMs(uri)),
-                            downloaded = true,
-                            selected = settings.whisperModel == key
-                        )
-                    }
-                },
-                onPick = { key -> startImport(uri, name, key) },
-                onDismissed = { finish() } // no pick, nothing to import
-            )
+        //
+        // Both the display name and the duration are read off a content://
+        // URI that may be backed by a cloud provider, where each probe is a
+        // network fetch. They used to run on the main thread inside onCreate —
+        // the query once, and setDataSource once PER DOWNLOADED MODEL, because
+        // ModelPickerSheet calls entriesProvider() synchronously and re-calls
+        // it after every delete. Four models meant four fetches before the
+        // activity drew at all. Probe once, off the main thread, then show.
+        Thread {
+            val fileName = displayName(uri)
+            val durationMs = if (downloaded.size == 1) 0L else sourceDurationMs(uri)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                fileNameView.text = fileName
+                if (downloaded.size == 1) {
+                    startImport(uri, fileName, downloaded.first())
+                } else {
+                    showModelPicker(uri, fileName, downloaded, durationMs)
+                }
+            }
+        }.apply {
+            name = "import-probe"
+            start()
         }
+    }
+
+    private fun showModelPicker(
+        uri: Uri,
+        name: String,
+        downloaded: List<String>,
+        durationMs: Long
+    ) {
+        val settings = AppSettings(this)
+        ModelPickerSheet.show(
+            this,
+            getString(R.string.import_choose_model),
+            entriesProvider = {
+                downloaded.map { key ->
+                    ModelPickerSheet.Entry(
+                        key = key,
+                        title = com.meetily.mobile.whisper.TranscriptionModels
+                            .displayName(key),
+                        // This is the moment a heavy model gets chosen
+                        // for a long file, so it is the moment to say what
+                        // that costs on this phone.
+                        meta = com.meetily.mobile.whisper.TranscriptionModels
+                            .metaLineFor(this, key, durationMs),
+                        downloaded = true,
+                        selected = settings.whisperModel == key
+                    )
+                }
+            },
+            onPick = { key -> startImport(uri, name, key) },
+            onDismissed = { finish() } // no pick, nothing to import
+        )
     }
 
     /**

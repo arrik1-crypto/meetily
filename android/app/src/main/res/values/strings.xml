@@ -790,6 +790,8 @@
     <string name="import_queue_full">Too many imports are already waiting. Let some finish first.</string>
     <string name="import_queue_failed">That file could not be copied for the queue.</string>
     <string name="check_queued">Queued \u2014 the check will start when the current job finishes.</string>
+    <string name="summary_queued">Queued \u2014 the summary will start when the current job finishes.</string>
+    <string name="busy_heavy_job">Recap is busy with a recording, import or summary. Try again when it finishes.</string>
 
     <!-- Model time estimates: measured on this device, not guessed. -->
     <string name="estimate_min">about %1$d min</string>

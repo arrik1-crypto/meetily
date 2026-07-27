@@ -55,6 +55,9 @@ class TranscriptCheckActivity : AppCompatActivity() {
     private lateinit var diffList: RecyclerView
     private lateinit var applyButton: MaterialButton
 
+    /** An apply is on a worker; the buttons are disabled but re-tappable. */
+    private var applying = false
+
     private var player: MediaPlayer? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -188,12 +191,72 @@ class TranscriptCheckActivity : AppCompatActivity() {
             discardDraft()
             return
         }
-        val fresh = store.load(current.id)
-        if (fresh == null) {
-            Toast.makeText(this, R.string.meeting_not_found, Toast.LENGTH_SHORT).show()
-            finish()
-            return
+        if (applying) return
+        applying = true
+        // compare() already moved this exact work off the main thread with a
+        // comment saying why, and then this button handler — the one that
+        // runs it a second time, plus a merge, a full JSON parse and a full
+        // JSON write — did all of it inline. On a three-hour meeting that is
+        // seconds of frozen screen at the end of a span-by-span review the
+        // user does not want to lose.
+        loading.visibility = View.VISIBLE
+        setButtonsEnabled(false)
+        val accepted = acceptFresh.toSet()
+        val ordinals = diffs.filter { it.ordinal in accepted }.map { it.startMs }.toSet()
+        Thread {
+            val outcome = applyOnWorker(current.id, pending, wholesale, ordinals)
+            runOnUiThread {
+                applying = false
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                loading.visibility = View.GONE
+                setButtonsEnabled(true)
+                when (outcome) {
+                    is Applied.Gone -> {
+                        Toast.makeText(this, R.string.meeting_not_found, Toast.LENGTH_SHORT)
+                            .show()
+                        finish()
+                    }
+                    is Applied.Nothing -> Toast.makeText(
+                        this, R.string.check_nothing_to_apply, Toast.LENGTH_SHORT
+                    ).show()
+                    is Applied.Done -> {
+                        meeting = outcome.meeting
+                        if (outcome.hadSummary) offerRegenerate(outcome.meeting)
+                        else openMeeting(outcome.meeting.id)
+                    }
+                }
+            }
+        }.apply {
+            name = "transcript-apply"
+            start()
         }
+    }
+
+    private sealed interface Applied {
+        object Gone : Applied
+        object Nothing : Applied
+        class Done(val meeting: Meeting, val hadSummary: Boolean) : Applied
+    }
+
+    private fun setButtonsEnabled(enabled: Boolean) {
+        applyButton.isEnabled = enabled
+        findViewById<View>(R.id.checkUseNewButton).isEnabled = enabled
+        findViewById<View>(R.id.checkKeepButton).isEnabled = enabled
+    }
+
+    /**
+     * The load / re-align / merge / save cycle, off the main thread.
+     *
+     * [acceptedStartMs] is precomputed by the caller because it reads
+     * `acceptFresh` and `diffs`, which belong to the UI.
+     */
+    private fun applyOnWorker(
+        meetingId: String,
+        pending: TranscriptDraft.Draft,
+        wholesale: Boolean,
+        acceptedStartMs: Set<Long>
+    ): Applied {
+        val fresh = store.load(meetingId) ?: return Applied.Gone
         // Re-align against what is on disk now: the stored transcript is the
         // one being replaced, and it may have gained a late line.
         val liveBlocks = TranscriptReconcile.align(
@@ -214,19 +277,13 @@ class TranscriptCheckActivity : AppCompatActivity() {
             // when the screen opened, so they cannot be trusted against a
             // re-alignment. Audio offsets can: they come from the second
             // pass, which has not changed.
-            val wanted = diffs.filter { it.ordinal in acceptFresh }
-                .map { it.startMs }
-                .toSet()
-            liveBlocks.filter { it.startMs in wanted }.map { it.ordinal }.toSet()
+            liveBlocks.filter { it.startMs in acceptedStartMs }.map { it.ordinal }.toSet()
         }
         val merged = TranscriptReconcile.merge(
             fresh.segments.toList(), pending.segments, liveBlocks, accepted,
             fresh.createdAtMs
         )
-        if (merged.isEmpty()) {
-            Toast.makeText(this, R.string.check_nothing_to_apply, Toast.LENGTH_SHORT).show()
-            return
-        }
+        if (merged.isEmpty()) return Applied.Nothing
         fresh.segments.clear()
         fresh.segments.addAll(merged)
         if (wholesale && pending.modelKey.isNotBlank()) {
@@ -237,9 +294,8 @@ class TranscriptCheckActivity : AppCompatActivity() {
         val hadSummary = fresh.summary.isNotBlank()
         if (hadSummary) fresh.summaryStale = true
         store.save(fresh)
-        TranscriptDraft.delete(this, current.id)
-        meeting = fresh
-        if (hadSummary) offerRegenerate(fresh) else openMeeting(fresh.id)
+        TranscriptDraft.delete(this, meetingId)
+        return Applied.Done(fresh, hadSummary)
     }
 
     /**

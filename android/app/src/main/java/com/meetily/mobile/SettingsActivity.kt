@@ -657,10 +657,13 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         // Window flags are otherwise only decided at activity creation, so
-        // reflect the toggle on this screen immediately.
+        // reflect the toggle immediately — on every screen that is already
+        // open, not just this one. Applying it here alone left the library
+        // and any open meeting underneath still capturable for the rest of
+        // their lives, while the UI said the protection was on.
         secureScreenSwitch.setOnCheckedChangeListener { _, checked ->
             settings.secureScreen = checked
-            AppLock.applySecureFlag(this)
+            AppLock.applySecureFlagToAll()
         }
     }
 
