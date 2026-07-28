@@ -241,8 +241,23 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit().putBoolean("save_audio", value).apply()
 
     /** Whisper capture: "recognition" (default), "camcorder", or "unprocessed". */
+    /**
+     * Which of the phone's microphones and preprocessing chains to capture
+     * from. Defaults to the camcorder path, not the voice-recognition one.
+     *
+     * VOICE_RECOGNITION is tuned for a phone held to your face and routes to
+     * the primary voice mic — on most handsets the bottom edge. A phone lying
+     * face down on a meeting table has that mic pressed against the surface.
+     * CAMCORDER uses the mic intended for video, on the rear, which in that
+     * position is the one actually facing the room. Tested at around twenty
+     * feet it was not marginally better but clearly so.
+     *
+     * Anyone who set this explicitly keeps their choice; only the untouched
+     * default moves.
+     */
     var micSource: String
-        get() = prefs.getString("mic_source", "recognition") ?: "recognition"
+        get() = prefs.getString("mic_source", com.meetily.mobile.whisper.CaptureTuning.SOURCE_FARFIELD)
+            ?: com.meetily.mobile.whisper.CaptureTuning.SOURCE_FARFIELD
         set(value) = prefs.edit().putString("mic_source", value).apply()
 
     /** Whisper capture input device key ("auto" = system routing). */

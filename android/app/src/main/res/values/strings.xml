@@ -52,11 +52,11 @@
 
     <!-- Capture tuning -->
     <string name="setting_capture">Capture tuning</string>
-    <string name="setting_capture_desc">How the phone pre-processes the microphone signal, and which input to use. "Far-field" uses the mic tuning meant for filming across a room — often better for a phone on the table. USB and wired mics appear under Input device when connected.</string>
+    <string name="setting_capture_desc">Which microphone the phone records from, and how it pre-processes the signal. Far-field is the default: it uses the mic meant for filming, on the back of the phone, which is the one facing the room when the phone lies face down on a table. Voice recognition uses the mic at the bottom edge, tuned for a phone held to your face — good in the hand, muffled on a table. USB and wired mics appear under Input device when connected.</string>
     <string name="mic_tuning_button">Microphone tuning…</string>
     <string name="mic_device_button">Input device…</string>
-    <string name="tuning_default">Default (voice recognition)</string>
-    <string name="tuning_farfield">Far-field (camcorder mic)</string>
+    <string name="tuning_default">Voice recognition (phone in hand)</string>
+    <string name="tuning_farfield">Far-field (phone on the table) — recommended</string>
     <string name="tuning_raw">Raw (unprocessed)</string>
     <string name="tuning_raw_unsupported">Raw (unprocessed) — not supported here, will fall back</string>
     <string name="device_auto">Automatic (recommended)</string>
