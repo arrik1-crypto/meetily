@@ -36,6 +36,83 @@ class ActionItemsTest {
         assertEquals("Ada", items?.first()?.owner)
     }
 
+    /**
+     * The shape that actually shipped a code block into a user's summary: the
+     * model turned the marker into one more numbered markdown heading and
+     * fenced the array, so an exact-string search for "ACTION_ITEMS_JSON:"
+     * found nothing and the whole tail was rendered as prose.
+     */
+    @Test
+    fun splitLlmOutput_marker_written_as_a_markdown_heading() {
+        val text = """
+            ## 4. Action Items
+
+            - **Bridgeting Team:** Hang the charge and door.
+            - **Owner:** (None identified)
+
+            ## 4. Action Items JSON
+
+            ```json
+            [
+            {"task": "Hang the charge and door", "owner": "Bridgeting Team"},
+            {"task": "Establish a training request system", "owner": "None identified"}
+            ]
+            ```
+
+            **
+        """.trimIndent()
+        val (clean, items) = ActionItems.splitLlmOutput(text)
+        assertFalse("summary still shows JSON", clean.contains("\"task\""))
+        assertFalse("summary still shows a fence", clean.contains("```"))
+        assertFalse("JSON heading left behind", clean.contains("Action Items JSON"))
+        assertFalse("dangling emphasis left behind", clean.trimEnd().endsWith("**"))
+        assertTrue("real content was cut", clean.contains("Hang the charge and door."))
+        // The literal "None identified" owner is not a task placeholder, so
+        // that row survives as a task with no real owner.
+        assertEquals(2, items?.size)
+        assertEquals("Bridgeting Team", items?.first()?.owner)
+    }
+
+    @Test
+    fun splitLlmOutput_toleratesSpacingCaseAndDecoration() {
+        for (marker in listOf(
+            "ACTION_ITEMS_JSON:",
+            "Action Items JSON",
+            "**ACTION_ITEMS_JSON:**",
+            "### action-items-json:",
+            "4) Action Items Json:"
+        )) {
+            val text = "Summary body.\n\n$marker\n[{\"task\":\"Do the thing\",\"owner\":\"Ada\"}]"
+            val (clean, items) = ActionItems.splitLlmOutput(text)
+            assertEquals("failed for: $marker", "Summary body.", clean)
+            assertEquals("failed for: $marker", 1, items?.size)
+        }
+    }
+
+    /**
+     * Belt and braces: even with no marker and unparseable content, a task
+     * array must never survive into what the user reads.
+     */
+    @Test
+    fun splitLlmOutput_stripsAFencedTaskArrayWithNoMarkerAtAll() {
+        val text = "Recap of the meeting.\n\n```json\n[{\"task\":\"Ship it\",\"owner\":null}]\n```"
+        val (clean, items) = ActionItems.splitLlmOutput(text)
+        assertEquals("Recap of the meeting.", clean)
+        assertEquals(1, items?.size)
+        assertEquals("Ship it", items?.first()?.task)
+        assertNull(items?.first()?.owner)
+    }
+
+    /** A summary that legitimately quotes other JSON keeps it. */
+    @Test
+    fun splitLlmOutput_leavesUnrelatedCodeBlocksAlone() {
+        val text = "We agreed on this payload:\n\n```json\n[{\"id\":1,\"name\":\"probe\"}]\n```"
+        val (clean, items) = ActionItems.splitLlmOutput(text)
+        assertTrue("unrelated block was stripped", clean.contains("probe"))
+        assertTrue("fence was stripped", clean.contains("```"))
+        assertNull(items)
+    }
+
     @Test
     fun isPlaceholderTask_catchesTheEmptySectionMarkers() {
         // The shared output rules ask for these under an empty heading; they
