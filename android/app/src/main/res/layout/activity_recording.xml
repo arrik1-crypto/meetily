@@ -166,6 +166,7 @@
         </HorizontalScrollView>
 
         <TextView
+            android:id="@+id/transcriptHeading"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="18dp"
@@ -182,6 +183,38 @@
             android:clipToPadding="false"
             android:paddingBottom="8dp"
             android:scrollbars="none" />
+
+        <!-- Shown instead of the transcript list when the app is recording
+             audio only. Without it the screen is a timer and a stop button,
+             with nothing to confirm the microphone is hearing anything. -->
+        <LinearLayout
+            android:id="@+id/audioOnlyPanel"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_marginTop="8dp"
+            android:layout_weight="3"
+            android:gravity="center"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <com.meetily.mobile.LevelMeterView
+                android:id="@+id/levelMeter"
+                android:layout_width="match_parent"
+                android:layout_height="56dp"
+                android:layout_marginStart="8dp"
+                android:layout_marginEnd="8dp"
+                android:importantForAccessibility="no" />
+
+            <TextView
+                android:id="@+id/audioOnlyNote"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:gravity="center"
+                android:text="@string/audio_only_note"
+                android:textAppearance="?attr/textAppearanceBodySmall"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
 
         <TextView
             android:layout_width="wrap_content"

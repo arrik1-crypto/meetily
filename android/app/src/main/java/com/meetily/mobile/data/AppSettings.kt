@@ -123,6 +123,27 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit().putBoolean("auto_check_transcript", value).apply()
 
     /**
+     * Transcribe as the meeting happens, rather than from the recording
+     * afterwards. Off by default, and worth leaving off.
+     *
+     * Running an ASR model continuously for the length of a meeting costs
+     * roughly 40% of a phone battery per hour — measured, not estimated: a
+     * 38-minute meeting took a device from 75% to just under 50%. The
+     * after-the-fact pass over the saved audio produces a BETTER transcript
+     * for less energy, because it works on whole sentences with real context
+     * instead of chunks the silence detector happened to cut, batches the
+     * encoder properly, clusters speakers across the entire recording, and
+     * runs with the screen off (and optionally only on a charger).
+     *
+     * What turning this on buys is watching the words arrive. That is worth
+     * something for a short note to self, so the option stays — but it is not
+     * how the app should record a meeting.
+     */
+    var liveTranscription: Boolean
+        get() = prefs.getBoolean("live_transcription", false)
+        set(value) = prefs.edit().putBoolean("live_transcription", value).apply()
+
+    /**
      * Hold the post-meeting accuracy pass back until the phone is on power.
      * The pass is DEFERRED, not skipped: a meeting that ends off-charger
      * queues and runs when you next plug in.

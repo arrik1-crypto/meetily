@@ -78,6 +78,9 @@ class ImportService : Service() {
     /** Set when this run is a second pass over an existing meeting's audio. */
     private var recheckMeetingId: String? = null
 
+    /** This run is giving an audio-only recording its first transcript. */
+    private var firstTranscript = false
+
     /** Staged copy this run adopts, when it came off the import queue. */
     private var adoptFile: String? = null
 
@@ -124,6 +127,15 @@ class ImportService : Service() {
                 resultError = null
                 resultWarning = null
                 recheckMeetingId = intent.getStringExtra(EXTRA_RECHECK_MEETING_ID)
+                // Captured before the run, because the run is about to change
+                // it: a meeting that arrives here with no words is a recording
+                // captured as audio only, and this pass is its FIRST
+                // transcript rather than a second opinion on an existing one.
+                // That distinction decides whether the summary should follow.
+                firstTranscript = recheckMeetingId?.let { id ->
+                    com.meetily.mobile.data.MeetingStore(this).load(id)
+                        ?.segments?.isEmpty() == true
+                } ?: false
                 adoptFile = intent.getStringExtra(EXTRA_ADOPT_FILE)
                 isRecheck = recheckMeetingId != null
                 currentMeetingId = recheckMeetingId
@@ -277,6 +289,21 @@ class ImportService : Service() {
                 this, com.meetily.mobile.data.JobQueue.KIND_CHECK, recheckId
             )
         }
+        // The words exist now, so this is the moment the summary can start —
+        // see AutoSummary. Only for a recording that had none before, and only
+        // on a clean run: a cancelled or partial pass leaves the transcript
+        // alone, so there is nothing new to summarise.
+        if (firstTranscript && recheckId != null &&
+            !cancelled && error == null && warning == null
+        ) {
+            val done = com.meetily.mobile.data.MeetingStore(this).load(recheckId)
+            if (done != null) {
+                com.meetily.mobile.data.AutoSummary.maybeStart(
+                    this, recheckId, done.title, done.segments.size
+                )
+            }
+        }
+        firstTranscript = false
         observers.forEach { it.onImportDone(meetingId, cancelled, error, warning) }
         if (!cancelled) postCompletionNotification(meetingId, error, warning)
         // isRecheck / currentMeetingId deliberately survive the run: an

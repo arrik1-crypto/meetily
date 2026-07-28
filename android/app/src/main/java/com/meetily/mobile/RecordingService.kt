@@ -56,6 +56,13 @@ class RecordingService : Service() {
         fun onPartial(text: String)
         fun onStatus(status: Status, text: String)
         fun onFinished(meetingId: String)
+
+        /**
+         * Microphone level, roughly ten times a second, ON THE AUDIO THREAD.
+         * Implementations must post to the main thread before touching views.
+         * Default no-op: only the recording screen cares.
+         */
+        fun onLevel(rms: Float) {}
     }
 
     inner class LocalBinder : Binder() {
@@ -443,10 +450,49 @@ class RecordingService : Service() {
         val id = meetingId
         observer?.onFinished(id)
         onDone?.invoke(id)
-        maybeStartAutoCheck(id)
-        maybeStartAutoSummary(id)
+        if (segments.isEmpty()) {
+            // Nothing was transcribed live, so the meeting is audio only and
+            // its transcription is not a bonus pass — it is the transcript.
+            // The summary cannot be started here alongside it: the queue runs
+            // one job at a time and would reach a summary first, summarising
+            // an empty transcript. ImportService starts it when the words
+            // actually exist.
+            startPrimaryTranscription(id)
+        } else {
+            maybeStartAutoCheck(id)
+            maybeStartAutoSummary(id)
+        }
         stopForegroundCompat()
         stopSelf()
+    }
+
+    /**
+     * Queues the transcription of a recording that was captured as audio only.
+     *
+     * Not gated on the accuracy-check setting: that one asks whether to spend
+     * effort double-checking words the app already has. Here there are no
+     * words yet, so this always runs — the recording is not finished without
+     * it. It does honour the same "wait for a charger" preference, since the
+     * deferral is about when the work happens, not whether.
+     */
+    private fun startPrimaryTranscription(meetingId: String) {
+        try {
+            val audio = audioFileName ?: return
+            if (!AudioStore.exists(this, audio)) return
+            JobGate.requestCheck(
+                this,
+                meetingId,
+                // The model the user chose, not the accuracy-check ranking:
+                // that ranking deliberately picks something OTHER than what
+                // produced the existing transcript, which makes no sense when
+                // nothing has produced one.
+                settings.whisperModel,
+                whenCharging = settings.autoCheckWhileChargingOnly
+            )
+        } catch (_: Throwable) {
+            // The audio is saved either way; the meeting screen offers the
+            // manual route. Never let this break finishing a meeting.
+        }
     }
 
     /**
@@ -505,21 +551,8 @@ class RecordingService : Service() {
      * offers a regenerate.
      */
     private fun maybeStartAutoSummary(meetingId: String) {
-        try {
-            if (!settings.autoSummaryAllowed) return
-            if (segments.size < MIN_SEGMENTS_FOR_AUTO_WORK) return
-            val chargingOnly = settings.autoSummaryWhen == "charging"
-            if (!chargingOnly && !Power.allowsHeavyWork(this)) return
-            // Series memory still wins, so a standup keeps summarising as a
-            // standup; otherwise the explicit automatic-summary style.
-            val seriesKey =
-                com.meetily.mobile.search.MeetingGroups.normalizeTitle(title)
-            val template = settings.seriesTemplate(seriesKey)
-                ?: settings.autoSummaryTemplate
-            JobGate.requestSummary(this, meetingId, template, chargingOnly)
-        } catch (_: Throwable) {
-            // Same rule: a bonus pass must never break finishing a meeting.
-        }
+        com.meetily.mobile.data.AutoSummary
+            .maybeStart(this, meetingId, title, segments.size)
     }
 
     /** Discards the in-progress recording and its media entirely. */
@@ -712,6 +745,14 @@ class RecordingService : Service() {
     private fun startWhisper() {
         if (whisperRecorder != null || whisperStarting) return
         val model = WhisperModels.byKey(settings.whisperModel)
+        if (!settings.liveTranscription) {
+            // Capture only: no ASR model, no diarization embedder, no voice
+            // profiles, nothing loaded at all. The whole recording is
+            // transcribed from the saved audio once the meeting ends, which
+            // is both cheaper and more accurate. Straight to the recorder.
+            finishStartWhisper(meetingId, model, null, null, null, null, null)
+            return
+        }
         // NeMo path (Parakeet/Nemotron): loaded up front; null means "treat
         // as whisper" so a broken download degrades to the default model.
         val nemoModel = com.meetily.mobile.whisper.NemoModels
@@ -839,9 +880,11 @@ class RecordingService : Service() {
             } else null,
             speakerSupplier = { activeSpeaker },
             chunkLabeler = labeler,
+            transcribe = settings.liveTranscription,
             frameSink = if (writer != null) {
                 { frame -> writer.write(frame) }
             } else null,
+            onLevel = { rms -> observer?.onLevel(rms) },
             onSegment = { text, speaker, clusterId, audioMs, words ->
                 main.post {
                     if (active) {
@@ -878,7 +921,13 @@ class RecordingService : Service() {
             whisperRecorder?.pause()
             setStatus(Status.PAUSED, getString(R.string.status_paused))
         } else {
-            setStatus(Status.LISTENING, getString(R.string.status_listening_whisper))
+            setStatus(
+                Status.LISTENING,
+                getString(
+                    if (settings.liveTranscription) R.string.status_listening_whisper
+                    else R.string.status_recording_audio
+                )
+            )
         }
     }
 

@@ -271,6 +271,8 @@ class SettingsActivity : AppCompatActivity() {
         whisperSwitch.isChecked = settings.transcriptionEngine == "whisper"
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
+        findViewById<MaterialSwitch>(R.id.liveTranscriptionSwitch).isChecked =
+            settings.liveTranscription
         findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked =
             settings.autoCheckTranscript
         setUpAutoWork()
@@ -500,6 +502,8 @@ class SettingsActivity : AppCompatActivity() {
         settings.diarizationEnabled = diarizeSwitch.isChecked
         settings.whisperTranslate =
             findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
+        settings.liveTranscription =
+            findViewById<MaterialSwitch>(R.id.liveTranscriptionSwitch).isChecked
         settings.autoCheckTranscript =
             findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked
         settings.autoCheckWhileChargingOnly =

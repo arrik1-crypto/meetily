@@ -27,6 +27,19 @@ class WhisperRecorder(
     /** NeMo engine (Parakeet/Nemotron); when set, whisper is not loaded and
      *  chunks go through sherpa-onnx instead. */
     private val nemoEngine: NemoEngine? = null,
+    /**
+     * False: capture only — no model is loaded, no chunk is accumulated and
+     * nothing is transcribed. Frames still reach [frameSink], so the meeting
+     * audio is written exactly as before and the whole recording is
+     * transcribed afterwards from that file.
+     *
+     * This is the default way the app records. Transcribing live cost about
+     * 40% of a battery per hour, and the after-the-fact pass is more accurate
+     * anyway: it sees whole sentences with real context instead of chunks the
+     * silence detector happened to cut, and it clusters speakers across the
+     * entire recording rather than incrementally.
+     */
+    private val transcribe: Boolean = true,
     // Capture tuning (see CaptureTuning): how firmware pre-processes the mic
     // signal, and which physical input to prefer (null = system routing).
     private val audioSource: Int = MediaRecorder.AudioSource.VOICE_RECOGNITION,
@@ -43,6 +56,13 @@ class WhisperRecorder(
     // Optional tee of every captured (non-paused) frame, e.g. into the
     // meeting-audio writer. Called on the audio thread; must not block.
     private val frameSink: ((FloatArray) -> Unit)? = null,
+    /**
+     * Per-frame RMS, ~10x a second, on the audio thread. The value is already
+     * computed for silence detection, so this costs nothing — and with live
+     * transcription off it is the only remaining signal that the microphone
+     * is hearing anything, which a recording screen has to be able to show.
+     */
+    private val onLevel: ((Float) -> Unit)? = null,
     // (text, speaker, clusterId, audioMs, words) — audioMs is the chunk's
     // start offset within the captured (non-paused) audio timeline; words
     // carry word-start offsets within the chunk for tap-to-seek.
@@ -94,7 +114,7 @@ class WhisperRecorder(
         if (running) return
         running = true
         audioThread = Thread {
-            if (nemoEngine == null) {
+            if (transcribe && nemoEngine == null) {
                 if (!WhisperBridge.load()) {
                     onError("Whisper runtime unavailable on this device")
                     running = false
@@ -206,6 +226,15 @@ class WhisperRecorder(
                 }
                 frameSink?.invoke(frame.copyOf(n))
                 val rms = rmsOf(frame, n)
+                onLevel?.invoke(rms)
+                if (!transcribe) {
+                    // Capture only. The frame is already in the recording; not
+                    // accumulating it here is the whole saving — no growing
+                    // buffer, no silence tracking, no chunk ever submitted, so
+                    // the transcriber executor stays idle for the meeting.
+                    capturedSamples += n
+                    continue
+                }
                 chunkPeakRms = max(chunkPeakRms, rms)
                 silenceRun = if (rms < silenceRms) silenceRun + 0.1f else 0f
 

@@ -61,6 +61,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private lateinit var recordDot: View
     private lateinit var transcriptRecycler: RecyclerView
     private lateinit var transcriptAdapter: LiveTranscriptAdapter
+    private lateinit var levelMeter: LevelMeterView
+    private lateinit var audioOnlyPanel: View
+    private var liveTranscription = false
     private lateinit var speakerChipScroll: View
     private lateinit var speakerChipRow: LinearLayout
     private lateinit var notesInput: EditText
@@ -176,6 +179,17 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         }
         transcriptRecycler.layoutManager = LinearLayoutManager(this)
         transcriptRecycler.adapter = transcriptAdapter
+        // Audio-only is the default way the app records: there is no live
+        // transcript to show, so the list is replaced by a level meter that
+        // proves the microphone is picking the room up.
+        liveTranscription = AppSettings(this).liveTranscription
+        levelMeter = findViewById(R.id.levelMeter)
+        audioOnlyPanel = findViewById(R.id.audioOnlyPanel)
+        if (!liveTranscription) {
+            transcriptRecycler.visibility = View.GONE
+            findViewById<View>(R.id.transcriptHeading).visibility = View.GONE
+            audioOnlyPanel.visibility = View.VISIBLE
+        }
         speakerChipScroll = findViewById(R.id.speakerChipScroll)
         speakerChipRow = findViewById(R.id.speakerChipRow)
         notesInput = findViewById(R.id.notesInput)
@@ -490,6 +504,15 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     }
 
     // --- Observer callbacks (main thread) --------------------------------
+
+    /** Arrives on the AUDIO thread, ~10x a second. Hop before touching views. */
+    override fun onLevel(rms: Float) {
+        if (!liveTranscription) {
+            levelMeter.post {
+                if (!isFinishing && !isDestroyed) levelMeter.push(rms)
+            }
+        }
+    }
 
     override fun onSegmentAppended(index: Int, segment: TranscriptSegment) {
         transcriptAdapter.append(segment)
