@@ -38,6 +38,55 @@ adb push gemma-4-E4B-it.litertlm \
 Then open the app, pick a backend, and run. "Copy report" puts the whole
 result on the clipboard.
 
+## What the CI discovery runs established
+
+Recorded here because it took three runs to get and should not have to be got
+again, whatever is decided.
+
+**Artifact.** `com.google.ai.edge.litertlm:litertlm-android:0.15.0` on Google
+Maven — a 19.8 MB AAR, `jni/arm64-v8a` and `jni/x86_64`, containing a single
+21 MB `liblitertlm_jni.so`. The first guess, `com.google.mediapipe:tasks-genai`,
+resolves but is the older MediaPipe LLM Inference runtime, not this one.
+
+**API.**
+
+```
+Engine(EngineConfig) : AutoCloseable
+  initialize()
+  createSession(SessionConfig) : Session
+  createConversation(ConversationConfig) : Conversation
+
+EngineConfig(modelPath, backend, visionBackend, audioBackend,
+             maxNumTokens, maxNumImages, cacheDir)
+
+Session
+  runPrefill(List<InputData>)
+  runDecode() : String
+  generateContent(List<InputData>) : String
+  generateContentStream(List<InputData>, ResponseCallback)
+  cancelProcess()
+```
+
+**Backends.** `Backend` is an abstract class, not an enum, so these are nested
+classes:
+
+```
+Backend.CPU(threadCount, numOfThreads)
+Backend.GPU()
+Backend.GOOGLE_TENSOR()
+Backend.NPU(nativeLibraryDir)
+```
+
+`GOOGLE_TENSOR` is a named, first-class backend — the Pixel TPU is addressable
+through this runtime. Note it is distinct from the generic `NPU`, which takes
+a native library directory and therefore expects vendor libraries the AAR does
+not ship; `GOOGLE_TENSOR` takes no arguments, consistent with using the Tensor
+stack already on the device.
+
+**Kotlin.** The AAR carries Kotlin 2.2.21 metadata. Recap is on 2.0.21, so
+adopting this runtime means a Kotlin upgrade across the whole app — a cost on
+top of the ggml and model-catalogue ones below.
+
 ## Why the binding is reflection
 
 The published Kotlin guide was not reachable when this was written, so the

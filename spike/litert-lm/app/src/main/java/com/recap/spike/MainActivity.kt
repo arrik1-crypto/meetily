@@ -55,9 +55,12 @@ class MainActivity : AppCompatActivity() {
             setPadding(0, 16, 0, 24)
         })
 
+        // GOOGLE_TENSOR is the one that matters on a Pixel — it is a distinct
+        // backend from the generic NPU, which takes a nativeLibraryDir and so
+        // expects vendor libraries this AAR does not ship.
         backends = RadioGroup(this).apply {
-            orientation = RadioGroup.HORIZONTAL
-            listOf("CPU", "GPU", "NPU").forEachIndexed { i, name ->
+            orientation = RadioGroup.VERTICAL
+            listOf("CPU", "GPU", "GOOGLE_TENSOR", "NPU").forEachIndexed { i, name ->
                 addView(RadioButton(this@MainActivity).apply {
                     id = 1000 + i
                     text = name
@@ -147,7 +150,8 @@ class MainActivity : AppCompatActivity() {
         }
         val backend = when (backends.checkedRadioButtonId) {
             1001 -> "GPU"
-            1002 -> "NPU"
+            1002 -> "GOOGLE_TENSOR"
+            1003 -> "NPU"
             else -> "CPU"
         }
         busy = true

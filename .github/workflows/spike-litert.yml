@@ -12,6 +12,12 @@ on:
       - ".github/workflows/spike-litert.yml"
   workflow_dispatch:
 
+# The build succeeded on run 3 but the publish step got a 403: the default
+# token is read-only, and build-android.yml declares this while this workflow
+# did not.
+permissions:
+  contents: write
+
 jobs:
   spike:
     runs-on: ubuntu-latest
