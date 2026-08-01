@@ -33,6 +33,12 @@ android {
 
     packaging {
         resources.excludes += setOf("META-INF/*")
+        // Debug APKs store the native lib and dex uncompressed so installs are
+        // fast. That put this build at 30.4 MiB — over the limit it has to
+        // travel through to reach a phone. Compressing both costs a little
+        // install time and nothing else that matters for a throwaway tool.
+        jniLibs.useLegacyPackaging = true
+        dex.useLegacyPackaging = true
     }
 }
 

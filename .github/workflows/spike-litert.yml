@@ -139,6 +139,10 @@ jobs:
         run: |
           mkdir -p spike/dist
           cp spike/litert-lm/app/build/outputs/apk/debug/*.apk spike/dist/litert-spike.apk
+          # Run 4 built fine but came out at 30.4 MiB, just over the size limit
+          # it has to travel through. Print it so that is visible in the log
+          # rather than discovered at delivery time.
+          echo "APK size: $(stat -c%s spike/dist/litert-spike.apk) bytes"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add spike/dist/litert-spike.apk
