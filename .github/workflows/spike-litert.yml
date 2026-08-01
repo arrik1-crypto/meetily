@@ -1,0 +1,101 @@
+name: Build LiteRT-LM spike
+
+# Deliberately separate from build-android.yml, and NOT triggered by changes
+# under android/. This is a throwaway measurement tool; it must never gate or
+# slow the real app's pipeline.
+on:
+  push:
+    branches:
+      - "claude/**"
+    paths:
+      - "spike/**"
+      - ".github/workflows/spike-litert.yml"
+  workflow_dispatch:
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      # The whole reason this runs before the build: the published Kotlin
+      # guide is not reachable, so the real class and method names are
+      # unknown. Resolve the artifact, crack it open, and print the API.
+      # Whatever the build does afterwards, the log carries the answer.
+      - name: Discover on-device LLM artifacts on Google Maven
+        continue-on-error: true
+        run: |
+          set +e
+          base=https://dl.google.com/dl/android/maven2
+          for group in \
+            com/google/mediapipe \
+            com/google/ai/edge/litert \
+            com/google/ai/edge/litertlm \
+            com/google/ai/edge
+          do
+            echo "=============================================="
+            echo "group-index: ${group//\//.}"
+            echo "=============================================="
+            curl -fsSL "$base/$group/group-index.xml" || echo "  (no index)"
+            echo
+          done
+
+      - name: Download and dump the candidate AAR's API
+        continue-on-error: true
+        run: |
+          set +e
+          base=https://dl.google.com/dl/android/maven2
+          coord=$(grep '^spike.llmCoordinate=' spike/litert-lm/gradle.properties | cut -d= -f2)
+          echo "coordinate under test: $coord"
+          g=$(echo "$coord" | cut -d: -f1 | tr '.' '/')
+          a=$(echo "$coord" | cut -d: -f2)
+          v=$(echo "$coord" | cut -d: -f3)
+          url="$base/$g/$a/$v/$a-$v.aar"
+          echo "fetching $url"
+          curl -fsSL -o cand.aar "$url" || { echo "AAR not found at that coordinate"; exit 0; }
+          mkdir -p aar && cd aar && unzip -o -q ../cand.aar
+          echo "--- AAR contents ---"
+          ls -la
+          if [ -f classes.jar ]; then
+            echo "--- classes mentioning llm/engine/inference ---"
+            unzip -l classes.jar | grep -iE 'llm|engine|inference|backend' | head -60
+            mkdir -p x && cd x && unzip -o -q ../classes.jar
+            echo "--- public API of the interesting classes ---"
+            for c in $(find . -name '*.class' | grep -iE 'LlmInference|Engine|Session|Backend' | grep -v '\$[0-9]' | head -12); do
+              cls=$(echo "${c#./}" | sed 's/\.class$//' | tr '/' '.')
+              echo "=== $cls ==="
+              javap -classpath . -public "$cls" 2>/dev/null | head -40
+            done
+          fi
+
+      - name: Build spike APK
+        id: build
+        continue-on-error: true
+        run: |
+          chmod +x android/gradlew
+          android/gradlew -p spike/litert-lm assembleDebug --no-daemon --stacktrace
+
+      - name: Upload spike APK
+        if: steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: litert-spike-apk
+          path: spike/litert-lm/app/build/outputs/apk/debug/*.apk
+
+      # Committed to the branch so it can be delivered the same way the real
+      # builds are, rather than needing an artifact download.
+      - name: Commit spike APK
+        if: steps.build.outcome == 'success'
+        run: |
+          mkdir -p spike/dist
+          cp spike/litert-lm/app/build/outputs/apk/debug/*.apk spike/dist/litert-spike.apk
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add spike/dist/litert-spike.apk
+          git diff --staged --quiet || git commit -m "ci: publish LiteRT spike APK [skip ci]"
+          git push
