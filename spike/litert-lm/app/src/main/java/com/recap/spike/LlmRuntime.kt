@@ -21,19 +21,34 @@ import java.lang.reflect.Method
  */
 object LlmRuntime {
 
-    /** Class names to try, most likely first. */
+    /**
+     * Known from the CI artifact dump, not guessed any more. LiteRT-LM 0.15.0:
+     *
+     *   Engine(EngineConfig) : AutoCloseable
+     *     initialize()
+     *     createSession(SessionConfig) : Session
+     *     createConversation(ConversationConfig) : Conversation
+     *
+     *   EngineConfig(modelPath, backend, visionBackend, audioBackend,
+     *                Integer, Integer, String)
+     *
+     *   Backend — abstract class with getName(), NOT an enum, so the concrete
+     *   backends are nested objects resolved by name below.
+     *
+     * Still reflective because this is throwaway scaffolding and because the
+     * Backend instances have to be discovered at runtime anyway.
+     */
     private val ENGINE_CANDIDATES = listOf(
-        "com.google.mediapipe.tasks.genai.llminference.LlmInference",
         "com.google.ai.edge.litertlm.Engine",
-        "com.google.ai.edge.litert.lm.Engine",
-        "com.google.ai.edge.litertlm.LlmInference"
+        "com.google.mediapipe.tasks.genai.llminference.LlmInference"
     )
 
     private val OPTIONS_CANDIDATES = listOf(
-        "com.google.mediapipe.tasks.genai.llminference.LlmInference\$LlmInferenceOptions",
         "com.google.ai.edge.litertlm.EngineConfig",
-        "com.google.ai.edge.litertlm.EngineSettings"
+        "com.google.mediapipe.tasks.genai.llminference.LlmInference\$LlmInferenceOptions"
     )
+
+    private const val BACKEND_CLASS = "com.google.ai.edge.litertlm.Backend"
 
     class Binding(
         val engineClass: Class<*>,
@@ -101,20 +116,52 @@ object LlmRuntime {
         }
 
         return try {
-            val instance = construct(context, engineClass, optionsClass, modelPath, backend, notes)
-            val generate = engineClass.methods.firstOrNull {
-                it.parameterTypes.size == 1 &&
-                    it.parameterTypes[0] == String::class.java &&
-                    it.returnType == String::class.java &&
-                    it.name.contains("generate", ignoreCase = true)
-            } ?: return Result.failure(
-                IllegalStateException("no String generate(String) on ${engineClass.name}")
-            )
+            val engine = construct(context, engineClass, optionsClass, modelPath, backend, notes)
+            // The engine may generate directly (MediaPipe) or hand out a
+            // Session / Conversation that does (LiteRT-LM). Try in that order.
+            var target: Any = engine
+            var generate = stringToString(engine.javaClass)
+            if (generate == null) {
+                val maker = engineClass.methods.firstOrNull {
+                    it.name == "createSession" || it.name == "createConversation"
+                }
+                if (maker != null) {
+                    // Its config argument is optional in Kotlin; null relies on
+                    // the runtime's own defaults.
+                    val child = maker.invoke(engine, *arrayOfNulls<Any?>(maker.parameterCount))
+                    if (child != null) {
+                        notes += "generating via ${maker.name} -> ${child.javaClass.simpleName}"
+                        target = child
+                        generate = stringToString(child.javaClass)
+                    }
+                }
+            }
+            if (generate == null) {
+                return Result.failure(
+                    IllegalStateException(
+                        "no String->String generate found on ${engine.javaClass.name} " +
+                            "or its session; methods: " +
+                            target.javaClass.methods.joinToString { it.name }.take(400)
+                    )
+                )
+            }
             notes += "generate method: ${generate.name}"
-            Result.success(Binding(engineClass, optionsClass, instance, generate, notes))
+            Result.success(Binding(engineClass, optionsClass, target, generate, notes))
         } catch (t: Throwable) {
             Result.failure(t)
         }
+    }
+
+    private fun stringToString(cls: Class<*>): Method? = cls.methods.firstOrNull {
+        it.parameterTypes.size == 1 &&
+            it.parameterTypes[0] == String::class.java &&
+            it.returnType == String::class.java &&
+            (
+                it.name.contains("generate", ignoreCase = true) ||
+                    it.name.contains("sendMessage", ignoreCase = true) ||
+                    it.name.contains("runPrefillDecode", ignoreCase = true) ||
+                    it.name.contains("predict", ignoreCase = true)
+                )
     }
 
     /**
@@ -130,6 +177,35 @@ object LlmRuntime {
         backend: String,
         notes: MutableList<String>
     ): Any {
+        // LiteRT-LM shape: EngineConfig is a data class taking the model path
+        // and three Backend slots (text, vision, audio), then Engine(config)
+        // followed by initialize(). No builder anywhere.
+        if (optionsClass != null && optionsClass.name.endsWith("EngineConfig")) {
+            val backendObj = resolveBackend(backend, notes)
+            val ctor = optionsClass.constructors
+                .filter { it.parameterTypes.firstOrNull() == String::class.java }
+                .maxByOrNull { it.parameterCount }
+                ?: error("no EngineConfig constructor taking a model path")
+            val args = arrayOfNulls<Any?>(ctor.parameterCount)
+            args[0] = modelPath
+            // Every Backend-typed slot gets the requested backend; the vision
+            // and audio ones are irrelevant here but must not be null.
+            ctor.parameterTypes.forEachIndexed { i, t ->
+                if (i > 0 && t.name == BACKEND_CLASS) args[i] = backendObj
+            }
+            notes += "EngineConfig ctor arity ${ctor.parameterCount}"
+            val config = ctor.newInstance(*args)
+            val engine = engineClass.constructors
+                .firstOrNull { it.parameterCount == 1 }
+                ?.newInstance(config)
+                ?: error("no Engine(EngineConfig) constructor")
+            engineClass.methods.firstOrNull {
+                it.name == "initialize" && it.parameterCount == 0
+            }?.invoke(engine)?.also { notes += "initialize() called" }
+                ?: notes.add("no initialize() — assuming eager construction")
+            return engine
+        }
+
         if (optionsClass == null) {
             // Try a plain (Context, String) or (String) constructor.
             engineClass.constructors.forEach { c ->
@@ -190,6 +266,69 @@ object LlmRuntime {
         } ?: error("no create factory on ${engineClass.name}")
         notes += "factory: ${single.name}"
         return single.invoke(null, options) ?: error("${single.name} returned null")
+    }
+
+    /**
+     * Finds the concrete Backend object whose getName() matches [backend].
+     *
+     * Backend is a sealed-style abstract class, so the options are nested
+     * objects (Backend.CPU, Backend.GPU, and whatever else exists) rather
+     * than enum constants. Which ones exist IS the finding: the notes record
+     * every name discovered, so a run reports the real menu even when the
+     * requested backend is not on it.
+     */
+    private fun resolveBackend(backend: String, notes: MutableList<String>): Any? {
+        val base = try {
+            Class.forName(BACKEND_CLASS)
+        } catch (_: Throwable) {
+            notes += "Backend class absent"
+            return null
+        }
+        val found = mutableMapOf<String, Any>()
+        // Nested objects expose themselves as a static INSTANCE field.
+        for (nested in base.classes) {
+            val instance = try {
+                nested.getField("INSTANCE").get(null)
+            } catch (_: Throwable) {
+                try {
+                    nested.getDeclaredConstructor().newInstance()
+                } catch (_: Throwable) {
+                    null
+                }
+            } ?: continue
+            val name = try {
+                base.getMethod("getName").invoke(instance) as? String
+            } catch (_: Throwable) {
+                null
+            } ?: nested.simpleName
+            found[name] = instance
+        }
+        // Static fields on Backend itself, in case they are declared that way.
+        for (f in base.declaredFields) {
+            if (!java.lang.reflect.Modifier.isStatic(f.modifiers)) continue
+            val v = try {
+                f.isAccessible = true
+                f.get(null)
+            } catch (_: Throwable) {
+                null
+            } ?: continue
+            if (base.isInstance(v)) {
+                val name = try {
+                    base.getMethod("getName").invoke(v) as? String
+                } catch (_: Throwable) {
+                    null
+                } ?: f.name
+                found[name] = v
+            }
+        }
+        notes += "backends available: ${found.keys.sorted().joinToString(", ").ifEmpty { "none found" }}"
+        val match = found.entries.firstOrNull { it.key.equals(backend, ignoreCase = true) }
+        if (match == null) {
+            notes += "WARNING: '$backend' is NOT among them"
+            return found.entries.firstOrNull { it.key.equals("cpu", true) }?.value
+        }
+        notes += "backend selected: ${match.key}"
+        return match.value
     }
 
     private fun applyBackend(builder: Any, backend: String, notes: MutableList<String>): Boolean {

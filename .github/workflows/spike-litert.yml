@@ -94,13 +94,23 @@ jobs:
             javap -classpath . -public "$cls" 2>/dev/null | head -50
           done
 
-          # The crux of the whole spike: does an NPU/TPU option exist at all?
-          echo "--- enum constants mentioning a backend/accelerator ---"
-          for c in $(find . -name '*.class' | grep -iE 'Backend|Accelerator|Delegate' | head -8); do
+          # THE CRUX. Backend turned out to be a sealed-style abstract class,
+          # so the concrete backends are NESTED classes — which the filters
+          # above deliberately exclude. Whether an NPU one exists is the single
+          # fact this whole spike turns on, so list them explicitly.
+          echo "--- Backend and its concrete subclasses ---"
+          find . -name 'Backend*.class' | sed 's|^\./||; s|\.class$||; s|/|.|g' | sort
+          for c in $(find . -name 'Backend*.class' | head -12); do
             cls=$(echo "${c#./}" | sed 's/\.class$//' | tr '/' '.')
             echo "=== $cls ==="
-            javap -classpath . -public -constants "$cls" 2>/dev/null | head -30
+            javap -classpath . -public -constants "$cls" 2>/dev/null | head -25
           done
+
+          # Corroborating evidence: vendor NPU runtimes ship as .so files. A
+          # backend that exists in the API but has no native library behind it
+          # is not one you can actually use.
+          echo "--- native libraries shipped in the AAR ---"
+          cd .. && ls -la jni/arm64-v8a 2>/dev/null || echo "  (no arm64 jni dir)"
 
       - name: Build spike APK
         id: build
