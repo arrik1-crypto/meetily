@@ -37,7 +37,25 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // A tool whose entire job is reporting should not fail by vanishing.
+        // If startup throws, put the trace on screen where it can be read and
+        // copied, rather than leaving a launcher icon that does nothing.
+        try {
+            buildUi()
+        } catch (t: Throwable) {
+            setContentView(TextView(this).apply {
+                textSize = 11f
+                typeface = android.graphics.Typeface.MONOSPACE
+                setTextIsSelectable(true)
+                setPadding(24, 48, 24, 24)
+                text = "Startup failed\n\n" + java.io.StringWriter()
+                    .also { t.printStackTrace(java.io.PrintWriter(it)) }
+                    .toString()
+            })
+        }
+    }
 
+    private fun buildUi() {
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 48, 32, 32)
@@ -104,12 +122,10 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(scroll)
 
-        setContentView(ScrollView(this).apply {
-            addView(root, LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                LinearLayout.LayoutParams.MATCH_PARENT
-            ))
-        }.let { root })
+        // root already holds a weighted ScrollView for the output. Wrapping it
+        // in a second one both crashed (root would already have a parent) and
+        // would have collapsed that weight to nothing.
+        setContentView(root)
 
         show(intro())
     }
