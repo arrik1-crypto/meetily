@@ -165,9 +165,8 @@ object Harness {
         } catch (t: Throwable) {
             return Result.failure(t)
         }
-        if (warm.isNullOrBlank()) {
-            return Result.failure(IllegalStateException("warmup returned nothing"))
-        }
+        var last: String = warm?.takeIf { it.isNotBlank() }
+            ?: return Result.failure(IllegalStateException("warmup returned nothing"))
 
         val thermalBefore = thermal(context)
         // Read the gauge AFTER warmup so model load and page-in are excluded
@@ -176,7 +175,6 @@ object Harness {
 
         val times = mutableListOf<Long>()
         val chars = mutableListOf<Int>()
-        var last = warm
         for (i in 1..rounds) {
             onProgress("run $i of $rounds…")
             val t0 = SystemClock.elapsedRealtime()
@@ -187,7 +185,7 @@ object Harness {
             }
             times += SystemClock.elapsedRealtime() - t0
             chars += reply?.length ?: 0
-            if (!reply.isNullOrBlank()) last = reply
+            reply?.takeIf { it.isNotBlank() }?.let { last = it }
         }
 
         val chargeAfter = chargeCounter(context)

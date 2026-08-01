@@ -45,7 +45,10 @@ jobs:
             echo
           done
 
-      - name: Download and dump the candidate AAR's API
+      # The first run 404'd here because it assumed a .aar and guessed nothing
+      # else. Read the POM for the real packaging, and fall back to .jar —
+      # a silent 404 is how a discovery step produces no discovery.
+      - name: Download and dump the artifact's API
         continue-on-error: true
         run: |
           set +e
@@ -55,23 +58,49 @@ jobs:
           g=$(echo "$coord" | cut -d: -f1 | tr '.' '/')
           a=$(echo "$coord" | cut -d: -f2)
           v=$(echo "$coord" | cut -d: -f3)
-          url="$base/$g/$a/$v/$a-$v.aar"
-          echo "fetching $url"
-          curl -fsSL -o cand.aar "$url" || { echo "AAR not found at that coordinate"; exit 0; }
-          mkdir -p aar && cd aar && unzip -o -q ../cand.aar
-          echo "--- AAR contents ---"
-          ls -la
-          if [ -f classes.jar ]; then
-            echo "--- classes mentioning llm/engine/inference ---"
-            unzip -l classes.jar | grep -iE 'llm|engine|inference|backend' | head -60
-            mkdir -p x && cd x && unzip -o -q ../classes.jar
-            echo "--- public API of the interesting classes ---"
-            for c in $(find . -name '*.class' | grep -iE 'LlmInference|Engine|Session|Backend' | grep -v '\$[0-9]' | head -12); do
-              cls=$(echo "${c#./}" | sed 's/\.class$//' | tr '/' '.')
-              echo "=== $cls ==="
-              javap -classpath . -public "$cls" 2>/dev/null | head -40
-            done
-          fi
+          dir="$base/$g/$a/$v"
+
+          echo "--- POM (declares packaging and transitive deps) ---"
+          curl -fsSL "$dir/$a-$v.pom" || echo "  (no pom)"
+          echo
+
+          got=""
+          for ext in aar jar; do
+            echo "trying $dir/$a-$v.$ext"
+            if curl -fsSL -o "cand.$ext" "$dir/$a-$v.$ext"; then
+              got="cand.$ext"
+              echo "  got $got ($(stat -c%s "$got") bytes)"
+              break
+            fi
+          done
+          [ -z "$got" ] && { echo "no artifact downloadable at that coordinate"; exit 0; }
+
+          mkdir -p aar && cd aar && unzip -o -q "../$got"
+          echo "--- artifact contents ---"
+          find . -maxdepth 2 | head -40
+
+          # An AAR nests classes.jar; a plain jar is already the classes.
+          jar=classes.jar
+          [ -f "$jar" ] || jar="../$got"
+          mkdir -p x && cd x && unzip -o -q "../$jar" 2>/dev/null
+
+          echo "--- every top-level class (this is the API surface) ---"
+          find . -name '*.class' | grep -v '\$' | sed 's|^\./||; s|\.class$||; s|/|.|g' | sort | head -80
+
+          echo "--- public API of the classes that matter ---"
+          for c in $(find . -name '*.class' | grep -viE '\$' | grep -iE 'Engine|LlmInference|Session|Backend|Config|Accelerator' | head -14); do
+            cls=$(echo "${c#./}" | sed 's/\.class$//' | tr '/' '.')
+            echo "=== $cls ==="
+            javap -classpath . -public "$cls" 2>/dev/null | head -50
+          done
+
+          # The crux of the whole spike: does an NPU/TPU option exist at all?
+          echo "--- enum constants mentioning a backend/accelerator ---"
+          for c in $(find . -name '*.class' | grep -iE 'Backend|Accelerator|Delegate' | head -8); do
+            cls=$(echo "${c#./}" | sed 's/\.class$//' | tr '/' '.')
+            echo "=== $cls ==="
+            javap -classpath . -public -constants "$cls" 2>/dev/null | head -30
+          done
 
       - name: Build spike APK
         id: build
