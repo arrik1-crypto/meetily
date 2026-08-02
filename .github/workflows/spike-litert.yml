@@ -118,6 +118,16 @@ jobs:
           echo "--- native libraries shipped in the AAR ---"
           cd .. && ls -la jni/arm64-v8a 2>/dev/null || echo "  (no arm64 jni dir)"
 
+      # Adoption blocker, not a curiosity. The GGUF catalogue uses unsloth/ and
+      # bartowski/ mirrors precisely because Google's own Gemma repos are
+      # licence-gated, and a gated repo cannot be fetched by a one-tap in-app
+      # download button — there is no token to send. So before a .litertlm
+      # catalogue can be written, find out which models a phone can actually
+      # fetch. The script asks unauthenticated, which is the only real test.
+      - name: Discover .litertlm models and their gating
+        continue-on-error: true
+        run: python3 spike/scripts/discover_litertlm.py
+
       - name: Build spike APK
         id: build
         continue-on-error: true
