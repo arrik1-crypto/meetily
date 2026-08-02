@@ -47,10 +47,27 @@ EOF
     echo "  appended freeCompilerArgs: $extra_args"
   fi
 
-  if "$ROOT/android/gradlew" -p "$dir" assembleDebug --no-daemon -q 2>&1 | tail -25; then
-    echo "  RESULT: $name BUILT"
+  # Capture to a file rather than piping into tail. `cmd | tail` reports
+  # TAIL's exit status, not the build's, so the first version of this probe
+  # printed "BUILT" directly beneath "BUILD FAILED" — a verdict that was
+  # always true and therefore worth nothing.
+  local log="$dir/build.log"
+  "$ROOT/android/gradlew" -p "$dir" assembleDebug --no-daemon 2>&1 | tee "$log" | tail -30
+  local status=${PIPESTATUS[0]}
+
+  # Belt and braces: trust the exit status, but say so out loud if the log
+  # disagrees, because a wrong verdict here sends the whole adoption
+  # decision the wrong way.
+  local marker="none"
+  grep -q "BUILD SUCCESSFUL" "$log" && marker="BUILD SUCCESSFUL"
+  grep -q "BUILD FAILED" "$log" && marker="BUILD FAILED"
+
+  if [ "$status" -eq 0 ]; then
+    echo "  RESULT: $name BUILT (exit 0, log says: $marker)"
   else
-    echo "  RESULT: $name FAILED"
+    echo "  RESULT: $name FAILED (exit $status, log says: $marker)"
+    echo "  first metadata complaint, if any:"
+    grep -m1 "incompatible version of Kotlin" "$log" | sed 's/^/    /' || true
   fi
   echo
 }
