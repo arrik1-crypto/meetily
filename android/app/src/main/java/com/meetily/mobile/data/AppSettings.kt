@@ -31,6 +31,51 @@ class AppSettings(context: Context) {
         get() = prefs.getString("local_llm_model", "qwen2.5-1.5b") ?: "qwen2.5-1.5b"
         set(value) = prefs.edit().putString("local_llm_model", value).apply()
 
+    /**
+     * Which on-device runtime serves [llmEngine] == "local": "llama"
+     * (llama.cpp, the default) or "litert" (LiteRT-LM, opt-in).
+     *
+     * Deliberately NOT a third value of llmEngine. Six places across the app
+     * ask `llmEngine == "local"` to mean "nothing leaves the phone" — the
+     * privacy indicator on the main screen, llmConfigured, the unattended
+     * summary gate, and the endpoint-consent prompt among them. Both runtimes
+     * are equally on-device, so all six should keep answering yes without
+     * being touched. Folding the runtime into that string would flip every
+     * one of them the wrong way, silently.
+     *
+     * It also stays out of llmEngine's setter, which revokes unattended
+     * off-device consent on change. Switching between two local runtimes
+     * sends nothing off-device, so there is nothing to re-consent to.
+     */
+    var localLlmRuntime: String
+        get() = prefs.getString("local_llm_runtime", RUNTIME_LLAMA) ?: RUNTIME_LLAMA
+        set(value) = prefs.edit().putString("local_llm_runtime", value).apply()
+
+    /**
+     * Requested LiteRT accelerator: "auto", "cpu", "gpu" or "tensor".
+     *
+     * A request, not a fact — the runtime may serve something else, so what
+     * actually ran is recorded separately in [litertLastBackend] and shown in
+     * Settings. "gpu" is deliberately not the default: ACCELERATION_FINDINGS.md
+     * records that this device's PowerVR DXT-48-1536 returns numerically
+     * incorrect k-quant matmuls under ggml-vulkan and all-zero tensors under
+     * ExecuTorch. Wrong summaries are the one failure this app cannot detect.
+     */
+    var litertBackend: String
+        get() = prefs.getString("litert_backend", BACKEND_AUTO) ?: BACKEND_AUTO
+        set(value) = prefs.edit().putString("litert_backend", value).apply()
+
+    /** Backend the runtime actually selected on the last successful run. */
+    var litertLastBackend: String
+        get() = prefs.getString("litert_last_backend", "") ?: ""
+        set(value) = prefs.edit().putString("litert_last_backend", value).apply()
+
+    /** Absolute path of the imported .litertlm file, or blank. */
+    var litertModelPath: String
+        get() = prefs.getString("litert_model_path", "") ?: ""
+        set(value) = prefs.edit().putString("litert_model_path", value).apply()
+
+
     /** True when the chosen AI engine has enough config to be called at all. */
     val llmConfigured: Boolean
         get() = llmEngine == "local" || llmBaseUrl.isNotBlank()
@@ -321,4 +366,14 @@ class AppSettings(context: Context) {
     var recordingConsent: Boolean
         get() = prefs.getBoolean("recording_consent", false)
         set(value) = prefs.edit().putBoolean("recording_consent", value).apply()
+
+    companion object {
+        const val RUNTIME_LLAMA = "llama"
+        const val RUNTIME_LITERT = "litert"
+
+        const val BACKEND_AUTO = "auto"
+        const val BACKEND_CPU = "cpu"
+        const val BACKEND_GPU = "gpu"
+        const val BACKEND_TENSOR = "tensor"
+    }
 }

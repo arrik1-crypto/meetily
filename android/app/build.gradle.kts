@@ -31,8 +31,8 @@ android {
         applicationId = "com.recap.mobile"
         minSdk = 26
         targetSdk = 35
-        versionCode = 92
-        versionName = "3.11.2-beta1"
+        versionCode = 93
+        versionName = "3.12.0-beta1"
 
         // No ndk.abiFilters here: AGP forbids it alongside ABI splits. The
         // splits.abi.include list below is the single source of built ABIs.
@@ -108,6 +108,18 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+        // The LiteRT-LM AAR carries Kotlin 2.2.21 metadata and pulls in
+        // kotlin-stdlib/kotlin-reflect at that version. The metadata check is
+        // classpath-wide, not reference-driven, so a plain 2.0.21 build fails
+        // on the stdlib alone even though no LiteRT class is named at compile
+        // time. This flag is the whole cost of consuming it — the earlier
+        // reading, that adoption forced a Kotlin upgrade across the app, was
+        // wrong. Verified both ways by spike/scripts/kotlin_compat_probe.sh.
+        freeCompilerArgs += "-Xskip-metadata-version-check"
+    }
+
+    buildFeatures {
+        aidl = true
     }
 }
 
@@ -120,6 +132,13 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     // Bundled on-device Latin OCR for whiteboard/photo text (no network).
     implementation("com.google.mlkit:text-recognition:16.0.1")
+
+    // Opt-in second on-device LLM runtime, able to reach the Tensor NPU.
+    // Loaded only inside the :litert sandbox process — it ships one 21 MB
+    // .so with its own statically-linked tensor runtime, and the main
+    // process runs whisper.cpp and llama.cpp over a deliberately shared
+    // ggml. Keeping them out of one address space is why the sandbox exists.
+    implementation("com.google.ai.edge.litertlm:litertlm-android:0.15.0")
 
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM unit tests — the android.jar mockable stubs

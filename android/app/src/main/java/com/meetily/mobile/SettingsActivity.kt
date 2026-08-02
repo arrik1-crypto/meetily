@@ -573,6 +573,7 @@ class SettingsActivity : AppCompatActivity() {
             showLlmModelDialog()
         }
         updateLocalLlmStatus()
+        setUpLiteRt()
     }
 
     private fun applyEngineVisibility() {
@@ -581,6 +582,248 @@ class SettingsActivity : AppCompatActivity() {
             if (local) View.VISIBLE else View.GONE
         findViewById<View>(R.id.endpointSection).visibility =
             if (local) View.GONE else View.VISIBLE
+    }
+
+    // --- LiteRT-LM: the opt-in second on-device runtime ---------------------
+
+    private fun setUpLiteRt() {
+        val runtimeToggle = findViewById<MaterialButtonToggleGroup>(R.id.llmRuntimeToggle)
+        runtimeToggle.check(
+            if (settings.localLlmRuntime == AppSettings.RUNTIME_LITERT) {
+                R.id.runtimeLitert
+            } else {
+                R.id.runtimeLlama
+            }
+        )
+        applyRuntimeVisibility()
+        runtimeToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            settings.localLlmRuntime = if (checkedId == R.id.runtimeLitert) {
+                AppSettings.RUNTIME_LITERT
+            } else {
+                AppSettings.RUNTIME_LLAMA
+            }
+            // Whichever runtime is being left keeps a model loaded until it
+            // is told otherwise, and on a phone that is the largest thing the
+            // app holds. Release both; the next generation reloads the one
+            // that is now selected.
+            LocalLlm.release()
+            com.meetily.mobile.llm.LiteRtLlm.release()
+            applyRuntimeVisibility()
+        }
+
+        val backendToggle = findViewById<MaterialButtonToggleGroup>(R.id.litertBackendToggle)
+        backendToggle.check(backendButtonFor(settings.litertBackend))
+        backendToggle.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            if (checkedId == R.id.backendGpu &&
+                settings.litertBackend != AppSettings.BACKEND_GPU
+            ) {
+                confirmGpuBackend(backendToggle)
+                return@addOnButtonCheckedListener
+            }
+            settings.litertBackend = backendIdFor(checkedId)
+            com.meetily.mobile.llm.LiteRtLlm.release()
+            updateLiteRtStatus()
+        }
+
+        findViewById<View>(R.id.litertGetModelButton).setOnClickListener { showGetModelDialog() }
+        findViewById<View>(R.id.litertImportButton).setOnClickListener {
+            litertPicker.launch(arrayOf("*/*"))
+        }
+        findViewById<View>(R.id.litertTestButton).setOnClickListener { runLiteRtProbe() }
+
+        updateLiteRtStatus()
+    }
+
+    private fun applyRuntimeVisibility() {
+        findViewById<View>(R.id.litertSection).visibility =
+            if (settings.localLlmRuntime == AppSettings.RUNTIME_LITERT) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+    }
+
+    private fun backendButtonFor(id: String): Int = when (id) {
+        AppSettings.BACKEND_TENSOR -> R.id.backendTensor
+        AppSettings.BACKEND_CPU -> R.id.backendCpu
+        AppSettings.BACKEND_GPU -> R.id.backendGpu
+        else -> R.id.backendAuto
+    }
+
+    private fun backendIdFor(buttonId: Int): String = when (buttonId) {
+        R.id.backendTensor -> AppSettings.BACKEND_TENSOR
+        R.id.backendCpu -> AppSettings.BACKEND_CPU
+        R.id.backendGpu -> AppSettings.BACKEND_GPU
+        else -> AppSettings.BACKEND_AUTO
+    }
+
+    /**
+     * The GPU option asks first.
+     *
+     * ACCELERATION_FINDINGS.md records that this device's PowerVR
+     * DXT-48-1536 returns numerically incorrect k-quant matmuls under
+     * ggml-vulkan and all-zero tensors under ExecuTorch. That failure does
+     * not crash — it produces confident, wrong summaries, which nobody
+     * reports as a bug and the app cannot detect. Reachable, because it may
+     * be exactly what someone wants to test, but never by accident.
+     */
+    private fun confirmGpuBackend(toggle: MaterialButtonToggleGroup) {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.litert_gpu_warning_title)
+            .setMessage(R.string.litert_gpu_warning)
+            .setPositiveButton(R.string.litert_gpu_warning_continue) { _, _ ->
+                settings.litertBackend = AppSettings.BACKEND_GPU
+                com.meetily.mobile.llm.LiteRtLlm.release()
+                updateLiteRtStatus()
+            }
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                toggle.check(backendButtonFor(settings.litertBackend))
+            }
+            .setOnCancelListener { toggle.check(backendButtonFor(settings.litertBackend)) }
+            .show()
+    }
+
+    /**
+     * Every first-party publisher of this format is licence-gated, so the app
+     * cannot fetch a model on the user's behalf — there is no token to send.
+     * Sending them to accept it themselves is what the gate is for.
+     */
+    private fun showGetModelDialog() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.litert_get_model_title)
+            .setMessage(R.string.litert_get_model_body)
+            .setPositiveButton(R.string.litert_get_model_open) { _, _ ->
+                val intent = android.content.Intent(
+                    android.content.Intent.ACTION_VIEW,
+                    android.net.Uri.parse(com.meetily.mobile.llm.LiteRtModels.LICENCE_PAGE)
+                )
+                try {
+                    startActivity(intent)
+                } catch (_: Exception) {
+                    Toast.makeText(this, R.string.litert_no_browser, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private val litertPicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) importLiteRtModel(uri) }
+
+    private fun importLiteRtModel(uri: android.net.Uri) {
+        val progress = findViewById<
+            com.google.android.material.progressindicator.LinearProgressIndicator
+            >(R.id.litertProgress)
+        val status = findViewById<TextView>(R.id.litertModelStatus)
+        val pickedName = queryDisplayName(uri)
+
+        progress.visibility = View.VISIBLE
+        progress.isIndeterminate = true
+
+        // Gigabytes of copying; never on the main thread.
+        Thread {
+            val result = runCatching {
+                com.meetily.mobile.llm.LiteRtModels.import(
+                    this, uri, pickedName,
+                    onProgress = { percent ->
+                        runOnUiThread {
+                            progress.isIndeterminate = false
+                            progress.progress = percent
+                            status.text = getString(R.string.litert_importing, percent)
+                        }
+                    }
+                )
+            }
+            runOnUiThread {
+                progress.visibility = View.GONE
+                result.fold(
+                    onSuccess = {
+                        com.meetily.mobile.llm.LiteRtLlm.release()
+                        // A new model invalidates what the old one measured.
+                        settings.litertLastBackend = ""
+                        updateLiteRtStatus()
+                        Toast.makeText(this, R.string.litert_import_done, Toast.LENGTH_SHORT).show()
+                    },
+                    onFailure = { t ->
+                        updateLiteRtStatus()
+                        Toast.makeText(
+                            this,
+                            getString(
+                                R.string.litert_import_failed,
+                                t.message ?: t.javaClass.simpleName
+                            ),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                )
+            }
+        }.also { it.name = "litert-import" }.start()
+    }
+
+    private fun queryDisplayName(uri: android.net.Uri): String {
+        contentResolver.query(uri, null, null, null, null)?.use { cursor ->
+            val index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+            if (index >= 0 && cursor.moveToFirst()) {
+                cursor.getString(index)?.let { return it }
+            }
+        }
+        return uri.lastPathSegment.orEmpty()
+    }
+
+    /**
+     * Loads the model and reports the backend the runtime actually chose.
+     *
+     * Worth its own button because the spike found that requested and
+     * selected are not the same thing, and because the alternative is
+     * finding out minutes into a summary. Failures land here, in Settings,
+     * where the user is already looking.
+     */
+    private fun runLiteRtProbe() {
+        if (!com.meetily.mobile.llm.LiteRtModels.isImported(this)) {
+            Toast.makeText(this, R.string.litert_test_needs_model, Toast.LENGTH_LONG).show()
+            return
+        }
+        val status = findViewById<TextView>(R.id.litertBackendStatus)
+        status.text = getString(R.string.litert_testing)
+        Thread {
+            val result = runCatching { com.meetily.mobile.llm.LiteRtLlm.probe(this) }
+            runOnUiThread {
+                result.fold(
+                    onSuccess = { updateLiteRtStatus() },
+                    onFailure = { t ->
+                        status.text = t.message ?: t.javaClass.simpleName
+                    }
+                )
+            }
+        }.also { it.name = "litert-probe" }.start()
+    }
+
+    private fun updateLiteRtStatus() {
+        val model = com.meetily.mobile.llm.LiteRtModels.current(this)
+        findViewById<TextView>(R.id.litertModelStatus).text = if (model == null) {
+            getString(R.string.litert_model_missing)
+        } else {
+            getString(
+                R.string.litert_model_present,
+                model.name,
+                model.length() / (1024 * 1024)
+            )
+        }
+        val last = settings.litertLastBackend
+        findViewById<TextView>(R.id.litertBackendStatus).text = if (last.isBlank()) {
+            getString(R.string.litert_backend_unknown)
+        } else {
+            getString(R.string.litert_backend_actual, backendLabel(last))
+        }
+    }
+
+    private fun backendLabel(id: String): String = when (id) {
+        AppSettings.BACKEND_TENSOR -> getString(R.string.litert_backend_tensor)
+        AppSettings.BACKEND_GPU -> getString(R.string.litert_backend_gpu)
+        else -> getString(R.string.litert_backend_cpu)
     }
 
     private fun updateLocalLlmStatus() {

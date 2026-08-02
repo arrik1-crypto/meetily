@@ -83,9 +83,30 @@ a native library directory and therefore expects vendor libraries the AAR does
 not ship; `GOOGLE_TENSOR` takes no arguments, consistent with using the Tensor
 stack already on the device.
 
-**Kotlin.** The AAR carries Kotlin 2.2.21 metadata. Recap is on 2.0.21, so
-adopting this runtime means a Kotlin upgrade across the whole app — a cost on
-top of the ggml and model-catalogue ones below.
+**Kotlin.** The AAR carries Kotlin 2.2.21 metadata, and a plain Kotlin 2.0.21
+build fails on it — not on any LiteRT class, but on `kotlin-stdlib` and
+`kotlin-reflect` being pulled in at 2.2.21. That was first read as "adopting
+this runtime forces a Kotlin upgrade across the whole app", and quoted as an
+adoption cost three times before anyone tested it.
+
+It is wrong. Recap's 2.0.21 compiles against the AAR with a single flag:
+
+```
+-Xskip-metadata-version-check
+```
+
+Verified by `spike/scripts/kotlin_compat_probe.sh`, which builds both ways:
+plain 2.0.21 fails, 2.0.21 + the flag reports BUILD SUCCESSFUL. Worth noting
+the first version of that probe piped gradle into `tail` and branched on the
+result, so it read `tail`'s exit status and printed BUILT underneath BUILD
+FAILED — the verdict was always true and the flagged case stayed unknown for
+a run longer than it needed to.
+
+**Gated models.** Every first-party `.litertlm` repo requires authentication:
+`google/gemma-3n-*` and all of `litert-community/*`. Only third-party
+re-uploads are fetchable unauthenticated, and those are individual accounts
+rather than the established quantizers (`unsloth`, `bartowski`) the GGUF
+catalogue relies on. See `spike/scripts/discover_litertlm.py`.
 
 ## Why the binding is reflection
 

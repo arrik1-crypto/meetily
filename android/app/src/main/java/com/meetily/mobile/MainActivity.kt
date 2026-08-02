@@ -872,7 +872,10 @@ class MainActivity : AppCompatActivity() {
         // phones is Google's and may process audio in the cloud.
         if (settings.transcriptionEngine != "whisper") return false
         if (!settings.useLlm) return true
-        return settings.llmEngine == "local"
+        // Both on-device runtimes (llama.cpp and LiteRT-LM) qualify — LiteRT
+        // runs in a sandboxed process on this phone, not off it, so the
+        // answer is a property of the engine, never of the runtime.
+        return com.meetily.mobile.llm.EngineRouting.staysOnDevice(settings.llmEngine)
     }
 
     private fun isNightNow(): Boolean =

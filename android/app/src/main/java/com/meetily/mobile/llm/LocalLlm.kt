@@ -13,26 +13,19 @@ import org.json.JSONArray
 object LocalLlm {
 
     /** Fits phone memory and keeps prompt decode times sane. */
-    private const val N_CTX = 4096
+    const val N_CTX = 4096
     private const val MAX_REPLY_TOKENS = 700
 
     /**
-     * Prompt budget in characters (~3.2 chars/token conservative for English
-     * with punctuation), leaving room for the reply and template overhead.
+     * Prompt budget in characters, leaving room for the reply and template
+     * overhead. Derived from [N_CTX] via the shared shaping rules rather than
+     * computed here, so a second runtime with a different window cannot end
+     * up using llama.cpp's number.
      */
-    const val CHAR_BUDGET = (N_CTX - MAX_REPLY_TOKENS - 120) * 3
+    val CHAR_BUDGET = PromptShaping.charBudget(N_CTX)
 
     /** Above this, middle-trimming loses too much: condense per-section instead. */
-    const val MAP_REDUCE_THRESHOLD = CHAR_BUDGET * 3 / 2
-
-    private const val MAP_CHUNK_CHARS = 8_000
-    private const val MAP_MAX_CHUNKS = 12
-    private const val MAP_REPLY_TOKENS = 220
-    private const val MAP_PROMPT =
-        "You are condensing one section of a longer meeting transcript. " +
-            "Write compact notes (up to 8 short bullets) capturing decisions, " +
-            "action items with their owners, key facts and numbers, and what " +
-            "was discussed. No preamble, no commentary."
+    val MAP_REDUCE_THRESHOLD = PromptShaping.mapReduceThreshold(N_CTX)
 
     /**
      * Progress during long generations: (section, totalSections) while
@@ -63,28 +56,22 @@ object LocalLlm {
         appContext = context.applicationContext
     }
 
+    /**
+     * True when this runtime — llama.cpp specifically — should serve chat.
+     *
+     * On-device is now two runtimes, so "engine is local" is no longer enough
+     * to claim the call. The engine check stays exactly as it was; the
+     * runtime check is the new half.
+     */
     fun isSelected(): Boolean {
         val context = appContext ?: return false
-        return AppSettings(context).llmEngine == "local"
+        val settings = AppSettings(context)
+        return EngineRouting.resolve(settings.llmEngine, settings.localLlmRuntime) ==
+            EngineRouting.Target.LLAMA
     }
 
-    /**
-     * Reasoning models (Qwen 3.5 and kin) may open with a <think> block via
-     * their chat template; users should only ever see the answer. Also
-     * handles a truncated block (budget ran out mid-thought). Pure — tested.
-     */
-    fun stripThinking(reply: String): String {
-        val trimmed = reply.trim()
-        if (!trimmed.startsWith("<think>")) {
-            return trimmed.replace(Regex("(?s)<think>.*?</think>"), "").trim()
-        }
-        val close = trimmed.indexOf("</think>")
-        return if (close >= 0) {
-            trimmed.substring(close + "</think>".length).trim()
-        } else {
-            "" // never surface raw chain-of-thought as the summary
-        }
-    }
+    /** @see PromptShaping.stripThinking — kept here so callers and tests don't move. */
+    fun stripThinking(reply: String): String = PromptShaping.stripThinking(reply)
 
     /**
      * Runs one chat completion on-device. [messages] is the same
@@ -149,70 +136,23 @@ object LocalLlm {
     fun needsMapReduce(length: Int): Boolean = length > MAP_REDUCE_THRESHOLD
 
     /**
-     * Condenses [content] chunk-by-chunk into ordered section notes. Returns
-     * null when there's nothing to gain (single chunk) or every section pass
-     * failed — the caller then falls back to head+tail trimming. Must be
-     * called with [lock] held and the model loaded.
+     * Condenses [content] chunk-by-chunk into ordered section notes. Must be
+     * called with [lock] held and the model loaded; the thread budget is
+     * re-applied per section because a recording can start mid-summary.
      */
-    private fun condense(content: String): String? {
-        val chunks = splitIntoChunks(content, MAP_CHUNK_CHARS, MAP_MAX_CHUNKS)
-        if (chunks.size < 2) return null
-        val notes = StringBuilder(
-            "[Ordered notes condensed from the full transcript of a long meeting]\n"
-        )
-        var produced = 0
-        for ((index, chunk) in chunks.withIndex()) {
-            stageListener?.invoke(index + 1, chunks.size)
-            // The chunk cap can force chunks past the budget; trim those.
-            val body = if (chunk.length > CHAR_BUDGET - 600) {
-                budgetMessages(listOf("user" to chunk), CHAR_BUDGET - 600)[0].second
-            } else {
-                chunk
-            }
+    private fun condense(content: String): String? = PromptShaping.condense(
+        content = content,
+        charBudget = CHAR_BUDGET,
+        generate = { messages, replyTokens ->
             applyThreadBudget()
-            val part = try {
-                LlamaBridge.generate(
-                    ptr,
-                    pack(listOf("system" to MAP_PROMPT, "user" to body)),
-                    MAP_REPLY_TOKENS
-                )?.trim().orEmpty()
-            } catch (_: Throwable) {
-                ""
-            }
-            notes.append("\n--- Section ").append(index + 1).append(" ---\n")
-            if (part.isBlank()) {
-                notes.append("(section notes unavailable)\n")
-            } else {
-                notes.append(part).append('\n')
-                produced++
-            }
-        }
-        return if (produced == 0) null else notes.toString()
-    }
+            LlamaBridge.generate(ptr, pack(messages), replyTokens)?.trim().orEmpty()
+        },
+        onSection = { index, total -> stageListener?.invoke(index, total) }
+    )
 
-    /**
-     * Splits at line boundaries into near-even chunks of at most roughly
-     * [maxChars] (growing evenly beyond it only when [maxChunks] forces it).
-     * Concatenation of the result is exactly [text]. Pure; unit-tested.
-     */
-    fun splitIntoChunks(text: String, maxChars: Int, maxChunks: Int): List<String> {
-        if (text.length <= maxChars) return listOf(text)
-        val count = ((text.length + maxChars - 1) / maxChars).coerceAtMost(maxChunks)
-        val target = (text.length + count - 1) / count
-        val chunks = mutableListOf<String>()
-        var start = 0
-        while (start < text.length && chunks.size < count - 1) {
-            var end = (start + target).coerceAtMost(text.length)
-            if (end < text.length) {
-                val newline = text.lastIndexOf('\n', end - 1)
-                if (newline > start + target * 85 / 100) end = newline + 1
-            }
-            chunks.add(text.substring(start, end))
-            start = end
-        }
-        if (start < text.length) chunks.add(text.substring(start))
-        return chunks
-    }
+    /** @see PromptShaping.splitIntoChunks — kept here so callers and tests don't move. */
+    fun splitIntoChunks(text: String, maxChars: Int, maxChunks: Int): List<String> =
+        PromptShaping.splitIntoChunks(text, maxChars, maxChunks)
 
     private fun pack(messages: List<Pair<String, String>>): String = buildString {
         for ((role, content) in messages) {
@@ -281,33 +221,11 @@ object LocalLlm {
         return out
     }
 
-    /**
-     * Shrinks messages to fit [charBudget]: the longest content loses its
-     * middle (keeping 60% head + 40% tail around an omission marker) until
-     * everything fits. Pure; unit-tested.
-     */
+    /** @see PromptShaping.budgetMessages — kept here so callers and tests don't move. */
     fun budgetMessages(
         messages: List<Pair<String, String>>,
         charBudget: Int
-    ): List<Pair<String, String>> {
-        val out = messages.toMutableList()
-        var guard = 0
-        while (out.sumOf { it.second.length } > charBudget && guard++ < 20) {
-            val overshoot = out.sumOf { it.second.length } - charBudget
-            val index = out.indices.maxByOrNull { out[it].second.length } ?: break
-            val (role, content) = out[index]
-            val target = (content.length - overshoot).coerceAtLeast(600)
-            if (target >= content.length) break
-            val marker = "\n…[middle of this section omitted to fit the on-device model]…\n"
-            val keep = (target - marker.length).coerceAtLeast(400)
-            val head = (keep * 6) / 10
-            val tail = keep - head
-            out[index] = role to (
-                content.take(head) + marker + content.takeLast(tail)
-                )
-        }
-        return out
-    }
+    ): List<Pair<String, String>> = PromptShaping.budgetMessages(messages, charBudget)
 
     /**
      * Threads this run may take right now.

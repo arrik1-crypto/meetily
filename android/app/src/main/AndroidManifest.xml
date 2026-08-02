@@ -227,6 +227,28 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
+        <!-- The LiteRT-LM runtime, deliberately in its own process.
+
+             It ships a single 21 MB native library that statically links its
+             own tensor runtime, while this app's whisper.cpp and llama.cpp
+             share one static ggml on purpose. Two overlapping tensor
+             runtimes with global state in one address space is the class of
+             bug that surfaces as a random SIGSEGV inside transcription,
+             hours away from anything LLM-shaped. Separate processes do not
+             share symbols.
+
+             The isolation pays a second time on failure: every catch site in
+             the app catches Exception, so an OutOfMemoryError here, or a
+             native crash, would kill the summary's foreground service
+             outright. Across a binder it arrives as DeadObjectException,
+             which the existing handlers already catch and fall back from.
+
+             Not exported: nothing outside this app may bind it. -->
+        <service
+            android:name=".llm.litert.LiteRtService"
+            android:exported="false"
+            android:process=":litert" />
     </application>
 
 </manifest>

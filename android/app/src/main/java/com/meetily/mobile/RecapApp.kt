@@ -19,13 +19,22 @@ class RecapApp : Application() {
         // on process death and app updates).
         Thread { com.meetily.mobile.reminders.Reminders.rescheduleAll(this) }.start()
         com.meetily.mobile.llm.LocalLlm.init(this)
+        com.meetily.mobile.llm.LiteRtLlm.init(this)
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        // A loaded GGUF model is the biggest thing we hold; let it go first.
+        // A loaded model is the biggest thing we hold; let it go first. Both
+        // runtimes, because only one is selected but either may still be
+        // holding weights from before the user switched.
+        //
+        // The LiteRT release also unbinds the sandbox, which is the only way
+        // its memory actually comes back: a mmap'd GGUF's pages are
+        // reclaimable by the kernel under pressure, but accelerator
+        // allocations are not — the process has to go.
         if (level >= TRIM_MEMORY_BACKGROUND) {
             com.meetily.mobile.llm.LocalLlm.release()
+            com.meetily.mobile.llm.LiteRtLlm.release()
         }
     }
 }
