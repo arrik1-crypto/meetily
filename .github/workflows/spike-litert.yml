@@ -128,6 +128,14 @@ jobs:
         continue-on-error: true
         run: python3 spike/scripts/discover_litertlm.py
 
+      # "Adopting LiteRT forces an app-wide Kotlin upgrade" has been quoted as
+      # an adoption cost since run 2 failed on a metadata-version error. That
+      # is a real blast radius on a paid app about to ship, so test the claim
+      # instead of repeating it.
+      - name: Probe whether Kotlin 2.0.21 can consume the AAR
+        continue-on-error: true
+        run: bash spike/scripts/kotlin_compat_probe.sh
+
       - name: Build spike APK
         id: build
         continue-on-error: true
