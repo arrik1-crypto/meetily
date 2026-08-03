@@ -53,6 +53,7 @@ object LiteRtLlm {
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             engine = ILiteRtEngine.Stub.asInterface(service)
+            bindFailure = null
             connectLatch?.countDown()
         }
 
@@ -64,10 +65,36 @@ object LiteRtLlm {
             engine = null
             connectLatch?.countDown()
         }
+
+        /**
+         * The sandbox process died before it could hand back a binder, or
+         * could not be created at all.
+         *
+         * Without these two, every such failure was indistinguishable from a
+         * slow start: the client simply waited out its timeout and reported
+         * "did not start in time", which says nothing about why and invites
+         * the user to blame the model they just spent twenty minutes
+         * downloading. They stop the wait AND name the cause.
+         */
+        override fun onBindingDied(name: ComponentName?) {
+            engine = null
+            bound = false
+            bindFailure = "the engine process stopped as it was starting"
+            connectLatch?.countDown()
+        }
+
+        override fun onNullBinding(name: ComponentName?) {
+            bindFailure = "the engine process started but refused the connection"
+            connectLatch?.countDown()
+        }
     }
 
     @Volatile
     private var connectLatch: CountDownLatch? = null
+
+    /** Why the last bind attempt failed, when the system told us. */
+    @Volatile
+    private var bindFailure: String? = null
 
     fun init(context: Context) {
         appContext = context.applicationContext
@@ -191,6 +218,7 @@ object LiteRtLlm {
 
         val latch = CountDownLatch(1)
         connectLatch = latch
+        bindFailure = null
         if (!bound) {
             val intent = Intent(context, com.meetily.mobile.llm.litert.LiteRtService::class.java)
             bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
@@ -198,10 +226,26 @@ object LiteRtLlm {
                 throw IllegalStateException("Could not start the LiteRT engine")
             }
         }
-        if (!latch.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
-            throw IllegalStateException("The LiteRT engine did not start in time")
+        val signalled = latch.await(BIND_TIMEOUT_SECONDS, TimeUnit.SECONDS)
+        engine?.let { return it }
+
+        // Everything below is a failure, and the whole point is to say which
+        // one. Prefer what the system told us over the fact that we waited.
+        bindFailure?.let { reason ->
+            bound = false
+            throw IllegalStateException(
+                "The LiteRT engine could not start — $reason. This usually means the " +
+                    "runtime is not supported on this device; the standard engine still " +
+                    "works."
+            )
         }
-        return engine ?: throw IllegalStateException("The LiteRT engine did not start")
+        throw IllegalStateException(
+            if (signalled) {
+                "The LiteRT engine started but did not connect."
+            } else {
+                "The LiteRT engine did not start within ${BIND_TIMEOUT_SECONDS}s."
+            }
+        )
     }
 
     /**

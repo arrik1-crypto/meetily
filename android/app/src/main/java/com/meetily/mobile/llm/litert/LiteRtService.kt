@@ -22,7 +22,37 @@ import com.meetily.mobile.llm.PromptShaping
  */
 class LiteRtService : Service() {
 
-    private val binding = LiteRtBinding()
+    /**
+     * Created on first use, not as a field.
+     *
+     * As a field initializer this ran during Service construction, and
+     * constructing it resolves the LiteRT classes. If that resolution fails
+     * — a missing library, an ABI with no `.so`, a
+     * `NoClassDefFoundError` — the Service never finishes being created, so
+     * onBind is never reached and the client sees no callback at all. The
+     * user gets a bind timeout and no reason, which is the least useful
+     * failure this could possibly have.
+     *
+     * Deferring it puts the same failure inside a method that can throw
+     * across the binder, where it arrives as a sentence the user can read.
+     */
+    private val lock = Any()
+    private var bindingOrNull: LiteRtBinding? = null
+
+    private fun binding(): LiteRtBinding {
+        bindingOrNull?.let { return it }
+        return try {
+            LiteRtBinding().also { bindingOrNull = it }
+        } catch (t: Throwable) {
+            // Throwable: absent native code raises Error, not Exception.
+            Log.e(TAG, "LiteRT runtime failed to load", t)
+            throw IllegalStateException(
+                "The LiteRT runtime could not load on this device " +
+                    "(${t.javaClass.simpleName}). Its models will not run here.",
+                t
+            )
+        }
+    }
 
     private val impl = object : ILiteRtEngine.Stub() {
 
@@ -30,8 +60,8 @@ class LiteRtService : Service() {
             modelPath: String?,
             requestedBackend: String?,
             threadBudget: Int
-        ): String = synchronized(binding) {
-            binding.load(
+        ): String = synchronized(lock) {
+            binding().load(
                 modelPath.orEmpty(),
                 requestedBackend.orEmpty(),
                 threadBudget.coerceAtLeast(1)
@@ -45,11 +75,12 @@ class LiteRtService : Service() {
             threadBudget: Int,
             allowMapReduce: Boolean,
             callback: ILiteRtCallback?
-        ): String? = synchronized(binding) {
+        ): String? = synchronized(lock) {
+            val engine = binding()
             val messages = zip(roles, contents)
             if (messages.isEmpty()) return@synchronized null
 
-            val charBudget = PromptShaping.charBudget(binding.contextTokens)
+            val charBudget = PromptShaping.charBudget(engine.contextTokens)
             var working = messages
 
             // Same map-reduce the llama.cpp path uses, from the same
@@ -58,13 +89,13 @@ class LiteRtService : Service() {
             val longest = working.indices.maxByOrNull { working[it].second.length }
             if (allowMapReduce && longest != null &&
                 working[longest].second.length > PromptShaping.mapReduceThreshold(
-                    binding.contextTokens
+                    engine.contextTokens
                 )
             ) {
                 val condensed = PromptShaping.condense(
                     content = working[longest].second,
                     charBudget = charBudget,
-                    generate = { msgs, tokens -> binding.generate(msgs, tokens) },
+                    generate = { msgs, tokens -> engine.generate(msgs, tokens) },
                     onSection = { index, total -> report(callback, index, total) }
                 )
                 if (condensed != null) {
@@ -75,11 +106,16 @@ class LiteRtService : Service() {
             }
 
             val budgeted = PromptShaping.budgetMessages(working, charBudget)
-            PromptShaping.stripThinking(binding.generate(budgeted, maxReplyTokens))
+            PromptShaping.stripThinking(engine.generate(budgeted, maxReplyTokens))
                 .ifBlank { null }
         }
 
-        override fun release() = synchronized(binding) { binding.release() }
+        // Nothing to free if it never loaded; do not construct it in order
+        // to tear it down.
+        override fun release() = synchronized(lock) {
+            bindingOrNull?.release()
+            Unit
+        }
     }
 
     /**
@@ -109,7 +145,7 @@ class LiteRtService : Service() {
     override fun onBind(intent: Intent?): IBinder = impl
 
     override fun onDestroy() {
-        runCatching { synchronized(binding) { binding.release() } }
+        runCatching { synchronized(lock) { bindingOrNull?.release() } }
         super.onDestroy()
     }
 
