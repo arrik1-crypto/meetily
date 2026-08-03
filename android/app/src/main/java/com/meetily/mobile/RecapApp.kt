@@ -24,7 +24,14 @@ class RecapApp : Application() {
         // process whose only job is to hold one inference engine, and any of
         // it throwing there takes the sandbox down before it can be bound,
         // which surfaces to the user as nothing but a bind timeout.
-        if (!isMainProcess()) return
+        if (!isMainProcess()) {
+            // The sandbox's earliest possible mark. If even this is missing
+            // when a bind times out, the process never ran at all — which is
+            // a different diagnosis from one that starts and stalls.
+            com.meetily.mobile.llm.litert.LiteRtTrace
+                .mark(this, "sandbox: process started")
+            return
+        }
 
         // Night-mode preference is process-wide state; reapply on every start.
         ThemeManager.applyNightMode(AppSettings(this).themeMode)

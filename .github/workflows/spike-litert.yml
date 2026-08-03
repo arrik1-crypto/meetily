@@ -136,6 +136,29 @@ jobs:
         continue-on-error: true
         run: bash spike/scripts/kotlin_compat_probe.sh
 
+      # Could the runtime simply be unloadable on a modern Pixel?
+      #
+      # Android 15+ devices can run a 16 KB page kernel, and a shared library
+      # whose LOAD segments are aligned to the older 4 KB boundary will not
+      # dlopen there. Recap's own native libs pass -Wl,-z,max-page-size=16384
+      # for exactly that reason; liblitertlm_jni.so is a Google prebuilt we do
+      # not control.
+      #
+      # If it is 4 KB aligned, that alone explains a sandbox process that dies
+      # silently the moment the runtime is touched — and it is a hard blocker,
+      # not a bug to fix app-side.
+      #
+      # Logic lives in a script, not inline: multi-line Python inside a YAML
+      # block scalar needs every line indented past the block, which Python's
+      # own indentation rules then reject. That mistake has now cost two
+      # unparseable workflows.
+      - name: Check the runtime's page alignment
+        continue-on-error: true
+        run: |
+          python3 spike/scripts/check_so_alignment.py \
+            aar/jni/arm64-v8a/liblitertlm_jni.so \
+            android/app/build/intermediates/merged_native_libs/release/out/lib/arm64-v8a/libmeetily_whisper.so
+
       - name: Build spike APK
         id: build
         continue-on-error: true

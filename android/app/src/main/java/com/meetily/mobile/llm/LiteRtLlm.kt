@@ -219,6 +219,7 @@ object LiteRtLlm {
         val latch = CountDownLatch(1)
         connectLatch = latch
         bindFailure = null
+        com.meetily.mobile.llm.litert.LiteRtTrace.begin(context)
         if (!bound) {
             val intent = Intent(context, com.meetily.mobile.llm.litert.LiteRtService::class.java)
             bound = context.bindService(intent, connection, Context.BIND_AUTO_CREATE)
@@ -239,11 +240,17 @@ object LiteRtLlm {
                     "works."
             )
         }
+        // No callback of any kind arrived. The system accepted the bind and
+        // went quiet, so nothing observable here can say why — but the
+        // sandbox records its own progress to a file precisely because it
+        // may die without ever getting to report anything.
+        val trail = com.meetily.mobile.llm.litert.LiteRtTrace.summarise(context)
         throw IllegalStateException(
             if (signalled) {
-                "The LiteRT engine started but did not connect."
+                "The LiteRT engine started but did not connect — $trail"
             } else {
-                "The LiteRT engine did not start within ${BIND_TIMEOUT_SECONDS}s."
+                "The LiteRT engine did not start within ${BIND_TIMEOUT_SECONDS}s — " +
+                    "$trail. The standard engine still works."
             }
         )
     }

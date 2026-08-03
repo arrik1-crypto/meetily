@@ -41,17 +41,29 @@ class LiteRtService : Service() {
 
     private fun binding(): LiteRtBinding {
         bindingOrNull?.let { return it }
+        LiteRtTrace.mark(this, "sandbox: constructing runtime")
         return try {
-            LiteRtBinding().also { bindingOrNull = it }
+            LiteRtBinding().also {
+                bindingOrNull = it
+                LiteRtTrace.mark(this, "sandbox: runtime constructed")
+            }
         } catch (t: Throwable) {
             // Throwable: absent native code raises Error, not Exception.
-            Log.e(TAG, "LiteRT runtime failed to load", t)
+            LiteRtTrace.fail(this, "sandbox: constructing runtime", t)
             throw IllegalStateException(
                 "The LiteRT runtime could not load on this device " +
                     "(${t.javaClass.simpleName}). Its models will not run here.",
                 t
             )
         }
+    }
+
+    override fun onCreate() {
+        super.onCreate()
+        // The sandbox's first mark. If this never appears, the process or the
+        // class never came up at all — a different problem entirely from one
+        // that starts and then stalls.
+        LiteRtTrace.mark(this, "sandbox: service created")
     }
 
     private val impl = object : ILiteRtEngine.Stub() {
@@ -142,9 +154,13 @@ class LiteRtService : Service() {
             .filter { it.second.isNotBlank() }
     }
 
-    override fun onBind(intent: Intent?): IBinder = impl
+    override fun onBind(intent: Intent?): IBinder {
+        LiteRtTrace.mark(this, "sandbox: bound")
+        return impl
+    }
 
     override fun onDestroy() {
+        LiteRtTrace.mark(this, "sandbox: destroyed")
         runCatching { synchronized(lock) { bindingOrNull?.release() } }
         super.onDestroy()
     }
