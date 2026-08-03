@@ -8,10 +8,10 @@ import java.io.File
  * The imported `.litertlm` model for the LiteRT-LM runtime.
  *
  * **Why import rather than download.** Every first-party publisher of this
- * format is licence-gated — `google/gemma-3n-*` and all of
- * every repo under `litert-community` returns 401 to an unauthenticated
- * request. A one-tap
- * download button has no token to send, so it would 401 for every user.
+ * format is licence-gated: the Gemma 3n repos under `google`, and every repo
+ * under `litert-community`, all return 401 to an unauthenticated request. A
+ * one-tap download button has no token to send, so it would fail for every
+ * user.
  *
  * The ungated alternatives are individual re-uploaders, not the established
  * quantizers (`unsloth`, `bartowski`) the GGUF catalogue relies on. Since the

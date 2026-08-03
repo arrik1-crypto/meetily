@@ -103,3 +103,35 @@ jobs:
             git pull --rebase origin "${GITHUB_REF_NAME}"
             git push origin "HEAD:${GITHUB_REF_NAME}"
           fi
+
+      # A GitHub Release, so the APK has a stable download link.
+      #
+      # It outgrew the 30 MiB ceiling on direct file transfer when the
+      # LiteRT-LM runtime landed (26.2 -> 36.0 MiB), and it is not going to
+      # shrink again. The committed copy under android/dist/ is still there,
+      # but a release gives one versioned URL per build instead of a path
+      # that always points at whatever was newest.
+      - name: Publish APK as a release
+        if: github.ref == 'refs/heads/claude/meeting-summarizer-android-apk-41ewdo'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(grep -m1 'versionName' android/app/build.gradle.kts \
+            | sed 's/.*"\(.*\)".*/\1/')
+          size=$(stat -c%s android/dist/meetily-android.apk)
+          tag="v${version}"
+          echo "tag=$tag  size=$size bytes"
+
+          # Re-running a build for the same version replaces the asset rather
+          # than failing, so a rebuild after a fix does not need a new tag.
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" \
+              android/dist/meetily-android.apk --clobber
+          else
+            gh release create "$tag" \
+              android/dist/meetily-android.apk \
+              --title "Recap $version" \
+              --notes "arm64-v8a APK, $((size / 1048576)) MB, signed with the upload key.
+          Built from ${GITHUB_SHA}." \
+              --prerelease
+          fi
