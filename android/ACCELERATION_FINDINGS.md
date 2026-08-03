@@ -179,3 +179,80 @@ Revisit only if Imagination ships a driver fix **and** ggml gains a PowerVR
 vendor path. Six months is a reasonable interval; more often is wasted
 effort.
 
+
+---
+
+## LiteRT-LM — what was established, and where it was parked
+
+Backlog item #103, 2026-08-03. Shipped as an opt-in second on-device
+summarisation runtime in v3.12.0–v3.12.2, **off by default**. It has never
+produced a summary on the target device. Work stopped by request before the
+energy question — the one it existed to answer — was measured.
+
+Recorded because most of this cost a CI round trip or a device test, and
+none of it should have to be found twice.
+
+### Settled facts
+
+- **The runtime loads and runs on a Pixel 10.** The spike reached native
+  code: `LiteRtLmJniException: Failed to create engine: INVALID_ARGUMENT:
+  Unsupported or unknown file format`. That exception comes from inside
+  `liblitertlm_jni.so`, so the library loaded, executed, opened the model
+  and read it. Whatever is wrong is above the library, not the hardware.
+- **Page alignment is NOT a problem.** All three `PT_LOAD` segments of
+  `liblitertlm_jni.so` are `0x4000` aligned, so it is fine on a 16 KB page
+  kernel. Checked directly from the shipped APK by
+  `spike/scripts/check_so_alignment.py`. This was a theory of ours; it was
+  wrong.
+- **Adoption does NOT force a Kotlin upgrade.** The AAR carries Kotlin
+  2.2.21 metadata and a plain 2.0.21 build fails on `kotlin-stdlib`, but
+  `-Xskip-metadata-version-check` is sufficient. Both directions verified by
+  `spike/scripts/kotlin_compat_probe.sh`. An earlier note claiming an
+  app-wide upgrade was required was wrong and is retracted.
+- **Every first-party `.litertlm` publisher is licence-gated.** All of
+  `google/gemma-3n-*` and `litert-community/*` return 401 unauthenticated.
+  The ungated alternatives are individual re-uploaders, not the established
+  quantizers the GGUF catalogue relies on, and one ships safety tuning
+  removed. This is why the feature imports a file rather than offering a
+  download button, and it is not a limitation any code change removes.
+  See `spike/scripts/discover_litertlm.py`.
+- **The API, pinned exactly** (from `javap` on the resolved AAR, and
+  confirmed on device):
+  `EngineConfig(String modelPath, Backend backend, Backend visionBackend,
+  Backend audioBackend, Integer maxNumTokens, Integer maxNumImages, String
+  cacheDir)`, then `Engine(EngineConfig)` and `initialize()`.
+  `Backend.CPU(threads, threads)`, `Backend.GPU()`,
+  `Backend.GOOGLE_TENSOR()`, `Backend.NPU(nativeLibraryDir)`.
+- **`Backend.GOOGLE_TENSOR` is a first-class backend**, distinct from the
+  generic `NPU`, and takes no vendor library directory. The Tensor unit is
+  addressable through this runtime. Nothing here says it is *cheaper*.
+
+### The two open failures
+
+1. **In Recap:** the `:litert` sandbox process never starts.
+   `bindService` returns true, no `onServiceConnected`, no `onBindingDied`,
+   no `onNullBinding`, and `LiteRtTrace` reports "the engine process never
+   started — nothing ran in it at all" — meaning not even
+   `Application.onCreate` ran in it. Two real bugs were fixed on the way
+   here (per-process app init, and a Service field initializer that
+   resolved LiteRT classes during construction); neither was the cause.
+2. **In the spike:** the runtime rejects the model file itself. Not yet
+   distinguished between a bad download — a licence page or Git LFS
+   pointer saved under the model's name is the leading theory, given every
+   publisher is gated — and a container-version mismatch with
+   `litertlm-android:0.15.0`. The spike prints stat size and header bytes
+   for exactly this, but that build was never run.
+
+### What it costs to leave in place
+
+About **+10 MB of compressed APK** — `liblitertlm_jni.so` is 20.2 MB raw,
+8.8 MB in the APK — shipped to every device including the overwhelming
+majority that will never turn it on. That is the same objection this
+document already raised against the Vulkan backend at +12.5 MB, and it
+applies here with more force, because that runtime at least would have
+worked. The engine is off by default and labelled beta, so nothing breaks;
+it is dead weight, not a hazard.
+
+**If revisited:** start with failure 2, not failure 1. Whether the runtime
+can read a model at all is upstream of whether Recap's sandbox starts, and
+it is answerable in one device run with the spike as it now stands.
