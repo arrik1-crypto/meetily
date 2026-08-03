@@ -15,3 +15,7 @@ upload.keystore
 
 # Prebuilt sherpa-onnx JNI libs, fetched by scripts/fetch_sherpa_libs.sh
 app/src/main/jniLibs/
+
+# Bytecode from running the repo's own Python check scripts
+__pycache__/
+*.pyc
