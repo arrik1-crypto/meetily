@@ -9,7 +9,8 @@ import java.io.File
  *
  * **Why import rather than download.** Every first-party publisher of this
  * format is licence-gated — `google/gemma-3n-*` and all of
- * `litert-community/*` return 401 to an unauthenticated request. A one-tap
+ * every repo under `litert-community` returns 401 to an unauthenticated
+ * request. A one-tap
  * download button has no token to send, so it would 401 for every user.
  *
  * The ungated alternatives are individual re-uploaders, not the established
