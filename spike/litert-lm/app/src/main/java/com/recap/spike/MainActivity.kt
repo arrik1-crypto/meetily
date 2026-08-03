@@ -3,9 +3,10 @@ package com.recap.spike
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
 import android.os.Bundle
-import android.view.Gravity
-import android.view.View
+import android.os.ParcelFileDescriptor
+import android.provider.OpenableColumns
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.RadioButton
@@ -13,6 +14,7 @@ import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import java.io.File
 
@@ -26,6 +28,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var backends: RadioGroup
     private lateinit var runButton: Button
     private var busy = false
+
+    /**
+     * The picked model, held open for as long as it might be read.
+     *
+     * The path is `/proc/self/fd/N`, which is a real path the native loader
+     * can open — so a 3.5 GB file picked out of Downloads is used where it
+     * lies, with no copy. The descriptor must stay open the whole time: close
+     * it and the path stops resolving mid-run.
+     */
+    private class Picked(val label: String, val pfd: ParcelFileDescriptor) {
+        val path: String get() = "/proc/self/fd/${pfd.fd}"
+    }
+
+    private var picked: Picked? = null
+
+    private val pickModel = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri -> if (uri != null) onPicked(uri) }
 
     private fun modelDir(): File =
         File(getExternalFilesDir(null), "models").apply { mkdirs() }
@@ -88,6 +108,14 @@ class MainActivity : AppCompatActivity() {
         }
         root.addView(backends)
 
+        // Pick the file wherever it already is — Downloads, most likely.
+        // The alternative was adb-pushing gigabytes into an app-private
+        // directory before anything could be measured.
+        root.addView(Button(this).apply {
+            text = "Pick model file (Downloads…)"
+            setOnClickListener { pickModel.launch(arrayOf("*/*")) }
+        })
+
         runButton = Button(this).apply {
             text = "Run measurement"
             setOnClickListener { start() }
@@ -130,20 +158,56 @@ class MainActivity : AppCompatActivity() {
         show(intro())
     }
 
+    private fun onPicked(uri: Uri) {
+        runCatching {
+            picked?.pfd?.close()
+            picked = null
+            val name = displayName(uri)
+            val pfd = contentResolver.openFileDescriptor(uri, "r")
+                ?: throw IllegalStateException("could not open that file")
+            picked = Picked(name, pfd)
+        }.fold(
+            onSuccess = {
+                val p = picked
+                show(
+                    buildString {
+                        appendLine("Picked: ${p?.label}")
+                        appendLine("Reading it in place via ${p?.path}")
+                        appendLine("(no copy — the descriptor stays open for the run)")
+                        appendLine()
+                        appendLine("Pick a backend above, then Run measurement.")
+                    }
+                )
+            },
+            onFailure = { t ->
+                show("Could not open that file: ${t.javaClass.simpleName}: ${t.message}")
+            }
+        )
+    }
+
+    private fun displayName(uri: Uri): String {
+        contentResolver.query(uri, null, null, null, null)?.use { c ->
+            val i = c.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            if (i >= 0 && c.moveToFirst()) c.getString(i)?.let { return it }
+        }
+        return uri.lastPathSegment ?: "model"
+    }
+
     private fun intro(): String {
         val found = models()
         return buildString {
-            appendLine("Put a .litertlm model here:")
+            appendLine("Two ways to give it a model:")
             appendLine()
-            appendLine(modelDir().absolutePath)
+            appendLine("1. Tap \"Pick model file\" and choose the .litertlm")
+            appendLine("   wherever you downloaded it. Nothing is copied.")
             appendLine()
-            appendLine("  adb push gemma-4-E4B-it.litertlm \\")
-            appendLine("    ${modelDir().absolutePath}/")
+            appendLine("2. Or put one here and reopen the app:")
+            appendLine("   ${modelDir().absolutePath}")
             appendLine()
             if (found.isEmpty()) {
-                appendLine("No model found yet.")
+                appendLine("No model in the folder yet.")
             } else {
-                appendLine("Found:")
+                appendLine("Found in the folder:")
                 found.forEach {
                     appendLine("  ${it.name}  (${it.length() / (1024 * 1024)} MB)")
                 }
@@ -159,11 +223,23 @@ class MainActivity : AppCompatActivity() {
 
     private fun start() {
         if (busy) return
-        val model = models().firstOrNull()
-        if (model == null) {
-            show("No model in ${modelDir().absolutePath}\n\n" + intro())
-            return
+
+        val chosen = picked
+        val path: String
+        val label: String
+        if (chosen != null) {
+            path = chosen.path
+            label = chosen.label
+        } else {
+            val fromFolder = models().firstOrNull()
+            if (fromFolder == null) {
+                show("No model chosen yet.\n\n" + intro())
+                return
+            }
+            path = fromFolder.absolutePath
+            label = fromFolder.name
         }
+
         val backend = when (backends.checkedRadioButtonId) {
             1001 -> "GPU"
             1002 -> "GOOGLE_TENSOR"
@@ -172,10 +248,10 @@ class MainActivity : AppCompatActivity() {
         }
         busy = true
         runButton.isEnabled = false
-        show("Running on $backend with ${model.name}…\n")
+        show("Running on $backend with $label…\n")
 
         Thread {
-            val result = Harness.measure(this, model, backend) { stage ->
+            val result = Harness.measure(this, File(path), backend) { stage ->
                 runOnUiThread { output.append("$stage\n") }
             }
             runOnUiThread {
@@ -187,10 +263,21 @@ class MainActivity : AppCompatActivity() {
                         show(
                             buildString {
                                 appendLine("FAILED on $backend")
+                                appendLine("model: $label")
+                                appendLine("path:  $path")
                                 appendLine()
                                 appendLine("${t.javaClass.simpleName}: ${t.message}")
                                 (t.cause)?.let {
                                     appendLine("cause: ${it.javaClass.simpleName}: ${it.message}")
+                                }
+                                if (chosen != null) {
+                                    appendLine()
+                                    appendLine(
+                                        "This ran straight off the picked file. If the " +
+                                            "runtime cannot read a /proc/self/fd path, " +
+                                            "copy the model into the folder above and " +
+                                            "run again — that rules the path out."
+                                    )
                                 }
                                 appendLine()
                                 // The useful half of a failure: what the
@@ -203,5 +290,10 @@ class MainActivity : AppCompatActivity() {
                 )
             }
         }.apply { name = "spike-measure" }.start()
+    }
+
+    override fun onDestroy() {
+        runCatching { picked?.pfd?.close() }
+        super.onDestroy()
     }
 }
