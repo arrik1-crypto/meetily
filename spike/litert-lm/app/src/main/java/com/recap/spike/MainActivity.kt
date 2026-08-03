@@ -166,23 +166,94 @@ class MainActivity : AppCompatActivity() {
             val pfd = contentResolver.openFileDescriptor(uri, "r")
                 ?: throw IllegalStateException("could not open that file")
             picked = Picked(name, pfd)
+            fileReport = describe(name, pfd)
         }.fold(
             onSuccess = {
-                val p = picked
                 show(
                     buildString {
-                        appendLine("Picked: ${p?.label}")
-                        appendLine("Reading it in place via ${p?.path}")
-                        appendLine("(no copy — the descriptor stays open for the run)")
+                        appendLine(fileReport)
                         appendLine()
                         appendLine("Pick a backend above, then Run measurement.")
                     }
                 )
             },
             onFailure = { t ->
+                fileReport = ""
                 show("Could not open that file: ${t.javaClass.simpleName}: ${t.message}")
             }
         )
+    }
+
+    /** Kept so a failed run can repeat it — the answer is usually in here. */
+    private var fileReport: String = ""
+
+    /**
+     * What was actually handed over.
+     *
+     * The runtime rejected a pick with "Unsupported or unknown file format",
+     * which has two very different causes and they are trivial to separate
+     * before blaming either. Either the descriptor is not a seekable regular
+     * file — a provider can hand back a pipe, and a loader that seeks to read
+     * a container header will fail on one — or the bytes are not a model at
+     * all. A gated download saved as HTML, or a Git LFS pointer, both arrive
+     * with the right filename and about 200 bytes inside.
+     */
+    private fun describe(name: String, pfd: ParcelFileDescriptor): String = buildString {
+        appendLine("Picked: $name")
+
+        val size = pfd.statSize
+        if (size < 0) {
+            appendLine("size:  UNKNOWN — this descriptor is not a regular file")
+            appendLine("       (a pipe or stream; a loader that seeks cannot read it,")
+            appendLine("       so copy the file into the app folder and use that)")
+        } else {
+            appendLine("size:  $size bytes (${size / (1024 * 1024)} MB)")
+            if (size < 64L * 1024 * 1024) {
+                appendLine("       TOO SMALL to be a model — see the first bytes below")
+            }
+        }
+
+        // Read through the /proc path rather than the descriptor itself.
+        //
+        // FileInputStream(pfd.fileDescriptor).use { } would close the
+        // descriptor we are about to hand the runtime — and then close it a
+        // second time in onDestroy. Opening /proc/self/fd/N gets a fresh,
+        // independently closeable descriptor, and as a bonus it proves the
+        // runtime's path is openable at all before blaming the bytes.
+        val head = ByteArray(16)
+        val read = runCatching {
+            java.io.FileInputStream(File("/proc/self/fd/${pfd.fd}")).use { it.read(head) }
+        }.getOrDefault(-1)
+
+        if (read <= 0) {
+            appendLine("head:  could not read")
+        } else {
+            val hex = head.take(read).joinToString(" ") { "%02x".format(it) }
+            val ascii = head.take(read)
+                .map { if (it in 32..126) it.toInt().toChar() else '.' }
+                .joinToString("")
+            appendLine("head:  $hex")
+            appendLine("       \"$ascii\"")
+            appendLine("guess: ${guessFormat(head, read)}")
+        }
+        append("path:  ${picked?.path} (read in place, no copy)")
+    }
+
+    private fun guessFormat(head: ByteArray, read: Int): String {
+        val text = String(head, 0, read, Charsets.ISO_8859_1)
+        return when {
+            text.startsWith("version https://git-lfs") ->
+                "a Git LFS POINTER, not the model. Download it from the file's " +
+                    "page rather than a raw link."
+            text.startsWith("<!DOCTYPE") || text.startsWith("<html") ->
+                "an HTML page, not a model — most likely a licence or sign-in " +
+                    "page saved under the model's name."
+            text.startsWith("{") ->
+                "JSON — probably an error response, not a model."
+            head[0] == 0x50.toByte() && head[1] == 0x4B.toByte() ->
+                "a ZIP archive. .task files are zips; .litertlm is not."
+            else -> "binary, no obvious wrong-file signature"
+        }
     }
 
     private fun displayName(uri: Uri): String {
@@ -265,6 +336,10 @@ class MainActivity : AppCompatActivity() {
                                 appendLine("FAILED on $backend")
                                 appendLine("model: $label")
                                 appendLine("path:  $path")
+                                if (fileReport.isNotBlank()) {
+                                    appendLine()
+                                    appendLine(fileReport)
+                                }
                                 appendLine()
                                 appendLine("${t.javaClass.simpleName}: ${t.message}")
                                 (t.cause)?.let {
