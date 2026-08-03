@@ -187,5 +187,15 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add spike/dist/litert-spike.apk
-          git diff --staged --quiet || git commit -m "ci: publish LiteRT spike APK [skip ci]"
-          git push
+          if git diff --staged --quiet; then
+            echo "APK unchanged, nothing to commit"
+          else
+            git commit -m "ci: publish LiteRT spike APK [skip ci]"
+            # Rebase before pushing, as build-android.yml already does. Both
+            # workflows publish to the same branch, so anything landing while
+            # this job builds makes a bare push fail with "fetch first" — and
+            # it fails AFTER a successful build, throwing away a good APK over
+            # a race that costs one command to avoid.
+            git pull --rebase origin "${GITHUB_REF_NAME}"
+            git push origin "HEAD:${GITHUB_REF_NAME}"
+          fi
