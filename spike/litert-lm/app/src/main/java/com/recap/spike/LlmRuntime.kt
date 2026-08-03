@@ -182,19 +182,54 @@ object LlmRuntime {
         // followed by initialize(). No builder anywhere.
         if (optionsClass != null && optionsClass.name.endsWith("EngineConfig")) {
             val backendObj = resolveBackend(backend, notes)
-            val ctor = optionsClass.constructors
+
+            // The real signature, confirmed on device:
+            //   EngineConfig(String modelPath, Backend backend,
+            //                Backend visionBackend, Backend audioBackend,
+            //                Integer maxNumTokens, Integer maxNumImages,
+            //                String cacheDir)
+            //
+            // A Kotlin class with default arguments ALSO publishes a synthetic
+            // constructor with two extra slots — an int bitmask and a
+            // DefaultConstructorMarker. Picking by largest arity, as this did,
+            // lands on that one, and passing null for the bitmask fails with
+            // "argument 8 has type int, got null". Pick the real one: skip
+            // synthetics and anything ending in the marker.
+            val candidates = optionsClass.constructors
                 .filter { it.parameterTypes.firstOrNull() == String::class.java }
-                .maxByOrNull { it.parameterCount }
-                ?: error("no EngineConfig constructor taking a model path")
-            val args = arrayOfNulls<Any?>(ctor.parameterCount)
-            args[0] = modelPath
-            // Every Backend-typed slot gets the requested backend; the vision
-            // and audio ones are irrelevant here but must not be null.
-            ctor.parameterTypes.forEachIndexed { i, t ->
-                if (i > 0 && t.name == BACKEND_CLASS) args[i] = backendObj
+                .filterNot { c ->
+                    c.isSynthetic ||
+                        c.parameterTypes.lastOrNull()
+                            ?.name?.endsWith("DefaultConstructorMarker") == true
+                }
+            val ctor = candidates.minByOrNull { it.parameterCount }
+                ?: error("no plain EngineConfig constructor taking a model path")
+            notes += "EngineConfig ctor arity ${ctor.parameterCount} " +
+                "(of ${optionsClass.constructors.size} declared)"
+
+            // Fill the text backend only. Vision and audio are for multimodal
+            // work this measurement does not do, and forcing an accelerator
+            // into them asks for capabilities the model may not have. If they
+            // turn out to be non-null parameters, Kotlin's own check names
+            // the one it wanted and the retry below fills them.
+            fun build(fillAllBackends: Boolean): Any {
+                val args = arrayOfNulls<Any?>(ctor.parameterCount)
+                args[0] = modelPath
+                ctor.parameterTypes.forEachIndexed { i, t ->
+                    if (i > 0 && t.name == BACKEND_CLASS) {
+                        if (i == 1 || fillAllBackends) args[i] = backendObj
+                    }
+                }
+                return ctor.newInstance(*args)
             }
-            notes += "EngineConfig ctor arity ${ctor.parameterCount}"
-            val config = ctor.newInstance(*args)
+
+            val config = try {
+                build(fillAllBackends = false)
+            } catch (e: Throwable) {
+                notes += "text-backend-only config rejected (${e.javaClass.simpleName}); " +
+                    "retrying with vision+audio set"
+                build(fillAllBackends = true)
+            }
             val engine = engineClass.constructors
                 .firstOrNull { it.parameterCount == 1 }
                 ?.newInstance(config)
