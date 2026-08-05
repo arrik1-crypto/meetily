@@ -89,19 +89,45 @@ jobs:
       - name: Commit APK to branch
         if: github.ref == 'refs/heads/claude/meeting-summarizer-android-apk-41ewdo'
         run: |
-          mkdir -p android/dist
           # ABI splits: publish the arm64 (real phone) APK to the branch;
           # the x86_64 emulator APK stays available as a workflow artifact.
-          cp android/app/build/outputs/apk/release/app-arm64-v8a-release.apk android/dist/meetily-android.apk
+          built=android/app/build/outputs/apk/release/app-arm64-v8a-release.apk
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add -f android/dist/meetily-android.apk
-          if git diff --cached --quiet; then
-            echo "APK unchanged, nothing to commit"
-          else
+
+          # This binary is build OUTPUT, never a merge candidate. `git pull
+          # --rebase` was the first fix here, for a plain "fetch first"
+          # rejection, and it introduced a worse failure: when two builds
+          # finish close together they both rewrite the same bytes, and a
+          # rebase can only ever report an unresolvable binary conflict —
+          # which fails the job after the APK was built perfectly well.
+          #
+          # Rebase by re-placing the file instead: take the remote tip,
+          # overwrite, commit. Last build to finish wins, which is what
+          # "whatever was newest" already meant.
+          published=""
+          for attempt in 1 2 3; do
+            git fetch origin "${GITHUB_REF_NAME}"
+            git reset -q --hard "origin/${GITHUB_REF_NAME}"
+            mkdir -p android/dist
+            cp "$built" android/dist/meetily-android.apk
+            git add -f android/dist/meetily-android.apk
+            if git diff --cached --quiet; then
+              echo "APK identical to the one on the branch, nothing to commit"
+              published=unchanged
+              break
+            fi
             git commit -m "ci: publish Android APK build [skip ci]"
-            git pull --rebase origin "${GITHUB_REF_NAME}"
-            git push origin "HEAD:${GITHUB_REF_NAME}"
+            if git push origin "HEAD:${GITHUB_REF_NAME}"; then
+              published=pushed
+              break
+            fi
+            echo "push rejected — another build published first; retry $attempt"
+            sleep $((attempt * 5))
+          done
+          if [ -z "$published" ]; then
+            echo "::error::could not publish the APK after 3 attempts"
+            exit 1
           fi
 
       # A GitHub Release, so the APK has a stable download link.
