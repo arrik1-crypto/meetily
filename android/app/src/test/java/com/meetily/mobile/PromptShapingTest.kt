@@ -3,6 +3,7 @@ package com.meetily.mobile
 import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.llm.PromptShaping
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -161,6 +162,50 @@ class PromptShapingTest {
             PromptShaping.stripThinking("<think>a</think>b"),
             LocalLlm.stripThinking("<think>a</think>b")
         )
+    }
+
+    @Test
+    fun anUnfinishedThinkBlockIsRecognisedAsSuchNotAsFailure() {
+        // The whole point: stripThinking correctly returns "" for both a
+        // model that produced nothing and one that deliberated past its
+        // budget, and only the second is worth retrying. Without this
+        // distinction the caller reports "empty response" for both.
+        assertTrue(PromptShaping.thinkingRanOver("<think>weighing the options"))
+        assertTrue(PromptShaping.thinkingRanOver("  <think>still going…"))
+        assertEquals("", PromptShaping.stripThinking("<think>weighing the options"))
+
+        // Not the ran-over case: a finished thought, no thought at all, or
+        // nothing whatsoever.
+        assertFalse(PromptShaping.thinkingRanOver("<think>done</think>Answer."))
+        assertFalse(PromptShaping.thinkingRanOver("Answer."))
+        assertFalse(PromptShaping.thinkingRanOver(""))
+    }
+
+    @Test
+    fun aBiggerReplyBudgetBuysItselfOutOfThePrompt() {
+        // The retry trades prompt room for answer room. If charBudget ignored
+        // its reply argument the retry would be identical to the attempt that
+        // just failed, and would fail the same way.
+        val normal = PromptShaping.charBudget(4096)
+        val roomier = PromptShaping.charBudget(4096, replyTokens = 1_400)
+        assertTrue("a longer reply must cost prompt room", roomier < normal)
+    }
+
+    @Test
+    fun sectionNotesNeverCarryRawDeliberation() {
+        // Sections are stripped as well as the final answer. Otherwise a
+        // reasoning model's working-out is pasted into the notes and the
+        // final pass spends its context reading that instead of the meeting.
+        val text = (1..400).joinToString("\n") { "line $it" }.repeat(40)
+        val result = PromptShaping.condense(
+            content = text,
+            charBudget = 9_000,
+            generate = { _, _ -> "<think>hmm, what matters here</think>\n- a real note" }
+        )
+        assertNotNull(result)
+        assertFalse("deliberation leaked into the notes", result!!.contains("<think>"))
+        assertFalse(result.contains("what matters here"))
+        assertTrue(result.contains("- a real note"))
     }
 
     @Test

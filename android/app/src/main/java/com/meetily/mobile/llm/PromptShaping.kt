@@ -34,9 +34,15 @@ object PromptShaping {
             "action items with their owners, key facts and numbers, and what " +
             "was discussed. No preamble, no commentary."
 
-    /** Prompt budget in characters for a model with [contextTokens] of window. */
-    fun charBudget(contextTokens: Int): Int =
-        (contextTokens - REPLY_TOKENS - TEMPLATE_SLACK).coerceAtLeast(400) * CHARS_PER_TOKEN
+    /**
+     * Prompt budget in characters for a model with [contextTokens] of window.
+     *
+     * [replyTokens] is a parameter because a retry may deliberately trade
+     * prompt room for a longer answer — a reply that ran out of budget
+     * mid-thought needs more space, not the same amount again.
+     */
+    fun charBudget(contextTokens: Int, replyTokens: Int = REPLY_TOKENS): Int =
+        (contextTokens - replyTokens - TEMPLATE_SLACK).coerceAtLeast(400) * CHARS_PER_TOKEN
 
     /** Above this, middle-trimming loses too much: condense per-section instead. */
     fun mapReduceThreshold(contextTokens: Int): Int = charBudget(contextTokens) * 3 / 2
@@ -51,6 +57,22 @@ object PromptShaping {
      * the same block whichever runtime loads them. Leaving this on one path
      * would leak raw chain-of-thought into saved summaries on the other.
      */
+    /**
+     * True when [reply] is nothing but an unfinished `<think>` block.
+     *
+     * This is the shape a reasoning model produces when it deliberates for
+     * its entire reply budget and never reaches an answer. [stripThinking]
+     * correctly refuses to show it, which leaves an empty string — and an
+     * empty string is indistinguishable from the model having failed
+     * outright unless someone asks this question. The two want completely
+     * different responses: one is worth retrying with more room, the other
+     * is not.
+     */
+    fun thinkingRanOver(reply: String): Boolean {
+        val trimmed = reply.trim()
+        return trimmed.startsWith("<think>") && !trimmed.contains("</think>")
+    }
+
     fun stripThinking(reply: String): String {
         val trimmed = reply.trim()
         if (!trimmed.startsWith("<think>")) {
@@ -154,8 +176,13 @@ object PromptShaping {
                 chunk
             }
             val part = try {
-                generate(listOf("system" to MAP_PROMPT, "user" to body), MAP_REPLY_TOKENS)
-                    .trim()
+                // Strip here as well as at the end. Without this a reasoning
+                // model's deliberation is pasted verbatim into the notes, and
+                // the final pass then spends its context reading someone
+                // else's working-out instead of the meeting.
+                stripThinking(
+                    generate(listOf("system" to MAP_PROMPT, "user" to body), MAP_REPLY_TOKENS)
+                ).trim()
             } catch (_: Throwable) {
                 // Throwable, not Exception: a runtime that allocates on the
                 // JVM heap raises OutOfMemoryError where llama.cpp returned

@@ -17,6 +17,20 @@ object LocalLlm {
     private const val MAX_REPLY_TOKENS = 700
 
     /**
+     * Reply budget for the one retry after a model talks itself out of an
+     * answer. Deliberately lopsided: the prompt shrinks to pay for it,
+     * because a second identical attempt would fail identically.
+     */
+    private const val RETRY_REPLY_TOKENS = 1_400
+
+    /** Added only on that retry; harmless to models that never deliberate. */
+    private const val NO_DELIBERATION =
+        "Answer directly. Do not think step by step, do not explain your " +
+            "reasoning, and do not emit a think block — write only the " +
+            "finished summary."
+
+
+    /**
      * Prompt budget in characters, leaving room for the reply and template
      * overhead. Derived from [N_CTX] via the shared shaping rules rather than
      * computed here, so a second runtime with a different window cannot end
@@ -114,17 +128,47 @@ object LocalLlm {
                 }
             }
 
-            val budgeted = budgetMessages(pairs, CHAR_BUDGET)
             applyThreadBudget()
-            val reply = stripThinking(
-                LlamaBridge.generate(ptr, pack(budgeted), MAX_REPLY_TOKENS)
-                    ?.trim()
-                    .orEmpty()
-            )
-            if (reply.isBlank()) {
+            val raw = LlamaBridge.generate(
+                ptr, pack(budgetMessages(pairs, CHAR_BUDGET)), MAX_REPLY_TOKENS
+            )?.trim().orEmpty()
+            val reply = stripThinking(raw)
+            if (reply.isNotBlank()) return reply
+
+            // Empty has three causes and they are not the same problem.
+            // Reporting all of them as "returned an empty response" told the
+            // user nothing and discarded the one case that is recoverable.
+            if (raw.isBlank()) {
+                throw IllegalStateException(
+                    "The on-device model produced no output. Try a smaller model, " +
+                        "or a shorter meeting."
+                )
+            }
+            if (!PromptShaping.thinkingRanOver(raw)) {
                 throw IllegalStateException("On-device model returned an empty response")
             }
-            return reply
+
+            // It reasoned for the whole budget and never reached an answer.
+            // Retry once with the trade reversed — more room to reply, less
+            // to read — and ask it plainly not to deliberate.
+            applyThreadBudget()
+            val retried = stripThinking(
+                LlamaBridge.generate(
+                    ptr,
+                    pack(
+                        budgetMessages(
+                            pairs + Pair("system", NO_DELIBERATION),
+                            PromptShaping.charBudget(N_CTX, RETRY_REPLY_TOKENS)
+                        )
+                    ),
+                    RETRY_REPLY_TOKENS
+                )?.trim().orEmpty()
+            )
+            if (retried.isNotBlank()) return retried
+            throw IllegalStateException(
+                "The on-device model spent its whole reply thinking and never " +
+                    "answered. A smaller or non-reasoning model will do better here."
+            )
         } finally {
             // A release that arrived mid-inference was deferred rather than
             // blocking its caller; honour it now, off the main thread.
