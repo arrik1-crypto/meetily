@@ -175,7 +175,21 @@ class MeetingAudioWriter(private val outFile: File) {
 
     companion object {
         private const val SAMPLE_RATE = 16_000
-        private const val BIT_RATE = 48_000
+
+        /**
+         * 64 kbps for a mono 8 kHz band — 4:1 against the 256 kbps PCM16 this
+         * encodes from. The file is not what live transcription reads (Whisper
+         * gets the float frames directly; this writer is a parallel tap), so
+         * the bitrate only bounds a later accuracy check re-reading the saved
+         * audio. 48 kbps was already comfortable there; the extra 16 buys the
+         * fricative band above ~5 kHz — where lossy coding hurts ASR most —
+         * for 7 MB an hour.
+         *
+         * Safe to change at any time: bitrate appears nowhere in the ADTS
+         * header, so old recordings keep decoding and a single file may even
+         * mix rates.
+         */
+        private const val BIT_RATE = 64_000
         // ~100 ms frames; 300 entries ≈ 30 s of headroom before drops.
         private const val QUEUE_CAP = 300
     }

@@ -337,7 +337,7 @@
 
     <!-- Meeting audio -->
     <string name="setting_save_audio">Keep meeting audio</string>
-    <string name="setting_save_audio_desc">Saves a compact recording (about 20 MB per hour) with each meeting so you can replay any moment, share the audio, or re-transcribe later with a better model. Whisper engine only. Audio stays on this device and is included in backups.</string>
+    <string name="setting_save_audio_desc">Saves a compact recording (about 30 MB per hour) with each meeting so you can replay any moment, share the audio, or re-transcribe later with a better model. Whisper engine only. Audio stays on this device and is included in backups.</string>
     <string name="play_audio">Play</string>
     <string name="play_from_here">▶ Play from here</string>
     <string name="player_time">%1$s / %2$s</string>
