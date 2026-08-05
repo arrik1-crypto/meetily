@@ -789,6 +789,7 @@
     <string name="tab_audio">Audio</string>
     <string name="audio_heading">Recording</string>
     <string name="audio_kept_here">Kept on this phone</string>
+    <string name="audio_reading_levels">Kept on this phone · reading the audio…</string>
     <string name="audio_who_speaking">Who is speaking</string>
     <string name="audio_remaining">-%1$s</string>
     <string name="audio_no_waveform">Reading the recording…</string>

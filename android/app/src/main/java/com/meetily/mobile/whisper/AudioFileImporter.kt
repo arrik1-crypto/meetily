@@ -461,11 +461,22 @@ class AudioFileImporter(
             }
         }
 
+        // Loudness bars for the Audio tab, gathered from the decode that is
+        // happening anyway.
+        //
+        // Without this the tab starts its OWN full decode the first time it
+        // is opened, on an ungated thread — which on a fresh recording means
+        // competing with this very pass for the same cores. The visible
+        // result was a waveform that stayed flat for a whole playback and
+        // then quietly appeared once transcription finished.
+        val loudness = com.meetily.mobile.data.Waveform.collector()
+
         try {
             val durationMs = AudioFileDecoder.decode(
                 context,
                 decodeUri,
                 onPcm = { pcm ->
+                    loudness.add(pcm)
                     // Re-frame into fixed 100 ms windows for the RMS logic.
                     var data = pcm
                     if (pending.isNotEmpty()) {
@@ -490,6 +501,16 @@ class AudioFileImporter(
                 onProgress = { p -> onProgress(p, lastDetail) },
                 cancelled = cancelled
             )
+
+            // Cache the bars now the whole file has been through. Best
+            // effort: the Audio tab still computes them itself if this did
+            // not run — a cancelled import, or audio kept outside the app.
+            meeting.audioFile?.let { name ->
+                runCatching {
+                    com.meetily.mobile.data.Waveform.saveFrom(context, name, loudness)
+                }
+            }
+
             if (!recheck && durationMs > 0) {
                 // Re-anchor so the meeting reads as ending "now". A recheck
                 // stays on the original meeting's clock — the two passes have

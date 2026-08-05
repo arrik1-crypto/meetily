@@ -2198,22 +2198,46 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (cached != null) {
             waveformBars = cached
             waveform.setBars(cached)
+            setAudioAnalysing(false)
         } else if (!waveformLoading) {
-            // Decoding an hour of AAC takes seconds, so it happens once on a
-            // worker thread and is cached beside the audio. Until then the
-            // view draws a flat placeholder rather than nothing.
+            // Normally the import pass has already cached these, having
+            // decoded the whole file to transcribe it. This is the fallback:
+            // audio that was never imported, a cancelled run, or a sidecar
+            // from an older version.
+            //
+            // Decoding an hour of AAC takes seconds — longer when a
+            // transcription is running, since this thread competes with it —
+            // so it happens once, off the main thread, and says so meanwhile.
             waveformLoading = true
+            setAudioAnalysing(true)
             Thread {
                 val bars = com.meetily.mobile.data.Waveform.compute(this, audio)
                 runOnUiThread {
                     waveformLoading = false
-                    if (isFinishing || isDestroyed || bars == null) return@runOnUiThread
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    setAudioAnalysing(false)
+                    if (bars == null) return@runOnUiThread
                     waveformBars = bars
                     waveform.setBars(bars)
                 }
-            }.start()
+            }.apply { name = "waveform-decode" }.start()
         }
         updateAudioTabPosition(player?.currentPosition ?: 0, durationMs.toInt())
+    }
+
+    /**
+     * Says, in words, that the bars are not real yet.
+     *
+     * The card alone cannot carry this: a row of equal bars reads as a flat
+     * recording, not as a pending one, and that is a claim about the user's
+     * audio rather than about the app.
+     */
+    private fun setAudioAnalysing(analysing: Boolean) {
+        headerView.findViewById<WaveformView>(R.id.waveform)
+            ?.setAnalysing(analysing)
+        headerView.findViewById<TextView>(R.id.audioStorageNote)?.setText(
+            if (analysing) R.string.audio_reading_levels else R.string.audio_kept_here
+        )
     }
 
     private fun renderSpeakerLegend(names: List<String>, strip: SpeakerStripView) {

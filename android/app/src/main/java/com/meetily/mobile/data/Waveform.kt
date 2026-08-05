@@ -88,6 +88,32 @@ object Waveform {
         return normalised
     }
 
+    /**
+     * A histogram that another pass can fill while it already has the PCM.
+     *
+     * The import pass decodes the whole recording to transcribe it. Folding
+     * the same samples into loudness bars costs almost nothing next to that,
+     * and it means the sidecar exists before the Audio tab is ever opened —
+     * instead of the tab kicking off a second full decode that competes with
+     * transcription for the same cores.
+     */
+    internal fun collector(): LoudnessHistogram = LoudnessHistogram()
+
+    /**
+     * Folds a [collector] filled during another decode into bars and caches
+     * them. Returns false when nothing usable was collected, so the caller
+     * can leave the tab's own lazy path to handle it.
+     */
+    internal fun saveFrom(
+        context: Context,
+        audioFile: String,
+        histogram: LoudnessHistogram
+    ): Boolean {
+        if (histogram.total <= 0L) return false
+        save(context, audioFile, histogram.bars(BARS))
+        return true
+    }
+
     private fun save(context: Context, audioFile: String, bars: FloatArray) {
         try {
             sidecar(context, audioFile).writeText(

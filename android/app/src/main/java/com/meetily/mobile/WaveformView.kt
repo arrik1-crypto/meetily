@@ -31,6 +31,14 @@ class WaveformView @JvmOverloads constructor(
     /** Fraction 0..1 of the recording the user tapped. */
     var onSeek: ((Float) -> Unit)? = null
 
+    private companion object {
+        /** The "working on it" ripple: low, gentle, obviously synthetic. */
+        val BASELINE = floatArrayOf(0.06f, 0.10f, 0.14f, 0.10f)
+
+        /** How much to fade the card while it holds no real data. */
+        const val ANALYSING_ALPHA = 90
+    }
+
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
     private val density = context.resources.displayMetrics.density
@@ -43,6 +51,25 @@ class WaveformView @JvmOverloads constructor(
 
     fun setBars(values: FloatArray) {
         bars = values
+        analysing = false
+        invalidate()
+    }
+
+    /**
+     * Whether the loudness bars are still being worked out.
+     *
+     * Separate from "no bars", because the two look identical otherwise and
+     * mean opposite things. A row of equal bars does not read as "still
+     * loading" — it reads as "this recording is flat", which is a lie about
+     * the audio rather than an admission about the app. While this is set,
+     * the card draws a low, faint, uneven baseline that is obviously not a
+     * waveform, and the caller says so in words next to it.
+     */
+    private var analysing = false
+
+    fun setAnalysing(value: Boolean) {
+        if (analysing == value) return
+        analysing = value
         invalidate()
     }
 
@@ -68,9 +95,17 @@ class WaveformView @JvmOverloads constructor(
         val headIndex = (progress * count).toInt().coerceIn(0, count - 1)
 
         for (i in 0 until count) {
-            // A flat placeholder while the peaks are still being computed —
-            // an empty card would read as "no audio", which is a lie.
-            val level = if (bars.isEmpty()) 0.18f else bars[i]
+            // Three states, deliberately distinguishable: real bars; a low
+            // uneven baseline while they are being computed; and — if that
+            // ever fails outright — the same flat row as before, which at
+            // least does not claim to be data.
+            val level = when {
+                bars.isNotEmpty() -> bars[i]
+                // A fixed, repeating ripple. Not random, so it does not
+                // shimmer between redraws, but plainly not a waveform.
+                analysing -> BASELINE[i % BASELINE.size]
+                else -> 0.18f
+            }
             // Floor: a silent stretch should still show a bar, or the card
             // looks broken rather than quiet.
             val h = (usable * (0.20f + 0.74f * level.coerceIn(0f, 1f)))
@@ -83,7 +118,13 @@ class WaveformView @JvmOverloads constructor(
                 i < headIndex -> played
                 else -> unplayed
             }
-            paint.alpha = if (i == headIndex && bars.isNotEmpty()) 255 else 200
+            // Faded while there is no real data, so the card reads as
+            // pending rather than as a quiet recording.
+            paint.alpha = when {
+                bars.isEmpty() && analysing -> ANALYSING_ALPHA
+                i == headIndex && bars.isNotEmpty() -> 255
+                else -> 200
+            }
             canvas.drawRoundRect(rect, radius, radius, paint)
         }
     }
