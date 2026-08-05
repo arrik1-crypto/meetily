@@ -1,37 +1,15 @@
 package com.meetily.mobile
 
 import android.app.Application
-import android.os.Build
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.security.AppLock
-import java.io.File
 
 class RecapApp : Application() {
     override fun onCreate() {
         super.onCreate()
         // First, before anything that could crash: local-only crash capture
-        // (writes a file, chains to the system handler — no telemetry). This
-        // runs in EVERY process, deliberately, so a crash in the LiteRT
-        // sandbox is captured the same way as one in the app.
+        // (writes a file, chains to the system handler — no telemetry).
         com.meetily.mobile.diag.CrashLog.install(this)
-
-        // Everything below is app-process work.
-        //
-        // Application.onCreate runs once per PROCESS, not once per app, so
-        // the :litert sandbox was re-running all of it: re-applying night
-        // mode, installing the app lock, and — worst — re-arming every
-        // reminder alarm from a second process. None of that belongs in a
-        // process whose only job is to hold one inference engine, and any of
-        // it throwing there takes the sandbox down before it can be bound,
-        // which surfaces to the user as nothing but a bind timeout.
-        if (!isMainProcess()) {
-            // The sandbox's earliest possible mark. If even this is missing
-            // when a bind times out, the process never ran at all — which is
-            // a different diagnosis from one that starts and stalls.
-            com.meetily.mobile.llm.litert.LiteRtTrace
-                .mark(this, "sandbox: process started")
-            return
-        }
 
         // Night-mode preference is process-wide state; reapply on every start.
         ThemeManager.applyNightMode(AppSettings(this).themeMode)
@@ -42,49 +20,36 @@ class RecapApp : Application() {
         // on process death and app updates).
         Thread { com.meetily.mobile.reminders.Reminders.rescheduleAll(this) }.start()
         com.meetily.mobile.llm.LocalLlm.init(this)
-        com.meetily.mobile.llm.LiteRtLlm.init(this)
+        Thread { dropRemovedLiteRtModels() }.start()
     }
 
     /**
-     * True in the app's own process, false in a `:suffix` one.
+     * Reclaims the model directory left behind by the withdrawn LiteRT-LM
+     * runtime.
      *
-     * getProcessName() is API 28+ and this app ships to API 26, so the
-     * fallback reads /proc/self/cmdline. Failing safe means answering TRUE:
-     * an unrecognised process gets the full, working initialisation rather
-     * than a silently half-started app.
+     * An imported `.litertlm` file is measured in gigabytes, and removing the
+     * runtime also removed the only screen that could delete it — so without
+     * this an upgrade silently strands more disk than the whole app uses. The
+     * directory's existence IS the flag: it is only ever created by a build
+     * that shipped the runtime, so no preference is needed to make this
+     * one-shot, and the stat costs nothing on installs that never had it.
+     *
+     * The stored `local_llm_runtime` / `litert_*` preferences are left alone
+     * deliberately. Nothing reads them any more, so they are inert, and
+     * clearing them would mean an edit on every launch to no effect.
      */
-    private fun isMainProcess(): Boolean {
-        val name = currentProcessName() ?: return true
-        return !name.contains(':')
-    }
-
-    private fun currentProcessName(): String? {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            return runCatching { getProcessName() }.getOrNull()
+    private fun dropRemovedLiteRtModels() {
+        runCatching {
+            val dir = java.io.File(filesDir, "litert-models")
+            if (dir.exists()) dir.deleteRecursively()
         }
-        return runCatching {
-            // cmdline is NUL-separated and the process name is the first
-            // entry. Written as an escape, not the byte: a literal NUL in a
-            // source file makes it binary to git, grep and every diff.
-            File("/proc/self/cmdline").readText()
-                .substringBefore('\u0000')
-                .trim()
-        }.getOrNull()?.takeIf { it.isNotBlank() }
     }
 
     override fun onTrimMemory(level: Int) {
         super.onTrimMemory(level)
-        // A loaded model is the biggest thing we hold; let it go first. Both
-        // runtimes, because only one is selected but either may still be
-        // holding weights from before the user switched.
-        //
-        // The LiteRT release also unbinds the sandbox, which is the only way
-        // its memory actually comes back: a mmap'd GGUF's pages are
-        // reclaimable by the kernel under pressure, but accelerator
-        // allocations are not — the process has to go.
+        // A loaded model is the biggest thing we hold; let it go first.
         if (level >= TRIM_MEMORY_BACKGROUND) {
             com.meetily.mobile.llm.LocalLlm.release()
-            com.meetily.mobile.llm.LiteRtLlm.release()
         }
     }
 }

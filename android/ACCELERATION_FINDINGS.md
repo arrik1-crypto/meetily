@@ -182,15 +182,19 @@ effort.
 
 ---
 
-## LiteRT-LM — what was established, and where it was parked
+## LiteRT-LM — what was established, and why it was removed
 
 Backlog item #103, 2026-08-03. Shipped as an opt-in second on-device
-summarisation runtime in v3.12.0–v3.12.2, **off by default**. It has never
-produced a summary on the target device. Work stopped by request before the
-energy question — the one it existed to answer — was measured.
+summarisation runtime in v3.12.0–v3.12.2, **off by default**; **removed
+entirely in v3.12.6-beta1**. It never produced a summary on the target
+device. Work stopped by request before the energy question — the one it
+existed to answer — was measured.
 
 Recorded because most of this cost a CI round trip or a device test, and
-none of it should have to be found twice.
+none of it should have to be found twice. The spike harness and its
+scripts, referenced throughout below, were removed with the runtime and are
+recoverable from git history — `git log --all --diff-filter=D -- spike/`
+finds the deletion, and the commit before it has the working tree.
 
 ### Settled facts
 
@@ -243,16 +247,29 @@ none of it should have to be found twice.
    `litertlm-android:0.15.0`. The spike prints stat size and header bytes
    for exactly this, but that build was never run.
 
-### What it costs to leave in place
+### Why it was removed
 
-About **+10 MB of compressed APK** — `liblitertlm_jni.so` is 20.2 MB raw,
-8.8 MB in the APK — shipped to every device including the overwhelming
-majority that will never turn it on. That is the same objection this
-document already raised against the Vulkan backend at +12.5 MB, and it
-applies here with more force, because that runtime at least would have
-worked. The engine is off by default and labelled beta, so nothing breaks;
-it is dead weight, not a hazard.
+It cost about **+10 MB of compressed APK** — `liblitertlm_jni.so` is
+20.2 MB raw, 8.8 MB in the APK — shipped to every device including the
+overwhelming majority that would never turn it on. That is the same
+objection this document already raised against the Vulkan backend at
++12.5 MB, and it applied here with more force, because that runtime at
+least would have worked.
+
+Removing it also reclaimed things the APK size does not show:
+
+- The `filesDir/litert-models/` directory, holding a 2–4 GB imported
+  `.litertlm` file on any device that used the feature. `RecapApp` deletes
+  it on first launch after the upgrade — without that, taking away the
+  screen would have stranded more disk than the whole app uses, with no way
+  to free it.
+- `-Xskip-metadata-version-check` on the Kotlin compiler, which suppressed
+  metadata mismatches app-wide rather than only for the AAR that needed it.
+- `buildFeatures.aidl`, and the `:litert` sandbox process.
+- A three-valued `EngineRouting.Target`. With one on-device runtime again,
+  "who answers" and "does it stay on the phone" are one question, so it
+  collapsed back to a single tested predicate.
 
 **If revisited:** start with failure 2, not failure 1. Whether the runtime
 can read a model at all is upstream of whether Recap's sandbox starts, and
-it is answerable in one device run with the spike as it now stands.
+it was answerable in one device run with the spike as it stood.

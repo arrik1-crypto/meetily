@@ -250,36 +250,6 @@
     <string name="engine_local_desc">Runs a small language model entirely on this phone — no endpoint, no network, ever. Expect slower answers than a server, and give long meetings a minute: the model reads the transcript before it writes. Larger models answer better and slower.</string>
     <string name="manage_llm_models">Manage AI models</string>
 
-    <!-- Second on-device runtime (LiteRT-LM), opt-in. -->
-    <string name="runtime_heading">On-device runtime</string>
-    <string name="runtime_llama">Standard</string>
-    <string name="runtime_litert">LiteRT (beta)</string>
-    <string name="runtime_litert_desc">An alternative engine that can use this phone\'s graphics or Tensor chip instead of the CPU. Still on-device — nothing leaves the phone either way. Whether it actually saves battery is not yet measured, which is why it is off by default. It summarises only; transcription is unaffected.</string>
-    <string name="litert_get_model">Get a model</string>
-    <string name="litert_import_model">Import model file</string>
-    <string name="litert_model_missing">No LiteRT model imported yet</string>
-    <string name="litert_model_present">Model ready: %1$s (%2$d MB)</string>
-    <string name="litert_importing">Copying model… %1$d%%</string>
-    <string name="litert_import_done">Model imported</string>
-    <string name="litert_backend_heading">Processor</string>
-    <string name="litert_backend_auto">Auto</string>
-    <string name="litert_backend_tensor">Tensor</string>
-    <string name="litert_backend_cpu">CPU</string>
-    <string name="litert_backend_gpu">GPU</string>
-    <string name="litert_backend_unknown">Not tested yet — run the check to see which processor this phone actually uses.</string>
-    <string name="litert_backend_actual">Last run used: %1$s</string>
-    <string name="litert_test">Check this phone</string>
-    <string name="litert_testing">Checking…</string>
-    <string name="litert_test_needs_model">Import a model first.</string>
-    <string name="litert_gpu_warning">On this phone\'s GPU, published reports show maths errors in two separate engines — wrong numbers rather than a crash. A wrong summary is not something the app can detect or warn you about afterwards. Use Tensor or CPU unless you are testing this deliberately.</string>
-    <string name="litert_gpu_warning_title">GPU is not recommended here</string>
-    <string name="litert_gpu_warning_continue">Use it anyway</string>
-    <string name="litert_get_model_title">Getting a LiteRT model</string>
-    <string name="litert_get_model_body">Google\'s models need you to accept their licence before downloading, so the app cannot fetch one for you.\n\nThis opens the LiteRT model page in your browser. Accept the licence, download a .litertlm file, then come back and tap Import model file.\n\nThey are large — 2 to 4 GB — so use Wi-Fi.</string>
-    <string name="litert_get_model_open">Open in browser</string>
-    <string name="litert_import_failed">Import failed: %1$s</string>
-    <string name="litert_no_browser">No browser available to open that page.</string>
-
     <string name="followups_title">Follow-ups</string>
     <string name="followups_hint">Open action items from every meeting. Check one off to complete it in its meeting; long-press to open that meeting.</string>
     <string name="followups_empty">Nothing outstanding — every action item is done.</string>

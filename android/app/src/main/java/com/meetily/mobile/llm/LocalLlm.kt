@@ -71,17 +71,14 @@ object LocalLlm {
     }
 
     /**
-     * True when this runtime — llama.cpp specifically — should serve chat.
-     *
-     * On-device is now two runtimes, so "engine is local" is no longer enough
-     * to claim the call. The engine check stays exactly as it was; the
-     * runtime check is the new half.
+     * True when this runtime should serve chat rather than a network
+     * endpoint. Routed through [EngineRouting] so the predicate that decides
+     * it has JVM test coverage; this method itself needs a Context and so
+     * cannot have any.
      */
     fun isSelected(): Boolean {
         val context = appContext ?: return false
-        val settings = AppSettings(context)
-        return EngineRouting.resolve(settings.llmEngine, settings.localLlmRuntime) ==
-            EngineRouting.Target.LLAMA
+        return EngineRouting.staysOnDevice(AppSettings(context).llmEngine)
     }
 
     /** @see PromptShaping.stripThinking — kept here so callers and tests don't move. */

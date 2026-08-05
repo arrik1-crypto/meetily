@@ -106,11 +106,10 @@ jobs:
 
       # A GitHub Release, so the APK has a stable download link.
       #
-      # It outgrew the 30 MiB ceiling on direct file transfer when the
-      # LiteRT-LM runtime landed (26.2 -> 36.0 MiB), and it is not going to
-      # shrink again. The committed copy under android/dist/ is still there,
-      # but a release gives one versioned URL per build instead of a path
-      # that always points at whatever was newest.
+      # Introduced when the APK outgrew the 30 MiB ceiling on direct file
+      # transfer, and kept after it came back under: a release gives one
+      # versioned URL per build, where the committed copy under android/dist/
+      # is a single path that always points at whatever was newest.
       - name: Publish APK as a release
         if: github.ref == 'refs/heads/claude/meeting-summarizer-android-apk-41ewdo'
         env:

@@ -543,14 +543,8 @@ object LlmClient {
         localOnly: Boolean,
         allowMapReduce: Boolean = true
     ): String {
-        // On-device engines: no endpoint, no socket. Both runtimes return
-        // before EndpointGuard because neither opens one — llama.cpp through
-        // JNI, LiteRT through a binder to a sandboxed process. Exactly one
-        // can claim the call: isSelected() on each tests the engine AND the
-        // runtime, so they cannot both answer true.
-        if (com.meetily.mobile.llm.LiteRtLlm.isSelected()) {
-            return com.meetily.mobile.llm.LiteRtLlm.chat(messages, allowMapReduce)
-        }
+        // On-device: no endpoint, no socket. Returns before EndpointGuard
+        // because llama.cpp answers over JNI and never opens one.
         if (com.meetily.mobile.llm.LocalLlm.isSelected()) {
             return com.meetily.mobile.llm.LocalLlm.chat(messages, allowMapReduce)
         }
