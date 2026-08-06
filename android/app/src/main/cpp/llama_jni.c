@@ -2,8 +2,19 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 #include <android/log.h>
 #include "llama.h"
+
+/*
+ * Renders a prompt with the model's own Jinja template (chat_render.cpp).
+ * Returns malloc'd text and writes its length, or NULL with a reason.
+ */
+extern char *meetily_render_chat(const struct llama_model *model,
+                                 const char *const *roles,
+                                 const char *const *contents,
+                                 int n_msgs, int *out_len,
+                                 char *err, size_t err_len);
 
 #define TAG "meetily_llama"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -196,79 +207,95 @@ static llama_token *tokenize_packed(
     }
 
     /*
-     * Chat template. Resolve it ONCE and keep that choice.
+     * Chat template, Jinja first.
      *
-     * The previous version let the ChatML fallback pick a template and then
-     * threw the choice away: the regrow below re-rendered with
-     * `tmpl != NULL ? tmpl : "chatml"` — the model's own template, the one
-     * that had just failed. So any prompt over the initial 8192-byte buffer
-     * returned NULL for any model llama.cpp cannot match. That is every
-     * Gemma 4 build: its turn markers are <|turn>role / <turn|>, and
-     * b10089's llama-chat.cpp matches Gemma only on "<start_of_turn>"
-     * (:155) before falling through to UNKNOWN (:239), which llama.cpp
-     * turns into -1. Verified against the official Gemma 4 template shipped
-     * in that same tag: it contains "<start_of_turn>" exactly zero times.
+     * llama.cpp has two engines and only one of them actually evaluates the
+     * template. llama_chat_apply_template substring-matches against a
+     * hard-coded list (src/llama-chat.cpp) and returns -1 for anything not
+     * on it — which is any model whose turn format postdates the snapshot.
+     * Gemma 4 is one: <|turn>role / <turn|>, where the only Gemma branch
+     * there tests for "<start_of_turn>".
      *
-     * Every summary prompt here exceeds 8192 bytes, so on Gemma 4 this
-     * failed every time, in both the section pass and the final one.
+     * So ask llama-common to render the GGUF's real template, and keep the
+     * old matcher only as a fallback. This fixes every model at once rather
+     * than one turn format at a time.
      */
-    const char *tmpl = llama_model_chat_template(llm->model, NULL);
-    int32_t buf_len = 8192;
-    char *prompt = (char *) malloc((size_t) buf_len);
-    if (prompt == NULL) {
-        FAIL("could not allocate the prompt buffer (out of memory)");
-        free(work);
-        return NULL;
+    const char *roles[32];
+    const char *bodies[32];
+    for (size_t i = 0; i < n_msgs; i++) {
+        roles[i] = msgs[i].role;
+        bodies[i] = msgs[i].content;
     }
 
-    int32_t need;
-    if (tmpl == NULL) {
-        /* No template in the GGUF at all. ChatML is the conventional
-           default and nothing contradicts it here. */
-        tmpl = "chatml";
-        need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
+    char render_err[256] = "";
+    int32_t need = 0;
+    int rendered_len = 0;
+    int used_jinja = 0;
+    char *prompt = meetily_render_chat(llm->model, roles, bodies, (int) n_msgs,
+                                       &rendered_len, render_err, sizeof(render_err));
+    if (prompt != NULL) {
+        need = (int32_t) rendered_len;
+        used_jinja = 1;
     } else {
-        need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
-        if (need < 0) {
-            /*
-             * The model DECLARES a format and this llama.cpp does not know
-             * it. Falling back to ChatML here is not a default — it is a
-             * guess against the model's own statement. It would emit
-             * <|im_start|> markers that are absent from the vocabulary and
-             * never emit the model's generation cue, producing a
-             * plausible-looking but badly framed summary that nothing
-             * downstream can detect. Refusing is the honest answer.
-             */
-            FAIL("this model's chat format is not supported by the built-in "
-                 "engine — pick a different model");
-            free(prompt);
-            free(work);
-            return NULL;
-        }
-    }
+        LOGI("jinja render unavailable (%s); falling back to the matcher",
+             render_err[0] != '\0' ? render_err : "no reason given");
 
-    if (need >= buf_len) {   /* >=, so prompt[need] always has a slot */
-        char *grown = (char *) realloc(prompt, (size_t) need + 1);
-        if (grown == NULL) {
-            FAIL("could not grow the prompt buffer to %d bytes", need + 1);
+        /*
+         * Resolve ONCE and keep the choice. The previous version let the
+         * ChatML fallback pick a template and then threw it away: the regrow
+         * re-rendered with the model's own template, the one that had just
+         * failed, so every prompt over 8192 bytes returned NULL.
+         */
+        const char *tmpl = llama_model_chat_template(llm->model, NULL);
+        int32_t buf_len = 8192;
+        prompt = (char *) malloc((size_t) buf_len);
+        if (prompt == NULL) {
+            FAIL("could not allocate the prompt buffer (out of memory)");
+            free(work);
+            return NULL;
+        }
+        if (tmpl == NULL) {
+            tmpl = "chatml";
+        }
+        need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
+        if (need < 0 && strcmp(tmpl, "chatml") != 0) {
+            /*
+             * Last resort. ChatML is a guess against the model's own stated
+             * format — it emits <|im_start|> markers that may be absent from
+             * the vocabulary and never emits the model's generation cue. It
+             * is still better than refusing outright, which is what an
+             * earlier build did: that turned a badly-framed summary into no
+             * summary at all, which is the worse of the two.
+             */
+            LOGE("template unrecognised by the matcher; using chatml — "
+                 "framing may be wrong for this model");
+            tmpl = "chatml";
+            need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
+        }
+        if (need >= buf_len) {   /* >=, so prompt[need] always has a slot */
+            char *grown = (char *) realloc(prompt, (size_t) need + 1);
+            if (grown == NULL) {
+                FAIL("could not grow the prompt buffer to %d bytes", need + 1);
+                free(prompt);
+                free(work);
+                return NULL;
+            }
+            prompt = grown;
+            buf_len = need + 1;
+            /* The SAME template. This is the line that discarded the choice. */
+            need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
+        }
+        if (need < 0) {
+            FAIL("could not build a prompt for this model (%s)",
+                 render_err[0] != '\0' ? render_err : "unsupported chat format");
             free(prompt);
             free(work);
             return NULL;
         }
-        prompt = grown;
-        buf_len = need + 1;
-        /* The SAME template. This is the line that discarded the choice. */
-        need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
-    }
-    if (need < 0) {
-        FAIL("applying the chat template failed for %zu messages", n_msgs);
-        free(prompt);
-        free(work);
-        return NULL;
     }
     prompt[need] = '\0';
-    LOGI("prompt: %d bytes, %zu msgs, tail=[%s]",
-         need, n_msgs, prompt + (need > 48 ? need - 48 : 0));
+    LOGI("prompt: %d bytes, %zu msgs, jinja=%d, tail=[%s]",
+         need, n_msgs, used_jinja, prompt + (need > 48 ? need - 48 : 0));
 
     /* Tokenize. */
     const struct llama_vocab *vocab = llama_model_get_vocab(llm->model);
@@ -280,7 +307,25 @@ static llama_token *tokenize_packed(
         free(work);
         return NULL;
     }
-    int32_t n_prompt = llama_tokenize(vocab, prompt, need, tokens, cap, true, true);
+    /*
+     * add_special adds BOS. A Jinja template normally emits "{{ bos_token }}"
+     * itself, and the legacy matcher never does — so ask the rendered text
+     * rather than assuming, or the model sees two BOS tokens.
+     */
+    bool add_special = true;
+    if (used_jinja) {
+        llama_token bos = llama_vocab_bos(vocab);
+        char bos_piece[64];
+        int32_t bos_len = (bos >= 0)
+                ? llama_token_to_piece(vocab, bos, bos_piece, sizeof(bos_piece), 0, true)
+                : 0;
+        if (bos_len > 0 && need >= bos_len &&
+            strncmp(prompt, bos_piece, (size_t) bos_len) == 0) {
+            add_special = false;
+        }
+    }
+    int32_t n_prompt = llama_tokenize(vocab, prompt, need, tokens, cap,
+                                      add_special, true);
     free(prompt);
     free(work);
     if (n_prompt <= 0) {
