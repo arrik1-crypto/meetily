@@ -209,6 +209,42 @@ class PromptShapingTest {
     }
 
     @Test
+    fun anOverflowingPromptShrinksAndConverges() {
+        // The estimate is calibrated on prose; a transcript full of
+        // timestamps and names tokenizes far worse, so the budget has to be
+        // corrected against a real count. Simulate 2 chars/token — the bad
+        // case — and check it lands under the ceiling within four passes,
+        // which is all LocalLlm.fitToContext allows it.
+        val limit = 3_400
+        var chars = PromptShaping.charBudget(4096)
+        var passes = 0
+        while (passes < 4) {
+            val counted = chars / 2
+            if (counted <= limit) break
+            val next = PromptShaping.shrinkBudget(chars, counted, limit)
+            assertTrue("must actually shrink", next < chars)
+            chars = next
+            passes++
+        }
+        assertTrue("never fitted in $passes passes", chars / 2 <= limit)
+    }
+
+    @Test
+    fun aPromptThatAlreadyFitsIsNotShrunk() {
+        // Called only when over, but the margin must never push a fitting
+        // prompt smaller — that would throw away context for nothing.
+        assertEquals(9_000, PromptShaping.shrinkBudget(9_000, 0, 3_400))
+        assertEquals(9_000, PromptShaping.shrinkBudget(9_000, 1_000, 0))
+    }
+
+    @Test
+    fun shrinkingNeverProducesAnUnusablyTinyBudget() {
+        // A wildly wrong count (a tokenizer returning something absurd)
+        // must not collapse the prompt to nothing.
+        assertTrue(PromptShaping.shrinkBudget(9_000, 10_000_000, 10) >= 400)
+    }
+
+    @Test
     fun budgetingKeepsHeadAndTailAroundTheMarker() {
         val long = "S".repeat(50_000)
         val out = PromptShaping.budgetMessages(listOf("user" to long), 5_000)

@@ -48,6 +48,22 @@ object PromptShaping {
     fun mapReduceThreshold(contextTokens: Int): Int = charBudget(contextTokens) * 3 / 2
 
     /**
+     * A smaller character budget, given that [chars] tokenized to [counted]
+     * against a ceiling of [limit].
+     *
+     * Scales by how far over the attempt was, then takes another 10% off:
+     * without that margin a prompt that lands one token over converges by
+     * roughly one token per pass and never gets under in a bounded number
+     * of tries. Never returns a budget too small to hold a prompt at all.
+     */
+    fun shrinkBudget(chars: Int, counted: Int, limit: Int): Int {
+        if (counted <= 0 || limit <= 0) return chars
+        return (chars.toLong() * limit / counted * 9 / 10)
+            .coerceIn(400L, chars.toLong())
+            .toInt()
+    }
+
+    /**
      * Reasoning models (Qwen 3.5 and kin) may open with a `<think>` block via
      * their chat template; users should only ever see the answer. Also
      * handles a truncated block (budget ran out mid-thought).

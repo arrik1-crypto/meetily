@@ -122,14 +122,17 @@ Java_com_meetily_mobile_llm_LlamaBridge_setThreads(
 
 /*
  * packed messages: per message, 0x1e + role + 0x1f + content. Parsed into
- * llama_chat_message entries pointing into a NUL-punched copy.
+ * llama_chat_message entries pointing into a NUL-punched copy, run through
+ * the model's chat template, and tokenized.
+ *
+ * Returns a malloc'd token array and writes the count to *out_n, or NULL on
+ * failure. Shared by generate() and countTokens() so the two can never
+ * disagree about what a prompt costs — a measurement the caller cannot rely
+ * on is worse than no measurement at all.
  */
-JNIEXPORT jstring JNICALL
-Java_com_meetily_mobile_llm_LlamaBridge_generate(
-        JNIEnv *env, jobject thiz, jlong ptr, jstring packed, jint max_tokens) {
-    (void) thiz;
-    if (ptr == 0 || packed == NULL) return NULL;
-    local_llm *llm = (local_llm *) (intptr_t) ptr;
+static llama_token *tokenize_packed(
+        JNIEnv *env, local_llm *llm, jstring packed, int32_t *out_n) {
+    *out_n = 0;
 
     const char *packed_c = (*env)->GetStringUTFChars(env, packed, NULL);
     if (packed_c == NULL) return NULL;
@@ -217,11 +220,69 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
         free(tokens);
         return NULL;
     }
+    *out_n = n_prompt;
+    return tokens;
+}
 
-    /* Clamp so the prompt plus the reply fits the context. */
+/*
+ * Tokens this prompt costs with the template applied — exactly the number
+ * generate() will see.
+ *
+ * Exposed because the Kotlin side was budgeting from a chars-per-token
+ * guess, and a guess that runs optimistic overflows the window silently.
+ * Meeting transcripts are the worst case for it: timestamps, speaker
+ * labels and proper nouns tokenize far worse than the prose the estimate
+ * was calibrated on.
+ */
+JNIEXPORT jint JNICALL
+Java_com_meetily_mobile_llm_LlamaBridge_countTokens(
+        JNIEnv *env, jobject thiz, jlong ptr, jstring packed) {
+    (void) thiz;
+    if (ptr == 0 || packed == NULL) return -1;
+    local_llm *llm = (local_llm *) (intptr_t) ptr;
+    int32_t n = 0;
+    llama_token *tokens = tokenize_packed(env, llm, packed, &n);
+    if (tokens == NULL) return -1;
+    free(tokens);
+    return (jint) n;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_meetily_mobile_llm_LlamaBridge_generate(
+        JNIEnv *env, jobject thiz, jlong ptr, jstring packed, jint max_tokens) {
+    (void) thiz;
+    if (ptr == 0 || packed == NULL) return NULL;
+    local_llm *llm = (local_llm *) (intptr_t) ptr;
+    const struct llama_vocab *vocab = llama_model_get_vocab(llm->model);
+
+    int32_t n_prompt = 0;
+    llama_token *tokens = tokenize_packed(env, llm, packed, &n_prompt);
+    if (tokens == NULL) return NULL;
+
+    /*
+     * Clamp so the prompt plus the reply fits the context — dropping from
+     * the MIDDLE, never the tail.
+     *
+     * This used to truncate the tail, which is where the template puts the
+     * assistant header: the tokens that turn the prompt from "continue this
+     * text" into "now answer". Cutting them off left the model resuming a
+     * transcript mid-sentence, and its first sampled token was end-of-turn.
+     * That exited the sampling loop before it wrote anything, and an empty
+     * string is not an error anywhere in this file, so the failure arrived
+     * in the UI as "the model produced no output" with nothing logged.
+     *
+     * Keeping a head as well as the tail preserves the system instruction,
+     * which is the other end that must survive.
+     */
     const int32_t n_ctx = (int32_t) llama_n_ctx(llm->ctx);
     const int32_t limit = n_ctx - max_tokens - 8;
     if (limit > 0 && n_prompt > limit) {
+        const int32_t head = limit / 4;
+        const int32_t tail = limit - head;
+        LOGE("prompt %d > limit %d; dropping %d tokens from the middle",
+             n_prompt, limit, n_prompt - limit);
+        memmove(tokens + head, tokens + (n_prompt - tail),
+                sizeof(llama_token) * (size_t) tail);
         n_prompt = limit;
     }
 

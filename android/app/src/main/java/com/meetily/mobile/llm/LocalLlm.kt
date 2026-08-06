@@ -127,7 +127,7 @@ object LocalLlm {
 
             applyThreadBudget()
             val raw = LlamaBridge.generate(
-                ptr, pack(budgetMessages(pairs, CHAR_BUDGET)), MAX_REPLY_TOKENS
+                ptr, pack(fitToContext(pairs, MAX_REPLY_TOKENS)), MAX_REPLY_TOKENS
             )?.trim().orEmpty()
             val reply = stripThinking(raw)
             if (reply.isNotBlank()) return reply
@@ -153,9 +153,9 @@ object LocalLlm {
                 LlamaBridge.generate(
                     ptr,
                     pack(
-                        budgetMessages(
+                        fitToContext(
                             pairs + Pair("system", NO_DELIBERATION),
-                            PromptShaping.charBudget(N_CTX, RETRY_REPLY_TOKENS)
+                            RETRY_REPLY_TOKENS
                         )
                     ),
                     RETRY_REPLY_TOKENS
@@ -174,6 +174,52 @@ object LocalLlm {
         }
     }
 
+    /**
+     * Shapes [pairs] to a prompt that provably fits the context window,
+     * leaving room for [replyTokens].
+     *
+     * [PromptShaping.charBudget] is a chars-per-token ESTIMATE, calibrated
+     * on prose. A meeting transcript is close to the worst case for it —
+     * timestamps, speaker labels and proper nouns all tokenize far worse
+     * than three characters each — so the estimate ran optimistic and the
+     * prompt overflowed the window. llama.cpp then clamped it, and the
+     * clamp is invisible to this side: the summary simply came back empty.
+     *
+     * So measure instead of guessing, and shrink until it fits. Each pass
+     * scales the character budget by how far over the last one was, with a
+     * 10% margin so a near-miss converges rather than oscillating.
+     *
+     * Falls back to the estimate alone if the count is unavailable — an
+     * older native library without the export, or a tokenizer failure. That
+     * is the behaviour this replaces, so the fallback is never worse.
+     */
+    private fun fitToContext(
+        pairs: List<Pair<String, String>>,
+        replyTokens: Int
+    ): List<Pair<String, String>> {
+        // Matches the native clamp: n_ctx - max_tokens - 8, with a little
+        // more held back so we land under it rather than exactly on it.
+        val limit = N_CTX - replyTokens - 64
+        var chars = PromptShaping.charBudget(N_CTX, replyTokens)
+        var shaped = budgetMessages(pairs, chars)
+        repeat(4) {
+            val counted = try {
+                LlamaBridge.countTokens(ptr, pack(shaped))
+            } catch (_: Throwable) {
+                -1
+            }
+            if (counted <= 0 || counted <= limit) return shaped
+            val next = PromptShaping.shrinkBudget(chars, counted, limit)
+            // budgetMessages has floors of its own, so a budget it cannot
+            // honour would loop without shrinking anything. Stop and let the
+            // native middle-clamp catch what is left.
+            if (next >= chars) return shaped
+            chars = next
+            shaped = budgetMessages(pairs, chars)
+        }
+        return shaped
+    }
+
     fun needsMapReduce(length: Int): Boolean = length > MAP_REDUCE_THRESHOLD
 
     /**
@@ -186,7 +232,14 @@ object LocalLlm {
         charBudget = CHAR_BUDGET,
         generate = { messages, replyTokens ->
             applyThreadBudget()
-            LlamaBridge.generate(ptr, pack(messages), replyTokens)?.trim().orEmpty()
+            // Measured, like the final pass. A section chunk is 8k characters
+            // against the same estimate, so it overflows for the same reason
+            // — and an overflowing section came back as "(section notes
+            // unavailable)", which reads like the model failing rather than
+            // the prompt never having fitted.
+            LlamaBridge.generate(
+                ptr, pack(fitToContext(messages, replyTokens)), replyTokens
+            )?.trim().orEmpty()
         },
         onSection = { index, total -> stageListener?.invoke(index, total) }
     )

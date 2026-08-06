@@ -36,4 +36,15 @@ object LlamaBridge {
      * the assistant reply, or null on failure.
      */
     external fun generate(ptr: Long, packedMessages: String, maxTokens: Int): String?
+
+    /**
+     * Tokens [packedMessages] costs once the chat template is applied — the
+     * same number [generate] will see. Negative if it could not be counted.
+     *
+     * The budget was a chars-per-token guess before this existed, and an
+     * optimistic guess overflows the context window where nothing can
+     * report it. Throws UnsatisfiedLinkError against an older native
+     * library that lacks the export; callers fall back to the estimate.
+     */
+    external fun countTokens(ptr: Long, packedMessages: String): Int
 }
