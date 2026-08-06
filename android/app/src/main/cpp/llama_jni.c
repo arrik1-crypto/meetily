@@ -10,6 +10,26 @@
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
 
 /*
+ * Why the last generate()/countTokens() failed.
+ *
+ * generate() returns NULL from six distinct native paths, and an immediate
+ * end-of-turn returns an empty string. Kotlin's `?.trim().orEmpty()` mapped
+ * every one of them to the same blank string and the same sentence in the
+ * UI — "the on-device model produced no output" — which named the one cause
+ * (the model) that often was not involved. Two speculative fixes were
+ * shipped against that sentence before anyone could tell the cases apart.
+ *
+ * Not thread-safe by design: LocalLlm serialises every call through one
+ * lock, so there is exactly one in flight.
+ */
+static char g_last_error[512] = "";
+
+#define FAIL(...) do { \
+        snprintf(g_last_error, sizeof(g_last_error), __VA_ARGS__); \
+        LOGE("%s", g_last_error); \
+    } while (0)
+
+/*
  * On-device chat completion for the local AI engine. One loaded model at a
  * time (the Kotlin side serializes calls); each generate() is a fresh
  * conversation: apply the model's chat template, clear the KV cache, decode
@@ -138,7 +158,10 @@ static llama_token *tokenize_packed(
     if (packed_c == NULL) return NULL;
     char *work = strdup(packed_c);
     (*env)->ReleaseStringUTFChars(env, packed, packed_c);
-    if (work == NULL) return NULL;
+    if (work == NULL) {
+        FAIL("could not copy the packed prompt (out of memory)");
+        return NULL;
+    }
 
     /* Parse the packed messages. */
     struct llama_chat_message msgs[32];
@@ -162,6 +185,7 @@ static llama_token *tokenize_packed(
         cursor = next;
     }
     if (n_msgs == 0) {
+        FAIL("no messages were parsed from the packed prompt");
         free(work);
         return NULL;
     }
@@ -171,43 +195,87 @@ static llama_token *tokenize_packed(
         if (tail != NULL) *tail = '\0';
     }
 
-    /* Chat template: prefer the model's own, fall back to ChatML. */
+    /*
+     * Chat template. Resolve it ONCE and keep that choice.
+     *
+     * The previous version let the ChatML fallback pick a template and then
+     * threw the choice away: the regrow below re-rendered with
+     * `tmpl != NULL ? tmpl : "chatml"` — the model's own template, the one
+     * that had just failed. So any prompt over the initial 8192-byte buffer
+     * returned NULL for any model llama.cpp cannot match. That is every
+     * Gemma 4 build: its turn markers are <|turn>role / <turn|>, and
+     * b10089's llama-chat.cpp matches Gemma only on "<start_of_turn>"
+     * (:155) before falling through to UNKNOWN (:239), which llama.cpp
+     * turns into -1. Verified against the official Gemma 4 template shipped
+     * in that same tag: it contains "<start_of_turn>" exactly zero times.
+     *
+     * Every summary prompt here exceeds 8192 bytes, so on Gemma 4 this
+     * failed every time, in both the section pass and the final one.
+     */
     const char *tmpl = llama_model_chat_template(llm->model, NULL);
     int32_t buf_len = 8192;
     char *prompt = (char *) malloc((size_t) buf_len);
     if (prompt == NULL) {
+        FAIL("could not allocate the prompt buffer (out of memory)");
         free(work);
         return NULL;
     }
-    int32_t need = llama_chat_apply_template(
-            tmpl != NULL ? tmpl : "chatml", msgs, n_msgs, true, prompt, buf_len);
-    if (need < 0 && tmpl != NULL) {
-        need = llama_chat_apply_template("chatml", msgs, n_msgs, true, prompt, buf_len);
+
+    int32_t need;
+    if (tmpl == NULL) {
+        /* No template in the GGUF at all. ChatML is the conventional
+           default and nothing contradicts it here. */
+        tmpl = "chatml";
+        need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
+    } else {
+        need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
+        if (need < 0) {
+            /*
+             * The model DECLARES a format and this llama.cpp does not know
+             * it. Falling back to ChatML here is not a default — it is a
+             * guess against the model's own statement. It would emit
+             * <|im_start|> markers that are absent from the vocabulary and
+             * never emit the model's generation cue, producing a
+             * plausible-looking but badly framed summary that nothing
+             * downstream can detect. Refusing is the honest answer.
+             */
+            FAIL("this model's chat format is not supported by the built-in "
+                 "engine — pick a different model");
+            free(prompt);
+            free(work);
+            return NULL;
+        }
     }
-    if (need > buf_len) {
+
+    if (need >= buf_len) {   /* >=, so prompt[need] always has a slot */
         char *grown = (char *) realloc(prompt, (size_t) need + 1);
         if (grown == NULL) {
+            FAIL("could not grow the prompt buffer to %d bytes", need + 1);
             free(prompt);
             free(work);
             return NULL;
         }
         prompt = grown;
         buf_len = need + 1;
-        need = llama_chat_apply_template(
-                tmpl != NULL ? tmpl : "chatml", msgs, n_msgs, true, prompt, buf_len);
+        /* The SAME template. This is the line that discarded the choice. */
+        need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
     }
     if (need < 0) {
-        LOGE("chat template failed");
+        FAIL("applying the chat template failed for %zu messages", n_msgs);
         free(prompt);
         free(work);
         return NULL;
     }
+    prompt[need] = '\0';
+    LOGI("prompt: %d bytes, %zu msgs, tail=[%s]",
+         need, n_msgs, prompt + (need > 48 ? need - 48 : 0));
 
     /* Tokenize. */
     const struct llama_vocab *vocab = llama_model_get_vocab(llm->model);
     int32_t cap = need + 64;
     llama_token *tokens = (llama_token *) malloc(sizeof(llama_token) * (size_t) cap);
     if (tokens == NULL) {
+        FAIL("could not allocate %d tokens (out of memory)", cap);
         free(prompt);
         free(work);
         return NULL;
@@ -216,12 +284,24 @@ static llama_token *tokenize_packed(
     free(prompt);
     free(work);
     if (n_prompt <= 0) {
-        LOGE("tokenize failed: %d", n_prompt);
+        FAIL("tokenizing failed (%d) for a %d-byte prompt", n_prompt, need);
         free(tokens);
         return NULL;
     }
     *out_n = n_prompt;
     return tokens;
+}
+
+/*
+ * Why the last generate() or countTokens() failed, or "" if it did not.
+ *
+ * Read only after a null/blank return; LocalLlm serialises calls, so the
+ * value always belongs to the call that just finished.
+ */
+JNIEXPORT jstring JNICALL
+Java_com_meetily_mobile_llm_LlamaBridge_lastError(JNIEnv *env, jobject thiz) {
+    (void) thiz;
+    return (*env)->NewStringUTF(env, g_last_error);
 }
 
 /*
@@ -240,6 +320,7 @@ Java_com_meetily_mobile_llm_LlamaBridge_countTokens(
     (void) thiz;
     if (ptr == 0 || packed == NULL) return -1;
     local_llm *llm = (local_llm *) (intptr_t) ptr;
+    g_last_error[0] = '\0';
     int32_t n = 0;
     llama_token *tokens = tokenize_packed(env, llm, packed, &n);
     if (tokens == NULL) return -1;
@@ -254,6 +335,7 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
     if (ptr == 0 || packed == NULL) return NULL;
     local_llm *llm = (local_llm *) (intptr_t) ptr;
     const struct llama_vocab *vocab = llama_model_get_vocab(llm->model);
+    g_last_error[0] = '\0';
 
     int32_t n_prompt = 0;
     llama_token *tokens = tokenize_packed(env, llm, packed, &n_prompt);
@@ -295,7 +377,9 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
         int32_t chunk = n_prompt - i < n_batch ? n_prompt - i : n_batch;
         struct llama_batch batch = llama_batch_get_one(tokens + i, chunk);
         if (llama_decode(llm->ctx, batch) != 0) {
-            LOGE("prompt decode failed at %d", i);
+            FAIL("reading the prompt failed at token %d of %d (n_batch=%d, "
+                 "n_ctx=%d) — usually not enough memory for this model",
+                 i, n_prompt, n_batch, (int) llama_n_ctx(llm->ctx));
             free(tokens);
             return NULL;
         }
@@ -306,13 +390,28 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
     size_t out_cap = 4096;
     size_t out_len = 0;
     char *out = (char *) malloc(out_cap);
-    if (out == NULL) return NULL;
+    if (out == NULL) {
+        FAIL("could not allocate the reply buffer (out of memory)");
+        return NULL;
+    }
     out[0] = '\0';
     char piece[256];
 
     for (jint g = 0; g < max_tokens; g++) {
         llama_token tok = llama_sampler_sample(llm->smpl, llm->ctx, -1);
-        if (llama_vocab_is_eog(vocab, tok)) break;
+        if (llama_vocab_is_eog(vocab, tok)) {
+            /*
+             * Ending the turn as the VERY first token is not the same event
+             * as ending it after writing an answer, and only this one is a
+             * fault. It is what a model does when handed a prompt framed for
+             * a different model: nothing cues it to speak, so it stops.
+             */
+            if (g == 0) {
+                FAIL("the model ended its turn without writing anything "
+                     "(prompt was %d tokens)", n_prompt);
+            }
+            break;
+        }
         int32_t plen = llama_token_to_piece(vocab, tok, piece, sizeof(piece), 0, false);
         if (plen > 0) {
             if (out_len + (size_t) plen + 1 > out_cap) {
@@ -335,6 +434,9 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
         }
     }
 
+    if (out_len == 0 && g_last_error[0] == '\0') {
+        FAIL("the model produced %d tokens, none of which were text", max_tokens);
+    }
     jstring result = (*env)->NewStringUTF(env, out);
     free(out);
     return result;

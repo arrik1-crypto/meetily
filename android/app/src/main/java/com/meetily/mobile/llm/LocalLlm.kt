@@ -132,14 +132,12 @@ object LocalLlm {
             val reply = stripThinking(raw)
             if (reply.isNotBlank()) return reply
 
-            // Empty has three causes and they are not the same problem.
-            // Reporting all of them as "returned an empty response" told the
-            // user nothing and discarded the one case that is recoverable.
+            // Empty has several causes and they are not the same problem.
+            // The native layer now says which one, because guessing from
+            // this end cost two shipped builds and got the answer wrong
+            // both times.
             if (raw.isBlank()) {
-                throw IllegalStateException(
-                    "The on-device model produced no output. Try a smaller model, " +
-                        "or a shorter meeting."
-                )
+                throw IllegalStateException(nativeFailure())
             }
             if (!PromptShaping.thinkingRanOver(raw)) {
                 throw IllegalStateException("On-device model returned an empty response")
@@ -171,6 +169,28 @@ object LocalLlm {
             // blocking its caller; honour it now, off the main thread.
             if (releasePending) freeLocked()
             lock.unlock()
+        }
+    }
+
+    /**
+     * The reason the engine gave for producing nothing, as a sentence fit to
+     * show a user.
+     *
+     * Falls back to the old wording only when the native library predates
+     * [LlamaBridge.lastError] or has nothing recorded — in which case the
+     * generic advice is all there ever was.
+     */
+    private fun nativeFailure(): String {
+        val why = try {
+            LlamaBridge.lastError()
+        } catch (_: Throwable) {
+            ""
+        }
+        return if (why.isNotBlank()) {
+            "On-device summary failed: $why"
+        } else {
+            "The on-device model produced no output. Try a smaller model, " +
+                "or a shorter meeting."
         }
     }
 
