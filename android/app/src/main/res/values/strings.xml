@@ -569,9 +569,9 @@
     <string name="status_paused">Paused</string>
     <string name="status_loading_model">Loading the model…</string>
     <string name="status_recording_audio">Recording</string>
-    <string name="audio_only_note">Recording audio. The full transcript is made when you stop — it comes out more accurate that way, and uses a fraction of the battery.</string>
+    <string name="audio_only_note">Recording audio. The full transcript is made when you stop — it comes out more accurate that way, and costs about 4% of the battery an hour.</string>
     <string name="live_transcription_title">Transcribe live</string>
-    <string name="live_transcription_summary">Show words as they are spoken. Costs roughly 40%% of a battery per hour and is less accurate than transcribing afterwards, because it works on fragments rather than whole sentences. Off by default.</string>
+    <string name="live_transcription_summary">Show words as they are spoken. Costs roughly 40%% of a battery per hour — around ten times what recording alone uses — and is less accurate than transcribing afterwards, because it works on fragments rather than whole sentences. Off by default.</string>
     <string name="transcribing_after_meeting">Transcribing the recording…</string>
     <string name="waiting_to_transcribe">Waiting to transcribe — plug in to start</string>
     <string name="record_button">Record a meeting</string>

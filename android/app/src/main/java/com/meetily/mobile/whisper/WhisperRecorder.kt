@@ -38,6 +38,13 @@ class WhisperRecorder(
      * anyway: it sees whole sentences with real context instead of chunks the
      * silence detector happened to cut, and it clusters speakers across the
      * entire recording rather than incrementally.
+     *
+     * MEASURED, this path: a 44-minute meeting on a Pixel 10 Pro XL took the
+     * battery from ~80% (charge-limited) to ~76% — three or four points, so
+     * roughly 4-5% an hour. Read error is ±1 point at each end, so treat it
+     * as a band of about 3-7%/hour rather than a figure; either way it is
+     * close to an order of magnitude below the live path, which is what
+     * justifies live transcription being off by default.
      */
     private val transcribe: Boolean = true,
     // Capture tuning (see CaptureTuning): how firmware pre-processes the mic
