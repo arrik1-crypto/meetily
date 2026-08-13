@@ -2,6 +2,7 @@ package com.meetily.mobile
 
 import android.content.Intent
 import android.graphics.Paint
+import android.graphics.Typeface
 import android.media.MediaPlayer
 import android.net.Uri
 import android.os.Bundle
@@ -665,6 +666,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         )) {
             view.setBackgroundResource(if (isActive) R.drawable.bg_tab_active else 0)
             view.setTextColor(if (isActive) active else inactive)
+            // Weight has to be set here alongside the pill and the colour.
+            // Summary carried android:textStyle="bold" in the layout, so it
+            // rendered bold on every tab — two tabs looked selected at once,
+            // and which one actually was depended on spotting the pill.
+            view.setTypeface(null, if (isActive) Typeface.BOLD else Typeface.NORMAL)
         }
         summaryContent.visibility = if (tab == Tab.SUMMARY) View.VISIBLE else View.GONE
         audioContent.visibility = if (tab == Tab.AUDIO) View.VISIBLE else View.GONE

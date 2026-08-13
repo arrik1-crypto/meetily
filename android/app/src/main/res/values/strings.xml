@@ -297,6 +297,7 @@
     <string name="nudges_need_calendar">Meeting nudges need calendar access.</string>
 
     <string name="setting_translate">Translate to English</string>
+    <string name="setting_whisper_only_note">Translate and custom vocabulary are Whisper features. The model you have selected transcribes in the language spoken and ignores both — switch to a Whisper model under Manage models to use them.</string>
     <string name="setting_translate_desc">Transcribe speech in any language as English text. Needs a multilingual model — models marked "English" ignore this.</string>
     <string name="import_needs_whisper">Importing needs the on-device Whisper engine — download a Whisper model in Settings first.</string>
     <string name="import_wait_recording">Finish the current recording before importing a file.</string>

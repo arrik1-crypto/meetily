@@ -56,7 +56,7 @@
                 android:background="@null"
                 android:hint="@string/attendees_hint"
                 android:importantForAutofill="no"
-                android:inputType="textCapWords"
+                android:inputType="textCapWords|textMultiLine"
                 android:textColor="?attr/colorOnSurfaceVariant"
                 android:textColorHint="?attr/colorOutline"
                 android:textSize="14sp" />
@@ -154,8 +154,7 @@
             android:paddingVertical="6dp"
             android:text="@string/tab_summary"
             android:textColor="?attr/colorOnPrimary"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:textSize="12sp" />
 
         <TextView
             android:id="@+id/tabTranscript"

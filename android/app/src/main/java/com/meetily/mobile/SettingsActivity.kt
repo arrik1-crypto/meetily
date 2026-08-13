@@ -876,6 +876,18 @@ class SettingsActivity : AppCompatActivity() {
             } else {
                 getString(R.string.model_status_missing, name)
             }
+        // Translate and custom vocabulary are Whisper features: RecordingService
+        // passes translate=false and vocabPrompt=null whenever a NeMo model is
+        // loaded, and AudioFileImporter does the same. Both controls stayed
+        // fully interactive with no hint of that, so a Parakeet user could set
+        // a translate toggle and a page of vocabulary and have every word of
+        // it ignored, silently, for the life of the install.
+        findViewById<View>(R.id.whisperOnlyNote).visibility =
+            if (com.meetily.mobile.whisper.TranscriptionModels.isNemo(key)) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
         updateDiarizeSection()
     }
 

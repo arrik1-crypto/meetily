@@ -324,6 +324,19 @@
                             android:textAppearance="?attr/textAppearanceBodySmall"
                             android:textColor="?attr/colorOnSurfaceVariant" />
 
+                        <!-- Shown only when the active model ignores both
+                             this and the vocabulary below. Whisper features,
+                             not engine-wide ones. -->
+                        <TextView
+                            android:id="@+id/whisperOnlyNote"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="8dp"
+                            android:text="@string/setting_whisper_only_note"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="@color/accm"
+                            android:visibility="gone" />
+
 
                         <!-- Custom vocabulary: names/jargon Whisper should
                              prefer, fed as its initial prompt. -->
