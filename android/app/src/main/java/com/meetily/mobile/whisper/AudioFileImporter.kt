@@ -180,6 +180,33 @@ class AudioFileImporter(
         // meeting until the user accepts the result.
         // Timestamps are anchored so the imported meeting reads as having
         // just ended (base + in-file offset); refined once duration is known.
+        /*
+         * Container duration, probed from the SOURCE before the meeting is
+         * built.
+         *
+         * The anchor has to be correct in the constructor: createdAtMs is a
+         * val, and every segment timestamp is derived from it. It used to be
+         * corrected at the END of the run instead, shifting timestamps that
+         * batches had already written to disk — and the meeting screen tracks
+         * how far it has seen BY TIMESTAMP, so a screen opened mid-import
+         * held a high-water mark matching nothing on disk and its next save
+         * overwrote the finished transcript with its stale partial copy.
+         *
+         * A second probe further down reads the same value for progress and
+         * the result; this one exists only because it has to happen earlier.
+         */
+        val probedMs = if (recheckTarget != null) -1L else runCatching {
+            val mmr = android.media.MediaMetadataRetriever()
+            try {
+                mmr.setDataSource(context, uri)
+                mmr.extractMetadata(
+                    android.media.MediaMetadataRetriever.METADATA_KEY_DURATION
+                )?.toLongOrNull() ?: -1L
+            } finally {
+                mmr.release()
+            }
+        }.getOrDefault(-1L)
+
         var baseMs = if (recheckTarget != null) {
             // Share the stored transcript's clock exactly. An import
             // re-anchors its segments once the duration is known but leaves
@@ -190,6 +217,9 @@ class AudioFileImporter(
             recheckTarget.segments.firstOrNull { it.audioMs != null }
                 ?.let { it.timestampMs - (it.audioMs ?: 0L) }
                 ?: recheckTarget.createdAtMs
+        } else if (probedMs > 0) {
+            // Reads as having just ended, and correct from the first write.
+            System.currentTimeMillis() - probedMs
         } else {
             System.currentTimeMillis()
         }
@@ -272,22 +302,6 @@ class AudioFileImporter(
                 mmr.release()
             }
         } catch (_: Exception) {
-        }
-
-        /*
-         * Anchor the clock now, while the transcript is still empty.
-         *
-         * This used to happen at the END of the run: every segment's
-         * timestamp was shifted after batches had already been written. The
-         * meeting screen tracks how far it has seen BY TIMESTAMP, so a screen
-         * opened mid-import held a high-water mark that no longer matched
-         * anything on disk, and its next save overwrote the finished
-         * transcript with its stale partial copy. Anchoring up front means
-         * segments carry their final timestamps from the first write.
-         */
-        if (!recheck && totalMs > 0) {
-            baseMs = System.currentTimeMillis() - totalMs
-            meeting.createdAtMs = baseMs
         }
 
         // Chunker state (same splitting rules as live recording).
