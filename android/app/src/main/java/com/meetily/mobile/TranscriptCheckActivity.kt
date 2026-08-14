@@ -219,6 +219,9 @@ class TranscriptCheckActivity : AppCompatActivity() {
                     is Applied.Nothing -> Toast.makeText(
                         this, R.string.check_nothing_to_apply, Toast.LENGTH_SHORT
                     ).show()
+                    is Applied.SaveFailed -> Toast.makeText(
+                        this, R.string.check_save_failed, Toast.LENGTH_LONG
+                    ).show()
                     is Applied.Done -> {
                         meeting = outcome.meeting
                         if (outcome.hadSummary) offerRegenerate(outcome.meeting)
@@ -235,6 +238,8 @@ class TranscriptCheckActivity : AppCompatActivity() {
     private sealed interface Applied {
         object Gone : Applied
         object Nothing : Applied
+        /** The merge was built but never reached disk — nothing was deleted. */
+        object SaveFailed : Applied
         class Done(val meeting: Meeting, val hadSummary: Boolean) : Applied
     }
 
@@ -293,7 +298,10 @@ class TranscriptCheckActivity : AppCompatActivity() {
         }
         val hadSummary = fresh.summary.isNotBlank()
         if (hadSummary) fresh.summaryStale = true
-        store.save(fresh)
+        // Delete the draft ONLY once the merge is durable. The result was
+        // discarded before, so a failed write took the draft with it and
+        // reported success: the accepted words existed in neither place.
+        if (!store.save(fresh)) return Applied.SaveFailed
         TranscriptDraft.delete(this, meetingId)
         return Applied.Done(fresh, hadSummary)
     }

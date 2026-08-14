@@ -33,11 +33,21 @@ class MeetingStore(context: Context) {
         }
     }
 
-    fun save(meeting: Meeting) {
+    /**
+     * Writes [meeting], returning false if nothing reached disk.
+     *
+     * The result used to be discarded. AtomicJson.write already reports
+     * failure honestly; throwing that away meant a full disk or a revoked
+     * directory looked identical to success, and callers went on to do the
+     * irreversible half of their job — the accuracy-check apply deleted the
+     * draft it had just failed to save, and the summary service announced a
+     * summary that was never written.
+     */
+    fun save(meeting: Meeting): Boolean {
         // Serialize once, outside the lock: Meeting is mutable and shared, so
         // building the JSON twice (as the fallback path used to) could put two
         // different snapshots into the two branches.
-        AtomicJson.write(dir, "${meeting.id}.json", meeting.toJson().toString())
+        return AtomicJson.write(dir, "${meeting.id}.json", meeting.toJson().toString())
     }
 
     /**
@@ -52,12 +62,12 @@ class MeetingStore(context: Context) {
      * copy still wins — it is the one carrying the user's edits, including
      * the lines it deliberately removed.
      */
-    fun saveMerging(meeting: Meeting, segmentsSeenThroughMs: Long) {
+    fun saveMerging(meeting: Meeting, segmentsSeenThroughMs: Long): Boolean {
         // Read-modify-write, so it has to exclude other writers for the whole
         // cycle — otherwise a segment that lands between the load and the save
         // is folded into nothing and then overwritten, which is the exact loss
         // this method exists to prevent.
-        AtomicJson.exclusive {
+        return AtomicJson.exclusive {
             val onDisk = load(meeting.id)
             if (onDisk != null) {
                 MeetingMerge.foldLateSegments(meeting, onDisk, segmentsSeenThroughMs)
@@ -81,12 +91,11 @@ class MeetingStore(context: Context) {
      * The write lock does NOT solve this on its own: a lost update is not a
      * torn file. The fix has to be about which side owns which field.
      */
-    fun saveTranscription(meeting: Meeting) {
-        AtomicJson.exclusive {
+    fun saveTranscription(meeting: Meeting): Boolean {
+        return AtomicJson.exclusive {
             val onDisk = load(meeting.id)
             if (onDisk == null) {
-                save(meeting)
-                return@exclusive
+                return@exclusive save(meeting)
             }
             onDisk.segments.clear()
             onDisk.segments.addAll(meeting.segments)
@@ -112,7 +121,6 @@ class MeetingStore(context: Context) {
         val target = load(id) ?: return@exclusive false
         block(target)
         save(target)
-        true
     }
 
     fun delete(id: String) {

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  android:allowBackup="false" only closes CLOUD backup, and only on Android 11
+  and below. From Android 12 (targetSdk 31+) the two channels are configured
+  separately here, and device-to-device transfer defaults to INCLUDING app
+  data regardless of allowBackup. Meetings, audio and voice profiles were
+  therefore eligible to be copied to a new phone by the setup wizard, which
+  the privacy policy says does not happen.
+
+  Both channels are closed. The in-app export — optionally passphrase
+  encrypted — stays the supported way to move data between devices, because
+  it is the one the user actually chooses.
+-->
+<data-extraction-rules>
+    <cloud-backup>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </cloud-backup>
+    <device-transfer>
+        <exclude domain="root" />
+        <exclude domain="file" />
+        <exclude domain="database" />
+        <exclude domain="sharedpref" />
+        <exclude domain="external" />
+    </device-transfer>
+</data-extraction-rules>

@@ -294,8 +294,14 @@ static llama_token *tokenize_packed(
         }
     }
     prompt[need] = '\0';
-    LOGI("prompt: %d bytes, %zu msgs, jinja=%d, tail=[%s]",
-         need, n_msgs, used_jinja, prompt + (need > 48 ? need - 48 : 0));
+    /*
+     * Shape only, never content. This logged the last 48 bytes of the prompt
+     * while the Gemma template bug was being chased, which for several
+     * template families is the tail of the user's meeting — written to
+     * logcat, readable by anything with the permission, on every generate.
+     * The counts carry the diagnostic value; the words carried none.
+     */
+    LOGI("prompt: %d bytes, %zu msgs, jinja=%d", need, n_msgs, used_jinja);
 
     /* Tokenize. */
     const struct llama_vocab *vocab = llama_model_get_vocab(llm->model);
@@ -463,6 +469,8 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
                 out_cap = (out_len + (size_t) plen + 1) * 2;
                 char *grown = (char *) realloc(out, out_cap);
                 if (grown == NULL) {
+                    FAIL("ran out of memory building the reply after %zu bytes",
+                         out_len);
                     free(out);
                     return NULL;
                 }

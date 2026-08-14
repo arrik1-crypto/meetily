@@ -249,6 +249,34 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
     buf[0] = '\0';
     int word_open = 0;
 
+    /*
+     * Languages written without spaces between words.
+     *
+     * The word-boundary rule below is "a token that begins with a space
+     * starts a new word". In Chinese, Japanese, Thai, Lao, Burmese and Khmer
+     * no token ever begins with one, so after the first token word_open
+     * stays set and no further word is ever opened: an entire batch collapses
+     * into ONE record carrying only the first token's timestamp. The caller
+     * then has a single "word" spanning up to 28 seconds, and every other
+     * chunk's timing and speaker attribution is discarded.
+     *
+     * For these scripts each token is its own record. Detected from the
+     * language whisper actually decoded, so it follows auto-detection rather
+     * than trusting the requested hint.
+     */
+    int no_space_script = 0;
+    {
+        const int lang = whisper_full_lang_id(ctx);
+        const char *code = (lang >= 0) ? whisper_lang_str(lang) : NULL;
+        if (code != NULL) {
+            no_space_script =
+                strcmp(code, "zh") == 0 || strcmp(code, "ja") == 0 ||
+                strcmp(code, "th") == 0 || strcmp(code, "lo") == 0 ||
+                strcmp(code, "my") == 0 || strcmp(code, "km") == 0 ||
+                strcmp(code, "yue") == 0;
+        }
+    }
+
     int n_segments = whisper_full_n_segments(ctx);
     for (int i = 0; i < n_segments; i++) {
         int n_tokens = whisper_full_n_tokens(ctx, i);
@@ -261,7 +289,7 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
             long long ms = (long long) td.t0 * 10;
 
             const char *emit = text;
-            int starts_word = (!word_open || text[0] == ' ');
+            int starts_word = (!word_open || text[0] == ' ' || no_space_script);
             char header[40];
             size_t hlen = 0;
             if (starts_word) {

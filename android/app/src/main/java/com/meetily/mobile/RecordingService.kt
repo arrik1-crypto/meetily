@@ -848,7 +848,17 @@ class RecordingService : Service() {
             }
         }
 
-        if (settings.saveAudio && audioWriter == null) {
+        /*
+         * With live transcription off (the default) the words come from the
+         * saved audio afterwards — so if audio is not kept either, the
+         * recorder has no output at all. It captured happily, wrote nothing,
+         * and finished into a meeting with no words and no file;
+         * startPrimaryTranscription then returned on the missing audio and
+         * said nothing. Keeping the audio is the only way this session can
+         * produce anything, so it wins over the preference for this run.
+         */
+        val mustKeepAudio = !settings.liveTranscription
+        if ((settings.saveAudio || mustKeepAudio) && audioWriter == null) {
             try {
                 val file = AudioStore.newRecordingFile(this, meetingId)
                 audioWriter = MeetingAudioWriter(file)
@@ -947,24 +957,35 @@ class RecordingService : Service() {
     ) {
         val id = meetingId
         if (id.isBlank() || text.isBlank()) return
-        Thread {
-            try {
-                val target = store.load(id) ?: return@Thread
-                target.segments.add(
-                    TranscriptSegment(
-                        timestampMs = System.currentTimeMillis(),
-                        text = text,
-                        speaker = speaker ?: clusterId?.let { clusterNames[it] },
-                        highlighted = false,
-                        clusterId = clusterId,
-                        audioMs = if (audioFileName != null) audioMs else null,
-                        words = if (audioFileName != null && words.isNotEmpty()) words else null
-                    )
-                )
-                store.save(target)
-            } catch (_: Exception) {
+        // Resolved on THIS thread: audioFileName and clusterNames belong to
+        // the service and are not safe to read from a worker.
+        val withAudio = audioFileName != null
+        val name = speaker ?: clusterId?.let { clusterNames[it] }
+        val segment = TranscriptSegment(
+            timestampMs = System.currentTimeMillis(),
+            text = text,
+            speaker = name,
+            highlighted = false,
+            clusterId = clusterId,
+            audioMs = if (withAudio) audioMs else null,
+            words = if (withAudio && words.isNotEmpty()) words else null
+        )
+        try {
+            lateExecutor.execute {
+                // mutate() runs load, change and save inside
+                // AtomicJson.exclusive. This was a raw load-then-save, which
+                // is a lost update waiting to happen: two late chunks
+                // overlapping dropped one, and either could land on top of —
+                // and silently revert — an edit made on the meeting screen
+                // while the tail was still arriving.
+                try {
+                    store.mutate(id) { target -> target.segments.add(segment) }
+                } catch (_: Exception) {
+                }
             }
-        }.start()
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Service already torn down; the chunk is genuinely too late.
+        }
     }
 
     private fun appendSegment(
@@ -1064,6 +1085,16 @@ class RecordingService : Service() {
      */
     private val saveExecutor = java.util.concurrent.Executors.newSingleThreadExecutor {
         Thread(it, "meeting-save")
+    }
+
+    /**
+     * Late transcript chunks, one at a time and in arrival order.
+     *
+     * Deliberately NOT saveExecutor: that one is shut down by saveAndDrain()
+     * as the session closes, which is the exact moment these begin arriving.
+     */
+    private val lateExecutor = java.util.concurrent.Executors.newSingleThreadExecutor {
+        Thread(it, "meeting-late-append")
     }
 
     private fun saveNow() {
@@ -1241,7 +1272,20 @@ class RecordingService : Service() {
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .setForegroundServiceBehavior(NotificationCompat.FOREGROUND_SERVICE_IMMEDIATE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            // PRIVATE, with a redacted stand-in for the lock screen. This was
+            // VISIBILITY_PUBLIC, which printed the meeting's title — often
+            // the most sensitive string in the app — to anyone glancing at a
+            // locked phone, overriding the user's own "hide sensitive
+            // notifications" choice.
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(
+                NotificationCompat.Builder(this, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_mic)
+                    .setContentTitle(getString(R.string.notif_recording))
+                    .setOngoing(true)
+                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+                    .build()
+            )
             .addAction(
                 if (paused) R.drawable.ic_play else R.drawable.ic_pause,
                 getString(if (paused) R.string.resume else R.string.pause),
@@ -1284,6 +1328,11 @@ class RecordingService : Service() {
         if (active && !finished) {
             teardownEngines()
             saveAndDrain()
+        }
+        try {
+            lateExecutor.shutdown()
+            lateExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)
+        } catch (_: Exception) {
         }
         isRunning = false
         super.onDestroy()
@@ -1351,10 +1400,17 @@ class RecordingService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         // If the user swipes the app away mid-recording, save and stop cleanly.
         if (active && !finished) {
+            val id = meetingId
+            val hadWords = segments.isNotEmpty()
             teardownEngines()
             saveAndDrain()
             store.clearActive()
             active = false
+            // Swiping away is a finish, not a discard. This path saved the
+            // audio and then stopped, so an audio-only recording — the
+            // default — was left with a file and no words, and nothing ever
+            // queued its transcription.
+            if (!hadWords) startPrimaryTranscription(id)
         }
         isRunning = false
         stopForegroundCompat()

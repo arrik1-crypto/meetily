@@ -81,6 +81,12 @@ class ImportService : Service() {
     /** This run is giving an audio-only recording its first transcript. */
     private var firstTranscript = false
 
+    /**
+     * Set by onTimeout. The instance is finished for good: the worker is
+     * unwinding and must be allowed to land before anything else runs here.
+     */
+    private var timedOut = false
+
     /** Staged copy this run adopts, when it came off the import queue. */
     private var adoptFile: String? = null
 
@@ -110,7 +116,11 @@ class ImportService : Service() {
             }
             ACTION_START -> {
                 val uri = intent.data
-                if (isRunning || uri == null) return START_NOT_STICKY
+                // timedOut: this instance hit the foreground-service cap and
+                // its worker is still unwinding. A bound client keeps the
+                // object alive, so a queued job could otherwise land on it and
+                // race the run that is on its way out.
+                if (isRunning || timedOut || uri == null) return START_NOT_STICKY
                 isRunning = true
                 // Closes JobGate's "a start is on its way" window; see
                 // JobGate.canStartBatch.
@@ -205,6 +215,11 @@ class ImportService : Service() {
                     sourceName = sourceName,
                     modelKey = modelKey,
                     recheckMeetingId = recheckMeetingId,
+                    // Already computed in onStartCommand from the meeting's
+                    // segment count. Without it the importer treats this
+                    // recording's only transcript as a second opinion and
+                    // stages it in a draft the meeting never receives.
+                    firstTranscript = firstTranscript,
                     adoptFile = adoptFile,
                     onMeetingCreated = { id ->
                         currentMeetingId = id
@@ -264,6 +279,10 @@ class ImportService : Service() {
 
     private fun finishRun(meetingId: String?, error: String?, warning: String?) {
         done = true
+        // Captured because the field is cleared below, before the completion
+        // notification is posted — and that notification has to know whether
+        // this run produced a transcript or a second opinion on one.
+        val wasFirstTranscript = firstTranscript
         resultMeetingId = meetingId
         resultError = error
         resultWarning = warning
@@ -305,7 +324,9 @@ class ImportService : Service() {
         }
         firstTranscript = false
         observers.forEach { it.onImportDone(meetingId, cancelled, error, warning) }
-        if (!cancelled) postCompletionNotification(meetingId, error, warning)
+        if (!cancelled) {
+            postCompletionNotification(meetingId, error, warning, wasFirstTranscript)
+        }
         // isRecheck / currentMeetingId deliberately survive the run: an
         // observer that binds after the finish still needs to know what just
         // happened. Both are reset by the next ACTION_START.
@@ -404,32 +425,39 @@ class ImportService : Service() {
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onTimeout(startId: Int, fgsType: Int) {
         cancelled = true
+        timedOut = true
         postCompletionNotification(
             currentMeetingId, getString(R.string.fgs_timeout_import), null
         )
-        isRunning = false
+        // isRunning deliberately NOT cleared here. The worker is still
+        // unwinding — it has a batch to finish and a draft or transcript to
+        // settle — and clearing the flag let a queued job start on this same
+        // instance, tearing down the foreground state the first run was still
+        // using and racing it on the same fields. finishRun clears it when
+        // the run is genuinely over.
         stopForegroundCompat()
-        stopSelf()
     }
 
     private fun postCompletionNotification(
         meetingId: String?,
         error: String?,
-        warning: String?
+        warning: String?,
+        wasFirstTranscript: Boolean = false
     ) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setAutoCancel(true)
             .setSilent(true)
-        if (meetingId != null && recheckMeetingId != null && warning != null) {
+        val awaitingReview = recheckMeetingId != null && !wasFirstTranscript
+        if (meetingId != null && awaitingReview && warning != null) {
             builder.setContentTitle(getString(R.string.check_incomplete_notif))
                 .setContentText(getString(R.string.check_incomplete_body))
                 .setStyle(
                     NotificationCompat.BigTextStyle()
                         .bigText(getString(R.string.check_incomplete_body))
                 )
-        } else if (meetingId != null && recheckMeetingId != null) {
+        } else if (meetingId != null && awaitingReview) {
             // The second pass is done but nothing has changed yet — the whole
             // point is that the user reviews it first.
             builder.setContentTitle(getString(R.string.check_ready_notif))

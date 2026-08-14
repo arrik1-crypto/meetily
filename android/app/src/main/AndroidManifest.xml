@@ -26,13 +26,18 @@
         </intent>
     </queries>
 
-    <!-- allowBackup=false keeps meeting data out of device/cloud backups;
-         the in-app export (optionally passphrase-encrypted) is the supported
-         path. Cleartext stays enabled for LAN Ollama, but the only http
-         client (LlmClient) refuses non-private hosts via EndpointGuard. -->
+    <!-- Keeping meeting data out of BOTH backup channels.
+         allowBackup=false covers cloud backup on Android 11 and below;
+         from Android 12 device-to-device transfer is configured separately
+         and defaults to including app data, so data_extraction_rules closes
+         it explicitly. The in-app export (optionally passphrase-encrypted)
+         is the supported path. Cleartext stays enabled for LAN Ollama, but
+         the only http client (LlmClient) refuses non-private hosts via
+         EndpointGuard. -->
     <application
         android:name=".RecapApp"
         android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"

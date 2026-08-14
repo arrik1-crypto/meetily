@@ -330,6 +330,7 @@
     <string name="check_incomplete_notif">Transcript check incomplete</string>
     <string name="check_incomplete_body">The second pass only reached part of the recording, so there was nothing reliable to compare against. Your transcript is unchanged.</string>
     <string name="check_nothing_to_review">There\'s no finished check waiting for this meeting.</string>
+    <string name="check_save_failed">Could not save the transcript — the device may be out of space. Nothing was changed, and the new pass is still here to try again.</string>
     <string name="check_nothing_to_apply">Nothing to apply.</string>
     <string name="check_agree_title">Both models agree</string>
     <string name="check_agree_body">%1$s heard the same words as %2$s, all the way through. That is a good sign for this transcript.</string>
@@ -501,6 +502,7 @@
     <string name="backup_plain">Plain zip</string>
     <string name="backup_passphrase_hint">Passphrase</string>
     <string name="backup_passphrase_repeat_hint">Repeat passphrase</string>
+    <string name="backup_cancelled_empty">Backup cancelled. The file that was created is empty — delete it so it is not mistaken for a backup.</string>
     <string name="backup_passphrase_short">Use at least 6 characters.</string>
     <string name="backup_passphrase_mismatch">Passphrases don\'t match.</string>
     <string name="restore_passphrase_title">Encrypted backup</string>

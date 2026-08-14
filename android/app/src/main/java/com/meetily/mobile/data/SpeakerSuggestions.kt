@@ -26,11 +26,34 @@ object SpeakerSuggestions {
     private fun fileFor(context: Context, meetingId: String): File =
         File(dir(context), "$meetingId.json")
 
+    /**
+     * Identity of the transcript a set of suggestions was computed against.
+     *
+     * Suggestions are stored as raw segment INDICES, and an index only means
+     * anything against the exact list it was derived from. Deleting a line,
+     * splitting one in two, or accepting an accuracy check renumbers
+     * everything after the edit — and the staged suggestions then named the
+     * wrong speakers on the wrong lines, silently, at review time.
+     */
+    private fun fingerprint(segments: List<TranscriptSegment>): String {
+        var hash = 17
+        for (segment in segments) hash = hash * 31 + segment.text.hashCode()
+        return "${segments.size}:$hash"
+    }
+
+    /** The anchor for [segments], for a caller staging a fresh set. */
+    fun anchorFor(segments: List<TranscriptSegment>): String = fingerprint(segments)
+
     /** Cheap enough for the main thread: one file-exists test. */
     fun isPending(context: Context, meetingId: String): Boolean =
         fileFor(context, meetingId).exists()
 
-    fun save(context: Context, meetingId: String, suggestions: List<Pair<Int, String>>) {
+    fun save(
+        context: Context,
+        meetingId: String,
+        suggestions: List<Pair<Int, String>>,
+        segments: List<TranscriptSegment> = emptyList()
+    ) {
         if (suggestions.isEmpty()) {
             delete(context, meetingId)
             return
@@ -39,7 +62,10 @@ object SpeakerSuggestions {
         for ((line, name) in suggestions) {
             arr.put(JSONObject().put("line", line).put("speaker", name))
         }
-        val obj = JSONObject().put("meetingId", meetingId).put("suggestions", arr)
+        val obj = JSONObject()
+            .put("meetingId", meetingId)
+            .put("suggestions", arr)
+            .put("transcript", fingerprint(segments))
         val file = fileFor(context, meetingId)
         val tmp = File(file.parentFile, "${file.name}.tmp")
         try {
@@ -50,6 +76,15 @@ object SpeakerSuggestions {
             }
         } catch (_: Exception) {
         }
+    }
+
+    /** The transcript identity these suggestions were computed against. */
+    fun anchorOf(context: Context, meetingId: String): String? = try {
+        val file = fileFor(context, meetingId)
+        if (!file.exists()) null
+        else JSONObject(file.readText()).optString("transcript").takeIf { it.isNotBlank() }
+    } catch (_: Exception) {
+        null
     }
 
     fun load(context: Context, meetingId: String): List<Pair<Int, String>> {
@@ -84,11 +119,21 @@ object SpeakerSuggestions {
      */
     fun applicable(
         suggestions: List<Pair<Int, String>>,
-        segments: List<TranscriptSegment>
-    ): List<Pair<Int, String>> =
-        suggestions
+        segments: List<TranscriptSegment>,
+        /**
+         * The anchor stored beside these suggestions. When it does not match
+         * the transcript in hand, the indices refer to a numbering that no
+         * longer exists and applying them would tag the wrong lines — so
+         * nothing is offered. Null means a file written before anchors
+         * existed; those are treated the same way rather than trusted.
+         */
+        anchor: String? = null
+    ): List<Pair<Int, String>> {
+        if (anchor == null || anchor != fingerprint(segments)) return emptyList()
+        return suggestions
             .distinctBy { it.first }
             .filter { (index, _) ->
                 index in segments.indices && segments[index].speaker.isNullOrBlank()
             }
+    }
 }

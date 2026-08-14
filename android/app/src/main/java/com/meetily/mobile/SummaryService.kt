@@ -194,10 +194,15 @@ class SummaryService : Service() {
                 }
                 // Filtered again at review time against the meeting as it
                 // then stands; this pass only avoids staging obvious noise.
+                // The staging filter runs against the very transcript being
+                // anchored to, so pass its own fingerprint rather than
+                // computing the list against nothing.
+                val anchor = SpeakerSuggestions.anchorFor(meeting.segments)
                 SpeakerSuggestions.save(
                     this,
                     meetingId,
-                    SpeakerSuggestions.applicable(suggestions, meeting.segments)
+                    SpeakerSuggestions.applicable(suggestions, meeting.segments, anchor),
+                    meeting.segments
                 )
             } catch (_: Exception) {
                 failed = true
@@ -277,11 +282,42 @@ class SummaryService : Service() {
             // (notes, tags, speaker names) while the model was thinking.
             val target = store.load(meetingId) ?: meeting
             target.summary = result
-            target.actionItems = finalItems.toMutableList()
+            /*
+             * Carry the user's state across a regeneration.
+             *
+             * The list was replaced wholesale, which threw away every tick
+             * the user had made and every reminder they had set — and worse,
+             * left the alarms armed, so a notification still fired for an
+             * item that no longer existed. Matching on normalised task text
+             * is the same identity Reminders already uses as its key.
+             */
+            val previous = target.actionItems.associateBy { it.task.trim().lowercase() }
+            val merged = finalItems.map { fresh ->
+                val old = previous[fresh.task.trim().lowercase()]
+                if (old == null) fresh
+                else fresh.copy(done = old.done, remindAtMs = old.remindAtMs)
+            }
+            // Anything the new summary dropped takes its alarm with it.
+            val keptKeys = merged.map { it.task.trim().lowercase() }.toSet()
+            for (gone in target.actionItems) {
+                if (gone.task.trim().lowercase() !in keptKeys && gone.remindAtMs != null) {
+                    runCatching {
+                        com.meetily.mobile.reminders.Reminders
+                            .cancelActionItem(this, meetingId, gone.task)
+                    }
+                }
+            }
+            target.actionItems = merged.toMutableList()
             // Written from the transcript as it stands now, so any "this
             // summary is out of date" flag is settled.
             target.summaryStale = false
-            store.save(target)
+            val saved = store.save(target)
+            if (!saved) {
+                android.util.Log.e(
+                    "SummaryService",
+                    "summary for $meetingId could not be written to disk"
+                )
+            }
 
             main.post { finishRun(meetingId) }
         }.apply {

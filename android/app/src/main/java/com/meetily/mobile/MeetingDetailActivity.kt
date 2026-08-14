@@ -221,7 +221,32 @@ class MeetingDetailActivity : AppCompatActivity() {
      */
     private var offerFollowLink = false
 
+    /**
+     * Writes this screen's copy back, folding in what it does not own.
+     *
+     * saveMerging already rescues transcript segments that landed while the
+     * screen held an older copy. It does NOT rescue the summary, and this
+     * screen writes the whole object — so a SummaryService run that finished
+     * while the screen was open but not bound to it (backgrounded, or started
+     * from the library) had its summary and action items erased by the next
+     * incidental save here: a tag edit, a note, a star. The work was done, the
+     * notification said so, and the result was gone.
+     *
+     * The summary is only carried over when this copy has none. A screen that
+     * holds a summary is holding one the user can see and may have edited;
+     * that one still wins.
+     */
     private fun persist(m: Meeting) {
+        if (m.summary.isBlank()) {
+            val onDisk = runCatching { store.load(m.id) }.getOrNull()
+            if (onDisk != null && onDisk.summary.isNotBlank()) {
+                m.summary = onDisk.summary
+                m.summaryStale = onDisk.summaryStale
+                if (m.actionItems.isEmpty()) {
+                    m.actionItems = onDisk.actionItems.toMutableList()
+                }
+            }
+        }
         store.saveMerging(m, segmentsSeenThroughMs)
         segmentsSeenThroughMs = maxOf(
             segmentsSeenThroughMs,
@@ -818,19 +843,25 @@ class MeetingDetailActivity : AppCompatActivity() {
             titleView.text = offline
             persist(m)
         }
-        if (settings.useLlm && settings.llmConfigured) {
+        if (settings.autoTitleAllowed) {
             val baseUrl = settings.llmBaseUrl
             val apiKey = settings.llmApiKey
             val model = settings.llmModel
             val localOnly = settings.localOnlyLlm
             val transcript = m.transcriptTextWithSpeakers()
             val notes = m.notes
+            // The title this run is refining. A generation takes seconds to
+            // minutes and the field is editable throughout, so without this
+            // the result lands on top of a rename the user made meanwhile —
+            // their words replaced by the model's, with no undo.
+            val startedFrom = m.title
             Thread {
                 try {
                     val generated = LlmClient.title(baseUrl, apiKey, model, localOnly, transcript, notes)
                     if (generated.isNotBlank()) {
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
+                            if (m.title != startedFrom) return@runOnUiThread
                             m.title = generated
                             titleView.text = generated
                             persist(m)
@@ -1363,8 +1394,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         val staged = com.meetily.mobile.data.SpeakerSuggestions.load(this, m.id)
         // Re-filtered against the transcript as it stands now: any line the
         // user tagged themselves while this was running keeps their tag.
-        val applicable = com.meetily.mobile.data.SpeakerSuggestions
-            .applicable(staged, m.segments)
+        val applicable = com.meetily.mobile.data.SpeakerSuggestions.applicable(
+            staged,
+            m.segments,
+            com.meetily.mobile.data.SpeakerSuggestions.anchorOf(this, m.id)
+        )
         if (applicable.isEmpty()) {
             com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
             Toast.makeText(this, R.string.suggest_none, Toast.LENGTH_LONG).show()

@@ -208,6 +208,19 @@ class AppSettings(context: Context) {
             (llmEngine == "local" || autoSummaryEndpointOk)
 
     /**
+     * True when the automatic TITLE refinement may run unprompted.
+     *
+     * Same rule as [autoSummaryAllowed], and for the same reason: it sends
+     * the whole transcript. It had no gate at all — turning on "name meetings
+     * from their transcript" silently posted every meeting to the configured
+     * endpoint the first time it was opened, with no tap and nothing said,
+     * while the summary beside it was carefully asking first.
+     */
+    val autoTitleAllowed: Boolean
+        get() = autoTitleFromTranscript && useLlm && llmConfigured &&
+            (llmEngine == "local" || autoSummaryEndpointOk)
+
+    /**
      * Highlight and scroll the transcript along with playback. On by default:
      * it is the point of opening a meeting with the audio.
      */

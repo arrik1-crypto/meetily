@@ -68,6 +68,14 @@ class AudioFileImporter(
          */
         recheckMeetingId: String? = null,
         /**
+         * True when [recheckMeetingId] names a recording that has NO
+         * transcript yet — an audio-only capture whose words this run is
+         * producing for the first time. It is anchored to that meeting like a
+         * recheck, but its result belongs IN the meeting, not staged beside
+         * it for comparison against nothing.
+         */
+        firstTranscript: Boolean = false,
+        /**
          * A copy already staged in AudioStore by the import queue. Renamed
          * into place rather than copied again — it is the same bytes.
          */
@@ -106,6 +114,18 @@ class AudioFileImporter(
             }
         }
         val recheck = recheckTarget != null
+        /*
+         * Whether the result is STAGED for review rather than written.
+         *
+         * These were the same flag, which is what broke the default recording
+         * mode: with live transcription off a recording finishes with no
+         * words, its transcription is queued through the same path a recheck
+         * uses, and every batch went to TranscriptDraft. The meeting stayed
+         * empty, the auto-summary saw zero segments and never ran, and the
+         * user was asked to review their only transcript against nothing —
+         * where "keep the current one" deleted it.
+         */
+        val stageOnly = recheck && !firstTranscript
 
         // NeMo path (Parakeet/Nemotron via sherpa-onnx) or whisper.cpp.
         val nemoModel = NemoModels.byKeyOrNull(selectedKey)
@@ -183,13 +203,18 @@ class AudioFileImporter(
         meeting.transcriptModel = selectedKey
         onMeetingCreated?.invoke(meeting.id)
 
+        // Set by the first persist(). The end-of-run re-anchor below must not
+        // move timestamps that are already on disk.
+        var persisted = false
+
         /**
          * Where transcribed segments land. A normal import owns its meeting
          * and saves into it incrementally; a recheck must not touch the
          * stored meeting at all, so it stages instead.
          */
         fun persist(complete: Boolean) {
-            if (recheck) {
+            persisted = true
+            if (stageOnly) {
                 TranscriptDraft.save(
                     context, meeting.id, selectedKey, meeting.segments, complete
                 )
@@ -247,6 +272,22 @@ class AudioFileImporter(
                 mmr.release()
             }
         } catch (_: Exception) {
+        }
+
+        /*
+         * Anchor the clock now, while the transcript is still empty.
+         *
+         * This used to happen at the END of the run: every segment's
+         * timestamp was shifted after batches had already been written. The
+         * meeting screen tracks how far it has seen BY TIMESTAMP, so a screen
+         * opened mid-import held a high-water mark that no longer matched
+         * anything on disk, and its next save overwrote the finished
+         * transcript with its stale partial copy. Anchoring up front means
+         * segments carry their final timestamps from the first write.
+         */
+        if (!recheck && totalMs > 0) {
+            baseMs = System.currentTimeMillis() - totalMs
+            meeting.createdAtMs = baseMs
         }
 
         // Chunker state (same splitting rules as live recording).
@@ -511,10 +552,12 @@ class AudioFileImporter(
                 }
             }
 
-            if (!recheck && durationMs > 0) {
-                // Re-anchor so the meeting reads as ending "now". A recheck
-                // stays on the original meeting's clock — the two passes have
-                // to line up on the same audio.
+            if (!recheck && durationMs > 0 && !persisted) {
+                // Fallback only: the container gave no duration up front, so
+                // the anchor could not be set before decoding. Safe here
+                // precisely because nothing has been written yet — see the
+                // up-front anchor above for why shifting after a write is
+                // what corrupted finished transcripts.
                 val newBase = System.currentTimeMillis() - durationMs
                 val shift = newBase - baseMs
                 baseMs = newBase
@@ -577,24 +620,38 @@ class AudioFileImporter(
             // A cancelled run must not leave a draft looking finished: half a
             // second pass would read as "the new model went silent here".
             persist(complete = !cancelled())
-            if (recheck && cancelled()) TranscriptDraft.delete(context, meeting.id)
+            // A cancelled recheck drops its draft; a cancelled FIRST pass
+            // keeps every word it managed, exactly as a plain import does.
+            // Deleting here used to discard the whole transcription of a long
+            // meeting when the run was cancelled or hit the foreground-service
+            // time limit.
+            if (stageOnly && cancelled()) TranscriptDraft.delete(context, meeting.id)
             if (durationMs > 0) totalMs = durationMs
             return Result(
                 meeting.id, consumedSamples * 1000 / sampleRate, totalMs, null
             )
         } catch (e: AudioFileDecoder.UnsupportedAudioException) {
-            if (recheck) {
+            if (stageOnly) {
                 TranscriptDraft.delete(context, meeting.id)
+            } else if (firstTranscript) {
+                // The meeting is the user's recording and its audio is the
+                // only copy. Keep both; the manual re-transcribe route stays.
             } else if (meeting.segments.isEmpty()) {
                 store.delete(meeting.id)
                 AudioStore.delete(context, meeting.audioFile)
             }
             throw ImportException(e.message ?: "unsupported audio")
         } catch (e: Throwable) {
-            if (recheck) {
+            if (stageOnly) {
                 // Half a transcript is useless for a comparison, and the
                 // stored one is untouched either way — drop the draft.
                 TranscriptDraft.delete(context, meeting.id)
+                throw ImportException(e.message ?: "decode failed")
+            }
+            if (firstTranscript) {
+                // Never delete the recording or its audio here: unlike an
+                // import, this meeting existed before the run and the audio
+                // is irreplaceable.
                 throw ImportException(e.message ?: "decode failed")
             }
             if (meeting.segments.isEmpty()) {

@@ -129,8 +129,10 @@ object BackupManager {
                             File(attachmentsDir, File(name).name)
                         name.startsWith(VOICE_AUDIO) ->
                             File(voiceAudioDir, File(name).name)
+                        // Staged, not written over the live file: see
+                        // mergeVoiceProfiles below.
                         name == VOICES ->
-                            File(context.filesDir, VOICES)
+                            File(context.filesDir, "$VOICES.restore")
                         else -> null
                     }
                     if (target != null && isUnder(target.parentFile, target)) {
@@ -146,7 +148,57 @@ object BackupManager {
                 entry = zip.nextEntry
             }
         }
+        mergeVoiceProfiles(context)
         return Restored(restored, skipped)
+    }
+
+    /**
+     * Folds a restored voice-profile list into the one already on the device.
+     *
+     * Restore renamed the archive's copy straight over the live file, so
+     * every voiceprint enrolled on THIS phone was destroyed by restoring a
+     * backup taken on another — and unlike a meeting, a voiceprint cannot be
+     * recovered from anything else on disk. It has to be re-recorded, by the
+     * person it belongs to, in the room.
+     *
+     * Identity is the profile name, case-insensitively — the same key
+     * VoiceProfileStore.addSample and delete already use. On a conflict the
+     * DEVICE keeps its own: it was enrolled here, against this microphone,
+     * and is the better match for recordings made here.
+     */
+    private fun mergeVoiceProfiles(context: Context) {
+        val staged = File(context.filesDir, "$VOICES.restore")
+        if (!staged.exists()) return
+        val live = File(context.filesDir, VOICES)
+        try {
+            if (!live.exists()) {
+                if (!staged.renameTo(live)) staged.copyTo(live, overwrite = true)
+                return
+            }
+            val merged = org.json.JSONArray()
+            val seen = mutableSetOf<String>()
+            // Device first, so its entries win the name collision.
+            for (source in listOf(live, staged)) {
+                val arr = org.json.JSONObject(source.readText())
+                    .optJSONArray("profiles") ?: org.json.JSONArray()
+                for (i in 0 until arr.length()) {
+                    val obj = arr.optJSONObject(i) ?: continue
+                    val key = obj.optString("name", "").trim().lowercase()
+                    if (key.isEmpty() || !seen.add(key)) continue
+                    merged.put(obj)
+                }
+            }
+            AtomicJson.write(
+                context.filesDir,
+                VOICES,
+                org.json.JSONObject().put("profiles", merged).toString()
+            )
+        } catch (_: Exception) {
+            // A malformed archive must not take the device's profiles with
+            // it: leave the live file exactly as it was.
+        } finally {
+            staged.delete()
+        }
     }
 
     /**

@@ -62,19 +62,27 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var llmSection: View
 
     private var downloading = false
-    private var pendingPassphrase: CharArray? = null
 
     private val exportBackup =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
             uri?.let { writeBackup(it, null) }
         }
+    /**
+     * Encrypted export: pick the destination FIRST, then ask for the
+     * passphrase.
+     *
+     * It used to run the other way round, holding the passphrase in a field
+     * across the picker. The picker is another app, so this activity can be
+     * destroyed and recreated behind it — and the field came back null. The
+     * callback then quietly did nothing, having already created the
+     * destination file: the user was left with a zero-byte file they believed
+     * was an encrypted backup of everything.
+     */
     private val exportBackupEncrypted =
         registerForActivityResult(
             ActivityResultContracts.CreateDocument("application/octet-stream")
         ) { uri ->
-            val pass = pendingPassphrase
-            pendingPassphrase = null
-            if (uri != null && pass != null) writeBackup(uri, pass)
+            uri?.let { promptExportPassphrase(it) }
         }
     private val importBackup =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -710,7 +718,16 @@ class SettingsActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setTitle(R.string.backup_encrypt_title)
             .setMessage(R.string.backup_encrypt_message)
-            .setPositiveButton(R.string.backup_encrypt_yes) { _, _ -> promptExportPassphrase() }
+            .setPositiveButton(R.string.backup_encrypt_yes) { _, _ ->
+                try {
+                    exportBackupEncrypted.launch(getString(R.string.backup_enc_file_name))
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        this, getString(R.string.backup_failed, e.message ?: "no file picker"),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
             .setNegativeButton(R.string.backup_plain) { _, _ ->
                 try {
                     exportBackup.launch(getString(R.string.backup_file_name))
@@ -724,7 +741,7 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun promptExportPassphrase() {
+    private fun promptExportPassphrase(destination: Uri) {
         val pass = EditText(this).apply {
             inputType = android.text.InputType.TYPE_CLASS_TEXT or
                 android.text.InputType.TYPE_TEXT_VARIATION_PASSWORD
@@ -754,22 +771,16 @@ class SettingsActivity : AppCompatActivity() {
                     p != repeat.text.toString() -> Toast.makeText(
                         this, R.string.backup_passphrase_mismatch, Toast.LENGTH_LONG
                     ).show()
-                    else -> {
-                        pendingPassphrase = p.toCharArray()
-                        try {
-                            exportBackupEncrypted.launch(getString(R.string.backup_enc_file_name))
-                        } catch (e: Exception) {
-                            pendingPassphrase = null
-                            Toast.makeText(
-                                this,
-                                getString(R.string.backup_failed, e.message ?: "no file picker"),
-                                Toast.LENGTH_LONG
-                            ).show()
-                        }
-                    }
+                    else -> writeBackup(destination, p.toCharArray())
                 }
             }
-            .setNegativeButton(android.R.string.cancel, null)
+            // The destination file already exists by now — the picker made
+            // it. Say so rather than leaving an empty file looking like a
+            // backup, which is the failure this reordering exists to remove.
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                Toast.makeText(this, R.string.backup_cancelled_empty, Toast.LENGTH_LONG)
+                    .show()
+            }
             .show()
     }
 
