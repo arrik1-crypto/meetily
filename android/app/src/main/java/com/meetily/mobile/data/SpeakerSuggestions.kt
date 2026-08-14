@@ -119,21 +119,30 @@ object SpeakerSuggestions {
      */
     fun applicable(
         suggestions: List<Pair<Int, String>>,
-        segments: List<TranscriptSegment>,
-        /**
-         * The anchor stored beside these suggestions. When it does not match
-         * the transcript in hand, the indices refer to a numbering that no
-         * longer exists and applying them would tag the wrong lines — so
-         * nothing is offered. Null means a file written before anchors
-         * existed; those are treated the same way rather than trusted.
-         */
-        anchor: String? = null
-    ): List<Pair<Int, String>> {
-        if (anchor == null || anchor != fingerprint(segments)) return emptyList()
-        return suggestions
+        segments: List<TranscriptSegment>
+    ): List<Pair<Int, String>> =
+        suggestions
             .distinctBy { it.first }
             .filter { (index, _) ->
                 index in segments.indices && segments[index].speaker.isNullOrBlank()
             }
-    }
+
+    /**
+     * Whether the stored suggestions still refer to THIS transcript.
+     *
+     * Deliberately separate from [applicable], which is a pure filter and is
+     * unit-tested as one. Folding the check into it meant a caller that
+     * forgot the new argument silently got nothing back — the same shape of
+     * quiet failure this whole change is meant to remove.
+     *
+     * False when the transcript has changed since the run, or when the file
+     * predates anchors: in both cases the stored indices point into a
+     * numbering that no longer exists, and applying them would tag the wrong
+     * lines.
+     */
+    fun stillMatch(
+        context: Context,
+        meetingId: String,
+        segments: List<TranscriptSegment>
+    ): Boolean = anchorOf(context, meetingId) == fingerprint(segments)
 }

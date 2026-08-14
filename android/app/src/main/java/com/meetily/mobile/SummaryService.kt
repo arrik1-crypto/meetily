@@ -194,14 +194,13 @@ class SummaryService : Service() {
                 }
                 // Filtered again at review time against the meeting as it
                 // then stands; this pass only avoids staging obvious noise.
-                // The staging filter runs against the very transcript being
-                // anchored to, so pass its own fingerprint rather than
-                // computing the list against nothing.
-                val anchor = SpeakerSuggestions.anchorFor(meeting.segments)
+                // The segments are passed so the file records which
+                // transcript these indices belong to; stillMatch() checks it
+                // at review time.
                 SpeakerSuggestions.save(
                     this,
                     meetingId,
-                    SpeakerSuggestions.applicable(suggestions, meeting.segments, anchor),
+                    SpeakerSuggestions.applicable(suggestions, meeting.segments),
                     meeting.segments
                 )
             } catch (_: Exception) {

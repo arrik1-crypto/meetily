@@ -1394,11 +1394,16 @@ class MeetingDetailActivity : AppCompatActivity() {
         val staged = com.meetily.mobile.data.SpeakerSuggestions.load(this, m.id)
         // Re-filtered against the transcript as it stands now: any line the
         // user tagged themselves while this was running keeps their tag.
-        val applicable = com.meetily.mobile.data.SpeakerSuggestions.applicable(
-            staged,
-            m.segments,
-            com.meetily.mobile.data.SpeakerSuggestions.anchorOf(this, m.id)
-        )
+        // Indices only mean something against the transcript they came from.
+        // A deletion, a split, or an accepted accuracy check renumbers
+        // everything after it, and applying them then tags the wrong lines.
+        val stale = !com.meetily.mobile.data.SpeakerSuggestions
+            .stillMatch(this, m.id, m.segments)
+        val applicable = if (stale) {
+            emptyList()
+        } else {
+            com.meetily.mobile.data.SpeakerSuggestions.applicable(staged, m.segments)
+        }
         if (applicable.isEmpty()) {
             com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
             Toast.makeText(this, R.string.suggest_none, Toast.LENGTH_LONG).show()

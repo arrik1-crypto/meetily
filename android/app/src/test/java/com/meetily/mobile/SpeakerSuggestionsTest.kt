@@ -56,4 +56,48 @@ class SpeakerSuggestionsTest {
         val segments = listOf(seg("one", speaker = "Chen"))
         assertTrue(SpeakerSuggestions.applicable(listOf(0 to "Ada"), segments).isEmpty())
     }
+
+    // --- the anchor -------------------------------------------------------
+    // Suggestions are stored as raw indices, so they are only meaningful
+    // against the exact transcript they were computed from. The anchor is
+    // what lets a stale set be recognised and dropped instead of silently
+    // tagging the wrong lines.
+
+    @Test
+    fun theSameTranscriptAnchorsTheSameWay() {
+        val a = listOf(seg("one"), seg("two"))
+        val b = listOf(seg("one"), seg("two"))
+        assertEquals(SpeakerSuggestions.anchorFor(a), SpeakerSuggestions.anchorFor(b))
+    }
+
+    @Test
+    fun taggingALineDoesNotInvalidateTheAnchor() {
+        // Speaker tags are exactly what suggestions are FOR, so applying one
+        // must not throw the rest of the set away. The anchor tracks the
+        // text and the count, not the attribution.
+        val before = listOf(seg("one"), seg("two"))
+        val after = listOf(seg("one", speaker = "Chen"), seg("two"))
+        assertEquals(
+            SpeakerSuggestions.anchorFor(before),
+            SpeakerSuggestions.anchorFor(after)
+        )
+    }
+
+    @Test
+    fun everyRenumberingChangesTheAnchor() {
+        val base = listOf(seg("one"), seg("two"), seg("three"))
+        val anchor = SpeakerSuggestions.anchorFor(base)
+        // A deletion, a split, an edit, and a reorder: each shifts what an
+        // index refers to, and each must be caught.
+        val deleted = listOf(seg("one"), seg("three"))
+        val split = listOf(seg("one"), seg("t"), seg("wo"), seg("three"))
+        val edited = listOf(seg("one"), seg("two!"), seg("three"))
+        val reordered = listOf(seg("two"), seg("one"), seg("three"))
+        for (changed in listOf(deleted, split, edited, reordered)) {
+            assertTrue(
+                "a renumbered transcript kept its anchor",
+                SpeakerSuggestions.anchorFor(changed) != anchor
+            )
+        }
+    }
 }
