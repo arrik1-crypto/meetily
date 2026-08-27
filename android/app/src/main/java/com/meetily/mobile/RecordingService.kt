@@ -894,7 +894,10 @@ class RecordingService : Service() {
             frameSink = if (writer != null) {
                 { frame -> writer.write(frame) }
             } else null,
-            onLevel = { rms -> observer?.onLevel(rms) },
+            onLevel = { rms ->
+                observer?.onLevel(rms)
+                watchForDeadMicrophone(rms)
+            },
             onSegment = { text, speaker, clusterId, audioMs, words ->
                 main.post {
                     if (active) {
@@ -1026,6 +1029,55 @@ class RecordingService : Service() {
     private fun setPartial(text: String) {
         partial = text
         observer?.onPartial(text)
+    }
+
+    /** Wall-clock ms since the input last carried any signal at all. */
+    private var silentSinceMs = 0L
+
+    /** Set once the warning has been raised, so it is not raised repeatedly. */
+    private var micWarned = false
+
+    /**
+     * Notices when the microphone stops delivering ANY signal, and says so.
+     *
+     * Android hands the microphone to one app at a time. The app that loses
+     * does not get an error — it gets buffers of zeros, indefinitely. A
+     * screen recorder, a call, or another recorder starting up is enough, and
+     * the result is a full-length recording of nothing: the timer counts, the
+     * file grows, the notification says "recording", and the meeting is gone.
+     * Confirmed on a Pixel 10 Pro XL, where starting a screen recording
+     * during a capture took the microphone away silently.
+     *
+     * The threshold is far below the silence used for chunking (0.008). A
+     * quiet room still has a noise floor in the 1e-4..1e-3 range; what is
+     * being detected here is the absence of a signal rather than the absence
+     * of speech, so a long pause in a real meeting does not trip it.
+     *
+     * Runs on the AUDIO thread — every touch of state beyond the two fields
+     * here is posted to main.
+     */
+    private fun watchForDeadMicrophone(rms: Float) {
+        if (paused) return
+        if (rms >= DEAD_MIC_RMS) {
+            silentSinceMs = 0L
+            if (micWarned) {
+                micWarned = false
+                main.post { if (active && !paused) setStatus(status, statusText) }
+            }
+            return
+        }
+        val now = System.currentTimeMillis()
+        if (silentSinceMs == 0L) {
+            silentSinceMs = now
+            return
+        }
+        if (!micWarned && now - silentSinceMs >= DEAD_MIC_AFTER_MS) {
+            micWarned = true
+            main.post {
+                if (!active) return@post
+                setStatus(status, getString(R.string.mic_no_signal))
+            }
+        }
     }
 
     private fun setStatus(s: Status, text: String) {
@@ -1296,6 +1348,16 @@ class RecordingService : Service() {
         if (paused) {
             builder.setContentText(getString(R.string.status_paused))
             builder.setUsesChronometer(false)
+        } else if (micWarned) {
+            // Louder than the status line: by the time this matters the phone
+            // is usually face down on a table with the screen off.
+            builder.setContentText(getString(R.string.mic_no_signal))
+            builder.setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(getString(R.string.mic_no_signal_detail))
+            )
+            builder.setWhen(System.currentTimeMillis() - elapsedMs())
+            builder.setUsesChronometer(true)
         } else {
             builder.setContentText(getString(R.string.notif_recording))
             builder.setWhen(System.currentTimeMillis() - elapsedMs())
@@ -1357,6 +1419,16 @@ class RecordingService : Service() {
         private const val NOTIF_ID = 1001
         // ~1.5 s of 16 kHz audio: shorter chunks embed unreliably.
         private const val MIN_EMBED_SAMPLES = 24_000
+
+        /**
+         * Below this the input is carrying no signal at all, not merely no
+         * speech. Two orders of magnitude under the chunking threshold, so a
+         * quiet room's noise floor stays comfortably above it.
+         */
+        private const val DEAD_MIC_RMS = 1e-4f
+
+        /** Long enough that no ordinary pause reaches it. */
+        private const val DEAD_MIC_AFTER_MS = 45_000L
 
         /** True while a recording session is live in this process. */
         @Volatile

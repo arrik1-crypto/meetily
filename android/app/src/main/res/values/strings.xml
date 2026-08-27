@@ -582,6 +582,11 @@
     <string name="status_error">Recognition error (%1$s), retrying…</string>
     <string name="recognition_unavailable">Speech recognition is not available on this device. You can still take notes.</string>
     <string name="mic_permission_denied">Microphone permission denied — transcription disabled. You can still take notes.</string>
+    <!-- The microphone is open but delivering silence. Screen recorders and
+         some calling apps take exclusive hold of the capture stream, and the
+         recording then runs its full length with nothing in it. -->
+    <string name="mic_no_signal">No sound reaching the microphone</string>
+    <string name="mic_no_signal_detail">Recap has been recording silence for a while. Another app — a screen recorder or a call — may have taken the microphone. Stop it and Recap will pick the sound back up.</string>
     <string name="discard_title">Discard this recording?</string>
     <string name="discard_message">The transcript and notes from this session will be lost.</string>
     <string name="discard">Discard</string>
