@@ -171,6 +171,10 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(
                 this@MainActivity,
                 when {
+                    // Stopped on purpose because the charger came out; the
+                    // job is back on the queue, and nothing was written.
+                    SummaryService.lastStopped ->
+                        getString(R.string.unplugged_stopped_title)
                     notesMode && failed -> getString(R.string.notes_failed_notif)
                     notesMode -> getString(R.string.notes_done_notif)
                     speakersMode && failed -> getString(R.string.speakers_failed_notif)

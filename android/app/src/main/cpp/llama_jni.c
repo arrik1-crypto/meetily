@@ -41,6 +41,31 @@ static char g_last_error[512] = "";
     } while (0)
 
 /*
+ * Set from another thread to stop a generation that is already running.
+ *
+ * The whole reply comes back from ONE JNI call, so without this the only
+ * way to end a generation early is to wait for it — minutes, at full CPU,
+ * on a phone that has just come off its charger. Checked once per decode,
+ * which is the granularity the caller actually needs: a token, not a
+ * paragraph.
+ *
+ * Deliberately NOT cleared here. Whoever set it clears it, so that a flag
+ * raised while a run was between calls still stops the next one instead of
+ * being consumed by the run it arrived too late for.
+ */
+static volatile int g_abort = 0;
+
+/* Distinguishes a deliberate stop from every other empty return. */
+#define ABORT_MESSAGE "generation was stopped"
+
+JNIEXPORT void JNICALL
+Java_com_meetily_mobile_llm_LlamaBridge_setAbort(JNIEnv *env, jobject thiz, jboolean on) {
+    (void) env;
+    (void) thiz;
+    g_abort = on ? 1 : 0;
+}
+
+/*
  * On-device chat completion for the local AI engine. One loaded model at a
  * time (the Kotlin side serializes calls); each generate() is a fresh
  * conversation: apply the model's chat template, clear the KV cache, decode
@@ -425,6 +450,11 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
     /* Decode the prompt in n_batch-sized chunks. */
     const int32_t n_batch = (int32_t) llama_n_batch(llm->ctx);
     for (int32_t i = 0; i < n_prompt; i += n_batch) {
+        if (g_abort) {
+            FAIL(ABORT_MESSAGE);
+            free(tokens);
+            return NULL;
+        }
         int32_t chunk = n_prompt - i < n_batch ? n_prompt - i : n_batch;
         struct llama_batch batch = llama_batch_get_one(tokens + i, chunk);
         if (llama_decode(llm->ctx, batch) != 0) {
@@ -449,6 +479,17 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
     char piece[256];
 
     for (jint g = 0; g < max_tokens; g++) {
+        if (g_abort) {
+            /*
+             * The partial reply is discarded rather than returned. Half a
+             * summary saved onto a meeting reads as a finished one, and the
+             * caller that asked for the stop is about to requeue the job
+             * anyway.
+             */
+            FAIL(ABORT_MESSAGE);
+            free(out);
+            return NULL;
+        }
         llama_token tok = llama_sampler_sample(llm->smpl, llm->ctx, -1);
         if (llama_vocab_is_eog(vocab, tok)) {
             /*

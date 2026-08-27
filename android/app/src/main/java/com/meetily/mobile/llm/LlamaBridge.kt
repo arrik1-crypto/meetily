@@ -38,6 +38,19 @@ object LlamaBridge {
     external fun generate(ptr: Long, packedMessages: String, maxTokens: Int): String?
 
     /**
+     * Stops a [generate] that is already running, from another thread.
+     *
+     * [generate] does not return until the whole reply is written, so this
+     * is the only way to end one early. It returns null with
+     * [lastError] set once the flag is seen — within one token.
+     *
+     * The flag is sticky: it is not cleared by the generation it stops, so
+     * clear it before starting the next one or that one dies at its first
+     * decode.
+     */
+    external fun setAbort(on: Boolean)
+
+    /**
      * Tokens [packedMessages] costs once the chat template is applied — the
      * same number [generate] will see. Negative if it could not be counted.
      *

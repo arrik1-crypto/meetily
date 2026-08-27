@@ -745,6 +745,11 @@
         <item quantity="other">%d jobs are ready to run</item>
     </plurals>
     <string name="queued_ready_body">Now that you are charging, open Recap to start it.</string>
+    <!-- Unplugging stops work that was only allowed to run because the phone
+         was on power. It goes back on the queue rather than being lost. -->
+    <string name="unplugged_stopped_title">Stopped — charger unplugged</string>
+    <string name="unplugged_stopped_check">Transcribing “%1$s” will finish next time you charge.</string>
+    <string name="unplugged_stopped_summary">The summary for “%1$s” will finish next time you charge.</string>
     <string name="resume_job_title">Resume interrupted work?</string>
     <string name="resume_job_body">\u201c%1$s\u201d was still being processed when Recap closed.</string>
     <string name="resume_job_yes">Resume</string>

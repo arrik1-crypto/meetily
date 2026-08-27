@@ -66,6 +66,44 @@ object LocalLlm {
     @Volatile
     private var releasePending = false
 
+    /**
+     * True while a stop has been asked for and not yet cleared.
+     *
+     * Set from a thread other than the one generating — in practice the
+     * charger-unplugged broadcast, for a job that was only allowed to run
+     * because the phone was on power. Inference is one long JNI call, so
+     * without a flag the only way to end it is to wait it out at full CPU,
+     * which is exactly the cost the unplug is trying to stop paying.
+     */
+    @Volatile
+    var abortRequested = false
+        private set
+
+    /** Ends the generation in flight, if any, within about a token. */
+    fun requestAbort() {
+        abortRequested = true
+        try {
+            LlamaBridge.setAbort(true)
+        } catch (_: Throwable) {
+            // Older native library without the export. The Kotlin-side flag
+            // still stops the map-reduce loop between sections, so a long
+            // run ends at the next boundary rather than not at all.
+        }
+    }
+
+    /**
+     * Clears the flag so the next run may proceed. The flag is sticky by
+     * design, so whoever asks for a stop must call this before the job is
+     * retried — otherwise the retry dies at its first decode.
+     */
+    fun clearAbort() {
+        abortRequested = false
+        try {
+            LlamaBridge.setAbort(false)
+        } catch (_: Throwable) {
+        }
+    }
+
     fun init(context: Context) {
         appContext = context.applicationContext
     }
@@ -261,7 +299,8 @@ object LocalLlm {
                 ptr, pack(fitToContext(messages, replyTokens)), replyTokens
             )?.trim().orEmpty()
         },
-        onSection = { index, total -> stageListener?.invoke(index, total) }
+        onSection = { index, total -> stageListener?.invoke(index, total) },
+        shouldStop = { abortRequested }
     )
 
     /** @see PromptShaping.splitIntoChunks — kept here so callers and tests don't move. */

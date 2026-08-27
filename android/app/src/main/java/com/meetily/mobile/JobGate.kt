@@ -210,7 +210,14 @@ object JobGate {
     ) {
         try {
             pendingStartAt = android.os.SystemClock.elapsedRealtime()
-            SummaryService.start(context, meetingId, templateKey)
+            // The service is told it is running on borrowed power, so that
+            // pulling the charger stops it — see PowerWatch. Without this the
+            // "wait until charging" setting only ever governed the START, and
+            // a summary begun on the charger ran to the end on battery.
+            SummaryService.start(
+                context, meetingId, templateKey,
+                chargingOnly = chargingOnly
+            )
         } catch (_: Throwable) {
             pendingStartAt = 0L
             // Background foreground-service start refused (Android 12+), or
@@ -236,6 +243,9 @@ object JobGate {
                 .putExtra(ImportService.EXTRA_NAME, meeting.title)
                 .putExtra(ImportService.EXTRA_MODEL, modelKey)
                 .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, meetingId)
+                // As in startSummary: unplugging stops a pass that was only
+                // allowed to start because the phone was on power.
+                .putExtra(ImportService.EXTRA_CHARGING_ONLY, chargingOnly)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             pendingStartAt = android.os.SystemClock.elapsedRealtime()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

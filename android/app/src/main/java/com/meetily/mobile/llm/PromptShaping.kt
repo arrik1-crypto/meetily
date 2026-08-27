@@ -175,7 +175,15 @@ object PromptShaping {
         content: String,
         charBudget: Int,
         generate: (List<Pair<String, String>>, Int) -> String,
-        onSection: (Int, Int) -> Unit = { _, _ -> }
+        onSection: (Int, Int) -> Unit = { _, _ -> },
+        /**
+         * Abandons the remaining sections when it turns true — the caller no
+         * longer wants the answer at all (the charger came out). Checked
+         * here as well as inside [generate] because a stopped section
+         * returns instantly, and without this the loop would race through
+         * every remaining chunk writing "(section notes unavailable)".
+         */
+        shouldStop: () -> Boolean = { false }
     ): String? {
         val chunks = splitIntoChunks(content, MAP_CHUNK_CHARS, MAP_MAX_CHUNKS)
         if (chunks.size < 2) return null
@@ -184,6 +192,10 @@ object PromptShaping {
         )
         var produced = 0
         for ((index, chunk) in chunks.withIndex()) {
+            // Null, not the notes gathered so far: a half-covered transcript
+            // summarised as if it were the whole meeting is worse than no
+            // summary, and the caller is about to requeue the job.
+            if (shouldStop()) return null
             onSection(index + 1, chunks.size)
             // The chunk cap can force chunks past the budget; trim those.
             val body = if (chunk.length > charBudget - 600) {

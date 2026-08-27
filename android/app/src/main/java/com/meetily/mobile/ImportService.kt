@@ -94,6 +94,17 @@ class ImportService : Service() {
     @Volatile private var runStartedMs = 0L
 
     @Volatile private var cancelled = false
+
+    /**
+     * This run only got to start because the phone was on power — an accuracy
+     * check or a first transcript the user asked to defer until charging.
+     */
+    private var chargingOnly = false
+
+    /** The charger came out mid-run, so this pass is being put back. */
+    @Volatile private var stoppedByUnplug = false
+
+    private val powerWatch = PowerWatch { stopForUnplug() }
     @Volatile private var percent = 0
     @Volatile private var detail = ""
     /** When the wake lock was last taken, so a long run can renew it. */
@@ -131,6 +142,8 @@ class ImportService : Service() {
                 // — or already cancelled.
                 done = false
                 cancelled = false
+                stoppedByUnplug = false
+                chargingOnly = intent.getBooleanExtra(EXTRA_CHARGING_ONLY, false)
                 percent = 0
                 detail = ""
                 resultMeetingId = null
@@ -159,6 +172,11 @@ class ImportService : Service() {
                 // has been off for a while.
                 runStartedMs = System.currentTimeMillis()
                 acquireWakeLock()
+                // Armed only for the deferred re-transcription pass. A file
+                // the user picked and is waiting on is never stopped by a
+                // cable, and its staged copy is deleted on an unfinished run
+                // — stopping one would lose the import outright.
+                powerWatch.arm(this, chargingOnly && recheckMeetingId != null)
                 if (recheckMeetingId != null) {
                     com.meetily.mobile.data.JobQueue.markRunning(
                         this, com.meetily.mobile.data.JobQueue.KIND_CHECK,
@@ -303,10 +321,14 @@ class ImportService : Service() {
         // run failed before that, and the staged copy would just leak.
         adoptFile?.let { com.meetily.mobile.data.AudioStore.delete(this, it) }
         adoptFile = null
+        powerWatch.disarm(this)
         if (recheckId != null) {
             com.meetily.mobile.data.JobQueue.finished(
                 this, com.meetily.mobile.data.JobQueue.KIND_CHECK, recheckId
             )
+            // Strictly after finished(), which removes by kind+meeting and
+            // would take the requeued job straight back out again.
+            if (stoppedByUnplug) requeueForCharging(recheckId)
         }
         // The words exist now, so this is the moment the summary can start —
         // see AutoSummary. Only for a recording that had none before, and only
@@ -323,8 +345,16 @@ class ImportService : Service() {
             }
         }
         firstTranscript = false
+        val stopped = stoppedByUnplug
+        stoppedByUnplug = false
+        chargingOnly = false
         observers.forEach { it.onImportDone(meetingId, cancelled, error, warning) }
-        if (!cancelled) {
+        if (stopped) {
+            // A cancel the user did not ask for has to say so. Nothing is
+            // lost — whatever the pass transcribed is still staged, and the
+            // job is back on the queue waiting for power.
+            postUnpluggedNotification(recheckId)
+        } else if (!cancelled) {
             postCompletionNotification(meetingId, error, warning, wasFirstTranscript)
         }
         // isRecheck / currentMeetingId deliberately survive the run: an
@@ -350,6 +380,32 @@ class ImportService : Service() {
 
     fun requestCancel() {
         cancelled = true
+    }
+
+    /**
+     * Ends a charging-deferred pass because the phone came off power, and
+     * requeues it still marked as waiting for a charger. The transcriber
+     * polls [cancelled] between windows, so this lands within a second or
+     * two rather than at the end of the file.
+     */
+    private fun stopForUnplug() {
+        if (!isRunning || stoppedByUnplug) return
+        stoppedByUnplug = true
+        cancelled = true
+    }
+
+    /** @see SummaryService.requeueForCharging */
+    private fun requeueForCharging(meetingId: String) {
+        com.meetily.mobile.data.JobQueue.enqueue(
+            this,
+            com.meetily.mobile.data.JobQueue.Job(
+                com.meetily.mobile.data.JobQueue.KIND_CHECK,
+                meetingId,
+                modelKey.orEmpty(),
+                System.currentTimeMillis(),
+                chargingOnly = true
+            )
+        )
     }
 
     // --- Notifications ------------------------------------------------------
@@ -426,6 +482,10 @@ class ImportService : Service() {
     override fun onTimeout(startId: Int, fgsType: Int) {
         cancelled = true
         timedOut = true
+        // The foreground-service budget ran out, not the charger: this run is
+        // over for its own reason, and must not be reported as an unplug.
+        stoppedByUnplug = false
+        powerWatch.disarm(this)
         postCompletionNotification(
             currentMeetingId, getString(R.string.fgs_timeout_import), null
         )
@@ -436,6 +496,37 @@ class ImportService : Service() {
         // using and racing it on the same fields. finishRun clears it when
         // the run is genuinely over.
         stopForegroundCompat()
+    }
+
+    private fun postUnpluggedNotification(meetingId: String?) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val title = meetingId
+            ?.let { com.meetily.mobile.data.MeetingStore(this).load(it)?.title }
+            ?.takeIf { it.isNotBlank() }
+            ?: sourceName
+        val body = getString(R.string.unplugged_stopped_check, title)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setContentTitle(getString(R.string.unplugged_stopped_title))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        if (meetingId != null) {
+            builder.setContentIntent(
+                PendingIntent.getActivity(
+                    this, 12,
+                    Intent(this, MeetingDetailActivity::class.java)
+                        .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meetingId)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        }
+        try {
+            manager.notify(NOTIF_DONE_ID, builder.build())
+        } catch (_: SecurityException) {
+        }
     }
 
     private fun postCompletionNotification(
@@ -537,6 +628,7 @@ class ImportService : Service() {
         const val EXTRA_MODEL = "model_key"
         const val EXTRA_RECHECK_MEETING_ID = "recheck_meeting_id"
         const val EXTRA_ADOPT_FILE = "adopt_file"
+        const val EXTRA_CHARGING_ONLY = "charging_only"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45

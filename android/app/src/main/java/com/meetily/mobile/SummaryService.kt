@@ -70,6 +70,17 @@ class SummaryService : Service() {
     @Volatile private var wakeLockAcquiredMs = 0L
     private val main = Handler(Looper.getMainLooper())
 
+    /** This run was deferred until the phone was charging; see [PowerWatch]. */
+    private var chargingOnly = false
+
+    /** Kept so a stopped run can be requeued with the template it was given. */
+    private var runTemplateKey = ""
+
+    /** The charger came out mid-run, so this summary is not being written. */
+    @Volatile private var stoppedByUnplug = false
+
+    private val powerWatch = PowerWatch { stopForUnplug() }
+
     override fun onBind(intent: Intent?): IBinder = SummaryBinder()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -82,6 +93,14 @@ class SummaryService : Service() {
         // JobGate.canStartBatch.
         JobGate.onBatchStarted()
         currentMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_SUMMARY
+        chargingOnly = intent.getBooleanExtra(EXTRA_CHARGING_ONLY, false)
+        runTemplateKey = templateKey
+        stoppedByUnplug = false
+        lastStopped = false
+        // A previous stop leaves the native flag raised on purpose, so that a
+        // request arriving between runs is not lost. Clearing it here — and
+        // nowhere else — is what lets the retry actually generate.
+        LocalLlm.clearAbort()
         currentMeetingId = meetingId
         currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
         percent = -1
@@ -95,6 +114,10 @@ class SummaryService : Service() {
         createChannel()
         startForegroundCompat()
         acquireWakeLock()
+        // Only the deferred summary pass is watched. A summary the user
+        // tapped for themselves while plugged in is theirs to wait for, and
+        // notes/speaker runs are seconds rather than minutes.
+        powerWatch.arm(this, chargingOnly && currentMode == MODE_SUMMARY)
         // Only a summary run is worth resuming after a process death: notes
         // enhancement and speaker suggestions are quick, and re-running them
         // unasked would be more surprising than useful.
@@ -274,6 +297,14 @@ class SummaryService : Service() {
             } finally {
                 LocalLlm.stageListener = null
             }
+            if (stoppedByUnplug) {
+                // Nothing is written. The catch above has already turned the
+                // stopped generation into the extractive fallback, and saving
+                // THAT would quietly downgrade the meeting's summary as the
+                // price of unplugging a cable.
+                main.post { finishRun(meetingId) }
+                return@Thread
+            }
             val finalItems = parsedItems
                 ?: ActionItems.fromMeetingContent(meeting.segments.toList(), notes)
 
@@ -383,6 +414,7 @@ class SummaryService : Service() {
     override fun onTimeout(startId: Int, fgsType: Int) {
         // Reported as a failure, because that is what it is from the user's
         // side: no summary, and re-running it is the way to get one.
+        powerWatch.disarm(this)
         postDoneNotification(currentMeetingId, true)
         isRunning = false
         currentMeetingId = ""
@@ -392,6 +424,19 @@ class SummaryService : Service() {
         stopSelf()
     }
 
+    /**
+     * Ends a charging-deferred run because the phone came off power, and puts
+     * the job back on the queue still marked as waiting for a charger — so
+     * plugging back in picks it up exactly as the original deferral would.
+     */
+    private fun stopForUnplug() {
+        if (!isRunning || stoppedByUnplug) return
+        stoppedByUnplug = true
+        setProgress(percent, getString(R.string.unplugged_stopped_title))
+        // The generation is one long native call; this is what ends it.
+        LocalLlm.requestAbort()
+    }
+
     private fun finishRun(meetingId: String, failed: Boolean = false) {
         try {
             wakeLock?.release()
@@ -399,15 +444,26 @@ class SummaryService : Service() {
         }
         wakeLock = null
         wakeLockAcquiredMs = 0L
+        powerWatch.disarm(this)
         if (currentMode == MODE_SUMMARY) {
             com.meetily.mobile.data.JobQueue.finished(
                 this, com.meetily.mobile.data.JobQueue.KIND_SUMMARY, meetingId
             )
+            // Strictly after finished(), which removes by kind+meeting and
+            // would take the requeued job straight back out again.
+            if (stoppedByUnplug) requeueForCharging(meetingId)
         }
+        lastStopped = stoppedByUnplug
         observers.forEach { it.onSummaryDone(meetingId, failed) }
-        // Always announce completion — on-device runs take minutes, and the
-        // user asked to see the finish from anywhere.
-        postDoneNotification(meetingId, failed)
+        if (stoppedByUnplug) {
+            postUnpluggedNotification(currentTitle)
+        } else {
+            // Always announce completion — on-device runs take minutes, and
+            // the user asked to see the finish from anywhere.
+            postDoneNotification(meetingId, failed)
+        }
+        stoppedByUnplug = false
+        chargingOnly = false
         isRunning = false
         currentMeetingId = ""
         currentTitle = ""
@@ -497,6 +553,44 @@ class SummaryService : Service() {
         }
     }
 
+    /**
+     * Puts the stopped summary back on the queue, still marked as waiting for
+     * power. Plugging back in then wakes it through exactly the path the
+     * original deferral used — see PowerConnectedReceiver.
+     */
+    private fun requeueForCharging(meetingId: String) {
+        com.meetily.mobile.data.JobQueue.enqueue(
+            this,
+            com.meetily.mobile.data.JobQueue.Job(
+                com.meetily.mobile.data.JobQueue.KIND_SUMMARY,
+                meetingId,
+                runTemplateKey,
+                System.currentTimeMillis(),
+                chargingOnly = true
+            )
+        )
+    }
+
+    private fun postUnpluggedNotification(title: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_sparkle)
+            .setContentTitle(getString(R.string.unplugged_stopped_title))
+            .setContentText(getString(R.string.unplugged_stopped_summary, title))
+            .setStyle(
+                NotificationCompat.BigTextStyle()
+                    .bigText(getString(R.string.unplugged_stopped_summary, title))
+            )
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setContentIntent(openMeetingIntent(currentMeetingId, 7))
+            .build()
+        try {
+            manager.notify(NOTIF_DONE_ID, notification)
+        } catch (_: SecurityException) {
+        }
+    }
+
     private fun openMeetingIntent(meetingId: String, code: Int): PendingIntent =
         PendingIntent.getActivity(
             this, code,
@@ -558,9 +652,21 @@ class SummaryService : Service() {
         const val EXTRA_MEETING_ID = "meeting_id"
         const val EXTRA_TEMPLATE = "template"
         const val EXTRA_MODE = "mode"
+        const val EXTRA_CHARGING_ONLY = "charging_only"
         const val MODE_SUMMARY = "summary"
         const val MODE_NOTES = "notes"
         const val MODE_SPEAKERS = "speakers"
+
+        /**
+         * Whether the run observers were just told about ended because the
+         * charger came out, rather than finishing. Read alongside
+         * currentMode/currentTitle, which are also still set at that point:
+         * without it the home screen toasts "summary ready" for a summary
+         * that was deliberately stopped and never written.
+         */
+        @Volatile
+        var lastStopped = false
+            internal set
         private const val CHANNEL_ID = "summary"
         private const val NOTIF_ID = 50
         private const val NOTIF_DONE_ID = 51
@@ -569,13 +675,16 @@ class SummaryService : Service() {
             context: Context,
             meetingId: String,
             templateKey: String,
-            mode: String = MODE_SUMMARY
+            mode: String = MODE_SUMMARY,
+            /** This run only got to start because the phone is charging. */
+            chargingOnly: Boolean = false
         ) {
             val intent = Intent(context, SummaryService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_MEETING_ID, meetingId)
                 .putExtra(EXTRA_TEMPLATE, templateKey)
                 .putExtra(EXTRA_MODE, mode)
+                .putExtra(EXTRA_CHARGING_ONLY, chargingOnly)
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
         }
     }
