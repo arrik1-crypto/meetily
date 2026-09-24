@@ -224,7 +224,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         val output = findViewById<TextView>(R.id.briefText)
         button.isEnabled = false
         progress.visibility = View.VISIBLE
-        val name = seriesName
+        val series = seriesName
         Thread {
             // Fresh copies: items may have been checked off moments ago. Read
             // here, not before the thread: it scans the library.
@@ -260,7 +260,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
             val result = try {
                 LlmClient.preBrief(
                     settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
-                    settings.localOnlyLlm, name, blocks
+                    settings.localOnlyLlm, series, blocks
                 )
             } catch (e: Exception) {
                 getString(R.string.brief_failed, e.message ?: "unknown error")
