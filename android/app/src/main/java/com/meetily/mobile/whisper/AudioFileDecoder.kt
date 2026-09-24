@@ -24,13 +24,23 @@ object AudioFileDecoder {
      * (0..100, from the file position) goes to [onProgress]. Returns the
      * container-reported duration in ms, or -1 if unknown. Stops early when
      * [cancelled] returns true.
+     *
+     * [startUs] > 0 seeks first, to the sync frame before it (less a short
+     * preroll, so the decoder's warm-up output falls before the wanted
+     * window), rather than decoding everything ahead of it. Decoding from
+     * the top to cut five seconds out of hour three was tens of seconds of
+     * full-core work. The first chunk then does not start at 0: [onStartUs]
+     * receives its media time before the first [onPcm]. It is called only
+     * when a seek was asked for.
      */
     fun decode(
         context: Context,
         uri: Uri,
         onPcm: (FloatArray) -> Unit,
         onProgress: (Int) -> Unit,
-        cancelled: () -> Boolean
+        cancelled: () -> Boolean,
+        startUs: Long = 0L,
+        onStartUs: ((Long) -> Unit)? = null
     ): Long {
         val extractor = MediaExtractor()
         var codec: MediaCodec? = null
@@ -51,6 +61,13 @@ object AudioFileDecoder {
                 throw UnsupportedAudioException("no audio track found")
             }
             extractor.selectTrack(trackIndex)
+            if (startUs > 0) {
+                extractor.seekTo(
+                    (startUs - SEEK_PREROLL_US).coerceAtLeast(0L),
+                    MediaExtractor.SEEK_TO_PREVIOUS_SYNC
+                )
+            }
+            var startReported = startUs <= 0
             val mime = format.getString(MediaFormat.KEY_MIME).orEmpty()
             val durationUs = try {
                 if (format.containsKey(MediaFormat.KEY_DURATION)) {
@@ -69,7 +86,7 @@ object AudioFileDecoder {
             var sampleRate = format.getInteger(MediaFormat.KEY_SAMPLE_RATE)
             var channels = format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
             var pcmEncoding = AudioFormat.ENCODING_PCM_16BIT
-            var resampler = Resampler(sampleRate)
+            var resampler = SincResampler(sampleRate, TARGET_RATE)
 
             val info = MediaCodec.BufferInfo()
             var inputDone = false
@@ -123,6 +140,10 @@ object AudioFileDecoder {
                             out.position(info.offset)
                             out.limit(info.offset + info.size)
                             out.order(ByteOrder.nativeOrder())
+                            if (!startReported) {
+                                startReported = true
+                                onStartUs?.invoke(info.presentationTimeUs)
+                            }
                             val mono = toMonoFloat(out, channels, pcmEncoding)
                             val resampled = resampler.process(mono)
                             if (resampled.isNotEmpty()) onPcm(resampled)
@@ -152,7 +173,7 @@ object AudioFileDecoder {
                     }
                     if (newRate != sampleRate) {
                         sampleRate = newRate
-                        resampler = Resampler(sampleRate)
+                        resampler = SincResampler(sampleRate, TARGET_RATE)
                     }
                 }
             }
@@ -203,43 +224,6 @@ object AudioFileDecoder {
         }
     }
 
-    /**
-     * Stateful linear-interpolation resampler; keeps fractional position and
-     * the previous buffer's last sample so chunk boundaries stay continuous.
-     */
-    private class Resampler(private val srcRate: Int, private val dstRate: Int = TARGET_RATE) {
-        private var frac = 0.0 // position within [last, src[0])
-        private var last = 0f
-        private var hasLast = false
-
-        fun process(input: FloatArray): FloatArray {
-            if (input.isEmpty()) return FloatArray(0)
-            if (srcRate == dstRate) return input
-            val src: FloatArray
-            if (hasLast) {
-                src = FloatArray(input.size + 1)
-                src[0] = last
-                System.arraycopy(input, 0, src, 1, input.size)
-            } else {
-                src = input
-            }
-            val step = srcRate.toDouble() / dstRate
-            val maxOut = (((src.size - 1) - frac) / step).toInt() + 2
-            val out = FloatArray(maxOut.coerceAtLeast(0))
-            var t = frac
-            var count = 0
-            while (t <= src.size - 1) {
-                val i = t.toInt()
-                val f = (t - i).toFloat()
-                out[count++] =
-                    if (i + 1 < src.size) src[i] * (1 - f) + src[i + 1] * f
-                    else src[i]
-                t += step
-            }
-            frac = t - (src.size - 1)
-            last = src[src.size - 1]
-            hasLast = true
-            return out.copyOf(count)
-        }
-    }
+    /** About two AAC frames at 16 kHz: decoder warm-up lands before the window. */
+    private const val SEEK_PREROLL_US = 150_000L
 }

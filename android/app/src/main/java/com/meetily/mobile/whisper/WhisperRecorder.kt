@@ -244,17 +244,23 @@ class WhisperRecorder(
 
             record.startRecording()
             val frame = FloatArray(frameSize)
-            var chunk = FloatArray(0)
+            // Allocated once and filled in place. Growing a fresh array per
+            // 100 ms frame copied the whole chunk every time — quadratic in
+            // chunk length, and a large-object allocation per frame.
+            val chunk = FloatArray((maxChunkSec * sampleRate).toInt() + frameSize)
+            var chunkLen = 0
             var silenceRun = 0f
             var chunkPeakRms = 0f
             var capturedSamples = 0L // non-paused samples fed downstream
 
             fun cutChunk() {
-                if (chunk.isEmpty()) return
-                val audio = chunk
+                if (chunkLen == 0) return
+                // A copy: the transcriber executor holds on to it while the
+                // buffer is refilled.
+                val audio = chunk.copyOf(chunkLen)
                 val peak = chunkPeakRms
-                val startMs = (capturedSamples - chunk.size) * 1000 / sampleRate
-                chunk = FloatArray(0)
+                val startMs = (capturedSamples - chunkLen) * 1000 / sampleRate
+                chunkLen = 0
                 silenceRun = 0f
                 chunkPeakRms = 0f
                 if (peak < minSpeechRms) return // never contained speech
@@ -314,12 +320,11 @@ class WhisperRecorder(
                 chunkPeakRms = max(chunkPeakRms, rms)
                 silenceRun = if (rms < silenceRms) silenceRun + 0.1f else 0f
 
-                val grown = chunk.copyOf(chunk.size + n)
-                System.arraycopy(frame, 0, grown, chunk.size, n)
-                chunk = grown
+                System.arraycopy(frame, 0, chunk, chunkLen, n)
+                chunkLen += n
                 capturedSamples += n
 
-                val chunkSec = chunk.size.toFloat() / sampleRate
+                val chunkSec = chunkLen.toFloat() / sampleRate
                 if ((chunkSec >= minChunkSec && silenceRun >= endSilenceSec) ||
                     chunkSec >= maxChunkSec
                 ) {

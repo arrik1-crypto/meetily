@@ -80,17 +80,81 @@ object TranscriptionModels {
      * gets wrong — they share an architecture and much of their training
      * data. Whisper against Parakeet is the genuinely independent comparison,
      * and it is also the cheap one.
+     *
+     * [transcriptSample] (some of the current transcript's text) is the only
+     * language signal there is: see [rankForCheck].
      */
-    fun rankedForCheck(context: Context, currentKey: String?): List<String> {
+    fun rankedForCheck(
+        context: Context,
+        currentKey: String?,
+        transcriptSample: String? = null
+    ): List<String> = rankForCheck(downloadedKeys(context), currentKey, transcriptSample)
+
+    /**
+     * Context-free core of [rankedForCheck], so the ranking is unit-testable.
+     *
+     * Quality alone ignored language. Ties kept list order, which puts every
+     * English-only variant first, so a German transcript from a multilingual
+     * Whisper was "checked" by English-only Parakeet v2: minutes of CPU for a
+     * draft nobody can use. Now, when the source is multilingual (or its
+     * text is not in a European script), English-only models drop out, and
+     * so does Parakeet v3 (25 European languages) for Japanese, Chinese,
+     * Korean and the like — each only while something better suited is
+     * installed. Remaining ties go to the multilingual model.
+     */
+    internal fun rankForCheck(
+        downloaded: List<String>,
+        currentKey: String?,
+        transcriptSample: String? = null
+    ): List<String> {
         val currentFamily = currentKey?.let { family(it) }
-        val downloaded = downloadedKeys(context)
         val crossFamily = downloaded.filter {
             it != currentKey && (currentFamily == null || family(it) != currentFamily)
         }
         // Fall back to a different model in the same family rather than
         // refusing outright when only one family is installed.
         val pool = crossFamily.ifEmpty { downloaded.filter { it != currentKey } }
-        return pool.sortedByDescending { qualityRank(it) }
+        val european = transcriptSample?.let { europeanScript(it) }
+        val englishSource = currentKey != null && englishOnly(currentKey)
+        val multilingualSource =
+            (currentKey != null && !englishSource) || european == false
+        val suited = pool
+            .filter { !multilingualSource || !englishOnly(it) }
+            .filter { european != false || !europeanOnly(it) }
+            .ifEmpty { pool }
+        return suited.sortedWith(
+            compareByDescending<String> { qualityRank(it) }
+                .thenBy { if (englishSource) 0 else rankTieLanguage(it) }
+        )
+    }
+
+    /** Tie-break: a multilingual model before an English-only one. */
+    private fun rankTieLanguage(key: String): Int = if (englishOnly(key)) 1 else 0
+
+    /** Models whose languages are all written in European scripts. */
+    private fun europeanOnly(key: String): Boolean = key == "parakeet-tdt-v3"
+
+    /**
+     * True when [text]'s letters are mostly Latin, Cyrillic or Greek; false
+     * when mostly another script; null when there is too little to tell.
+     */
+    internal fun europeanScript(text: String): Boolean? {
+        var european = 0
+        var other = 0
+        var i = 0
+        while (i < text.length) {
+            val cp = text.codePointAt(i)
+            i += Character.charCount(cp)
+            if (!Character.isLetter(cp)) continue
+            when (Character.UnicodeScript.of(cp)) {
+                Character.UnicodeScript.LATIN,
+                Character.UnicodeScript.CYRILLIC,
+                Character.UnicodeScript.GREEK -> european++
+                else -> other++
+            }
+        }
+        if (european + other < 8) return null
+        return european >= other
     }
 
     /** The "220 MB · English · Whisper" line every model picker shows. */
@@ -143,10 +207,15 @@ object TranscriptionModels {
     /** Context-free core of [allForCheck], so the ordering is unit-testable. */
     internal fun orderForCheck(downloaded: List<String>, currentKey: String?): List<String> {
         val currentFamily = currentKey?.let { family(it) }
+        // Equal quality: the multilingual model first, unless the source was
+        // English-only (see rankForCheck).
+        val englishSource = currentKey != null && englishOnly(currentKey)
+        val order = compareByDescending<String> { qualityRank(it) }
+            .thenBy { if (englishSource) 0 else rankTieLanguage(it) }
         val cross = downloaded
             .filter { it != currentKey && currentFamily != null && family(it) != currentFamily }
-            .sortedByDescending { qualityRank(it) }
-        val rest = downloaded.filter { it !in cross }.sortedByDescending { qualityRank(it) }
+            .sortedWith(order)
+        val rest = downloaded.filter { it !in cross }.sortedWith(order)
         // The current model goes last: re-running it is legitimate (settings
         // may have changed since) but it is the least useful second opinion.
         val (current, others) = rest.partition { it == currentKey }

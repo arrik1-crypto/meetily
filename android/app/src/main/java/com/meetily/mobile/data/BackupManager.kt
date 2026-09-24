@@ -2,10 +2,14 @@ package com.meetily.mobile.data
 
 import android.content.Context
 import com.meetily.mobile.security.BackupCrypto
+import com.meetily.mobile.whisper.VoiceProfileStore
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.File
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.PushbackInputStream
+import java.util.zip.Deflater
 import java.util.zip.ZipEntry
 import java.util.zip.ZipInputStream
 import java.util.zip.ZipOutputStream
@@ -31,12 +35,20 @@ object BackupManager {
     private const val VOICES = "voice_profiles.json"
 
     fun export(context: Context, out: OutputStream) {
-        ZipOutputStream(out).use { zip ->
+        // Buffered: the deflater hands its output on in 512-byte pieces, and
+        // unbuffered each one was its own write into the document provider.
+        ZipOutputStream(BufferedOutputStream(out, IO_BUFFER)).use { zip ->
             addDir(zip, File(context.filesDir, "meetings"), MEETINGS) { it.endsWith(".json") }
+            // Audio and photos are already compressed; deflating them again
+            // costs a lot of CPU for no size. Still DEFLATED entries (just
+            // stored-level), so readers need nothing new and nothing has to
+            // be read twice to precompute a CRC.
+            zip.setLevel(Deflater.NO_COMPRESSION)
             addDir(zip, File(context.filesDir, "photos"), PHOTOS) { true }
             addDir(zip, File(context.filesDir, "audio"), AUDIO) { true }
             addDir(zip, File(context.filesDir, "attachments"), ATTACHMENTS) { true }
             addDir(zip, File(context.filesDir, "voiceprint-audio"), VOICE_AUDIO) { true }
+            zip.setLevel(Deflater.DEFAULT_COMPRESSION)
             val voices = File(context.filesDir, VOICES)
             if (voices.isFile) {
                 zip.putNextEntry(ZipEntry(VOICES))
@@ -83,7 +95,9 @@ object BackupManager {
         input: InputStream,
         passphrase: CharArray? = null
     ): Restored {
-        val pushback = PushbackInputStream(input, BackupCrypto.MAGIC.size)
+        val pushback = PushbackInputStream(
+            BufferedInputStream(input, IO_BUFFER), BackupCrypto.MAGIC.size
+        )
         val header = ByteArray(BackupCrypto.MAGIC.size)
         var got = 0
         while (got < header.size) {
@@ -108,7 +122,13 @@ object BackupManager {
         val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
         val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
         val attachmentsDir = File(context.filesDir, "attachments").apply { mkdirs() }
-        val voiceAudioDir = File(context.filesDir, "voiceprint-audio").apply { mkdirs() }
+        // Staged, not extracted over the device's banked audio: see
+        // VoiceProfileStore.mergeRestored. Cleared first in case an earlier
+        // restore died before its merge.
+        val voiceAudioDir = File(context.filesDir, "$VOICE_AUDIO_DIR.restore").apply {
+            deleteRecursively()
+            mkdirs()
+        }
         var restored = 0
         var skipped = 0
         ZipInputStream(input).use { zip ->
@@ -130,7 +150,7 @@ object BackupManager {
                         name.startsWith(VOICE_AUDIO) ->
                             File(voiceAudioDir, File(name).name)
                         // Staged, not written over the live file: see
-                        // mergeVoiceProfiles below.
+                        // VoiceProfileStore.mergeRestored.
                         name == VOICES ->
                             File(context.filesDir, "$VOICES.restore")
                         else -> null
@@ -153,57 +173,14 @@ object BackupManager {
                 entry = zip.nextEntry
             }
         }
-        mergeVoiceProfiles(context)
+        // Restore used to rename the archive's list straight over the live
+        // file, destroying every voiceprint enrolled on THIS phone — and a
+        // voiceprint cannot be recovered from anything else on disk. The
+        // merge (device wins on a name) lives in the store, under its lock.
+        VoiceProfileStore.mergeRestored(
+            context, File(context.filesDir, "$VOICES.restore"), voiceAudioDir
+        )
         return Restored(restored, skipped)
-    }
-
-    /**
-     * Folds a restored voice-profile list into the one already on the device.
-     *
-     * Restore renamed the archive's copy straight over the live file, so
-     * every voiceprint enrolled on THIS phone was destroyed by restoring a
-     * backup taken on another — and unlike a meeting, a voiceprint cannot be
-     * recovered from anything else on disk. It has to be re-recorded, by the
-     * person it belongs to, in the room.
-     *
-     * Identity is the profile name, case-insensitively — the same key
-     * VoiceProfileStore.addSample and delete already use. On a conflict the
-     * DEVICE keeps its own: it was enrolled here, against this microphone,
-     * and is the better match for recordings made here.
-     */
-    private fun mergeVoiceProfiles(context: Context) {
-        val staged = File(context.filesDir, "$VOICES.restore")
-        if (!staged.exists()) return
-        val live = File(context.filesDir, VOICES)
-        try {
-            if (!live.exists()) {
-                if (!staged.renameTo(live)) staged.copyTo(live, overwrite = true)
-                return
-            }
-            val merged = org.json.JSONArray()
-            val seen = mutableSetOf<String>()
-            // Device first, so its entries win the name collision.
-            for (source in listOf(live, staged)) {
-                val arr = org.json.JSONObject(source.readText())
-                    .optJSONArray("profiles") ?: org.json.JSONArray()
-                for (i in 0 until arr.length()) {
-                    val obj = arr.optJSONObject(i) ?: continue
-                    val key = obj.optString("name", "").trim().lowercase()
-                    if (key.isEmpty() || !seen.add(key)) continue
-                    merged.put(obj)
-                }
-            }
-            AtomicJson.write(
-                context.filesDir,
-                VOICES,
-                org.json.JSONObject().put("profiles", merged).toString()
-            )
-        } catch (_: Exception) {
-            // A malformed archive must not take the device's profiles with
-            // it: leave the live file exactly as it was.
-        } finally {
-            staged.delete()
-        }
     }
 
     /**
@@ -279,6 +256,10 @@ object BackupManager {
             zip.closeEntry()
         }
     }
+
+    private const val IO_BUFFER = 64 * 1024
+
+    private const val VOICE_AUDIO_DIR = "voiceprint-audio"
 
     private fun isUnder(dir: File?, file: File): Boolean {
         if (dir == null) return false

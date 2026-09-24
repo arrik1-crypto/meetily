@@ -53,7 +53,11 @@ object ClipExporter {
                     }
                 },
                 onProgress = {},
-                cancelled = { filled >= pcm.size }
+                cancelled = { filled >= pcm.size },
+                // Seek rather than decode everything ahead of the window;
+                // counting then starts from wherever the seek landed.
+                startUs = start * 1000,
+                onStartUs = { us -> position = us * SAMPLE_RATE / 1_000_000 }
             )
         } catch (_: Throwable) {
             return null

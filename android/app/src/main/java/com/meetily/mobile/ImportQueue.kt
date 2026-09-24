@@ -21,19 +21,26 @@ import java.util.UUID
  */
 object ImportQueue {
 
-    enum class Result { QUEUED, TOO_MANY, FAILED }
+    /** CANCELLED: the caller abandoned it mid-copy; nothing was queued or kept. */
+    enum class Result { QUEUED, TOO_MANY, FAILED, CANCELLED }
 
     private val main = Handler(Looper.getMainLooper())
 
     /**
      * Copies [uri] and queues it. Blocking work happens on a worker thread;
      * [onResult] is delivered on the main thread.
+     *
+     * [cancelled] is polled during the copy and once more before the job is
+     * queued. Cancel on the "copying to the queue" screen used to reach
+     * whatever ImportService was running instead — the very job this file
+     * was waiting behind — while this file was queued anyway.
      */
     fun stageAndQueue(
         context: Context,
         uri: Uri,
         sourceName: String,
         modelKey: String,
+        cancelled: () -> Boolean = { false },
         onResult: (Result) -> Unit
     ) {
         val app = context.applicationContext
@@ -42,14 +49,33 @@ object ImportQueue {
             return
         }
         Thread {
+            // Outside the try so a copy that dies part-way (a dropped cloud
+            // stream, a full disk) is deleted: no job ever names it.
+            var partial: java.io.File? = null
             val result = try {
                 val staged = AudioStore.newImportFile(
                     app, "queued-" + UUID.randomUUID(), sourceName
                 )
+                partial = staged
+                var aborted = false
                 app.contentResolver.openInputStream(uri)?.use { input ->
-                    staged.outputStream().use { input.copyTo(it) }
+                    staged.outputStream().use { output ->
+                        val buffer = ByteArray(64 * 1024)
+                        while (true) {
+                            if (cancelled()) {
+                                aborted = true
+                                break
+                            }
+                            val n = input.read(buffer)
+                            if (n < 0) break
+                            output.write(buffer, 0, n)
+                        }
+                    }
                 }
-                if (staged.length() <= 0L) {
+                if (aborted || cancelled()) {
+                    staged.delete()
+                    Result.CANCELLED
+                } else if (staged.length() <= 0L) {
                     staged.delete()
                     Result.FAILED
                 } else {
@@ -67,6 +93,7 @@ object ImportQueue {
                     Result.QUEUED
                 }
             } catch (_: Throwable) {
+                partial?.delete()
                 Result.FAILED
             }
             main.post { onResult(result) }

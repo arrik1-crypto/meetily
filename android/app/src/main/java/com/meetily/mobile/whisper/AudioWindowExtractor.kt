@@ -7,8 +7,8 @@ import java.io.File
 /**
  * Pulls one time window out of a saved meeting-audio file as 16 kHz mono
  * float PCM — used to compute a voiceprint for a transcript line the user
- * tagged after the fact. Decodes from the file start (fast: decode runs
- * far above realtime) and stops as soon as the window is filled.
+ * tagged after the fact. Seeks to just before the window, decodes from
+ * there and stops as soon as the window is filled.
  */
 object AudioWindowExtractor {
 
@@ -38,7 +38,11 @@ object AudioWindowExtractor {
                     }
                 },
                 onProgress = {},
-                cancelled = { filled >= window.size }
+                cancelled = { filled >= window.size },
+                // Seek rather than decode everything ahead of the window;
+                // counting then starts from wherever the seek landed.
+                startUs = start * 1000,
+                onStartUs = { us -> position = us * SAMPLE_RATE / 1_000_000 }
             )
         } catch (_: Throwable) {
             return null

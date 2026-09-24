@@ -62,4 +62,37 @@ class NemoWordsTest {
         assertEquals(0L, words[1].ms)
         assertEquals(0L, words[2].ms)
     }
+
+    @Test
+    fun unsegmentedJapaneseGetsOneWordPerPiece() {
+        val (text, words) = NemoWords.assemble(
+            listOf("▁今日", "は", "会議", "です", "。"),
+            floatArrayOf(0.0f, 0.4f, 0.6f, 1.1f, 1.5f)
+        )
+        // Text is unchanged: no spaces are invented between CJK words.
+        assertEquals("今日は会議です。", text)
+        assertEquals(listOf("今日", "は", "会議", "です。"), words.map { it.text })
+        assertEquals(listOf(0L, 400L, 600L, 1_100L), words.map { it.ms })
+    }
+
+    @Test
+    fun latinAfterCjkOpensAWordWithoutAddingASpace() {
+        val (text, words) = NemoWords.assemble(
+            listOf("▁東京", "AI", "▁ok"),
+            floatArrayOf(0.0f, 0.5f, 1.0f)
+        )
+        assertEquals("東京AI ok", text)
+        assertEquals(listOf("東京", "AI", "ok"), words.map { it.text })
+        assertEquals(500L, words[1].ms)
+    }
+
+    @Test
+    fun koreanKeepsSpaceBasedWords() {
+        val (text, words) = NemoWords.assemble(
+            listOf("▁안녕", "하세요", "▁여러분"),
+            floatArrayOf(0.0f, 0.3f, 0.9f)
+        )
+        assertEquals("안녕하세요 여러분", text)
+        assertEquals(2, words.size)
+    }
 }

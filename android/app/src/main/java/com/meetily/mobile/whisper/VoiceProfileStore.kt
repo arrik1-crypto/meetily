@@ -1,6 +1,7 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.data.AtomicJson
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
@@ -49,15 +50,41 @@ object VoiceProfileStore {
     /** Stored audio per profile is capped at 60 s of 16 kHz mono. */
     private const val AUDIO_CAP_SAMPLES = 16_000 * 60
 
-    @Synchronized
-    fun load(context: Context): List<VoiceProfile> {
+    /**
+     * Audio fed to one rollover embed: 20 s. A voiceprint is stable well
+     * before that, and each embed of the full 60 s bank could run for tens
+     * of seconds on the larger speaker models.
+     */
+    private const val ROLLOVER_MAX_SAMPLES = 16_000 * 20
+
+    /** What reading the profile file found. */
+    private sealed class Read {
+        class Ok(val profiles: List<VoiceProfile>) : Read()
+        object Missing : Read()
+        /** The file could not be read at all (IO); it may be fine next time. */
+        object Unreadable : Read()
+        /** The file was read and is not valid JSON; retrying cannot help. */
+        object Corrupt : Read()
+    }
+
+    private fun read(context: Context): Read {
         val file = File(context.filesDir, FILE_NAME)
-        if (!file.exists()) return emptyList()
-        return try {
-            val arr = JSONObject(file.readText()).optJSONArray("profiles") ?: JSONArray()
-            val out = mutableListOf<VoiceProfile>()
-            for (i in 0 until arr.length()) {
-                val obj = arr.getJSONObject(i)
+        if (!file.exists()) return Read.Missing
+        val text = try {
+            file.readText()
+        } catch (_: Exception) {
+            return Read.Unreadable
+        }
+        val arr = try {
+            JSONObject(text).optJSONArray("profiles") ?: JSONArray()
+        } catch (_: Exception) {
+            return Read.Corrupt
+        }
+        val out = mutableListOf<VoiceProfile>()
+        for (i in 0 until arr.length()) {
+            // One bad entry costs that entry, not the whole library.
+            try {
+                val obj = arr.optJSONObject(i) ?: continue
                 val name = obj.optString("name", "")
                 val embArr = obj.optJSONArray("emb") ?: continue
                 if (name.isBlank() || embArr.length() == 0) continue
@@ -69,12 +96,39 @@ object VoiceProfileStore {
                         obj.optString("model", "")
                     )
                 )
+            } catch (_: Exception) {
             }
-            out
-        } catch (_: Exception) {
-            emptyList()
         }
+        return Read.Ok(out)
     }
+
+    @Synchronized
+    fun load(context: Context): List<VoiceProfile> =
+        (read(context) as? Read.Ok)?.profiles ?: emptyList()
+
+    /**
+     * The current list, for a read-modify-write — or null when writing now
+     * would destroy profiles.
+     *
+     * Every writer starts from this list and saves the result, so reading a
+     * bad file as "no profiles" meant the next enrolment rewrote the library
+     * as that one profile, for good. An unreadable file refuses the write; a
+     * corrupt one is first moved aside intact (it may still be recoverable
+     * by hand) so a fresh list can start without anything being overwritten.
+     */
+    private fun readForWrite(context: Context): MutableList<VoiceProfile>? =
+        when (val r = read(context)) {
+            is Read.Ok -> r.profiles.toMutableList()
+            Read.Missing -> mutableListOf()
+            Read.Unreadable -> null
+            Read.Corrupt -> {
+                val file = File(context.filesDir, FILE_NAME)
+                val aside = File(
+                    context.filesDir, "$FILE_NAME.corrupt-${System.currentTimeMillis()}"
+                )
+                if (file.renameTo(aside)) mutableListOf() else null
+            }
+        }
 
     /**
      * Adds a sample for [name] (case-insensitive), creating or refining.
@@ -93,13 +147,11 @@ object VoiceProfileStore {
         val normalized = normalizedOrNull(embedding.copyOf()) ?: return false
         val trimmed = name.trim()
         if (trimmed.isBlank()) return false
-        val profiles = load(context).toMutableList()
+        val profiles = readForWrite(context) ?: return false
         val index = profiles.indexOfFirst { it.name.equals(trimmed, ignoreCase = true) }
         if (index >= 0) {
             val old = profiles[index]
-            val sameSpace = old.embedding.size == normalized.size &&
-                (old.model.isBlank() || old.model == model)
-            profiles[index] = if (sameSpace) {
+            profiles[index] = if (continuesProfile(old, normalized, model)) {
                 VoiceProfile(
                     old.name,
                     merged(old.embedding, old.samples.coerceAtMost(SAMPLE_CAP), normalized),
@@ -107,7 +159,7 @@ object VoiceProfileStore {
                     model
                 )
             } else {
-                // Different embedding model: start the profile over.
+                // Another (or unprovable) vector space: start the profile over.
                 VoiceProfile(old.name, normalized, 1, model)
             }
         } else {
@@ -119,9 +171,77 @@ object VoiceProfileStore {
 
     @Synchronized
     fun delete(context: Context, name: String): Boolean {
-        val profiles = load(context).filterNot { it.name.equals(name, ignoreCase = true) }
+        val profiles = readForWrite(context)
+            ?.filterNot { it.name.equals(name, ignoreCase = true) }
+            ?: return false
         audioFileFor(context, name).delete()
         return save(context, profiles)
+    }
+
+    /**
+     * Folds a backup's profile list ([staged], a voice_profiles.json) and its
+     * banked audio ([stagedAudio], a directory) into the device's.
+     *
+     * Identity is the profile name, case-insensitively, as in [addSample]. On
+     * a conflict the DEVICE keeps its own: it was enrolled here, against this
+     * microphone. That has to hold for the banked audio too — it is what
+     * [reembedForModel] rebuilds a profile from, so restoring another phone's
+     * audio over it would quietly replace the device's voiceprint at the next
+     * speaker-model switch. Audio is moved in only for profiles the device
+     * does not have, and never over an existing file.
+     *
+     * Under the same lock as every other writer, so an enrolment or rollover
+     * running meanwhile cannot write its pre-restore list over the merge.
+     * Both staged inputs are removed whatever happens.
+     */
+    @Synchronized
+    fun mergeRestored(context: Context, staged: File, stagedAudio: File) {
+        try {
+            // Unreadable: leave the device's file exactly as it was.
+            val device = readForWrite(context) ?: return
+            if (staged.exists()) {
+                try {
+                    val arr = JSONObject(staged.readText())
+                        .optJSONArray("profiles") ?: JSONArray()
+                    val merged = JSONArray()
+                    val seen = mutableSetOf<String>()
+                    for (p in device) {
+                        if (seen.add(p.name.trim().lowercase())) merged.put(toJson(p))
+                    }
+                    var added = false
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val key = obj.optString("name", "").trim().lowercase()
+                        if (key.isEmpty() || !seen.add(key)) continue
+                        merged.put(obj)
+                        added = true
+                    }
+                    if (added) {
+                        AtomicJson.write(
+                            context.filesDir, FILE_NAME,
+                            JSONObject().put("profiles", merged).toString()
+                        )
+                    }
+                } catch (_: Exception) {
+                    // A malformed archive must not take the device's
+                    // profiles with it: the live file is untouched.
+                }
+            }
+            val kept = device.map { audioFileFor(context, it.name).name }.toSet()
+            val liveDir = File(context.filesDir, AUDIO_DIR).apply { mkdirs() }
+            for (file in stagedAudio.listFiles().orEmpty()) {
+                val target = File(liveDir, file.name)
+                if (!file.isFile || file.name in kept || target.exists()) continue
+                try {
+                    if (!file.renameTo(target)) file.copyTo(target)
+                } catch (_: Exception) {
+                    target.delete()
+                }
+            }
+        } finally {
+            staged.delete()
+            stagedAudio.deleteRecursively()
+        }
     }
 
     // --- Audio bank (enables rollover across speaker models) ---------------
@@ -165,43 +285,68 @@ object VoiceProfileStore {
      * [embed] (the extractor for [model], already loaded by the caller).
      * Profiles without audio are left untouched — they simply won't match
      * under the new model until re-enrolled. Returns the updated list.
+     *
+     * The embeds run WITHOUT the store lock. Each can take seconds, and
+     * holding the lock through them blocked every other caller — including
+     * Settings and the save-voice dialog on the main thread — for the whole
+     * rollover. Results are applied afterwards, under the lock, only to
+     * profiles that still exist and still carry another model's vector.
+     * [cancelled] is checked before each embed.
      */
-    @Synchronized
     fun reembedForModel(
         context: Context,
         model: String,
+        cancelled: () -> Boolean = { false },
         embed: (FloatArray) -> FloatArray?
     ): List<VoiceProfile> {
-        val profiles = load(context).toMutableList()
-        var changed = false
-        for (i in profiles.indices) {
-            val profile = profiles[i]
-            if (profile.model == model) continue
-            val audio = loadAudio(context, profile.name) ?: continue
-            val normalized = embed(audio)?.let { normalizedOrNull(it.copyOf()) } ?: continue
-            profiles[i] = VoiceProfile(profile.name, normalized, 1, model)
-            changed = true
+        val current = load(context)
+        val stale = current.filter { it.model != model }.map { it.name }
+        if (stale.isEmpty()) return current
+        val fresh = mutableMapOf<String, FloatArray>()
+        for (name in stale) {
+            if (cancelled()) break
+            val audio = loadAudio(context, name) ?: continue
+            val normalized = embed(EmbedWindow.centre(audio, ROLLOVER_MAX_SAMPLES))
+                ?.let { normalizedOrNull(it.copyOf()) } ?: continue
+            fresh[name.trim().lowercase()] = normalized
         }
-        if (changed) save(context, profiles)
-        return profiles
+        if (fresh.isEmpty()) return current
+        synchronized(this) {
+            val profiles = (read(context) as? Read.Ok)?.profiles?.toMutableList()
+                ?: return load(context)
+            var changed = false
+            for (i in profiles.indices) {
+                val profile = profiles[i]
+                if (profile.model == model) continue
+                val normalized = fresh[profile.name.trim().lowercase()] ?: continue
+                profiles[i] = VoiceProfile(profile.name, normalized, 1, model)
+                changed = true
+            }
+            if (changed) save(context, profiles)
+            return profiles
+        }
     }
 
+    private fun toJson(profile: VoiceProfile): JSONObject {
+        val embArr = JSONArray()
+        for (v in profile.embedding) embArr.put(v.toDouble())
+        return JSONObject()
+            .put("name", profile.name)
+            .put("emb", embArr)
+            .put("samples", profile.samples)
+            .put("model", profile.model)
+    }
+
+    /**
+     * Temp file plus rename: writing in place truncated the file first, so a
+     * kill or a full disk mid-write left no readable profiles at all.
+     */
     private fun save(context: Context, profiles: List<VoiceProfile>): Boolean = try {
         val arr = JSONArray()
-        for (profile in profiles) {
-            val embArr = JSONArray()
-            for (v in profile.embedding) embArr.put(v.toDouble())
-            arr.put(
-                JSONObject()
-                    .put("name", profile.name)
-                    .put("emb", embArr)
-                    .put("samples", profile.samples)
-                    .put("model", profile.model)
-            )
-        }
-        File(context.filesDir, FILE_NAME)
-            .writeText(JSONObject().put("profiles", arr).toString())
-        true
+        for (profile in profiles) arr.put(toJson(profile))
+        AtomicJson.write(
+            context.filesDir, FILE_NAME, JSONObject().put("profiles", arr).toString()
+        )
     } catch (_: Exception) {
         false
     }
@@ -239,6 +384,26 @@ object VoiceProfileStore {
             }
         }
         return bestName
+    }
+
+    /**
+     * Whether a new [normalized] sample from [model] refines [old] rather
+     * than restarting it.
+     *
+     * An untagged (legacy) profile could have come from any speaker model,
+     * and several share a dimension, so size alone does not prove the same
+     * vector space. Averaging a new-model sample into an old-space vector —
+     * and stamping it with the new model — produced a profile that is mostly
+     * foreign yet is never rolled over again. It is only continued when the
+     * sample plausibly matches it.
+     */
+    fun continuesProfile(old: VoiceProfile, normalized: FloatArray, model: String): Boolean {
+        if (old.embedding.size != normalized.size) return false
+        if (old.model == model) return true
+        if (old.model.isNotBlank()) return false
+        var sim = 0f
+        for (i in normalized.indices) sim += old.embedding[i] * normalized[i]
+        return sim >= MATCH_THRESHOLD
     }
 
     /** Weighted average of an existing (normalized) profile and one sample. */

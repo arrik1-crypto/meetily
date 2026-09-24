@@ -185,6 +185,7 @@ class ImportService : Service() {
                 } ?: false
                 adoptFile = intent.getStringExtra(EXTRA_ADOPT_FILE)
                 isRecheck = recheckMeetingId != null
+                isFirstTranscript = firstTranscript
                 currentMeetingId = recheckMeetingId
                 sourceName = intent.getStringExtra(EXTRA_NAME).orEmpty()
                     .ifBlank { getString(R.string.import_title) }
@@ -738,6 +739,15 @@ class ImportService : Service() {
 
         /** True while the run is a second pass over an existing meeting. */
         @Volatile var isRecheck = false
+            private set
+
+        /**
+         * True when the run anchored to a meeting ([isRecheck]) is that
+         * meeting's FIRST transcript: its words go straight into the meeting,
+         * so observers treat it as an import, not a check with a draft to
+         * review. Like [isRecheck] it outlives the run, for late binders.
+         */
+        @Volatile var isFirstTranscript = false
             private set
 
         const val ACTION_START = "com.meetily.mobile.import.START"
