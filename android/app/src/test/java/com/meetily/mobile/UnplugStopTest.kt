@@ -89,7 +89,8 @@ class UnplugStopTest {
             JobQueue.KIND_SUMMARY, "m1", "default",
             queuedAtMs = 1L, interrupted = true
         )
-        val cleared = JobQueue.remove(listOf(running), JobQueue.KIND_SUMMARY, "m1")
+        // finished() removes only the marker, which is all there is here.
+        val cleared = JobQueue.removeInterrupted(listOf(running), JobQueue.KIND_SUMMARY, "m1")
         assertTrue(cleared.isEmpty())
 
         val requeued = JobQueue.add(
@@ -121,5 +122,41 @@ class UnplugStopTest {
         )
         assertEquals("m2", JobQueue.nextRunnable(queue, charging = false)?.meetingId)
         assertEquals("m1", JobQueue.nextRunnable(queue, charging = true)?.meetingId)
+    }
+
+    @Test
+    fun aStoppedFirstTranscriptComesBackAsAFirstTranscript() {
+        // The stopped pass left its partial words in the meeting, so "has no
+        // words" no longer says this is the first transcript. The job has to:
+        // otherwise the resume stages a review and the summary never starts.
+        val running = JobQueue.Job(
+            JobQueue.KIND_CHECK, "m1", "base",
+            queuedAtMs = 1L, interrupted = true, firstTranscript = true
+        )
+        val requeued = JobQueue.add(
+            JobQueue.removeInterrupted(listOf(running), JobQueue.KIND_CHECK, "m1"),
+            JobQueue.Job(
+                JobQueue.KIND_CHECK, "m1", "base",
+                queuedAtMs = 2L, chargingOnly = true, firstTranscript = true,
+                required = true
+            )
+        )
+        val next = JobQueue.nextRunnable(requeued, charging = true)
+        assertTrue(next!!.firstTranscript)
+        assertNull(JobQueue.nextRunnable(requeued, charging = false))
+    }
+
+    @Test
+    fun aStoppedAutomaticSummaryIsStillAutomatic() {
+        // Its consent is re-checked when it drains, which only works if the
+        // requeue does not turn it into what looks like a manual request.
+        val requeued = JobQueue.add(
+            emptyList(),
+            JobQueue.Job(
+                JobQueue.KIND_SUMMARY, "m1", "default",
+                queuedAtMs = 2L, chargingOnly = true, auto = true
+            )
+        )
+        assertTrue(JobQueue.nextRunnable(requeued, charging = true)!!.auto)
     }
 }

@@ -3,6 +3,7 @@ package com.meetily.mobile
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.MeetingStore
@@ -76,7 +77,7 @@ object JobGate {
      * an activity resuming, a recording finishing, and a batch job finishing
      * (which is what actually serialises the queue). Android 12+ forbids
      * starting a foreground service from the background, so the charger
-     * broadcast cannot call this directly — see [PowerConnectedReceiver].
+     * wake cannot call this directly — see [QueuedWorkNotice].
      */
     fun drain(context: Context) {
         if (!canStartBatch()) return
@@ -85,22 +86,37 @@ object JobGate {
         // the job was queued. "When charging" has to mean charging NOW —
         // otherwise merely opening the app off-charger runs the work the
         // setting was meant to hold back.
-        val next = JobQueue.nextRunnable(JobQueue.pending(app), Power.isCharging(app))
-            ?: return
-        // Taken off the queue first: a job that fails to start must not spin
-        // forever on every drain trigger.
-        if (next.kind == JobQueue.KIND_IMPORT) {
-            JobQueue.dequeueStaged(app, next.stagedFile)
-        } else {
-            JobQueue.dequeue(app, next.kind, next.meetingId)
+        val charging = Power.isCharging(app)
+        while (true) {
+            val next = JobQueue.nextPending(app, charging) ?: break
+            // Taken off the queue first: a job that fails to start must not
+            // spin forever on every drain trigger.
+            if (next.kind == JobQueue.KIND_IMPORT) {
+                JobQueue.dequeueStaged(app, next.stagedFile)
+            } else {
+                JobQueue.dequeueDeferred(app, next.kind, next.meetingId)
+            }
+            // An automatic summary was allowed when it was QUEUED. Hours can
+            // pass before it drains, and switching the AI engine withdraws the
+            // consent to send meetings to an endpoint — so ask again now
+            // rather than posting the meeting under a "yes" that no longer
+            // holds. Dropped, not held: the next meeting asks afresh.
+            if (next.kind == JobQueue.KIND_SUMMARY && next.auto &&
+                !AppSettings(app).autoSummaryAllowed
+            ) {
+                continue
+            }
+            when (next.kind) {
+                JobQueue.KIND_SUMMARY -> startSummary(app, next)
+                JobQueue.KIND_CHECK -> startCheck(app, next)
+                JobQueue.KIND_IMPORT -> startImport(app, next)
+            }
+            return
         }
-        when (next.kind) {
-            JobQueue.KIND_SUMMARY ->
-                startSummary(app, next.meetingId, next.payload, next.chargingOnly)
-            JobQueue.KIND_CHECK ->
-                startCheck(app, next.meetingId, next.payload, next.chargingOnly)
-            JobQueue.KIND_IMPORT -> startImport(app, next)
-        }
+        // Off power with work still waiting for it: make sure plugging in
+        // wakes it. The finish of a job queued while busy on the charger is
+        // the case that would otherwise never be armed.
+        if (!charging && JobQueue.hasChargingOnly(app)) ChargingJobService.schedule(app)
     }
 
     /**
@@ -111,18 +127,26 @@ object JobGate {
         context: Context,
         meetingId: String,
         templateKey: String,
-        whenCharging: Boolean
+        whenCharging: Boolean,
+        /** The user asked for this by hand; never trimmed from the queue. */
+        required: Boolean = false,
+        /** Queued by AutoSummary; see [JobQueue.Job.auto]. */
+        auto: Boolean = false
     ) {
         val app = context.applicationContext
+        val job = JobQueue.Job(
+            JobQueue.KIND_SUMMARY, meetingId, templateKey, System.currentTimeMillis(),
+            chargingOnly = whenCharging, required = required, auto = auto
+        )
         if (whenCharging && !Power.isCharging(app)) {
-            queue(app, JobQueue.KIND_SUMMARY, meetingId, templateKey, whenCharging)
+            queue(app, job)
             return
         }
         if (!canStartBatch()) {
-            queue(app, JobQueue.KIND_SUMMARY, meetingId, templateKey, whenCharging)
+            queue(app, job)
             return
         }
-        startSummary(app, meetingId, templateKey, whenCharging)
+        startSummary(app, job)
     }
 
     /** As [requestSummary], for a post-meeting transcript accuracy check. */
@@ -130,18 +154,27 @@ object JobGate {
         context: Context,
         meetingId: String,
         modelKey: String,
-        whenCharging: Boolean
+        whenCharging: Boolean,
+        /** The user asked for this by hand; never trimmed from the queue. */
+        required: Boolean = false,
+        /** The recording's only transcript; see [JobQueue.Job.firstTranscript]. */
+        firstTranscript: Boolean = false
     ) {
         val app = context.applicationContext
+        val job = JobQueue.Job(
+            JobQueue.KIND_CHECK, meetingId, modelKey, System.currentTimeMillis(),
+            chargingOnly = whenCharging, firstTranscript = firstTranscript,
+            required = required
+        )
         if (whenCharging && !Power.isCharging(app)) {
-            queue(app, JobQueue.KIND_CHECK, meetingId, modelKey, whenCharging)
+            queue(app, job)
             return
         }
         if (!canStartBatch()) {
-            queue(app, JobQueue.KIND_CHECK, meetingId, modelKey, whenCharging)
+            queue(app, job)
             return
         }
-        startCheck(app, meetingId, modelKey, whenCharging)
+        startCheck(app, job)
     }
 
     /**
@@ -186,28 +219,16 @@ object JobGate {
         }
     }
 
-    private fun queue(
-        context: Context,
-        kind: String,
-        meetingId: String,
-        payload: String,
-        chargingOnly: Boolean = false
-    ) {
-        JobQueue.enqueue(
-            context,
-            JobQueue.Job(
-                kind, meetingId, payload, System.currentTimeMillis(),
-                chargingOnly = chargingOnly
-            )
-        )
+    /**
+     * Queues [job] with every flag it was asked with — dropping one here is
+     * how a retried job escapes the constraint it was deferred under.
+     */
+    private fun queue(context: Context, job: JobQueue.Job) {
+        JobQueue.enqueue(context, job)
+        if (job.chargingOnly) ChargingJobService.schedule(context)
     }
 
-    private fun startSummary(
-        context: Context,
-        meetingId: String,
-        templateKey: String,
-        chargingOnly: Boolean = false
-    ) {
+    private fun startSummary(context: Context, job: JobQueue.Job) {
         try {
             pendingStartAt = android.os.SystemClock.elapsedRealtime()
             // The service is told it is running on borrowed power, so that
@@ -215,24 +236,21 @@ object JobGate {
             // "wait until charging" setting only ever governed the START, and
             // a summary begun on the charger ran to the end on battery.
             SummaryService.start(
-                context, meetingId, templateKey,
-                chargingOnly = chargingOnly
+                context, job.meetingId, job.payload,
+                chargingOnly = job.chargingOnly,
+                auto = job.auto
             )
         } catch (_: Throwable) {
             pendingStartAt = 0L
             // Background foreground-service start refused (Android 12+), or
             // the service died on the way up. Put it back — still marked as
             // waiting for power, or the retry would escape the constraint.
-            queue(context, JobQueue.KIND_SUMMARY, meetingId, templateKey, chargingOnly)
+            queue(context, job.copy(queuedAtMs = System.currentTimeMillis()))
         }
     }
 
-    private fun startCheck(
-        context: Context,
-        meetingId: String,
-        modelKey: String,
-        chargingOnly: Boolean = false
-    ) {
+    private fun startCheck(context: Context, job: JobQueue.Job) {
+        val meetingId = job.meetingId
         try {
             val meeting = MeetingStore(context).load(meetingId) ?: return
             val audio = meeting.audioFile ?: return
@@ -241,11 +259,12 @@ object JobGate {
                 .setAction(ImportService.ACTION_START)
                 .setData(AudioStore.uriFor(context, AudioStore.fileFor(context, audio)))
                 .putExtra(ImportService.EXTRA_NAME, meeting.title)
-                .putExtra(ImportService.EXTRA_MODEL, modelKey)
+                .putExtra(ImportService.EXTRA_MODEL, job.payload)
                 .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, meetingId)
                 // As in startSummary: unplugging stops a pass that was only
                 // allowed to start because the phone was on power.
-                .putExtra(ImportService.EXTRA_CHARGING_ONLY, chargingOnly)
+                .putExtra(ImportService.EXTRA_CHARGING_ONLY, job.chargingOnly)
+                .putExtra(ImportService.EXTRA_FIRST_TRANSCRIPT, job.firstTranscript)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             pendingStartAt = android.os.SystemClock.elapsedRealtime()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -255,7 +274,7 @@ object JobGate {
             }
         } catch (_: Throwable) {
             pendingStartAt = 0L
-            queue(context, JobQueue.KIND_CHECK, meetingId, modelKey, chargingOnly)
+            queue(context, job.copy(queuedAtMs = System.currentTimeMillis()))
         }
     }
 }

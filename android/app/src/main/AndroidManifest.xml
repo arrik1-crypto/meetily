@@ -211,10 +211,19 @@
         </receiver>
 
         <!-- Wakes work the user asked to defer until the phone is charging.
-             ACTION_POWER_CONNECTED is one of the few implicit broadcasts a
-             manifest receiver still gets; it does NOT exempt us from the
-             Android 12+ ban on starting a foreground service from the
-             background, so the receiver notifies rather than assuming. -->
+             A charging-constrained job, because ACTION_POWER_CONNECTED is not
+             delivered to manifest receivers while the app is in the
+             background. See ChargingJobService. -->
+        <service
+            android:name=".ChargingJobService"
+            android:exported="false"
+            android:permission="android.permission.BIND_JOB_SERVICE" />
+
+        <!-- Best effort only: ACTION_POWER_CONNECTED is NOT on the implicit
+             broadcast exemption list, so this is skipped whenever the app is
+             in the background. ChargingJobService is the path that works;
+             neither may start a foreground service on Android 12+, so both
+             notify rather than assuming. -->
         <receiver
             android:name=".PowerConnectedReceiver"
             android:exported="false">

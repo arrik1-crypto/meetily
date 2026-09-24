@@ -189,4 +189,76 @@ class HeavyWorkQueueTest {
         assertTrue(JobQueue.runnable(running).isEmpty())
         assertFalse(JobQueue.interrupted(running).isEmpty())
     }
+
+    @Test
+    fun aRequestQueuedDuringItsOwnRunSurvivesThatRunFinishing() {
+        // The bug: queueing a check for a meeting whose check was running
+        // replaced the run's marker, and the run's finish then removed the
+        // request the user had just been told was queued.
+        val running = JobQueue.add(
+            emptyList(), job(JobQueue.KIND_CHECK, "m1", 1L, interrupted = true)
+        )
+        val requested = JobQueue.add(running, job(JobQueue.KIND_CHECK, "m1", 2L))
+        assertEquals(2, requested.size)
+        assertEquals(1, JobQueue.interrupted(requested).size)
+
+        val afterFinish = JobQueue.removeInterrupted(requested, JobQueue.KIND_CHECK, "m1")
+        assertEquals(1, afterFinish.size)
+        assertFalse(afterFinish.first().interrupted)
+        assertEquals("m1", JobQueue.nextRunnable(afterFinish, charging = false)?.meetingId)
+    }
+
+    @Test
+    fun startingADeferredJobLeavesAnyRunMarkerAlone() {
+        val jobs = listOf(
+            job(JobQueue.KIND_SUMMARY, "m1", 1L, interrupted = true),
+            job(JobQueue.KIND_SUMMARY, "m1", 2L)
+        )
+        val left = JobQueue.removeDeferred(jobs, JobQueue.KIND_SUMMARY, "m1")
+        assertEquals(1, left.size)
+        assertTrue(left.first().interrupted)
+    }
+
+    @Test
+    fun aRecordingsOnlyTranscriptIsNeverTrimmed() {
+        // Six recordings on battery with live transcription off: the sixth
+        // used to push out the first one's transcription, leaving it audio
+        // only for good with nothing to say so.
+        var jobs = emptyList<JobQueue.Job>()
+        for (i in 1..8) {
+            jobs = JobQueue.add(
+                jobs,
+                JobQueue.Job(
+                    JobQueue.KIND_CHECK, "m$i", "model", i.toLong(),
+                    chargingOnly = true, firstTranscript = true
+                )
+            )
+        }
+        assertEquals(8, jobs.size)
+        assertEquals("m1", jobs.first().meetingId)
+    }
+
+    @Test
+    fun workTheUserAskedForIsNeverTrimmed() {
+        var jobs = listOf(
+            JobQueue.Job(JobQueue.KIND_SUMMARY, "mine", "t", 0L, required = true)
+        )
+        for (i in 1..8) {
+            jobs = JobQueue.add(jobs, job(JobQueue.KIND_CHECK, "auto$i", i.toLong()))
+        }
+        assertTrue(jobs.any { it.meetingId == "mine" })
+        // The optional ones are still capped.
+        assertEquals(JobQueue.MAX_JOBS, jobs.count { !it.required })
+    }
+
+    @Test
+    fun runMarkersDoNotCountTowardsTheCapAndAreNeverTrimmed() {
+        var jobs = listOf(job(JobQueue.KIND_SUMMARY, "running", 0L, interrupted = true))
+        for (i in 1..JobQueue.MAX_JOBS) {
+            jobs = JobQueue.add(jobs, job(JobQueue.KIND_CHECK, "m$i", i.toLong()))
+        }
+        // A full set of optional jobs AND the marker: nothing was dropped.
+        assertEquals(JobQueue.MAX_JOBS + 1, jobs.size)
+        assertTrue(jobs.first().interrupted)
+    }
 }

@@ -23,6 +23,9 @@ class MeetingStore(context: Context) {
         }.sortedByDescending { it.createdAtMs }
     }
 
+    /** A stat, not a parse — for callers that only need to know it is there. */
+    fun exists(id: String): Boolean = id.isNotBlank() && File(dir, "$id.json").exists()
+
     fun load(id: String): Meeting? {
         val file = File(dir, "$id.json")
         if (!file.exists()) return null
