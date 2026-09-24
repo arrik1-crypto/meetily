@@ -1,6 +1,7 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -11,7 +12,12 @@ import java.net.URL
  * file, each model is a directory of ONNX parts downloaded individually
  * from the sherpa-onnx conversions on Hugging Face.
  */
-data class NemoFile(val name: String, val sizeMb: Int)
+data class NemoFile(
+    val name: String,
+    val sizeMb: Int,
+    /** Pinned SHA-256, when known; see [ModelIntegrity.verify]. */
+    val sha256: String? = null
+)
 
 /**
  * Byte-weighted progress across a model's files, deduped to whole percent.
@@ -257,7 +263,7 @@ object NemoModels {
                 progress.onFileDone(nominal)?.let(onProgress)
                 continue
             }
-            downloadOne(model.urlFor(file), target, cancelled) { read ->
+            downloadOne(model.urlFor(file), target, file.sha256, cancelled) { read ->
                 progress.onBytes(read, nominal)?.let(onProgress)
             }
             // Record the verified byte count so completeness never depends on
@@ -270,6 +276,7 @@ object NemoModels {
     private fun downloadOne(
         url: String,
         target: File,
+        expectedSha256: String?,
         cancelled: () -> Boolean,
         onBytes: (Long) -> Unit
     ) {
@@ -285,6 +292,7 @@ object NemoModels {
             }
             val expected = connection.contentLengthLong
             var received = 0L
+            val digest = ModelIntegrity.newDigest()
             connection.inputStream.use { input ->
                 partial.outputStream().use { output ->
                     val buffer = ByteArray(256 * 1024)
@@ -295,16 +303,15 @@ object NemoModels {
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)
+                        digest.update(buffer, 0, n)
                         received += n
                         onBytes(received)
                     }
                 }
             }
-            if (expected > 0 && received != expected) {
-                throw RuntimeException(
-                    "Truncated download for ${target.name}: got $received of $expected bytes"
-                )
-            }
+            // Length (truncation) and, where pinned, content — before the
+            // rename, so a bad part never reaches onnxruntime.
+            ModelIntegrity.verify(target.name, received, expected, expectedSha256, digest)
             if (!partial.renameTo(target)) {
                 partial.copyTo(target, overwrite = true)
                 partial.delete()

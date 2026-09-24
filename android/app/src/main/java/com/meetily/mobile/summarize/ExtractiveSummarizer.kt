@@ -37,20 +37,21 @@ object ExtractiveSummarizer {
     fun titleFor(transcript: String): String {
         val sentences = splitSentences(transcript)
         if (sentences.isEmpty()) return ""
+        // Each sentence is tokenized once and reused for scoring.
+        val scored = sentences.map { sentence ->
+            sentence to tokenize(sentence).filter { it !in STOPWORDS && it.length > 2 }
+        }
         val frequencies = HashMap<String, Int>()
-        for (sentence in sentences) {
-            for (word in tokenize(sentence)) {
-                if (word !in STOPWORDS && word.length > 2) {
-                    frequencies[word] = (frequencies[word] ?: 0) + 1
-                }
+        for ((_, tokens) in scored) {
+            for (word in tokens) {
+                frequencies[word] = (frequencies[word] ?: 0) + 1
             }
         }
-        val best = sentences.maxByOrNull { sentence ->
-            val tokens = tokenize(sentence).filter { it !in STOPWORDS && it.length > 2 }
+        val best = scored.maxByOrNull { (_, tokens) ->
             if (tokens.isEmpty()) 0.0
             else tokens.sumOf { (frequencies[it] ?: 0).toDouble() } / tokens.size
-        } ?: return ""
-        val words = best.trim().trimEnd('.', '!', '?', ',').split(Regex("\\s+")).take(7)
+        }?.first ?: return ""
+        val words = best.trim().trimEnd('.', '!', '?', ',').split(WHITESPACE).take(7)
         if (words.isEmpty()) return ""
         val title = words.joinToString(" ")
         return title.replaceFirstChar { it.uppercase() }
@@ -146,13 +147,18 @@ object ExtractiveSummarizer {
         return builder.toString().trim()
     }
 
+    // Compiled once rather than per call (tokenize runs per sentence).
+    private val SENTENCE_BREAK = Regex("(?<=[.!?])\\s+|\\n+")
+    private val NON_TOKEN = Regex("[^\\p{L}\\p{N}']+")
+    private val WHITESPACE = Regex("\\s+")
+
     private fun splitSentences(text: String): List<String> =
-        text.split(Regex("(?<=[.!?])\\s+|\\n+"))
+        text.split(SENTENCE_BREAK)
             .map { it.trim() }
             .filter { it.length > 15 }
 
     private fun tokenize(sentence: String): List<String> =
         sentence.lowercase(Locale.getDefault())
-            .split(Regex("[^\\p{L}\\p{N}']+"))
+            .split(NON_TOKEN)
             .filter { it.isNotBlank() }
 }

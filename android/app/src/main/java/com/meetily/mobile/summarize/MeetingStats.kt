@@ -38,6 +38,26 @@ object MeetingStats {
         val wordsPerMinute: Int
     )
 
+    /**
+     * Whitespace-separated words in [text], counted in one pass. The same
+     * answer as splitting on whitespace, without compiling a pattern and
+     * allocating every word — this runs per segment, on the UI thread, each
+     * time a meeting opens.
+     */
+    fun countWords(text: String): Int {
+        var count = 0
+        var inWord = false
+        for (c in text) {
+            if (c.isWhitespace()) {
+                inWord = false
+            } else if (!inWord) {
+                inWord = true
+                count++
+            }
+        }
+        return count
+    }
+
     fun estimateDurationMs(text: String, words: List<WordStamp>?): Long {
         if (!words.isNullOrEmpty()) {
             val spanned = words.last().ms - words.first().ms + WORD_TAIL_MS
@@ -84,7 +104,7 @@ object MeetingStats {
             val key = speakerKey(segment)
             val ms = estimateDurationMs(segment.text, segment.words)
             totalMs += ms
-            totalWords += segment.text.split(Regex("\\s+")).count { it.isNotBlank() }
+            totalWords += countWords(segment.text)
             questions += segment.text.count { it == '?' }
             msBySpeaker[key] = (msBySpeaker[key] ?: 0L) + ms
             if (key != previousKey) {

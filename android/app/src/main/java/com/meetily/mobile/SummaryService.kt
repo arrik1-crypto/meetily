@@ -40,8 +40,9 @@ class SummaryService : Service() {
 
         /**
          * The result is already saved when this fires. [failed] is true when
-         * a notes-enhancement run changed nothing (summary runs always
-         * produce at least the extractive fallback).
+         * a run changed nothing: a notes enhancement that failed, or a summary
+         * regeneration that failed and kept the existing summary (see
+         * [lastFailure]).
          */
         fun onSummaryDone(meetingId: String, failed: Boolean)
     }
@@ -124,6 +125,7 @@ class SummaryService : Service() {
         runAuto = intent.getBooleanExtra(EXTRA_AUTO, false)
         unplugState.set(RUN_ACTIVE)
         lastStopped = false
+        lastFailure = null
         // finishRun clears the abort flag when a stopped run ends; clearing it
         // here as well means nothing left over can kill this run's first
         // decode.
@@ -320,6 +322,7 @@ class SummaryService : Service() {
             LocalLlm.stageListener = listener
             var parsedItems: List<com.meetily.mobile.data.ActionItem>? = null
             var generationFailed = false
+            var llmFailure: String? = null
             val result = try {
                 if (useLlm) {
                     val raw = LlmClient.summarize(
@@ -337,6 +340,7 @@ class SummaryService : Service() {
                 }
             } catch (e: Exception) {
                 generationFailed = true
+                llmFailure = e.message ?: "unknown error"
                 val fallback = ExtractiveSummarizer.summarize(
                     rawTranscript, notes, highlights, template.extractiveActionsOnly
                 )
@@ -363,6 +367,20 @@ class SummaryService : Service() {
                 // price of unplugging a cable — or of Android's time limit.
                 main.post { finishRun(meetingId) }
                 return@Thread
+            }
+            if (llmFailure != null) {
+                // A failed regeneration must not cost the user what they had.
+                // Saving the fallback here replaced a good summary with an
+                // error line and swapped curated action items for regex
+                // matches — every tick lost, every reminder cancelled — and
+                // then announced "Summary ready". The fallback is only worth
+                // writing onto a meeting that has nothing yet.
+                val current = store.load(meetingId) ?: meeting
+                if (current.summary.isNotBlank() || current.actionItems.isNotEmpty()) {
+                    lastFailure = llmFailure
+                    main.post { finishRun(meetingId, failed = true) }
+                    return@Thread
+                }
             }
             val finalItems = parsedItems
                 ?: ActionItems.fromMeetingContent(meeting.segments.toList(), notes)
@@ -410,9 +428,10 @@ class SummaryService : Service() {
                     "SummaryService",
                     "summary for $meetingId could not be written to disk"
                 )
+                lastFailure = getString(R.string.summary_save_failed)
             }
 
-            main.post { finishRun(meetingId) }
+            main.post { finishRun(meetingId, failed = !saved) }
         }.apply {
             name = "summary-service"
             start()
@@ -648,11 +667,13 @@ class SummaryService : Service() {
                 } else {
                     getString(R.string.suggest_none)
                 }
+            failed -> getString(R.string.summary_failed_notif)
             else -> getString(R.string.summary_done_notif)
         }
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_sparkle)
             .setContentTitle(title)
+            .setContentText(if (failed && currentMode == MODE_SUMMARY) lastFailure else null)
             .setAutoCancel(true)
             .setSilent(true)
             .setContentIntent(openMeetingIntent(meetingId, 7))
@@ -809,6 +830,14 @@ class SummaryService : Service() {
          */
         @Volatile
         var lastStopped = false
+            internal set
+
+        /**
+         * Why the summary run observers were just told about failed, when it
+         * did; null otherwise. The meeting itself was left untouched.
+         */
+        @Volatile
+        var lastFailure: String? = null
             internal set
         private const val CHANNEL_ID = "summary"
         private const val NOTIF_ID = 50

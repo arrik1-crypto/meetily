@@ -28,6 +28,9 @@ object PromptShaping {
     const val MAP_MAX_CHUNKS = 12
     const val MAP_REPLY_TOKENS = 220
 
+    /** Placeholder for a section whose pass produced nothing. */
+    const val SECTION_UNAVAILABLE = "(section notes unavailable)"
+
     const val MAP_PROMPT =
         "You are condensing one section of a longer meeting transcript. " +
             "Write compact notes (up to 8 short bullets) capturing decisions, " +
@@ -130,9 +133,25 @@ object PromptShaping {
         return chunks
     }
 
-    /** The omission marker; public so tests can measure against it directly. */
+    /**
+     * The omission marker; public so tests can measure against it directly.
+     * Runtime-neutral, since network prompts are cut with it too.
+     */
     const val OMISSION_MARKER =
-        "\n…[middle of this section omitted to fit the on-device model]…\n"
+        "\n…[middle of this section omitted to fit the model's context]…\n"
+
+    /**
+     * [text] cut to about [maxChars] by dropping its MIDDLE, with the
+     * omission marker where the cut was. Unchanged when it already fits.
+     *
+     * The alternative this replaces was `take(maxChars)`, which keeps only
+     * the opening: on a long meeting the wrap-up — decisions, owners, next
+     * steps — was the part silently lost, and nothing told the model so.
+     * Pure; unit-tested.
+     */
+    fun excerpt(text: String, maxChars: Int): String =
+        if (text.length <= maxChars) text
+        else budgetMessages(listOf("user" to text), maxChars)[0].second
 
     /**
      * Shrinks messages to fit [charBudget]: the longest content loses its
@@ -219,7 +238,7 @@ object PromptShaping {
             }
             notes.append("\n--- Section ").append(index + 1).append(" ---\n")
             if (part.isBlank()) {
-                notes.append("(section notes unavailable)\n")
+                notes.append(SECTION_UNAVAILABLE).append('\n')
             } else {
                 notes.append(part).append('\n')
                 produced++

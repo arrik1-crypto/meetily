@@ -1,6 +1,7 @@
 package com.meetily.mobile.llm
 
 import android.content.Context
+import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -10,7 +11,12 @@ data class LocalLlmModel(
     val displayName: String,
     val fileName: String,
     val url: String,
-    val sizeMb: Int
+    val sizeMb: Int,
+    /**
+     * Pinned SHA-256 of the file, when known. Null skips only the hash
+     * comparison; the length check in [ModelIntegrity.verify] still runs.
+     */
+    val sha256: String? = null
 )
 
 /** GGUF chat models for the embedded llama.cpp engine (filesDir/llm-models). */
@@ -165,6 +171,8 @@ object LocalLlmModels {
                 throw RuntimeException("HTTP $status while downloading model")
             }
             val total = connection.contentLengthLong
+            val digest = ModelIntegrity.newDigest()
+            var received = 0L
             connection.inputStream.use { input ->
                 partial.outputStream().use { output ->
                     val buffer = ByteArray(256 * 1024)
@@ -177,6 +185,7 @@ object LocalLlmModels {
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)
+                        digest.update(buffer, 0, n)
                         read += n
                         if (total > 0) {
                             val percent = ((read * 100) / total).toInt()
@@ -186,8 +195,12 @@ object LocalLlmModels {
                             }
                         }
                     }
+                    received = read
                 }
             }
+            // Before the rename: a file that fails here never reaches the
+            // native loader.
+            ModelIntegrity.verify(model.fileName, received, total, model.sha256, digest)
             if (!partial.renameTo(target)) {
                 partial.copyTo(target, overwrite = true)
                 partial.delete()

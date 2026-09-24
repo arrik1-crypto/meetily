@@ -1,6 +1,7 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
 import java.net.HttpURLConnection
 import java.net.URL
@@ -9,7 +10,9 @@ data class DiarizationModel(
     val key: String,
     val displayName: String,
     val fileName: String,
-    val approxSizeMb: Int
+    val approxSizeMb: Int,
+    /** Pinned SHA-256, when known; see [ModelIntegrity.verify]. */
+    val sha256: String? = null
 ) {
     val url: String
         get() = "https://github.com/k2-fsa/sherpa-onnx/releases/download/" +
@@ -98,6 +101,8 @@ object DiarizationModels {
                 throw RuntimeException("HTTP $status while downloading model")
             }
             val total = connection.contentLengthLong
+            val digest = ModelIntegrity.newDigest()
+            var received = 0L
             connection.inputStream.use { input ->
                 partial.outputStream().use { output ->
                     val buffer = ByteArray(256 * 1024)
@@ -110,6 +115,7 @@ object DiarizationModels {
                         val n = input.read(buffer)
                         if (n < 0) break
                         output.write(buffer, 0, n)
+                        digest.update(buffer, 0, n)
                         read += n
                         if (total > 0) {
                             val percent = ((read * 100) / total).toInt()
@@ -119,8 +125,12 @@ object DiarizationModels {
                             }
                         }
                     }
+                    received = read
                 }
             }
+            // Before the rename: a file that fails here never reaches the
+            // native loader.
+            ModelIntegrity.verify(model.fileName, received, total, model.sha256, digest)
             if (!partial.renameTo(target)) {
                 partial.copyTo(target, overwrite = true)
                 partial.delete()

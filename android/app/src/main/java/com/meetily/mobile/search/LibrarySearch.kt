@@ -26,11 +26,78 @@ object LibrarySearch {
         "meetings", "discuss", "discussed", "talk", "talked", "say", "said"
     )
 
-    fun tokenize(question: String): List<String> =
-        question.lowercase()
-            .split(Regex("[^\\p{L}\\p{N}]+"))
-            .filter { it.length > 2 && it !in STOPWORDS }
-            .distinct()
+    /** Common question words that would otherwise match nearly every meeting. */
+    private val CJK_STOPWORDS = setOf(
+        "什么", "关于", "上次", "会议", "我们", "他们", "怎么", "这个", "那个", "时候",
+        "会議", "何を", "前回"
+    )
+
+    private val NON_WORD = Regex("[^\\p{L}\\p{N}]+")
+
+    /**
+     * Search terms in [question].
+     *
+     * Chinese, Japanese and Thai are written without spaces, so splitting on
+     * non-letters left a whole question as one long token that no meeting
+     * contains word for word — and dropped two-character words like 预算
+     * (budget) outright as "short". Runs in those scripts become overlapping
+     * character bigrams instead, which substring-match the way words do.
+     * Hangul is spaced, but its words are often two syllables, so they keep
+     * a two-character minimum.
+     */
+    fun tokenize(question: String): List<String> {
+        val out = mutableListOf<String>()
+        for (token in question.lowercase().split(NON_WORD)) {
+            var i = 0
+            while (i < token.length) {
+                val unspaced = isUnspaced(token.codePointAt(i))
+                var j = i
+                while (j < token.length && isUnspaced(token.codePointAt(j)) == unspaced) {
+                    j += Character.charCount(token.codePointAt(j))
+                }
+                val run = token.substring(i, j)
+                if (unspaced) {
+                    addBigrams(run, out)
+                } else {
+                    val min = if (isHangul(run.codePointAt(0))) 2 else 3
+                    if (run.length >= min && run !in STOPWORDS) out.add(run)
+                }
+                i = j
+            }
+        }
+        return out.distinct()
+    }
+
+    private fun addBigrams(run: String, out: MutableList<String>) {
+        val points = run.codePoints().toArray()
+        if (points.size == 1) {
+            out.add(run)
+            return
+        }
+        // Pure-hiragana pairs inside mixed Japanese are mostly grammar
+        // (particles, verb endings) and would match every Japanese meeting.
+        val mixed = points.any { !isHiragana(it) }
+        for (k in 0 until points.size - 1) {
+            if (mixed && isHiragana(points[k]) && isHiragana(points[k + 1])) continue
+            val gram = String(points, k, 2)
+            if (gram !in CJK_STOPWORDS) out.add(gram)
+        }
+    }
+
+    private fun isUnspaced(codePoint: Int): Boolean =
+        when (Character.UnicodeScript.of(codePoint)) {
+            Character.UnicodeScript.HAN,
+            Character.UnicodeScript.HIRAGANA,
+            Character.UnicodeScript.KATAKANA,
+            Character.UnicodeScript.THAI -> true
+            else -> false
+        }
+
+    private fun isHiragana(codePoint: Int): Boolean =
+        Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HIRAGANA
+
+    private fun isHangul(codePoint: Int): Boolean =
+        Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HANGUL
 
     fun search(
         meetings: List<Meeting>,

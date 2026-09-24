@@ -88,16 +88,19 @@ class AskLibraryActivity : AppCompatActivity() {
                     val blocks = hits.map { hit ->
                         val m = hit.meeting
                         val label = "${m.title} — ${dateFormat.format(Date(m.createdAtMs))}"
+                        // Matching moments first: on-device each block is cut
+                        // to a small share of the window from its head, and
+                        // the lines that matched the question matter most.
                         val content = buildString {
-                            if (m.summary.isNotBlank()) {
-                                append("Summary:\n").append(m.summary).append("\n\n")
-                            }
                             if (hit.excerpts.isNotEmpty()) {
                                 append("Matching moments:\n")
                                 for (excerpt in hit.excerpts) {
                                     append("- ").append(excerpt).append("\n")
                                 }
                                 append("\n")
+                            }
+                            if (m.summary.isNotBlank()) {
+                                append("Summary:\n").append(m.summary).append("\n\n")
                             }
                             append("Transcript:\n")
                             append(m.transcriptTextWithSpeakers())

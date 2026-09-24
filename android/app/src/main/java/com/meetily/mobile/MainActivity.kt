@@ -181,6 +181,7 @@ class MainActivity : AppCompatActivity() {
                     notesMode -> getString(R.string.notes_done_notif)
                     speakersMode && failed -> getString(R.string.speakers_failed_notif)
                     speakersMode -> getString(R.string.speakers_done_notif)
+                    failed -> getString(R.string.summary_failed_notif)
                     title.isBlank() -> getString(R.string.summary_ready_plain)
                     else -> getString(R.string.summary_ready_toast, title)
                 },

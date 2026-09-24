@@ -39,10 +39,16 @@ class PinnedAddressSocketFactory(
     override fun getSupportedCipherSuites(): Array<String> = delegate.supportedCipherSuites
 
     /**
-     * The one HttpsURLConnection actually calls. [host] is the hostname from
-     * the URL; it is passed through to the delegate so SNI and the default
-     * hostname verifier see the real name, while the bytes go to a vetted
-     * address.
+     * Connect-and-wrap path, for a client that asks the factory to connect.
+     * [host] is the hostname from the URL; it is passed through to the
+     * delegate so SNI and the default hostname verifier see the real name,
+     * while the bytes go to a vetted address.
+     *
+     * Android's HttpsURLConnection does NOT take this path: it connects its
+     * own raw socket and layers TLS on it through the overload below, so
+     * that check is the one enforcing the address there. The caller opens
+     * constrained connections with Proxy.NO_PROXY, so that raw socket goes
+     * straight to the endpoint rather than to a proxy.
      */
     override fun createSocket(host: String, port: Int): Socket {
         val plain = Socket()
@@ -78,7 +84,7 @@ class PinnedAddressSocketFactory(
     /**
      * Layering onto a socket somebody else connected: that socket's address
      * was never vetted, so it is only allowed through if it happens to be one
-     * of ours.
+     * of ours. On Android this is where the pin is enforced (see above).
      */
     override fun createSocket(
         socket: Socket,
@@ -88,8 +94,13 @@ class PinnedAddressSocketFactory(
     ): Socket {
         val remote = socket.inetAddress
         if (remote == null || allowed.none { it == remote }) {
+            // Name both ends: a mismatch is more often a VPN or proxy in the
+            // way than an attack, and the user needs to be able to tell.
+            val actual = remote?.hostAddress ?: "an unknown address"
+            val checked = allowed.joinToString { it.hostAddress ?: it.toString() }
             throw EndpointGuard.BlockedEndpointException(
-                "Refusing to send to an address that was not the one checked."
+                "Refusing to send: connected to $actual, not the checked " +
+                    "address ($checked). Nothing was sent."
             )
         }
         return delegate.createSocket(socket, host, port, autoClose)

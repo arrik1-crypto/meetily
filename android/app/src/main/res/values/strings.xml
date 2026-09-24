@@ -454,6 +454,13 @@
     <string name="digest_unassigned">Unassigned</string>
     <string name="digest_llm_failed">AI digest unavailable — showing the offline version.</string>
     <string name="share_digest">Share digest</string>
+    <string name="digest_llm_busy">Showing the offline digest — the AI digest can run once the current recording, import or summary finishes.</string>
+
+    <!-- AI failures that leave existing content untouched -->
+    <string name="summary_failed_notif">Summary not updated</string>
+    <string name="summary_failed_kept">Couldn\'t generate a new summary (%1$s). Your previous summary and action items were kept.</string>
+    <string name="summary_save_failed">the summary could not be saved</string>
+    <string name="brief_failed">Couldn\'t generate the brief (%1$s).</string>
 
     <!-- Nocturne chrome -->
     <string name="on_device">🔒 On device</string>
