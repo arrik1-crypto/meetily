@@ -2582,7 +2582,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         // Whisper size agrees with the first pass about most of what it gets
         // wrong, and file size says nothing about speed.
         val ranked = com.meetily.mobile.whisper.TranscriptionModels
-            .rankedForCheck(this, m.transcriptModel)
+            .rankedForCheck(
+                this, m.transcriptModel, m.segments.take(60).joinToString(" ") { it.text }
+            )
             .ifEmpty { downloaded }
         // The cross-family pick is only the RECOMMENDATION. The picker gets
         // everything downloaded — see allForCheck.

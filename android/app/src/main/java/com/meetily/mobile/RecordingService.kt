@@ -523,8 +523,9 @@ class RecordingService : Service() {
             // rule then removed Parakeet precisely because it made the
             // transcript — handing an unattended pass to the slowest model
             // installed.
+            // Some of the words, as the only hint of the meeting's language.
             val ranked = com.meetily.mobile.whisper.TranscriptionModels
-                .rankedForCheck(this, current)
+                .rankedForCheck(this, current, segments.take(60).joinToString(" ") { it.text })
             if (ranked.isEmpty()) return
             // How long the audio is, so the choice can account for it.
             val audioMs = segments.lastOrNull()?.audioMs ?: elapsedMs()
@@ -828,22 +829,30 @@ class RecordingService : Service() {
             val c = SpeakerClusterer()
             clusterer = c
             if (profiles != null) voiceProfiles = profiles
-            // Voiceprint rollover runs on the labeler's first call:
-            // that's the transcription worker thread (the embedder's
-            // normal home, so no lifecycle races) rather than the
-            // service start path, and its main.post lands before the
-            // first segment posts — so even the opening sentence is
-            // matched against the converted profiles.
-            val rolled = java.util.concurrent.atomic.AtomicBoolean(false)
+            // Voiceprint rollover gets its own thread. Run inline in the
+            // first labeler call it held back every transcript line until
+            // each stale profile was re-embedded. embed() is serialised
+            // against release(), so sharing the embedder is safe; a
+            // cluster that first speaks before this lands is matched again
+            // on its next line, since matching retries unnamed clusters.
+            Thread {
+                val updated = VoiceProfileStore.reembedForModel(
+                    this, dModel.key, cancelled = { !active }
+                ) { created.embed(it) }
+                main.post { if (active && meetingId == session) voiceProfiles = updated }
+            }.apply {
+                name = "voiceprint-rollover"
+                start()
+            }
             labeler = { audio ->
-                if (rolled.compareAndSet(false, true)) {
-                    val updated = VoiceProfileStore.reembedForModel(
-                        this, dModel.key
-                    ) { created.embed(it) }
-                    main.post { if (active) voiceProfiles = updated }
-                }
                 c.assign(
-                    if (audio.size >= MIN_EMBED_SAMPLES) created.embed(audio) else null
+                    if (audio.size >= MIN_EMBED_SAMPLES) {
+                        created.embed(
+                            com.meetily.mobile.whisper.EmbedWindow.centre(
+                                audio, com.meetily.mobile.whisper.EmbedWindow.MAX_CHUNK_SAMPLES
+                            )
+                        )
+                    } else null
                 )
             }
         }
@@ -1101,7 +1110,9 @@ class RecordingService : Service() {
         } catch (_: Exception) {
         }
         mediaProjection = null
-        embedder?.release()
+        // Off the main thread: release() waits for an in-flight embed,
+        // which for a voiceprint rollover can be seconds.
+        embedder?.let { e -> Thread { e.release() }.start() }
         embedder = null
         clusterer = null
         // Finalize the audio file off the main thread; ADTS stays playable

@@ -31,6 +31,26 @@ class ImportActivity : AppCompatActivity() {
     private var bound = false
     private var opened = false
 
+    /**
+     * Whether THIS screen started or bound to a run. Until it has, Cancel
+     * must not message ImportService: the service may be busy with another
+     * import or a check — the job this file is waiting behind.
+     */
+    private var startedRun = false
+
+    /** Set by Cancel before any run started; the queue copy polls it. */
+    @Volatile private var abandoned = false
+
+    /**
+     * Handed to the service or the queue. Saved, so a re-created screen
+     * knows whether the pre-start steps (permission, probe, model picker)
+     * still have to run — see onCreate.
+     */
+    private var started = false
+
+    /** The notification-permission dialog is up; its result is still due. */
+    private var awaitingPermission = false
+
     private val observer = object : ImportService.Observer {
         override fun onImportProgress(meetingId: String?, percent: Int, detail: String) {
             if (isFinishing || isDestroyed) return
@@ -49,7 +69,11 @@ class ImportActivity : AppCompatActivity() {
         ) {
             if (isFinishing || isDestroyed) return
             when {
-                meetingId != null && ImportService.isRecheck -> {
+                // A first transcript is anchored to its meeting like a check
+                // but writes straight into it: there is no draft to review,
+                // and the meeting is what the user wants to see.
+                meetingId != null && ImportService.isRecheck &&
+                    !ImportService.isFirstTranscript -> {
                     // A cancelled or partial check left the stored transcript
                     // alone and threw its draft away — nothing to review.
                     if (wasCancelled || warning != null) {
@@ -116,15 +140,28 @@ class ImportActivity : AppCompatActivity() {
         progress = findViewById(R.id.importProgress)
         fileNameView = findViewById(R.id.importFileName)
         findViewById<android.view.View>(R.id.importCancelButton).setOnClickListener {
-            service?.requestCancel()
-                ?: startService(
+            val svc = service
+            when {
+                svc != null -> svc.requestCancel()
+                // Started but not bound yet: the running job is ours.
+                startedRun -> startService(
                     Intent(this, ImportService::class.java).setAction(ImportService.ACTION_CANCEL)
                 )
+                else -> {
+                    // Still probing, choosing or copying to the queue: drop
+                    // this file only.
+                    abandoned = true
+                    finish()
+                    return@setOnClickListener
+                }
+            }
             statusView.text = getString(R.string.import_stopping)
         }
 
         // The same progress screen backs an accuracy check; say which it is.
-        if (ImportService.isRunning && ImportService.isRecheck) {
+        if (ImportService.isRunning && ImportService.isRecheck &&
+            !ImportService.isFirstTranscript
+        ) {
             findViewById<MaterialToolbar>(R.id.importToolbar).title =
                 getString(R.string.check_accuracy_title)
         }
@@ -137,6 +174,22 @@ class ImportActivity : AppCompatActivity() {
         // rotation is not a trigger, but scheduled dark-theme switching at
         // sunset is, along with font or display-size changes, locale changes
         // and a process-death restore during a long import.
+        //
+        // That holds only once the file was handed on. Re-created BEFORE
+        // that — permission dialog, probe or model picker still pending —
+        // the old instance's pending work died with it, and treating the
+        // new one as an observer dropped the share with "couldn't read that
+        // file as audio". Those phases simply run again instead.
+        val handedOn = savedInstanceState?.getBoolean(STATE_STARTED, true) ?: false
+        if (uri != null && savedInstanceState != null && !handedOn) {
+            if (savedInstanceState.getBoolean(STATE_QUEUEING, false)) {
+                // The old instance's copy thread carries on and reports.
+                finish()
+                return
+            }
+            resumePreStart(uri, savedInstanceState.getBoolean(STATE_AWAITING_PERMISSION, false))
+            return
+        }
         if (uri == null || savedInstanceState != null) {
             // Reopened from the progress notification, or re-created: observe.
             if (ImportService.isRunning) {
@@ -144,13 +197,34 @@ class ImportActivity : AppCompatActivity() {
                     Intent(this, ImportService::class.java), connection, Context.BIND_AUTO_CREATE
                 )
                 bound = true
+                startedRun = true
+                started = true
             } else {
                 Toast.makeText(this, R.string.import_no_audio, Toast.LENGTH_LONG).show()
                 finish()
             }
             return
         }
+        resumePreStart(uri, permissionRequested = false)
+    }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_STARTED, started && !queueing)
+        outState.putBoolean(STATE_QUEUEING, queueing)
+        outState.putBoolean(STATE_AWAITING_PERMISSION, awaitingPermission)
+    }
+
+    /** Copying into the queue; nothing was handed to the service. */
+    private var queueing = false
+
+    /**
+     * Everything before the file is handed on. [permissionRequested]: the
+     * dialog was already launched by a previous instance, whose result the
+     * activity-result registry delivers to this one — asking again would
+     * show it twice.
+     */
+    private fun resumePreStart(uri: Uri, permissionRequested: Boolean) {
         val downloaded =
             com.meetily.mobile.whisper.TranscriptionModels.downloadedKeys(this)
         val whisperReady = downloaded.isNotEmpty()
@@ -179,7 +253,10 @@ class ImportActivity : AppCompatActivity() {
             ) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
             pendingStart = { beginImport(uri, downloaded) }
-            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            awaitingPermission = true
+            if (!permissionRequested) {
+                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
             return
         }
         beginImport(uri, downloaded)
@@ -196,6 +273,7 @@ class ImportActivity : AppCompatActivity() {
             // a visible notification, exactly as the record path behaves.
             val start = pendingStart
             pendingStart = null
+            awaitingPermission = false
             if (!isFinishing && !isDestroyed) start?.invoke()
         }
 
@@ -268,24 +346,40 @@ class ImportActivity : AppCompatActivity() {
      * model they chose for it.
      */
     private fun startImport(uri: Uri, name: String, modelKey: String) {
-        val queued = JobGate.requestImport(this, uri, name, modelKey) { result ->
+        if (abandoned) return
+        started = true
+        val queued = JobGate.requestImport(
+            this, uri, name, modelKey, cancelled = { abandoned }
+        ) { result ->
+            queueing = false
             when (result) {
-                ImportQueue.Result.QUEUED -> Toast.makeText(
-                    this, getString(R.string.import_queued, name), Toast.LENGTH_LONG
-                ).show()
+                ImportQueue.Result.QUEUED -> {
+                    Toast.makeText(
+                        this, getString(R.string.import_queued, name), Toast.LENGTH_LONG
+                    ).show()
+                    // The job it was waiting on may have finished during the
+                    // copy, and that job's own drain found an empty queue.
+                    // Nothing else would start this until Recap is next
+                    // opened; the share returns the user to another app.
+                    JobGate.drain(applicationContext)
+                }
                 ImportQueue.Result.TOO_MANY -> Toast.makeText(
                     this, R.string.import_queue_full, Toast.LENGTH_LONG
                 ).show()
                 ImportQueue.Result.FAILED -> Toast.makeText(
                     this, R.string.import_queue_failed, Toast.LENGTH_LONG
                 ).show()
+                // The user dropped it; nothing to say.
+                ImportQueue.Result.CANCELLED -> Unit
             }
             finish()
         }
         if (queued) {
+            queueing = true
             statusView.text = getString(R.string.import_queueing)
             return
         }
+        startedRun = true
         val start = Intent(this, ImportService::class.java)
             .setAction(ImportService.ACTION_START)
             .setData(uri)
@@ -365,6 +459,12 @@ class ImportActivity : AppCompatActivity() {
                 .putExtra(TranscriptCheckActivity.EXTRA_MEETING_ID, meetingId)
         )
         finish()
+    }
+
+    private companion object {
+        const val STATE_STARTED = "import_started"
+        const val STATE_QUEUEING = "import_queueing"
+        const val STATE_AWAITING_PERMISSION = "import_awaiting_permission"
     }
 
     override fun onDestroy() {

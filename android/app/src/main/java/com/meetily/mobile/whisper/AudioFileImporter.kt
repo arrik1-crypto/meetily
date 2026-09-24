@@ -236,6 +236,7 @@ class AudioFileImporter(
         // Set by the first persist(). The end-of-run re-anchor below must not
         // move timestamps that are already on disk.
         var persisted = false
+        var lastPersistAt = 0L
 
         /**
          * Where transcribed segments land. A normal import owns its meeting
@@ -244,6 +245,7 @@ class AudioFileImporter(
          */
         fun persist(complete: Boolean) {
             persisted = true
+            lastPersistAt = android.os.SystemClock.elapsedRealtime()
             if (stageOnly) {
                 TranscriptDraft.save(
                     context, meeting.id, selectedKey, meeting.segments, complete
@@ -256,6 +258,21 @@ class AudioFileImporter(
             }
         }
 
+        /**
+         * Mid-run save, throttled. Every save rewrites (and for a meeting,
+         * re-reads) the whole transcript, so saving per batch made the IO of a
+         * long run grow with the square of its length — on NeMo, every few
+         * seconds of audio. The first batch still lands at once so the
+         * meeting shows words early; completion, cancel and failure always
+         * save, so only a hard process kill can lose one interval.
+         */
+        fun persistProgress() {
+            if (persisted &&
+                android.os.SystemClock.elapsedRealtime() - lastPersistAt < PERSIST_INTERVAL_MS
+            ) return
+            persist(complete = false)
+        }
+
         if (recheck) {
             meeting.audioFile = recheckTarget?.audioFile
         } else {
@@ -264,8 +281,10 @@ class AudioFileImporter(
             // runs from this copy: the caller's content-URI grant can be
             // revoked once the sharing activity goes away, but our own file
             // cannot.
+            // Built outside the try (it is only a path) so a copy that dies
+            // part-way can be removed: nothing else ever points at it.
+            val audioCopy = AudioStore.newImportFile(context, meeting.id, sourceName)
             try {
-                val audioCopy = AudioStore.newImportFile(context, meeting.id, sourceName)
                 val staged = adoptFile?.let { AudioStore.fileFor(context, it) }
                 if (staged != null && staged.length() > 0 && staged.renameTo(audioCopy)) {
                     // Queued import: the bytes are already ours.
@@ -281,6 +300,7 @@ class AudioFileImporter(
                     }
                 }
             } catch (_: Exception) {
+                if (meeting.audioFile == null) audioCopy.delete()
                 meeting.audioFile = null
             }
         }
@@ -305,7 +325,10 @@ class AudioFileImporter(
         }
 
         // Chunker state (same splitting rules as live recording).
-        var chunk = FloatArray(0)
+        // Allocated once and filled in place: growing a fresh array per 100 ms
+        // frame copied the whole chunk every time, quadratic in its length.
+        val chunk = FloatArray((maxChunkSec * sampleRate).toInt() + frameSize)
+        var chunkLen = 0
         var silenceRun = 0f
         var chunkPeakRms = 0f
         var consumedSamples = 0L
@@ -325,7 +348,11 @@ class AudioFileImporter(
             val c = clusterer
             val e = embedder
             if (c != null && e != null) {
-                c.assign(if (audio.size >= MIN_EMBED_SAMPLES) e.embed(audio) else null)
+                c.assign(
+                    if (audio.size >= MIN_EMBED_SAMPLES) {
+                        e.embed(EmbedWindow.centre(audio, EmbedWindow.MAX_CHUNK_SAMPLES))
+                    } else null
+                )
             } else {
                 null
             }
@@ -393,7 +420,8 @@ class AudioFileImporter(
          * away for it. Word timings put the per-chunk segments back together.
          */
         fun flushBatch() {
-            if (batch.isEmpty()) return
+            // After a cancel a batch is a whole encoder window nobody wants.
+            if (batch.isEmpty() || cancelled()) return
             val parts = batch.toList()
             batch.clear()
             batchSamples = 0
@@ -456,11 +484,14 @@ class AudioFileImporter(
                     addSegment(plain, parts.first().startSample, emptyList(), parts.first().clusterId)
                 }
             }
-            persist(complete = false)
+            persistProgress()
             reportProgress()
         }
 
         fun transcribeChunk(audio: FloatArray, startSample: Long) {
+            // A cut can still fire from frames already in hand when the
+            // cancel lands; it must not start an embedding or engine call.
+            if (cancelled()) return
             val clusterId = clusterFor(audio)
             val engine = nemoEngine
             if (engine == null) {
@@ -482,16 +513,17 @@ class AudioFileImporter(
             }
             val (text, words) = engine.transcribe(padded) ?: ("" to emptyList())
             addSegment(text, startSample, words, clusterId)
-            persist(complete = false)
+            persistProgress()
             reportProgress()
         }
 
         fun cutChunk() {
-            if (chunk.isEmpty()) return
-            val audio = chunk
+            if (chunkLen == 0) return
+            // A copy: a Whisper batch holds on to it while the buffer refills.
+            val audio = chunk.copyOf(chunkLen)
             val peak = chunkPeakRms
             val start = chunkStartSample
-            chunk = FloatArray(0)
+            chunkLen = 0
             silenceRun = 0f
             chunkPeakRms = 0f
             chunkStartSample = consumedSamples
@@ -503,12 +535,11 @@ class AudioFileImporter(
             val rms = rmsOf(frame)
             chunkPeakRms = max(chunkPeakRms, rms)
             silenceRun = if (rms < silenceRms) silenceRun + 0.1f else 0f
-            if (chunk.isEmpty()) chunkStartSample = consumedSamples
-            val grown = chunk.copyOf(chunk.size + frame.size)
-            System.arraycopy(frame, 0, grown, chunk.size, frame.size)
-            chunk = grown
+            if (chunkLen == 0) chunkStartSample = consumedSamples
+            System.arraycopy(frame, 0, chunk, chunkLen, frame.size)
+            chunkLen += frame.size
             consumedSamples += frame.size
-            val chunkSec = chunk.size.toFloat() / sampleRate
+            val chunkSec = chunkLen.toFloat() / sampleRate
             if ((chunkSec >= minChunkSec && silenceRun >= endSilenceSec) ||
                 chunkSec >= maxChunkSec
             ) {
@@ -560,9 +591,14 @@ class AudioFileImporter(
             // Cache the bars now the whole file has been through. Best
             // effort: the Audio tab still computes them itself if this did
             // not run — a cancelled import, or audio kept outside the app.
-            meeting.audioFile?.let { name ->
-                runCatching {
-                    com.meetily.mobile.data.Waveform.saveFrom(context, name, loudness)
+            // decode() returns normally on a cancel, so check here: a prefix
+            // would be stretched across the whole card, and on a recheck it
+            // would replace a correct sidecar.
+            if (!cancelled()) {
+                meeting.audioFile?.let { name ->
+                    runCatching {
+                        com.meetily.mobile.data.Waveform.saveFrom(context, name, loudness)
+                    }
                 }
             }
 
@@ -580,17 +616,19 @@ class AudioFileImporter(
                     meeting.segments[i] = s.copy(timestampMs = s.timestampMs + shift)
                 }
             }
-            if (pending.isNotEmpty()) {
-                onFrame(pending.copyOf(min(pending.size, frameSize)))
-                pending = FloatArray(0)
-            }
-            cutChunk()
             // Whatever is still batched has to go through before the run is
             // called complete, or the tail of every import is dropped. Not
-            // after a cancel though: a batch is a whole encoder window, so
-            // flushing one would keep the phone busy for a minute after the
-            // user asked it to stop.
-            if (!cancelled()) flushBatch()
+            // after a cancel though: the last chunk can force a whole encoder
+            // window (or a NeMo pass and an embedding), which would keep the
+            // phone busy long after the user or an unplug asked it to stop.
+            if (!cancelled()) {
+                if (pending.isNotEmpty()) {
+                    onFrame(pending.copyOf(min(pending.size, frameSize)))
+                    pending = FloatArray(0)
+                }
+                cutChunk()
+                flushBatch()
+            }
 
             // Fuse clusters the online pass kept apart, then persist.
             val remap = clusterer?.mergePass().orEmpty()
@@ -608,8 +646,10 @@ class AudioFileImporter(
             if (c != null) {
                 val e = embedder
                 val dk = diarizeKey
-                val profiles = if (dk != null && e != null) {
-                    VoiceProfileStore.reembedForModel(context, dk) { e.embed(it) }
+                // After a cancel, name from what is stored rather than spend
+                // a rollover's worth of embeddings the user asked not to wait on.
+                val profiles = if (dk != null && e != null && !cancelled()) {
+                    VoiceProfileStore.reembedForModel(context, dk, cancelled) { e.embed(it) }
                 } else {
                     VoiceProfileStore.load(context)
                 }
@@ -665,7 +705,11 @@ class AudioFileImporter(
             if (firstTranscript) {
                 // Never delete the recording or its audio here: unlike an
                 // import, this meeting existed before the run and the audio
-                // is irreplaceable.
+                // is irreplaceable. Keep the words reached, including any the
+                // throttled mid-run save had not written yet.
+                if (meeting.segments.isNotEmpty()) {
+                    runCatching { store.saveTranscription(meeting) }
+                }
                 throw ImportException(e.message ?: "decode failed")
             }
             if (meeting.segments.isEmpty()) {
@@ -708,6 +752,9 @@ class AudioFileImporter(
 
     companion object {
         private const val MIN_EMBED_SAMPLES = 24_000 // 1.5 s at 16 kHz
+
+        /** Least time between mid-run transcript saves. */
+        private const val PERSIST_INTERVAL_MS = 30_000L
 
         /**
          * One Whisper encoder window, less a margin. Whisper's analysis

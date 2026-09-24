@@ -154,10 +154,11 @@ object JobGate {
         uri: android.net.Uri,
         sourceName: String,
         modelKey: String,
+        cancelled: () -> Boolean = { false },
         onQueued: (ImportQueue.Result) -> Unit
     ): Boolean {
         if (canStartBatch()) return false
-        ImportQueue.stageAndQueue(context, uri, sourceName, modelKey, onQueued)
+        ImportQueue.stageAndQueue(context, uri, sourceName, modelKey, cancelled, onQueued)
         return true
     }
 
