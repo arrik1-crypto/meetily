@@ -6,6 +6,8 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.sqrt
@@ -103,7 +105,51 @@ class WhisperRecorder(
     /** Ordering guard shared by finish()/destroy(); see [TeardownGate]. */
     private val gate = TeardownGate()
     @Volatile private var contextPtr = 0L
-    @Volatile private var pendingJobs = 0
+
+    /**
+     * Publishing [contextPtr] after a load and taking it back in
+     * [releaseNative] are one critical section. Without it a teardown that
+     * ran while a model was still loading found nothing to free and marked
+     * the gate released, and the pointer the load then stored — hundreds of
+     * MB of native heap — was never freed by anyone.
+     */
+    private val nativeLock = Any()
+
+    // Incremented on the audio thread and decremented on the transcriber, so
+    // it has to be atomic: a lost increment left the count stuck above zero
+    // and the status on "Processing" for the rest of the meeting.
+    private val pendingJobs = AtomicInteger(0)
+
+    /** Samples handed to the transcriber and not yet decoded. */
+    private val queuedSamples = AtomicLong(0L)
+
+    /**
+     * Live transcription cannot be allowed to fall arbitrarily far behind:
+     * every queued chunk is a FloatArray on the Java heap (64 KB a second),
+     * and a model slower than realtime grows that for the whole meeting until
+     * the process runs out of memory. When the audio is being kept, the words
+     * are not lost by stopping — the saved file is transcribed afterwards —
+     * so the cap is short. When it is not, dropping a chunk loses its words
+     * for good, so the cap only has to keep the heap safe.
+     */
+    private val maxQueuedSamples =
+        (if (frameSink != null) BACKLOG_CAP_KEPT_SEC else BACKLOG_CAP_UNKEPT_SEC) * sampleRate
+
+    /**
+     * Set once a chunk was dropped because the transcriber could not keep up.
+     * Read by the service to decide whether the live transcript is complete.
+     */
+    @Volatile var fellBehind = false
+        private set
+
+    /**
+     * True when live transcription has stopped for good because it fell
+     * behind and the saved audio will be transcribed instead.
+     */
+    val liveSuspended: Boolean get() = fellBehind && frameSink != null
+
+    /** Queued chunks are skipped rather than decoded; see [abandonBacklog]. */
+    @Volatile private var abandoned = false
     // Live capture is realtime and its input is unrecoverable if it falls
     // behind, so it is sized first and never yields to batch work.
     private val nThreads = com.meetily.mobile.data.HeavyWork.recordingThreads()
@@ -127,13 +173,31 @@ class WhisperRecorder(
                     running = false
                     return@Thread
                 }
-                contextPtr = WhisperBridge.initContext(modelPath)
-                if (contextPtr == 0L) {
+                val ptr = WhisperBridge.initContext(modelPath)
+                // Loading takes seconds, and teardown may have run meanwhile.
+                // If it did, nobody will ever free a pointer stored now, so
+                // this thread frees it itself and stops before opening any
+                // capture (in device-audio mode, a fresh MediaProjection).
+                val published = synchronized(nativeLock) {
+                    if (gate.isClaimed || !running) {
+                        false
+                    } else {
+                        contextPtr = ptr
+                        true
+                    }
+                }
+                if (!published) {
+                    if (ptr != 0L) WhisperBridge.freeContext(ptr)
+                    running = false
+                    return@Thread
+                }
+                if (ptr == 0L) {
                     onError("Could not load the Whisper model")
                     running = false
                     return@Thread
                 }
             }
+            if (!running) return@Thread
 
             val minBuffer = AudioRecord.getMinBufferSize(
                 sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT
@@ -163,6 +227,11 @@ class WhisperRecorder(
                 onError("Microphone unavailable")
                 record.release()
                 running = false
+                return@Thread
+            }
+            if (!running) {
+                // Stopped while the source was being opened.
+                record.release()
                 return@Thread
             }
             if (preferredDevice != null && recordFactory == null) {
@@ -268,12 +337,21 @@ class WhisperRecorder(
         // A chunk can reach here just as teardown shuts the executor down —
         // submitting then throws RejectedExecutionException on the audio
         // thread and takes the process with it. Drop it instead.
-        if (gate.isClaimed) return
-        pendingJobs++
+        if (gate.isClaimed || abandoned) return
+        // Once live has been given up in favour of the saved audio, further
+        // chunks would only be decoded to be replaced.
+        if (liveSuspended) return
+        if (queuedSamples.get() + audio.size > maxQueuedSamples) {
+            fellBehind = true
+            return
+        }
+        queuedSamples.addAndGet(audio.size.toLong())
+        pendingJobs.incrementAndGet()
         onProcessingChange(true)
         try {
             transcriber.execute {
                 try {
+                    if (abandoned) return@execute
                     val padded = if (audio.size < sampleRate * 12 / 10) {
                         audio.copyOf(sampleRate * 12 / 10)
                     } else {
@@ -315,15 +393,26 @@ class WhisperRecorder(
                 } catch (e: Throwable) {
                     onError("Transcription failed: ${e.message}")
                 } finally {
-                    pendingJobs--
-                    if (pendingJobs <= 0) onProcessingChange(false)
+                    queuedSamples.addAndGet(-audio.size.toLong())
+                    if (pendingJobs.decrementAndGet() <= 0) onProcessingChange(false)
                 }
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // Teardown won the race; this chunk is not transcribed.
-            pendingJobs--
-            if (pendingJobs <= 0) onProcessingChange(false)
+            queuedSamples.addAndGet(-audio.size.toLong())
+            if (pendingJobs.decrementAndGet() <= 0) onProcessingChange(false)
         }
+    }
+
+    /**
+     * Skips every chunk still waiting to be transcribed (the one decoding now
+     * finishes). For when the saved audio is going to be transcribed anyway,
+     * so decoding the backlog would only burn minutes of CPU — after the
+     * meeting, without a foreground service — on words that get replaced.
+     * The finish/destroy ordering is unchanged: the queued release still runs.
+     */
+    fun abandonBacklog() {
+        abandoned = true
     }
 
     /** Plain-language cause for a negative AudioRecord.read return. */
@@ -417,8 +506,11 @@ class WhisperRecorder(
      * transcription that is still using the context.
      */
     private fun releaseNative() = gate.releaseOnce {
-        val ptr = contextPtr
-        contextPtr = 0L
+        val ptr = synchronized(nativeLock) {
+            val current = contextPtr
+            contextPtr = 0L
+            current
+        }
         if (ptr != 0L) WhisperBridge.freeContext(ptr)
         try {
             nemoEngine?.release()
@@ -433,5 +525,13 @@ class WhisperRecorder(
             sum += buffer[i] * buffer[i]
         }
         return sqrt(sum / max(1, count)).toFloat()
+    }
+
+    private companion object {
+        /** Live backlog cap, in seconds of audio, when the audio is kept. */
+        const val BACKLOG_CAP_KEPT_SEC = 90L
+
+        /** Heap safety cap (~38 MB of floats) when nothing else has the audio. */
+        const val BACKLOG_CAP_UNKEPT_SEC = 600L
     }
 }

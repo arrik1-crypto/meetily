@@ -95,12 +95,52 @@ class MeetingStore(context: Context) {
         return AtomicJson.exclusive {
             val onDisk = load(meeting.id)
             if (onDisk == null) {
+                HighlightMarks.apply(meeting.segments, meeting.highlightMarksMs)
                 return@exclusive save(meeting)
             }
             onDisk.segments.clear()
             onDisk.segments.addAll(meeting.segments)
             onDisk.audioFile = meeting.audioFile
             onDisk.transcriptModel = meeting.transcriptModel
+            // Highlights tapped while an audio-only recording had no lines to
+            // star land on the lines this pass just produced.
+            HighlightMarks.apply(onDisk.segments, onDisk.highlightMarksMs)
+            save(onDisk)
+        }
+    }
+
+    /**
+     * The live recording's periodic snapshot, merged onto the stored copy.
+     *
+     * The meeting is in the library while it records, and can be starred,
+     * tagged, summarised or given a photo or attachment from there. A plain
+     * [save] of the service's snapshot reset all of that every few seconds,
+     * because the service only knows its own fields. So only what the
+     * recording owns is written: the transcript, audio file, model and
+     * highlight marks always; title, notes and attendees only when they were
+     * changed through the recording screen since the last snapshot. Photos
+     * are a union, so one added from the meeting screen keeps its reference.
+     */
+    fun saveRecordingSnapshot(
+        snapshot: Meeting,
+        withTitle: Boolean,
+        withNotes: Boolean,
+        withAttendees: Boolean
+    ): Boolean {
+        return AtomicJson.exclusive {
+            val onDisk = load(snapshot.id) ?: return@exclusive save(snapshot)
+            onDisk.segments.clear()
+            onDisk.segments.addAll(snapshot.segments)
+            onDisk.audioFile = snapshot.audioFile
+            onDisk.transcriptModel = snapshot.transcriptModel
+            onDisk.highlightMarksMs.clear()
+            onDisk.highlightMarksMs.addAll(snapshot.highlightMarksMs)
+            if (withTitle) onDisk.title = snapshot.title
+            if (withNotes) onDisk.notes = snapshot.notes
+            if (withAttendees) onDisk.attendees = snapshot.attendees.toMutableList()
+            for (photo in snapshot.photos) {
+                if (photo !in onDisk.photos) onDisk.photos.add(photo)
+            }
             save(onDisk)
         }
     }

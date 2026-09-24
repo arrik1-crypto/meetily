@@ -111,7 +111,13 @@ data class Meeting(
      * deleted, event retitled, provider wiped, phone migrated — this still
      * renders, because rendering never touches a ContentResolver.
      */
-    var followsEvent: FollowsEvent? = null
+    var followsEvent: FollowsEvent? = null,
+    /**
+     * Highlight taps from an audio-only recording, as offsets (ms) into its
+     * audio. Nothing was transcribed yet to star, so the first transcript
+     * stars the line each mark falls in; see HighlightMarks.
+     */
+    val highlightMarksMs: MutableList<Long> = mutableListOf()
 ) {
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
@@ -214,6 +220,11 @@ data class Meeting(
         }
         if (summaryStale) {
             obj.put("summaryStale", true)
+        }
+        if (highlightMarksMs.isNotEmpty()) {
+            val marksArr = JSONArray()
+            for (mark in highlightMarksMs) marksArr.put(mark)
+            obj.put("highlightMarks", marksArr)
         }
         followsEvent?.let { link ->
             obj.put(
@@ -374,6 +385,11 @@ data class Meeting(
             meeting.starred = obj.optBoolean("starred", false)
             meeting.transcriptModel = obj.optString("transcriptModel", "").ifBlank { null }
             meeting.summaryStale = obj.optBoolean("summaryStale", false)
+            val marksArr = obj.optJSONArray("highlightMarks") ?: JSONArray()
+            for (i in 0 until marksArr.length()) {
+                val mark = marksArr.optLong(i, -1L)
+                if (mark >= 0L) meeting.highlightMarksMs.add(mark)
+            }
             // opt* only, and a blank title prunes the whole link to null.
             // A throw here would not cost the link, it would cost the
             // MEETING: fromJson failures are swallowed by mapNotNull in

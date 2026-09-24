@@ -25,7 +25,18 @@ class EqBarsView @JvmOverloads constructor(
         R.color.accdd, R.color.accd, R.color.accm, R.color.accent,
         R.color.accm, R.color.accd, R.color.accdd
     )
+    // Resolved once rather than seven lookups a frame.
+    private val colors = IntArray(colorRes.size) { ContextCompat.getColor(context, colorRes[it]) }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    /**
+     * Next frame, ~15 fps. This re-armed with postInvalidateOnAnimation on
+     * every draw, which forced a frame each vsync for the whole meeting — at
+     * 120 Hz on a screen held on, for bars whose slowest period is a second.
+     * One named runnable, removed before it is re-posted, so a setPaused()
+     * invalidate can never start a second loop alongside the first.
+     */
+    private val nextFrame = Runnable { invalidate() }
 
     @Volatile private var paused = false
 
@@ -53,17 +64,24 @@ class EqBarsView @JvmOverloads constructor(
                 0.575f + 0.425f * sin((t / periods[i] + phases[i]) * TWO_PI)
             }
             val barHeight = base * factor
-            paint.color = ContextCompat.getColor(context, colorRes[i])
+            paint.color = colors[i]
             canvas.drawRoundRect(
                 x, centerY - barHeight / 2f, x + barWidth, centerY + barHeight / 2f,
                 radius, radius, paint
             )
             x += barWidth + gap
         }
-        if (!paused && isAttachedToWindow) postInvalidateOnAnimation()
+        removeCallbacks(nextFrame)
+        if (!paused && isAttachedToWindow) postDelayed(nextFrame, FRAME_MS)
+    }
+
+    override fun onDetachedFromWindow() {
+        removeCallbacks(nextFrame)
+        super.onDetachedFromWindow()
     }
 
     companion object {
         private const val TWO_PI = (2.0 * Math.PI).toFloat()
+        private const val FRAME_MS = 66L
     }
 }
