@@ -25,6 +25,14 @@ class MeetingAudioWriter(private val outFile: File) {
     @Volatile private var running = true
     private var failed = false
 
+    /**
+     * Loudness of exactly the frames that went into the file, for the Audio
+     * tab's waveform. Without it a live recording had no waveform until the
+     * tab decoded the whole file again — seconds of full-core CPU an hour.
+     * Filled on the encoder thread only.
+     */
+    private val loudness = com.meetily.mobile.data.Waveform.collector()
+
     private val thread = Thread {
         try {
             encodeLoop()
@@ -55,6 +63,16 @@ class MeetingAudioWriter(private val outFile: File) {
         return !failed && outFile.length() > 0
     }
 
+    /**
+     * Caches the waveform of the finished file. Call after [finish] returned
+     * true; does nothing if the encoder thread is somehow still running, as
+     * the histogram is then still being written.
+     */
+    fun saveWaveform(context: android.content.Context): Boolean {
+        if (thread.isAlive || !outFile.exists()) return false
+        return com.meetily.mobile.data.Waveform.saveFrom(context, outFile.name, loudness)
+    }
+
     private fun encodeLoop() {
         val codec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
         val format = MediaFormat.createAudioFormat(
@@ -82,6 +100,7 @@ class MeetingAudioWriter(private val outFile: File) {
                     if (pendingOffset >= pendingPcm.size) {
                         val next = queue.poll(50, TimeUnit.MILLISECONDS)
                         if (next != null) {
+                            loudness.add(next)
                             pendingPcm = toPcm16(next)
                             pendingOffset = 0
                         } else if (!running && queue.isEmpty()) {

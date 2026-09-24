@@ -374,8 +374,10 @@ data class Meeting(
             val photoTextsObj = obj.optJSONObject("photoTexts")
             if (photoTextsObj != null) {
                 for (key in photoTextsObj.keys()) {
-                    val text = photoTextsObj.optString(key, "")
-                    if (text.isNotBlank()) meeting.photoTexts[key] = text
+                    // Blank is kept: it records "OCR ran and found no text",
+                    // without which that photo was decoded and OCR'd again on
+                    // every open of the meeting, forever.
+                    meeting.photoTexts[key] = photoTextsObj.optString(key, "")
                 }
             }
             val attachArr = obj.optJSONArray("attachments") ?: JSONArray()

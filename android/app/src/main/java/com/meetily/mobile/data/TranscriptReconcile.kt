@@ -200,6 +200,7 @@ object TranscriptReconcile {
         val out = mutableListOf<TranscriptSegment>()
         val currentStart = offsets(current, baseMs)
         val freshStart = offsets(fresh, baseMs)
+        val clusters = clusterMapping(current, fresh, blocks, currentStart, freshStart)
         for (block in blocks) {
             if (block.ordinal !in acceptFresh) {
                 for (index in block.currentIndices) out.add(current[index])
@@ -216,11 +217,65 @@ object TranscriptReconcile {
                         speaker = donor?.speaker?.takeIf { it.isNotBlank() }
                             ?: segment.speaker?.takeIf { it.isNotBlank() },
                         highlighted = segment.highlighted ||
-                            (donor?.highlighted ?: false)
+                            (donor?.highlighted ?: false),
+                        clusterId = segment.clusterId?.let { clusters[it] ?: it }
                     )
                 )
             }
         }
         return out
+    }
+
+    /**
+     * Renumbers the new pass's speaker clusters into the stored pass's scheme.
+     *
+     * Each pass runs its own clusterer, numbering voices from 1 in the order
+     * it first heard them, so "Speaker 2" in one is usually someone else in
+     * the other. A merge keeps the stored lines wherever the passes agree, so
+     * without this one number meant two voices across the transcript, and
+     * naming that cluster named both.
+     *
+     * Each new cluster maps to the stored cluster its lines overlap most in
+     * time, over the whole meeting rather than line by line (a block can hold
+     * several speakers). A new cluster with no stored counterpart gets a
+     * number above every stored one. With no stored clusters at all there is
+     * nothing to line up with, and the new numbering stands.
+     */
+    private fun clusterMapping(
+        current: List<TranscriptSegment>,
+        fresh: List<TranscriptSegment>,
+        blocks: List<Block>,
+        currentStart: LongArray,
+        freshStart: LongArray
+    ): Map<Int, Int> {
+        val storedIds = current.mapNotNull { it.clusterId }
+        if (storedIds.isEmpty()) return emptyMap()
+        val currentEnd = ends(current, currentStart)
+        val freshEnd = ends(fresh, freshStart)
+        // new cluster -> (stored cluster -> overlapping ms)
+        val overlap = sortedMapOf<Int, MutableMap<Int, Long>>()
+        for (block in blocks) {
+            for (fi in block.freshIndices) {
+                val newId = fresh[fi].clusterId ?: continue
+                for (ci in block.currentIndices) {
+                    val storedId = current[ci].clusterId ?: continue
+                    val ms = minOf(freshEnd[fi], currentEnd[ci]) -
+                        maxOf(freshStart[fi], currentStart[ci])
+                    if (ms <= 0L) continue
+                    val byStored = overlap.getOrPut(newId) { sortedMapOf() }
+                    byStored[storedId] = (byStored[storedId] ?: 0L) + ms
+                }
+            }
+        }
+        val mapping = mutableMapOf<Int, Int>()
+        for ((newId, byStored) in overlap) {
+            byStored.maxByOrNull { it.value }?.let { mapping[newId] = it.key }
+        }
+        var next = storedIds.max() + 1
+        for (segment in fresh) {
+            val newId = segment.clusterId ?: continue
+            if (newId !in mapping) mapping[newId] = next++
+        }
+        return mapping
     }
 }

@@ -261,7 +261,66 @@ class TranscriptCheckActivity : AppCompatActivity() {
         wholesale: Boolean,
         acceptedStartMs: Set<Long>
     ): Applied {
-        val fresh = store.load(meetingId) ?: return Applied.Gone
+        // The alignment below takes seconds on a long meeting, far too long
+        // to hold the store lock that every other writer shares. So the merge
+        // is built outside it and only committed if the transcript it was
+        // built from is still the one on disk; otherwise it is rebuilt.
+        repeat(APPLY_ATTEMPTS) {
+            val built = buildMerge(meetingId, pending, wholesale, acceptedStartMs)
+            if (built !is Built.Ready) return built.outcome()
+            val committed = com.meetily.mobile.data.AtomicJson.exclusive<Applied?> {
+                val onDisk = store.load(meetingId) ?: return@exclusive Applied.Gone
+                val merge = com.meetily.mobile.data.MeetingMerge
+                if (merge.transcriptFingerprint(onDisk.segments) != built.fingerprint) {
+                    return@exclusive null
+                }
+                // Only what the check owns goes onto the reloaded copy: a
+                // summary, a rename or a tag saved during the alignment stays.
+                onDisk.segments.clear()
+                onDisk.segments.addAll(built.segments)
+                if (built.modelKey != null) onDisk.transcriptModel = built.modelKey
+                val hadSummary = onDisk.summary.isNotBlank()
+                if (hadSummary) onDisk.summaryStale = true
+                // Delete the draft ONLY once the merge is durable. The result
+                // was discarded before, so a failed write took the draft with
+                // it and reported success: the accepted words existed in
+                // neither place.
+                if (!store.save(onDisk)) return@exclusive Applied.SaveFailed
+                Applied.Done(onDisk, hadSummary)
+            }
+            if (committed != null) {
+                if (committed is Applied.Done) TranscriptDraft.delete(this, meetingId)
+                return committed
+            }
+        }
+        return Applied.SaveFailed
+    }
+
+    /** A merge built outside the store lock, and what it was built from. */
+    private sealed interface Built {
+        fun outcome(): Applied
+        object Gone : Built {
+            override fun outcome(): Applied = Applied.Gone
+        }
+        object Empty : Built {
+            override fun outcome(): Applied = Applied.Nothing
+        }
+        class Ready(
+            val segments: List<com.meetily.mobile.data.TranscriptSegment>,
+            val modelKey: String?,
+            val fingerprint: Int
+        ) : Built {
+            override fun outcome(): Applied = Applied.SaveFailed
+        }
+    }
+
+    private fun buildMerge(
+        meetingId: String,
+        pending: TranscriptDraft.Draft,
+        wholesale: Boolean,
+        acceptedStartMs: Set<Long>
+    ): Built {
+        val fresh = store.load(meetingId) ?: return Built.Gone
         // Re-align against what is on disk now: the stored transcript is the
         // one being replaced, and it may have gained a late line.
         val liveBlocks = TranscriptReconcile.align(
@@ -288,22 +347,15 @@ class TranscriptCheckActivity : AppCompatActivity() {
             fresh.segments.toList(), pending.segments, liveBlocks, accepted,
             fresh.createdAtMs
         )
-        if (merged.isEmpty()) return Applied.Nothing
-        fresh.segments.clear()
-        fresh.segments.addAll(merged)
-        if (wholesale && pending.modelKey.isNotBlank()) {
+        if (merged.isEmpty()) return Built.Empty
+        return Built.Ready(
+            segments = merged,
             // Only a wholesale swap can honestly claim one model produced
             // this transcript; a mixed result belongs to neither.
-            fresh.transcriptModel = pending.modelKey
-        }
-        val hadSummary = fresh.summary.isNotBlank()
-        if (hadSummary) fresh.summaryStale = true
-        // Delete the draft ONLY once the merge is durable. The result was
-        // discarded before, so a failed write took the draft with it and
-        // reported success: the accepted words existed in neither place.
-        if (!store.save(fresh)) return Applied.SaveFailed
-        TranscriptDraft.delete(this, meetingId)
-        return Applied.Done(fresh, hadSummary)
+            modelKey = pending.modelKey.takeIf { wholesale && it.isNotBlank() },
+            fingerprint = com.meetily.mobile.data.MeetingMerge
+                .transcriptFingerprint(fresh.segments)
+        )
     }
 
     /**
@@ -472,5 +524,8 @@ class TranscriptCheckActivity : AppCompatActivity() {
 
         private const val STATE_ACCEPTED = "accepted_blocks"
         private const val STATE_REVIEWING = "reviewing"
+
+        /** Rebuilds allowed when the transcript moves under an apply. */
+        private const val APPLY_ATTEMPTS = 3
     }
 }

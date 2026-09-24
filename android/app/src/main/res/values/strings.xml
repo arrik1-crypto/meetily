@@ -275,6 +275,7 @@
     <string name="section_files">Files</string>
     <string name="attach_file">Attach file</string>
     <string name="attach_failed">Couldn\'t attach that file.</string>
+    <string name="file_copying">Adding…</string>
     <string name="attachment_missing">That file is no longer on this device.</string>
     <string name="attachment_no_app">No app on this device can open that file type.</string>
     <string name="attachment_remove_confirm">Remove “%1$s” from this meeting? The stored copy is deleted.</string>
@@ -611,6 +612,7 @@
     <string name="suggest_requires_llm">Speaker suggestions need an LLM endpoint — enable one in Settings.</string>
     <string name="suggest_analyzing">Analyzing who said what…</string>
     <string name="suggest_none">No confident speaker suggestions found. Tag a few lines manually to give it anchors, then try again.</string>
+    <string name="suggest_stale">The transcript changed while speakers were being analyzed, so those suggestions no longer line up. Run Suggest speakers again.</string>
     <string name="suggest_apply_title">Apply speaker suggestions?</string>
     <string name="suggest_apply">Apply</string>
     <plurals name="suggest_apply_message">
@@ -699,6 +701,7 @@
     <string name="summarizing">Generating summary…</string>
     <string name="nothing_to_summarize">Nothing to summarize yet</string>
     <string name="share_meeting">Share meeting</string>
+    <string name="share_too_long">Couldn\'t share this meeting. Use Export to save it as a file instead.</string>
     <string name="llm_failed_fallback">LLM summarization failed (%1$s). Showing on-device summary instead:</string>
 
     <!-- Settings -->

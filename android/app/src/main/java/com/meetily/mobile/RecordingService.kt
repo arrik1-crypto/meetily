@@ -1269,8 +1269,14 @@ class RecordingService : Service() {
         clusterer = null
         // Finalize the audio file off the main thread; ADTS stays playable
         // regardless, and the player UI checks the file, not this flag.
+        // The waveform comes along for free: the writer measured every frame
+        // it encoded. A discarded recording's file is deleted meanwhile, and
+        // saveWaveform then finds nothing to describe.
         audioWriter?.let { writer ->
-            Thread { writer.finish() }.start()
+            val context = applicationContext
+            Thread {
+                if (writer.finish()) runCatching { writer.saveWaveform(context) }
+            }.start()
         }
         audioWriter = null
     }
