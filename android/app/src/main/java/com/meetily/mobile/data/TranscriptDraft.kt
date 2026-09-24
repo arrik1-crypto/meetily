@@ -28,7 +28,7 @@ object TranscriptDraft {
         File(context.filesDir, "transcript-drafts").apply { mkdirs() }
 
     private fun fileFor(context: Context, meetingId: String): File =
-        File(dir(context), "$meetingId.json")
+        SafeFiles.child(dir(context), "$meetingId.json")
 
     /**
      * Sidecar written only once a pass finishes cleanly, so screens can ask
@@ -36,7 +36,7 @@ object TranscriptDraft {
      * a whole second transcript on the main thread.
      */
     private fun readyFor(context: Context, meetingId: String): File =
-        File(dir(context), "$meetingId.ok")
+        SafeFiles.child(dir(context), "$meetingId.ok")
 
     fun save(
         context: Context,
@@ -45,6 +45,10 @@ object TranscriptDraft {
         segments: List<TranscriptSegment>,
         complete: Boolean
     ) {
+        // A check still running on a meeting the user has deleted must not
+        // write its draft back: deleteAll just removed it, and a stray draft
+        // is transcript text that would ride along in every later backup.
+        if (MeetingStore.wasDeleted(meetingId)) return
         val obj = JSONObject()
         obj.put("meetingId", meetingId)
         obj.put("model", modelKey)
@@ -55,9 +59,11 @@ object TranscriptDraft {
         val file = fileFor(context, meetingId)
         val tmp = File(file.parentFile, "${file.name}.tmp")
         try {
-            tmp.writeText(obj.toString())
+            // Synced before the rename, for the same reason as AtomicJson.
+            val bytes = obj.toString().toByteArray(Charsets.UTF_8)
+            AtomicJson.writeSynced(tmp, bytes)
             if (!tmp.renameTo(file)) {
-                file.writeText(obj.toString())
+                AtomicJson.writeSynced(file, bytes)
                 tmp.delete()
             }
             // Only after the content is on disk, so the marker can never

@@ -29,6 +29,21 @@ class FollowUpsActivity : AppCompatActivity() {
     private lateinit var list: LinearLayout
     private lateinit var emptyView: TextView
 
+    /**
+     * Library reads happen here, never on the main thread: they scan every
+     * meeting file, which grows with use. One thread, so a burst of resumes
+     * applies in order.
+     */
+    private val loader = java.util.concurrent.Executors.newSingleThreadExecutor {
+        Thread(it, "followups-load")
+    }
+
+    /** The meetings behind the rows on screen, reused by the exports. */
+    private var shown: List<Meeting> = emptyList()
+
+    /** (meeting id, task) checked off since [shown] was loaded. */
+    private val completedHere = HashSet<Pair<String, String>>()
+
     private val exportIcs = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.CreateDocument(
             "text/calendar"
@@ -57,13 +72,19 @@ class FollowUpsActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        loader.shutdown()
+        super.onDestroy()
+    }
+
     // --- Export / handoff to task apps --------------------------------------
 
+    /** Open items as last loaded; checked-off rows drop out on the next load. */
     private fun openItems(): List<TaskExport.Item> {
         val out = mutableListOf<TaskExport.Item>()
-        for (meeting in store.list()) {
+        for (meeting in shown) {
             for (item in meeting.actionItems) {
-                if (item.done) continue
+                if (item.done || (meeting.id to item.task) in completedHere) continue
                 out.add(
                     TaskExport.Item(item.task, item.owner, item.remindAtMs, meeting.title)
                 )
@@ -114,23 +135,45 @@ class FollowUpsActivity : AppCompatActivity() {
     }
 
     private fun writeIcs(uri: android.net.Uri) {
-        try {
-            val ics = TaskExport.ics(openItems(), System.currentTimeMillis())
-            contentResolver.openOutputStream(uri)?.use { out ->
-                out.write(ics.toByteArray(Charsets.UTF_8))
-            } ?: throw RuntimeException("could not open destination")
-            Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(
-                this, getString(R.string.export_failed, e.message ?: "unknown error"),
-                Toast.LENGTH_LONG
-            ).show()
+        val ics = TaskExport.ics(openItems(), System.currentTimeMillis())
+        // The destination is often a cloud provider; its stream can block.
+        loader.execute {
+            val error = try {
+                contentResolver.openOutputStream(uri)?.use { out ->
+                    out.write(ics.toByteArray(Charsets.UTF_8))
+                } ?: throw RuntimeException("could not open destination")
+                null
+            } catch (e: Exception) {
+                e.message ?: "unknown error"
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (error == null) {
+                    Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(
+                        this, getString(R.string.export_failed, error), Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        render()
+        // Titles, dates and action items only — never transcripts.
+        loader.execute {
+            val loaded = try {
+                store.listPartial(MeetingStore.ACTION_FIELDS)
+            } catch (_: Throwable) {
+                return@execute
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                shown = loaded
+                render()
+            }
+        }
     }
 
     private fun render() {
@@ -139,8 +182,8 @@ class FollowUpsActivity : AppCompatActivity() {
         val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
         val timeFormat = DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
         var open = 0
-        // list() is newest-first; keep that order so fresh follow-ups lead.
-        for (meeting in store.list()) {
+        // Loaded newest-first; keep that order so fresh follow-ups lead.
+        for (meeting in shown) {
             for ((index, item) in meeting.actionItems.withIndex()) {
                 if (item.done) continue
                 open++
@@ -201,6 +244,7 @@ class FollowUpsActivity : AppCompatActivity() {
         if (at < 0) return
         meeting.actionItems[at] = meeting.actionItems[at].copy(done = true)
         store.save(meeting)
+        completedHere.add(meetingId to task)
         if (meeting.actionItems[at].remindAtMs != null) {
             Reminders.cancelActionItem(this, meetingId, task)
         }

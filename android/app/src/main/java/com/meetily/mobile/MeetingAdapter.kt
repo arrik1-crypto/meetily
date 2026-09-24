@@ -40,12 +40,21 @@ class MeetingAdapter(
      * banner when it is not (filtered out, or not loaded yet).
      */
     fun setProgress(meetingId: String, value: Progress?): Boolean {
+        val index = rows.indexOfFirst { (it as? Row.Item)?.meeting?.id == meetingId }
+        if (value != null && index < 0) {
+            // Not stored for a card that is not listed: the caller shows the
+            // banner instead and, having painted nothing, never wipes it — so
+            // a stored entry outlived the job and froze the bar on the card
+            // once a search or chip let it back into the list. The next sync
+            // after the card reappears stores it again while work continues.
+            progressByMeeting.remove(meetingId)
+            return false
+        }
         val previous = if (value == null) {
             progressByMeeting.remove(meetingId)
         } else {
             progressByMeeting.put(meetingId, value)
         }
-        val index = rows.indexOfFirst { (it as? Row.Item)?.meeting?.id == meetingId }
         // Repaint the one row, never the list: progress ticks constantly and
         // a full rebuild would flicker the whole library.
         if (index >= 0 && previous != value) notifyItemChanged(index)
@@ -61,8 +70,19 @@ class MeetingAdapter(
         if (index >= 0) notifyItemChanged(index)
     }
 
+    /**
+     * Meta lines by meeting INSTANCE. Every filter pass and search result
+     * rebuilds all rows, and the meta line walks every segment for speakers;
+     * a library reload hands over new instances, so identity is exactly
+     * "same data as last time". Starring changes an instance in place, but
+     * the star is not part of the meta line.
+     */
+    private var metaCache = java.util.IdentityHashMap<Meeting, String>()
+
     fun submit(meetings: List<Meeting>) {
         rows.clear()
+        val previousMeta = metaCache
+        metaCache = java.util.IdentityHashMap(meetings.size)
         val timeFormat = DateFormat.getTimeInstance(DateFormat.SHORT)
         val dateFormat = DateFormat.getDateInstance(DateFormat.FULL)
         var currentKey: String? = null
@@ -87,7 +107,9 @@ class MeetingAdapter(
                 Row.Item(
                     meeting = meeting,
                     time = timeFormat.format(Date(meeting.createdAtMs)),
-                    meta = metaLine(meeting)
+                    meta = metaCache.getOrPut(meeting) {
+                        previousMeta[meeting] ?: metaLine(meeting)
+                    }
                 )
             )
         }

@@ -23,7 +23,8 @@ object AttachmentStore {
         return File(dir(context), "${meetingId}_${System.currentTimeMillis()}_$safe")
     }
 
-    fun fileFor(context: Context, name: String): File = File(dir(context), name)
+    // Names come from meeting JSON, which a restored backup controls.
+    fun fileFor(context: Context, name: String): File = SafeFiles.child(dir(context), name)
 
     fun uriFor(context: Context, file: File): Uri =
         FileProvider.getUriForFile(context, authority(context), file)

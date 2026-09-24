@@ -24,7 +24,7 @@ object SpeakerSuggestions {
         File(context.filesDir, "speaker-suggestions").apply { mkdirs() }
 
     private fun fileFor(context: Context, meetingId: String): File =
-        File(dir(context), "$meetingId.json")
+        SafeFiles.child(dir(context), "$meetingId.json")
 
     /**
      * Identity of the transcript a set of suggestions was computed against.
@@ -58,6 +58,9 @@ object SpeakerSuggestions {
             delete(context, meetingId)
             return
         }
+        // A run that finishes after its meeting was deleted must not leave
+        // attendee names behind for a meeting that no longer exists.
+        if (MeetingStore.wasDeleted(meetingId)) return
         val arr = JSONArray()
         for ((line, name) in suggestions) {
             arr.put(JSONObject().put("line", line).put("speaker", name))
@@ -69,9 +72,11 @@ object SpeakerSuggestions {
         val file = fileFor(context, meetingId)
         val tmp = File(file.parentFile, "${file.name}.tmp")
         try {
-            tmp.writeText(obj.toString())
+            // Synced before the rename, for the same reason as AtomicJson.
+            val bytes = obj.toString().toByteArray(Charsets.UTF_8)
+            AtomicJson.writeSynced(tmp, bytes)
             if (!tmp.renameTo(file)) {
-                file.writeText(obj.toString())
+                AtomicJson.writeSynced(file, bytes)
                 tmp.delete()
             }
         } catch (_: Exception) {

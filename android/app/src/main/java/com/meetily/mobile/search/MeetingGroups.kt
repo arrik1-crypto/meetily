@@ -21,20 +21,26 @@ object MeetingGroups {
      * removes month names and weekday names, and collapses whitespace.
      */
     fun normalizeTitle(title: String): String {
-        val noise = setOf(
-            "jan", "january", "feb", "february", "mar", "march", "apr",
-            "april", "may", "jun", "june", "jul", "july", "aug", "august",
-            "sep", "sept", "september", "oct", "october", "nov", "november",
-            "dec", "december", "mon", "monday", "tue", "tuesday", "wed",
-            "wednesday", "thu", "thursday", "fri", "friday", "sat",
-            "saturday", "sun", "sunday", "am", "pm"
-        )
         return title.lowercase(Locale.ROOT)
-            .replace(Regex("[^\\p{L} ]+"), " ")
-            .split(Regex("\\s+"))
-            .filter { it.isNotBlank() && it !in noise }
+            .replace(NON_LETTERS, " ")
+            .split(WHITESPACE)
+            .filter { it.isNotBlank() && it !in NOISE }
             .joinToString(" ")
     }
+
+    // Built once: normalizeTitle runs per meeting on every library refresh,
+    // chip tap and series-filtered keystroke, and compiled both patterns and
+    // rebuilt this set on every call.
+    private val NOISE = setOf(
+        "jan", "january", "feb", "february", "mar", "march", "apr",
+        "april", "may", "jun", "june", "jul", "july", "aug", "august",
+        "sep", "sept", "september", "oct", "october", "nov", "november",
+        "dec", "december", "mon", "monday", "tue", "tuesday", "wed",
+        "wednesday", "thu", "thursday", "fri", "friday", "sat",
+        "saturday", "sun", "sunday", "am", "pm"
+    )
+    private val NON_LETTERS = Regex("[^\\p{L} ]+")
+    private val WHITESPACE = Regex("\\s+")
 
     /**
      * Groups meetings whose normalized titles match, keeping only groups

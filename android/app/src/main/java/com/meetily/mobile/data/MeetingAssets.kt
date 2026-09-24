@@ -23,8 +23,14 @@ object MeetingAssets {
         for (attachment in meeting.attachmentsList) {
             AttachmentStore.delete(context, attachment.file)
         }
+        // Shared clips are cut from the audio file and named after it, so
+        // they go first, while the name is still in hand.
+        com.meetily.mobile.export.ClipExporter.deleteFor(context, meeting.audioFile)
         // Also removes the .peaks waveform sidecar.
         AudioStore.delete(context, meeting.audioFile)
         TranscriptDraft.delete(context, meeting.id)
+        // Staged speaker names, left behind when the meeting is deleted
+        // before its suggestions were reviewed.
+        SpeakerSuggestions.delete(context, meeting.id)
     }
 }

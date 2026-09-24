@@ -92,7 +92,9 @@ class MainActivity : AppCompatActivity() {
             // transcribed, so the list has to be reloaded to show it. One
             // reload per run: after that the card is there to paint into.
             if (meetingId != null && meetingId != importListedId &&
-                !adapter.hasMeeting(meetingId) && store.load(meetingId) != null
+                // A file-exists test: this runs on the main thread for every
+                // progress tick until the card is listed.
+                !adapter.hasMeeting(meetingId) && store.exists(meetingId)
             ) {
                 importListedId = meetingId
                 refresh()
@@ -283,30 +285,30 @@ class MainActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
-        if (ImportService.isRunning) {
-            bindService(
-                Intent(this, ImportService::class.java),
-                importConnection,
-                Context.BIND_AUTO_CREATE
-            )
-            importBound = true
-        } else {
-            importWork = null
-        }
-        if (SummaryService.isRunning) {
-            bindService(
-                Intent(this, SummaryService::class.java),
-                summaryConnection,
-                Context.BIND_AUTO_CREATE
-            )
-            summaryBound = true
-        } else {
-            summaryWork = null
-        }
+        if (!ImportService.isRunning) importWork = null
+        if (!SummaryService.isRunning) summaryWork = null
+        // Bound whether or not a run is in progress, and without
+        // BIND_AUTO_CREATE. Binding only when a run was already going missed
+        // every job started after this point — including the ones this screen
+        // starts itself from onResume's drain and the Resume prompt, and a
+        // summary chained after an import — so they ran with no progress on
+        // the card and no refresh at the end. A flags-0 binding connects
+        // whenever someone else starts the service, reconnects for each new
+        // instance, and never keeps a finished service alive.
+        importBound = bindService(
+            Intent(this, ImportService::class.java), importConnection, 0
+        )
+        summaryBound = bindService(
+            Intent(this, SummaryService::class.java), summaryConnection, 0
+        )
         syncProgressViews()
     }
 
     override fun onStop() {
+        // Re-offered on the next resume if still unanswered; a prompt left up
+        // while away is the one that goes stale.
+        interruptedDialog?.dismiss()
+        interruptedDialog = null
         importService?.removeObserver(importObserver)
         if (importBound) {
             try {
@@ -386,7 +388,10 @@ class MainActivity : AppCompatActivity() {
             override fun beforeTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun onTextChanged(s: CharSequence?, a: Int, b: Int, c: Int) {}
             override fun afterTextChanged(s: Editable?) {
-                applyFilter()
+                // Debounced: each pass scans every transcript in the library,
+                // and typing a word used to do that once per character.
+                searchInput.removeCallbacks(applyFilterNow)
+                searchInput.postDelayed(applyFilterNow, SEARCH_DEBOUNCE_MS)
             }
         })
 
@@ -541,15 +546,28 @@ class MainActivity : AppCompatActivity() {
      * be its own bug.
      */
     private fun offerInterruptedWork() {
+        // Every resume lands here, and the job stays queued until a button is
+        // pressed — so an app-lock unlock, or Home and back, used to stack a
+        // second identical prompt on the first.
+        if (interruptedDialog?.isShowing == true) return
         if (!JobGate.canStartBatch()) return
         val job = com.meetily.mobile.data.JobQueue
             .interrupted(com.meetily.mobile.data.JobQueue.load(this))
-            .firstOrNull { store.load(it.meetingId) != null } ?: return
+            .firstOrNull { store.exists(it.meetingId) } ?: return
         val title = store.load(job.meetingId)?.title.orEmpty()
-        AlertDialog.Builder(this)
+        // A tap is only honoured while the job is still the interrupted one
+        // offered. Otherwise a stale prompt could start a second run, or
+        // dequeue the crash marker of a run that is already going.
+        fun stillOffered(): Boolean =
+            JobGate.canStartBatch() &&
+                com.meetily.mobile.data.JobQueue
+                    .interrupted(com.meetily.mobile.data.JobQueue.load(this))
+                    .any { it.kind == job.kind && it.meetingId == job.meetingId }
+        interruptedDialog = AlertDialog.Builder(this)
             .setTitle(R.string.resume_job_title)
             .setMessage(getString(R.string.resume_job_body, title))
             .setPositiveButton(R.string.resume_job_yes) { _, _ ->
+                if (!stillOffered()) return@setPositiveButton
                 com.meetily.mobile.data.JobQueue
                     .dequeue(this, job.kind, job.meetingId)
                 if (job.kind == com.meetily.mobile.data.JobQueue.KIND_SUMMARY) {
@@ -559,11 +577,16 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton(R.string.resume_job_no) { _, _ ->
+                if (!stillOffered()) return@setNegativeButton
                 com.meetily.mobile.data.JobQueue
                     .dequeue(this, job.kind, job.meetingId)
             }
+            .setOnDismissListener { interruptedDialog = null }
             .show()
     }
+
+    /** The interrupted-work prompt while it is up; see offerInterruptedWork. */
+    private var interruptedDialog: AlertDialog? = null
 
     /** Long-press the orb: choose microphone or device audio (webinars). */
     private fun showRecordSourceChooser() {
@@ -597,13 +620,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refresh() {
-        // store.list() reads and JSON-parses EVERY meeting file, every segment
+        // Listing reads and JSON-parses EVERY meeting file, every segment
         // included. Invisible with ten meetings, a stall you can feel with
         // hundreds — and this is the resume path, so the cost lands on the
         // most-used interaction in the app and grows the longer it is used.
         libraryLoader.execute {
             val loaded = try {
-                store.list()
+                // Without word timings: most of the bytes, most of the parse
+                // and most of what allMeetings used to keep on the heap, and
+                // nothing on this screen reads them.
+                store.listLight()
             } catch (_: Throwable) {
                 return@execute
             }
@@ -725,7 +751,21 @@ class MainActivity : AppCompatActivity() {
         filterChips.addView(chip, params)
     }
 
+    private val applyFilterNow = Runnable { applyFilter() }
+
+    /**
+     * The transcript scan behind a search. Its own thread, not libraryLoader,
+     * so a query is never stuck behind a whole-library reload.
+     */
+    private val searchWorker = java.util.concurrent.Executors.newSingleThreadExecutor {
+        Thread(it, "library-search")
+    }
+
+    /** Bumped per filter pass, so only the newest search result is shown. */
+    private var filterGeneration = 0
+
     private fun applyFilter() {
+        val generation = ++filterGeneration
         val query = searchInput.text.toString().trim().lowercase()
         var filtered = allMeetings
         if (flaggedOnly) {
@@ -739,14 +779,37 @@ class MainActivity : AppCompatActivity() {
         selectedSeriesKey?.let { key ->
             filtered = filtered.filter { MeetingGroups.normalizeTitle(it.title) == key }
         }
-        if (query.isNotBlank()) {
-            filtered = filtered.filter { meeting ->
-                // Falls back to the live scan only for a meeting that arrived
-                // after the last load (an import landing mid-session).
-                val blob = searchBlobs[meeting.id] ?: searchBlobFor(meeting)
-                blob.contains(query)
+        if (query.isBlank()) {
+            showFiltered(filtered)
+            return
+        }
+        // The scan covers every transcript in the library, so it runs off the
+        // main thread; a pass that finishes after a newer one started is
+        // dropped.
+        val candidates = filtered
+        val blobs = searchBlobs
+        searchWorker.execute {
+            val matched = try {
+                candidates.filter { meeting ->
+                    // Falls back to the live scan only for a meeting that
+                    // arrived after the last load (an import landing
+                    // mid-session).
+                    val blob = blobs[meeting.id] ?: searchBlobFor(meeting)
+                    blob.contains(query)
+                }
+            } catch (_: Throwable) {
+                return@execute
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed || generation != filterGeneration) {
+                    return@runOnUiThread
+                }
+                showFiltered(matched)
             }
         }
+    }
+
+    private fun showFiltered(filtered: List<Meeting>) {
         adapter.submit(filtered)
         emptyState.visibility = if (allMeetings.isEmpty()) View.VISIBLE else View.GONE
         meetingCount.text = when {
@@ -772,6 +835,8 @@ class MainActivity : AppCompatActivity() {
         val hasAudio = AudioStore.exists(this, meeting.audioFile)
         val canSummarize = meeting.segments.isNotEmpty() || meeting.notes.isNotBlank()
         val canTopics = meeting.segments.size >= 8
+        val busy = isBusy(meeting.id)
+        val recording = isRecording(meeting.id)
         val items = listOf(
             ActionSheet.Item(
                 MeetingDetailActivity.ACTION_RENAME,
@@ -803,11 +868,15 @@ class MainActivity : AppCompatActivity() {
                 ACTION_FLAG,
                 getString(
                     if (meeting.starred) R.string.unstar_meeting else R.string.star_meeting
-                )
+                ),
+                subtitle = if (recording) getString(R.string.meeting_busy_flag) else null,
+                enabled = !recording
             ),
             ActionSheet.Item(
                 ACTION_DELETE,
                 getString(R.string.delete_meeting_title),
+                subtitle = if (busy) getString(R.string.meeting_busy_delete) else null,
+                enabled = !busy,
                 destructive = true,
                 separated = true
             )
@@ -830,14 +899,20 @@ class MainActivity : AppCompatActivity() {
      * a list that has been open for a while cannot push stale content back.
      */
     private fun toggleStar(meeting: Meeting) {
-        val stored = store.load(meeting.id)
-        if (stored == null) {
-            refresh()
+        // The recording service rewrites the live meeting from its own copy
+        // every few seconds, and that copy has no star — so a star set now
+        // would silently vanish at the next autosave.
+        if (isRecording(meeting.id)) {
+            Toast.makeText(this, R.string.meeting_busy_flag, Toast.LENGTH_SHORT).show()
             return
         }
         val starred = !meeting.starred
-        stored.starred = starred
-        store.save(stored)
+        // Under the store's write lock: a plain load-then-save here could
+        // interleave with a background writer and undo its work (or lose this).
+        if (!store.mutate(meeting.id) { it.starred = starred }) {
+            refresh()
+            return
+        }
         meeting.starred = starred // the list holds this instance
         // Chips first: unflagging the last flagged meeting drops the Flagged
         // filter entirely, and filtering before that would leave the library
@@ -856,13 +931,35 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.delete_meeting_title)
             .setMessage(getString(R.string.delete_meeting_message, meeting.title))
             .setPositiveButton(R.string.delete) { _, _ ->
-                com.meetily.mobile.data.MeetingAssets.deleteAll(this, meeting)
+                // Checked again: a job may have started on this meeting while
+                // the dialog was up.
+                if (isBusy(meeting.id)) {
+                    Toast.makeText(this, R.string.meeting_busy_delete, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
+                // The stored copy, not the list's: it names every photo and
+                // attachment added since the library was loaded.
+                val current = store.load(meeting.id) ?: meeting
+                com.meetily.mobile.data.MeetingAssets.deleteAll(this, current)
                 store.delete(meeting.id)
                 refresh()
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
+
+    /**
+     * True while a recording, import, accuracy check or summary is writing
+     * this meeting. Deleting it then did not stick: the job's next write
+     * recreated the meeting — with its audio and photos already gone.
+     */
+    private fun isBusy(meetingId: String): Boolean =
+        isRecording(meetingId) ||
+            (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
+            (ImportService.isRunning && ImportService.currentMeetingId == meetingId)
+
+    private fun isRecording(meetingId: String): Boolean =
+        RecordingService.isRunning && store.activeId() == meetingId
 
     /**
      * True when nothing this app does with a recording would leave the phone
@@ -910,6 +1007,12 @@ class MainActivity : AppCompatActivity() {
         glowAnimator = null
     }
 
+    override fun onDestroy() {
+        searchInput.removeCallbacks(applyFilterNow)
+        searchWorker.shutdown()
+        super.onDestroy()
+    }
+
     companion object {
         const val ACTION_IMPORT_PICK = "com.meetily.mobile.ACTION_IMPORT_PICK"
 
@@ -917,5 +1020,8 @@ class MainActivity : AppCompatActivity() {
         // screen; the rest are MeetingDetailActivity.ACTION_* values.
         private const val ACTION_FLAG = "flag"
         private const val ACTION_DELETE = "delete"
+
+        /** Quiet time after the last keystroke before the library is searched. */
+        private const val SEARCH_DEBOUNCE_MS = 150L
     }
 }

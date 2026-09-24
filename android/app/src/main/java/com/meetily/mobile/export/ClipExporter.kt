@@ -62,13 +62,31 @@ object ClipExporter {
 
         val dir = clipsDir(context)
         pruneOld(dir)
-        val out = File(dir, "recap-clip-${System.currentTimeMillis()}.wav")
+        // Named after the source audio (itself named after the meeting) so a
+        // meeting delete can find and remove its clips; see deleteFor.
+        val out = File(dir, "${prefixFor(source.name)}${System.currentTimeMillis()}.wav")
         return try {
             writeWav(out, pcm, filled)
             out
         } catch (_: Exception) {
             out.delete()
             null
+        }
+    }
+
+    private fun prefixFor(audioName: String): String =
+        "recap-clip-${audioName.substringBeforeLast('.')}-"
+
+    /**
+     * Deletes every clip cut from [audioFile]. A clip is verbatim meeting
+     * audio, and pruning alone kept it until several more clips were shared
+     * — possibly forever — after the meeting itself was deleted.
+     */
+    fun deleteFor(context: Context, audioFile: String?) {
+        if (audioFile.isNullOrBlank()) return
+        val pattern = Regex(Regex.escape(prefixFor(audioFile)) + "\\d+\\.wav")
+        clipsDir(context).listFiles()?.forEach { clip ->
+            if (pattern.matches(clip.name)) clip.delete()
         }
     }
 
