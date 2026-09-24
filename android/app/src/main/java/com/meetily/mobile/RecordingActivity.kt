@@ -578,6 +578,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         // Dismissing mid-request re-arms the button immediately; the orphaned
         // thread's result is discarded via the isShowing check below.
         sheet.setOnDismissListener { catchUpRunning = false }
+        com.meetily.mobile.security.AppLock.secure(sheet)
         sheet.show()
 
         val useLlm = settings.useLlm && settings.llmConfigured
@@ -676,7 +677,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 ).show()
             }
             .setNegativeButton(R.string.voice_save_no, null)
-            .show()
+            .showSecure()
     }
 
     private fun capturePhoto() {
@@ -797,7 +798,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                                 applyCalendarEvent(events[which], overwriteTitle = true)
                             }
                             .setNegativeButton(android.R.string.cancel, null)
-                            .show()
+                            .showSecure()
                     }
                     else -> applyCalendarEvent(events.first(), overwriteTitle = manual)
                 }

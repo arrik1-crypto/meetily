@@ -2,6 +2,7 @@ package com.meetily.mobile.security
 
 import android.app.Activity
 import android.app.Application
+import android.app.Dialog
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -77,6 +78,23 @@ object AppLock {
             activity.window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         } else {
             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        }
+    }
+
+    /**
+     * Applies the same FLAG_SECURE decision to a dialog or bottom sheet.
+     *
+     * Window flags are not inherited: a Dialog gets its own window, so with
+     * only the activity secured a screenshot or a shared screen blacks out
+     * the screen underneath yet shows the sheet on top of it, meeting text
+     * and all. Call before show(); see showSecure for AlertDialog builders.
+     */
+    fun secure(dialog: Dialog) {
+        val window = dialog.window ?: return
+        if (AppSettings(dialog.context).secureScreen) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
         }
     }
 

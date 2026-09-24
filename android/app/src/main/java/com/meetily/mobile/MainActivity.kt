@@ -562,7 +562,7 @@ class MainActivity : AppCompatActivity() {
                 com.meetily.mobile.data.JobQueue
                     .dequeue(this, job.kind, job.meetingId)
             }
-            .show()
+            .showSecure()
     }
 
     /** Long-press the orb: choose microphone or device audio (webinars). */
@@ -861,7 +861,7 @@ class MainActivity : AppCompatActivity() {
                 refresh()
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     /**

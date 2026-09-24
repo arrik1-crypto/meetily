@@ -94,7 +94,7 @@ object SpeakerPicker {
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     private fun promptForName(context: Context, onName: (String) -> Unit) {
@@ -115,6 +115,6 @@ object SpeakerPicker {
                 if (name.isNotBlank()) onName(name)
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 }

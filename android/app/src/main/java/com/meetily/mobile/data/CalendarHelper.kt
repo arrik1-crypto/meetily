@@ -2,6 +2,8 @@ package com.meetily.mobile.data
 
 import android.content.ContentUris
 import android.content.Context
+import android.database.Cursor
+import android.net.Uri
 import android.provider.CalendarContract
 import java.util.Locale
 import kotlin.math.abs
@@ -80,8 +82,8 @@ object CalendarHelper {
         )
         val out = mutableListOf<CalendarEvent>()
         try {
-            context.contentResolver.query(
-                uriBuilder.build(), projection, null, null,
+            queryMeetings(
+                context, uriBuilder.build(), projection,
                 CalendarContract.Instances.BEGIN + " ASC"
             )?.use { cursor ->
                 while (cursor.moveToNext() && out.size < limit) {
@@ -124,42 +126,50 @@ object CalendarHelper {
                 CalendarContract.Calendars.ACCOUNT_NAME + " ASC"
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
-                    val id = cursor.getLong(0)
                     out.add(
                         CalendarInfo(
-                            id = id,
+                            id = cursor.getLong(0),
                             displayName = cursor.getString(1)?.trim().orEmpty(),
                             accountName = cursor.getString(2)?.trim().orEmpty(),
                             accountType = cursor.getString(3)?.trim().orEmpty(),
                             visible = cursor.getInt(4) != 0,
                             syncEvents = cursor.getInt(5) != 0,
-                            upcomingCount = countUpcoming(context, id)
+                            upcomingCount = 0
                         )
                     )
                 }
             }
         } catch (_: Exception) {
         }
-        return out
+        if (out.isEmpty()) return out
+        // Counted after the Calendars cursor is closed, in one query for all
+        // calendars: one Instances query per calendar was 1+N provider round
+        // trips, each nested inside the still-open outer cursor.
+        val counts = countUpcoming(context)
+        return out.map { it.copy(upcomingCount = counts[it.id] ?: 0) }
     }
 
-    /** Timed events on one calendar over the next 7 days. */
-    private fun countUpcoming(context: Context, calendarId: Long): Int {
+    /** Events per calendar over the next 7 days, keyed by calendar id. */
+    private fun countUpcoming(context: Context): Map<Long, Int> {
         val now = System.currentTimeMillis()
         val uriBuilder = CalendarContract.Instances.CONTENT_URI.buildUpon()
         ContentUris.appendId(uriBuilder, now)
         ContentUris.appendId(uriBuilder, now + 7L * 24 * 60 * 60 * 1000)
-        return try {
+        val counts = HashMap<Long, Int>()
+        try {
             context.contentResolver.query(
                 uriBuilder.build(),
-                arrayOf(CalendarContract.Instances.EVENT_ID),
-                CalendarContract.Instances.CALENDAR_ID + " = ?",
-                arrayOf(calendarId.toString()),
-                null
-            )?.use { it.count } ?: 0
+                arrayOf(CalendarContract.Instances.CALENDAR_ID),
+                null, null, null
+            )?.use { cursor ->
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(0)
+                    counts[id] = (counts[id] ?: 0) + 1
+                }
+            }
         } catch (_: Exception) {
-            0
         }
+        return counts
     }
 
     /**
@@ -185,8 +195,8 @@ object CalendarHelper {
 
         val events = mutableListOf<CalendarEvent>()
         try {
-            context.contentResolver.query(
-                uriBuilder.build(), projection, null, null,
+            queryMeetings(
+                context, uriBuilder.build(), projection,
                 CalendarContract.Instances.BEGIN + " ASC"
             )?.use { cursor ->
                 while (cursor.moveToNext()) {
@@ -243,8 +253,8 @@ object CalendarHelper {
 
         val events = mutableListOf<CalendarEvent>()
         try {
-            context.contentResolver.query(
-                uriBuilder.build(), projection, null, null,
+            queryMeetings(
+                context, uriBuilder.build(), projection,
                 CalendarContract.Instances.BEGIN + " DESC"
             )?.use { cursor ->
                 while (cursor.moveToNext() && events.size < limit) {
@@ -263,6 +273,41 @@ object CalendarHelper {
             return emptyList()
         }
         return events
+    }
+
+    /**
+     * Rows that are the user's own meetings: on a calendar they display, not
+     * declined by them, not cancelled. Instances otherwise returns every
+     * synced calendar — a manager's calendar synced but hidden, shared team
+     * calendars, invitations turned down — and those were taking nudge slots
+     * from the user's own meetings and lending their guest lists to
+     * recordings they had nothing to do with.
+     */
+    private val MEETING_SELECTION =
+        "${CalendarContract.Instances.VISIBLE} = 1" +
+            " AND (${CalendarContract.Instances.SELF_ATTENDEE_STATUS} IS NULL" +
+            " OR ${CalendarContract.Instances.SELF_ATTENDEE_STATUS} != " +
+            "${CalendarContract.Attendees.ATTENDEE_STATUS_DECLINED})" +
+            " AND (${CalendarContract.Instances.STATUS} IS NULL" +
+            " OR ${CalendarContract.Instances.STATUS} != " +
+            "${CalendarContract.Events.STATUS_CANCELED})"
+
+    /**
+     * An Instances query filtered by [MEETING_SELECTION], falling back to the
+     * unfiltered query if the provider rejects it. Every caller here turns an
+     * exception into "no events", so a column one OEM's view lacks must not
+     * be allowed to switch off prefill and nudges altogether — seeing a
+     * hidden calendar's event beats seeing none.
+     */
+    private fun queryMeetings(
+        context: Context,
+        uri: Uri,
+        projection: Array<String>,
+        sortOrder: String
+    ): Cursor? = try {
+        context.contentResolver.query(uri, projection, MEETING_SELECTION, null, sortOrder)
+    } catch (_: Exception) {
+        context.contentResolver.query(uri, projection, null, null, sortOrder)
     }
 
     /** Non-declined attendee display names (falls back to prettified email). */

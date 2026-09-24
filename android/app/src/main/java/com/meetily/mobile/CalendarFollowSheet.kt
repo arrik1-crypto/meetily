@@ -30,6 +30,9 @@ object CalendarFollowSheet {
     private const val DEFAULT_WINDOW_MS = 14L * 24 * 60 * 60 * 1000
     private const val WIDER_WINDOW_MS = 60L * 24 * 60 * 60 * 1000
 
+    /** Events per query; a full page means the calendar may hold more. */
+    private const val PAGE = 40
+
     /**
      * @param beforeMs the recording's own start — the events worth offering
      *   are the ones that preceded it, which is not the same as preceding now
@@ -52,32 +55,61 @@ object CalendarFollowSheet {
             explainPermission(activity)
             return
         }
-        load(activity, beforeMs, DEFAULT_WINDOW_MS, hasExistingLink, onPick)
+        load(
+            activity, beforeMs, pageEndMs = beforeMs, windowMs = DEFAULT_WINDOW_MS,
+            shown = emptyList(), hasExistingLink = hasExistingLink, onPick = onPick
+        )
     }
 
+    /**
+     * Loads one page — events before [pageEndMs] back to [windowMs] before
+     * the recording — and appends it to [shown].
+     *
+     * Paged rather than simply widened: the query stops at [PAGE] events,
+     * newest first, so on a busy calendar a 60-day query returned exactly
+     * the same 40 events as the 14-day one and nothing older was reachable.
+     */
     private fun load(
         activity: Activity,
         beforeMs: Long,
+        pageEndMs: Long,
         windowMs: Long,
+        shown: List<CalendarHelper.CalendarEvent>,
         hasExistingLink: Boolean,
         onPick: (FollowsEvent?) -> Unit
     ) {
         // Off the main thread: this is a ContentResolver query over a
         // provider that can be slow on a phone with several synced accounts.
         Thread {
-            val events = CalendarHelper.pastEvents(activity, beforeMs, windowMs)
+            val span = pageEndMs - (beforeMs - windowMs)
+            val page = if (span > 0) {
+                CalendarHelper.pastEvents(activity, pageEndMs, span, limit = PAGE)
+            } else {
+                emptyList()
+            }
+            // Pages overlap at their boundary (and a long event can overlap
+            // two windows), so the same occurrence may come back twice.
+            val seen = shown.map { it.eventId to it.beginMs }.toHashSet()
+            val added = page.filter { seen.add(it.eventId to it.beginMs) }
+            val events = shown + added
+            val more = page.size >= PAGE && added.isNotEmpty()
             Handler(Looper.getMainLooper()).post {
                 if (activity.isFinishing || activity.isDestroyed) return@post
-                present(activity, beforeMs, windowMs, events, hasExistingLink, onPick)
+                present(activity, beforeMs, windowMs, events, more, hasExistingLink, onPick)
             }
         }.start()
     }
 
+    /**
+     * @param more the last page came back full, so older events inside the
+     *   window may have been cut off.
+     */
     private fun present(
         activity: Activity,
         beforeMs: Long,
         windowMs: Long,
         events: List<CalendarHelper.CalendarEvent>,
+        more: Boolean,
         hasExistingLink: Boolean,
         onPick: (FollowsEvent?) -> Unit
     ) {
@@ -102,7 +134,7 @@ object CalendarFollowSheet {
                 )
             )
         }
-        if (windowMs < WIDER_WINDOW_MS) {
+        if (windowMs < WIDER_WINDOW_MS || more) {
             items.add(
                 ActionSheet.Item(
                     id = "wider",
@@ -125,8 +157,18 @@ object CalendarFollowSheet {
             activity, activity.getString(R.string.follow_sheet_title), items
         ) { id ->
             when {
-                id == "wider" ->
-                    load(activity, beforeMs, WIDER_WINDOW_MS, hasExistingLink, onPick)
+                id == "wider" -> load(
+                    activity, beforeMs,
+                    // A full page continues from its oldest event (+1 ms, as
+                    // pastEvents excludes its end instant and others may share
+                    // that start); otherwise the current window is exhausted
+                    // and the next page is the older stretch beyond it.
+                    pageEndMs = if (more) events.last().beginMs + 1 else beforeMs - windowMs,
+                    windowMs = WIDER_WINDOW_MS,
+                    shown = events,
+                    hasExistingLink = hasExistingLink,
+                    onPick = onPick
+                )
                 id == "clear" -> onPick(null)
                 id.startsWith("e:") -> {
                     val parts = id.split(":")

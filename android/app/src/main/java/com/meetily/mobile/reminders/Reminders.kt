@@ -7,6 +7,7 @@ import android.content.Intent
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.CalendarHelper
 import com.meetily.mobile.data.MeetingStore
+import org.json.JSONObject
 
 /**
  * Alarm scheduling for the two notification features:
@@ -118,10 +119,25 @@ object Reminders {
             cancelRefresh(context)
             return
         }
-        val events = try {
+        val now = System.currentTimeMillis()
+        val upcoming = try {
             CalendarHelper.upcomingEvents(context, limit = NUDGE_SLOTS)
         } catch (_: Exception) {
             emptyList()
+        }
+        val events = upcoming.filter { event ->
+            // upcomingEvents keeps an event until it starts, but its alarm is
+            // due two minutes before that. Re-arming one that already fired
+            // hands AlarmManager a past time, which it clamps to "in a few
+            // seconds" — and that firing re-arms it again, so the device woke
+            // every ~5 s for the two minutes before every meeting. A past
+            // trigger is armed only for an event not yet handled, such as one
+            // added a minute before it starts. Filtered before slots are
+            // assigned, so a spent event never takes a later meeting's slot.
+            NudgeTiming.triggerFor(event.beginMs) > now ||
+                !NudgeState.alreadyPosted(
+                    context, NudgeTiming.nudgeKey(event.eventId, event.beginMs)
+                )
         }
         events.forEachIndexed { slot, event ->
             scheduleAt(
@@ -156,19 +172,106 @@ object Reminders {
         }
     }
 
-    /** Re-arms every future, not-done action-item reminder + the nudge chain. */
+    /**
+     * Re-arms every future, not-done action-item reminder + the nudge chain,
+     * and delivers any reminder that fell due while its alarm was gone.
+     *
+     * Alarms vanish on reboot and force-stop, and a restored backup carries
+     * reminder times no alarm was ever armed for. Skipping every past time
+     * here meant a reminder due while the phone was off never appeared at
+     * all, while the meeting still showed it as set — so an overdue one is
+     * posted now, late but not lost.
+     */
     fun rescheduleAll(context: Context) {
         val now = System.currentTimeMillis()
         val store = MeetingStore(context)
         for (meeting in store.list()) {
             for (item in meeting.actionItems) {
                 val at = item.remindAtMs ?: continue
-                if (!item.done && at > now) {
-                    scheduleActionItem(context, meeting.id, item.task, at)
+                val delivered = at <= now && wasDelivered(context, meeting.id, item.task, at)
+                when (reArmDecision(at, item.done, delivered, now)) {
+                    ReArm.ARM -> scheduleActionItem(context, meeting.id, item.task, at)
+                    ReArm.DELIVER_NOW -> try {
+                        ReminderReceiver.postActionItem(context, meeting, item)
+                    } catch (_: Exception) {
+                    }
+                    ReArm.SKIP -> Unit
                 }
             }
         }
         scheduleNextCalendarNudge(context)
+    }
+
+    /** A reminder more overdue than this is stale news; it is not posted late. */
+    const val OVERDUE_GRACE_MS = 24L * 60 * 60 * 1000
+
+    enum class ReArm { ARM, DELIVER_NOW, SKIP }
+
+    /**
+     * What [rescheduleAll] does with one reminder. [delivered] must say
+     * whether this exact reminder time was already notified: without it,
+     * every app start would re-post every past reminder. Pure — unit-tested.
+     */
+    fun reArmDecision(remindAtMs: Long, done: Boolean, delivered: Boolean, nowMs: Long): ReArm =
+        when {
+            done -> ReArm.SKIP
+            remindAtMs > nowMs -> ReArm.ARM
+            delivered -> ReArm.SKIP
+            nowMs - remindAtMs <= OVERDUE_GRACE_MS -> ReArm.DELIVER_NOW
+            else -> ReArm.SKIP
+        }
+
+    /*
+     * Delivery record for action-item reminders, keyed on (meeting, task,
+     * reminder time) so choosing a new time is a new reminder. Kept out of
+     * the meeting file on purpose: a screen holding an older copy of the
+     * meeting writes the whole object back, which would erase a flag stored
+     * there and re-post the reminder on the next start.
+     */
+    private const val DELIVERY_PREFS = "reminder_delivery"
+    private const val KEY_DELIVERED = "delivered"
+
+    private fun deliveryKey(meetingId: String, task: String, atMs: Long): String =
+        "$meetingId|$atMs|$task"
+
+    private fun deliveredMap(context: Context): JSONObject = try {
+        JSONObject(
+            context.getSharedPreferences(DELIVERY_PREFS, Context.MODE_PRIVATE)
+                .getString(KEY_DELIVERED, "{}") ?: "{}"
+        )
+    } catch (_: Exception) {
+        JSONObject()
+    }
+
+    @Synchronized
+    fun wasDelivered(context: Context, meetingId: String, task: String, atMs: Long): Boolean =
+        deliveredMap(context).has(deliveryKey(meetingId, task, atMs))
+
+    /**
+     * Records this reminder as delivered and returns true, or returns false
+     * when it already was. Atomic, because the alarm and the start-up sweep
+     * can both reach the same overdue reminder at once.
+     */
+    @Synchronized
+    fun claimDelivery(context: Context, meetingId: String, task: String, atMs: Long): Boolean {
+        val key = deliveryKey(meetingId, task, atMs)
+        val map = deliveredMap(context)
+        if (map.has(key)) return false
+        val now = System.currentTimeMillis()
+        val out = JSONObject()
+        // Prune while rewriting: once a reminder is past the grace window
+        // nothing will ever ask about it again.
+        val keys = map.keys()
+        while (keys.hasNext()) {
+            val existing = keys.next()
+            val at = map.optLong(existing)
+            if (now - at <= 2 * OVERDUE_GRACE_MS) out.put(existing, at)
+        }
+        out.put(key, atMs)
+        context.getSharedPreferences(DELIVERY_PREFS, Context.MODE_PRIVATE).edit()
+            .putString(KEY_DELIVERED, out.toString())
+            .apply()
+        return true
     }
 
     private fun scheduleAt(context: Context, atMs: Long, operation: PendingIntent) {
