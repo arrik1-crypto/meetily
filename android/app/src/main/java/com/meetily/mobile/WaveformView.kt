@@ -7,6 +7,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import androidx.core.content.ContextCompat
 import com.meetily.mobile.data.Waveform
 
@@ -129,15 +130,55 @@ class WaveformView @JvmOverloads constructor(
         }
     }
 
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var downX = 0f
+    private var downY = 0f
+    private var scrubbing = false
+
+    /**
+     * Seeks on a tap or a sideways drag only. This sits inside the meeting's
+     * vertical list, which takes a gesture only once it has moved past the
+     * touch slop; seeking on ACTION_DOWN meant scrolling the page from a
+     * point on the waveform jumped playback to wherever the finger landed.
+     */
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
-            val fraction = (event.x / width.toFloat()).coerceIn(0f, 1f)
-            if (event.action == MotionEvent.ACTION_DOWN) performClick()
-            onSeek?.invoke(fraction)
-            return true
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                scrubbing = false
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = kotlin.math.abs(event.x - downX)
+                val dy = kotlin.math.abs(event.y - downY)
+                if (!scrubbing && dx > touchSlop && dx > dy) {
+                    scrubbing = true
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                }
+                if (scrubbing) onSeek?.invoke(fractionAt(event.x))
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                val tap = kotlin.math.abs(event.x - downX) <= touchSlop &&
+                    kotlin.math.abs(event.y - downY) <= touchSlop
+                if (scrubbing || tap) {
+                    if (tap) performClick()
+                    onSeek?.invoke(fractionAt(event.x))
+                }
+                scrubbing = false
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                // The list took the gesture: it was a scroll, not a seek.
+                scrubbing = false
+                return true
+            }
         }
         return super.onTouchEvent(event)
     }
+
+    private fun fractionAt(x: Float): Float = (x / width.toFloat()).coerceIn(0f, 1f)
 
     override fun performClick(): Boolean {
         super.performClick()

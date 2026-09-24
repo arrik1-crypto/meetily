@@ -120,14 +120,15 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (isFinishing || isDestroyed) return
             if (meetingId != meeting?.id) return
             when (SummaryService.currentMode) {
-                SummaryService.MODE_NOTES -> if (!failed) refreshNotesFromStore()
+                SummaryService.MODE_NOTES -> if (!failed) requestSync()
                 SummaryService.MODE_SPEAKERS -> {
                     setSpeakersBusy(null, null)
                     // Straight into the review: the user is looking at the
                     // meeting the proposals belong to.
                     if (!failed) offerSpeakerSuggestions()
                 }
-                else -> refreshSummaryFromStore(reveal = true)
+                // The summarizing UI comes down whatever the run saved.
+                else -> requestSync(summaryDone = true)
             }
         }
     }
@@ -160,12 +161,17 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
     }
 
-    private fun bindSummaryService() {
+    /**
+     * [create] false watches without starting anything: the connection
+     * completes whenever the service is next started — by JobGate draining a
+     * queued run, say — so a run this screen did not start is still seen.
+     */
+    private fun bindSummaryService(create: Boolean = true) {
         if (summaryBound) return
         bindService(
             Intent(this, SummaryService::class.java),
             summaryConnection,
-            android.content.Context.BIND_AUTO_CREATE
+            if (create) android.content.Context.BIND_AUTO_CREATE else 0
         )
         summaryBound = true
     }
@@ -173,7 +179,16 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         val m = meeting ?: return
-        refreshSegmentsFromStore()
+        // One read, off the main thread, for everything that may have changed
+        // while this screen was away: late lines, a summary, enhanced notes,
+        // an answer, chapters, an accepted accuracy check. Skipped straight
+        // after onCreate, which has just read the file.
+        if (skipStartSync) {
+            skipStartSync = false
+            offerPendingReviews()
+        } else {
+            requestSync(offerReviews = true)
+        }
         if (SummaryService.isRunning && SummaryService.currentMeetingId == m.id) {
             // Coming back (or rotating) mid-generation: restore progress UI
             // and reattach to the run. Only a summary run owns the summary
@@ -184,10 +199,18 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             bindSummaryService()
         } else {
-            // A generation may have finished while this screen was away.
-            refreshSummaryFromStore(reveal = false)
-            refreshNotesFromStore()
+            // A run that ended while this screen was stopped never reached
+            // onSummaryDone here, so its progress UI would stay up for good.
+            if (progress.visibility == View.VISIBLE) {
+                progress.visibility = View.GONE
+                renderSummary(m.summary)
+                renderActionItems(m)
+            }
+            bindSummaryService(create = false)
         }
+    }
+
+    private fun offerPendingReviews() {
         maybeOfferCheckReview()
         maybeOfferSpeakerSuggestions()
     }
@@ -222,53 +245,94 @@ class MeetingDetailActivity : AppCompatActivity() {
     private var offerFollowLink = false
 
     /**
-     * Writes this screen's copy back, folding in what it does not own.
-     *
-     * saveMerging already rescues transcript segments that landed while the
-     * screen held an older copy. It does NOT rescue the summary, and this
-     * screen writes the whole object — so a SummaryService run that finished
-     * while the screen was open but not bound to it (backgrounded, or started
-     * from the library) had its summary and action items erased by the next
-     * incidental save here: a tag edit, a note, a star. The work was done, the
-     * notification said so, and the result was gone.
-     *
-     * The summary is only carried over when this copy has none. A screen that
-     * holds a summary is holding one the user can see and may have edited;
-     * that one still wins.
+     * What this screen last received from the store: the base of every
+     * three-way merge in MeetingStore.syncScreenCopy. A field of [meeting]
+     * that differs from it is an edit made here; every other field is simply
+     * whatever is stored, however it got there.
      */
-    private fun persist(m: Meeting) {
-        if (m.summary.isBlank()) {
-            val onDisk = runCatching { store.load(m.id) }.getOrNull()
-            if (onDisk != null && onDisk.summary.isNotBlank()) {
-                m.summary = onDisk.summary
-                m.summaryStale = onDisk.summaryStale
-                if (m.actionItems.isEmpty()) {
-                    m.actionItems = onDisk.actionItems.toMutableList()
-                }
-            }
-        }
-        store.saveMerging(m, segmentsSeenThroughMs)
-        segmentsSeenThroughMs = maxOf(
-            segmentsSeenThroughMs,
-            com.meetily.mobile.data.MeetingMerge.highWaterMs(m.segments)
-        )
-    }
+    private var syncBase: Meeting? = null
+
+    /** A save-and-refresh running on the worker, and the copy it was taken from. */
+    private class PendingSync(
+        val ours: Meeting,
+        val task: java.util.concurrent.FutureTask<Meeting?>,
+        val summaryDone: Boolean,
+        val offerReviews: Boolean
+    )
+
+    private var pendingSync: PendingSync? = null
+
+    /** Asked for while [pendingSync] was running; served once it lands. */
+    private var syncWanted = false
+    private var summaryDoneWanted = false
+    private var offerReviewsWanted = false
+
+    /** onCreate has just read the file, so the first onStart has nothing to fetch. */
+    private var skipStartSync = false
+
+    private val mainHandler = Handler(Looper.getMainLooper())
 
     /**
-     * Picks up transcript lines that landed on disk while this screen held an
-     * older copy — the recording service can still deliver a final chunk after
-     * the session closes. Folds rather than replaces: this copy carries the
-     * user's edits, splits, highlights and speaker tags.
+     * Writes this screen's edits back, and takes in whatever else changed.
+     *
+     * The screen used to write its whole copy, so anything saved by someone
+     * else while it was open — a summary from a queued run, a Q&A answer or
+     * chapters finished after a rotation, an accepted accuracy check — was
+     * put back the way this screen first loaded it by the next incidental
+     * save: a highlight, a tag, a star. Now only the fields changed here are
+     * written (MeetingMerge.mergeScreenEdits) and everything else is adopted
+     * from disk.
+     *
+     * The load, merge and write run on a worker: on a long meeting that is a
+     * megabyte of JSON per tap, under the lock every other writer shares.
+     * Calls made while a save is running collapse into one follow-up save.
      */
-    private fun refreshSegmentsFromStore() {
+    private fun persist(m: Meeting) {
+        if (m === meeting) requestSync()
+    }
+
+    private fun requestSync(
+        summaryDone: Boolean = false,
+        offerReviews: Boolean = false
+    ) {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            mainHandler.post { requestSync(summaryDone, offerReviews) }
+            return
+        }
+        if (summaryDone) summaryDoneWanted = true
+        if (offerReviews) offerReviewsWanted = true
+        if (pendingSync != null) {
+            syncWanted = true
+            return
+        }
+        startSync()
+    }
+
+    private fun startSync() {
         val m = meeting ?: return
-        val saved = store.load(m.id) ?: return
-        val merge = com.meetily.mobile.data.MeetingMerge
-        if (merge.foldLateSegments(m, saved, segmentsSeenThroughMs) == 0) return
-        segmentsSeenThroughMs = merge.highWaterMs(m.segments)
-        renderMeta(m)
-        renderTranscript(m)
-        renderStats(m)
+        val base = syncBase ?: return
+        // The worker reads a copy: the live one keeps changing under it.
+        val ours = com.meetily.mobile.data.MeetingMerge.snapshot(m)
+        val mark = segmentsSeenThroughMs
+        val store = this.store
+        val pending = PendingSync(
+            ours = ours,
+            task = java.util.concurrent.FutureTask(
+                java.util.concurrent.Callable<Meeting?> {
+                    store.syncScreenCopy(base, ours, mark)
+                }
+            ),
+            summaryDone = summaryDoneWanted,
+            offerReviews = offerReviewsWanted
+        )
+        syncWanted = false
+        summaryDoneWanted = false
+        offerReviewsWanted = false
+        pendingSync = pending
+        SYNC_EXECUTOR.execute {
+            pending.task.run()
+            mainHandler.post { completeSync(pending) }
+        }
     }
 
     private fun renderMeta(m: Meeting) {
@@ -278,22 +342,182 @@ class MeetingDetailActivity : AppCompatActivity() {
         metaView.text = getString(R.string.detail_meta, m.segments.size, wordCount)
     }
 
-    /** Pulls summary + action items saved by SummaryService into this screen. */
-    private fun refreshSummaryFromStore(reveal: Boolean) {
-        val m = meeting ?: return
-        val saved = store.load(m.id) ?: return
-        if (saved.summary == m.summary &&
-            saved.actionItems == m.actionItems &&
-            saved.summaryStale == m.summaryStale
-        ) {
-            return
+    private fun completeSync(pending: PendingSync) {
+        if (pendingSync !== pending) return
+        pendingSync = null
+        val merged = try {
+            pending.task.get()
+        } catch (_: Exception) {
+            null
         }
-        m.summary = saved.summary
-        m.actionItems = saved.actionItems
-        // Regenerating settles the "transcript changed" flag on disk; without
-        // copying it back, the hint would linger here and the next save from
-        // this screen would write the stale flag out again.
-        m.summaryStale = saved.summaryStale
+        val summaryChanged = merged != null && adoptSynced(pending.ours, merged)
+        if (pending.summaryDone) finishSummaryUi(reveal = summaryChanged)
+        if (pending.offerReviews && !isFinishing && !isDestroyed) offerPendingReviews()
+        if (syncWanted || summaryDoneWanted || offerReviewsWanted) startSync()
+    }
+
+    /**
+     * Waits for every requested save to land. For handing the meeting to
+     * something that reads it from disk — a service, another screen — which
+     * must see the edits made here.
+     */
+    private fun flushSync() {
+        while (true) {
+            val pending = pendingSync ?: return
+            completeSync(pending)
+        }
+    }
+
+    /**
+     * Takes what the store now holds into this screen, field by field, and
+     * re-renders what moved. A field edited here since [ours] was taken is
+     * left alone: the next sync writes it. Returns true when the summary
+     * text changed.
+     */
+    private fun adoptSynced(ours: Meeting, merged: Meeting): Boolean {
+        val m = meeting ?: return false
+        val live = !isFinishing && !isDestroyed
+        // Becomes the next base; its fields are overridden below wherever
+        // this screen deliberately kept its own value.
+        val base = merged
+        var transcriptChanged = false
+        var summaryChanged = false
+        var summaryTextChanged = false
+
+        if (m.title == ours.title && m.title != merged.title) {
+            m.title = merged.title
+            if (live) titleView.text = m.title
+        }
+        if (m.segments == ours.segments && m.segments != merged.segments) {
+            m.segments.clear()
+            m.segments.addAll(merged.segments)
+            transcriptChanged = true
+        }
+        if (m.segments == merged.segments) {
+            // Never lowered: a line deleted here must not come back as "late".
+            segmentsSeenThroughMs = maxOf(
+                segmentsSeenThroughMs,
+                com.meetily.mobile.data.MeetingMerge.highWaterMs(m.segments)
+            )
+        }
+        if (m.chapters == ours.chapters && m.chapters != merged.chapters) {
+            m.chapters.clear()
+            m.chapters.addAll(merged.chapters)
+            transcriptChanged = true
+        }
+        if (m.summary == ours.summary && m.summary != merged.summary) {
+            m.summary = merged.summary
+            summaryChanged = true
+            summaryTextChanged = true
+        }
+        if (m.actionItems == ours.actionItems && m.actionItems != merged.actionItems) {
+            m.actionItems = merged.actionItems.toMutableList()
+            summaryChanged = true
+        }
+        if (m.summaryStale == ours.summaryStale && m.summaryStale != merged.summaryStale) {
+            m.summaryStale = merged.summaryStale
+            summaryChanged = true
+        }
+        if (m.notes == ours.notes && m.notesOriginal == ours.notesOriginal &&
+            (m.notes != merged.notes || m.notesOriginal != merged.notesOriginal)
+        ) {
+            // Don't clobber an in-progress manual edit; keeping the base at
+            // this screen's value means the next save does not write it.
+            if (headerView.findViewById<View>(R.id.notesEditMode).visibility == View.VISIBLE) {
+                base.notes = m.notes
+                base.notesOriginal = m.notesOriginal
+            } else {
+                m.notes = merged.notes
+                m.notesOriginal = merged.notesOriginal
+                if (live) {
+                    notesInput.setText(m.notes)
+                    setNotesMode(viewMode = m.notes.isNotBlank())
+                }
+            }
+        }
+        if (m.attendees == ours.attendees && m.attendees != merged.attendees) {
+            if (Meeting.parseAttendees(attendeesInput.text.toString()) != m.attendees) {
+                base.attendees = m.attendees.toMutableList()
+            } else {
+                m.attendees = merged.attendees.toMutableList()
+                if (live) attendeesInput.setText(m.attendeesText())
+            }
+        }
+        if (m.tags == ours.tags && m.tags != merged.tags) {
+            if (Meeting.parseAttendees(tagsInput.text.toString()) != m.tags) {
+                base.tags = m.tags.toMutableList()
+            } else {
+                m.tags = merged.tags.toMutableList()
+                if (live) tagsInput.setText(m.tags.joinToString(", "))
+            }
+        }
+        if (m.qa == ours.qa && m.qa != merged.qa) {
+            m.qa.clear()
+            m.qa.addAll(merged.qa)
+            // A question in flight has its own row in the list; the answer's
+            // UI hop settles it.
+            if (live && askSend.isEnabled) renderQaHistory(m)
+        }
+        if (m.photos == ours.photos && m.photos != merged.photos) {
+            m.photos = merged.photos.toMutableList()
+            if (live) renderPhotos(m)
+        }
+        if (m.photoTexts == ours.photoTexts && m.photoTexts != merged.photoTexts) {
+            m.photoTexts.clear()
+            m.photoTexts.putAll(merged.photoTexts)
+        }
+        if (m.attachmentsList == ours.attachmentsList &&
+            m.attachmentsList != merged.attachmentsList
+        ) {
+            m.attachmentsList.clear()
+            m.attachmentsList.addAll(merged.attachmentsList)
+            if (live) renderAttachments(m)
+        }
+        if (m.audioFile == ours.audioFile && m.audioFile != merged.audioFile) {
+            m.audioFile = merged.audioFile
+            if (live) applyTabState()
+        }
+        if (m.starred == ours.starred && m.starred != merged.starred) {
+            m.starred = merged.starred
+            if (live) invalidateOptionsMenu()
+        }
+        if (m.transcriptModel == ours.transcriptModel &&
+            m.transcriptModel != merged.transcriptModel
+        ) {
+            m.transcriptModel = merged.transcriptModel
+        }
+        if (m.followsEvent == ours.followsEvent && m.followsEvent != merged.followsEvent) {
+            m.followsEvent = merged.followsEvent
+            if (live && !transcriptChanged) renderFollowsFrom(m)
+        }
+        syncBase = base
+
+        if (live && transcriptChanged) {
+            // Includes a line folded in by a save from here: without this it
+            // was on disk but missing from the list, the follow timeline and
+            // the stats until something else re-rendered.
+            renderMeta(m)
+            renderTranscript(m)
+            renderStats(m)
+        }
+        // While a run shows its progress here, finishSummaryUi renders the
+        // result when it ends; rendering now would clear the progress text.
+        if (live && summaryChanged && progress.visibility != View.VISIBLE) {
+            renderSummary(m.summary)
+            renderActionItems(m)
+        }
+        return summaryTextChanged
+    }
+
+    /**
+     * Ends the summarizing UI after a run, whatever the run did. It used to
+     * be cleared only when the stored summary had changed, so a run that
+     * saved nothing new — an unplug stop, a failed load, an identical
+     * extractive result — left "Summarizing…" up until the screen was rebuilt.
+     */
+    private fun finishSummaryUi(reveal: Boolean) {
+        if (isFinishing || isDestroyed) return
+        val m = meeting ?: return
         progress.visibility = View.GONE
         renderSummary(m.summary)
         renderActionItems(m)
@@ -424,6 +648,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         dateView.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(m.createdAtMs))
         segmentsSeenThroughMs = com.meetily.mobile.data.MeetingMerge.highWaterMs(m.segments)
+        syncBase = com.meetily.mobile.data.MeetingMerge.snapshot(m)
+        skipStartSync = true
         renderMeta(m)
 
         headerView.findViewById<View>(R.id.generateButton).setOnClickListener {
@@ -627,7 +853,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         // segments; a stale timeline would follow onto the wrong line.
         rebuildFollowTimeline()
         if (onTranscriptTab && followPlayback) {
-            player?.let { updateFollow(it.currentPosition.toLong()) }
+            readyPlayer?.let { updateFollow(it.currentPosition.toLong()) }
         }
     }
 
@@ -665,7 +891,6 @@ class MeetingDetailActivity : AppCompatActivity() {
         tab = next
         applyTabState()
         meeting?.let { renderTranscript(it) }
-        if (next == Tab.AUDIO) meeting?.let { renderAudioTab(it) }
     }
 
     private fun applyTabState() {
@@ -798,6 +1023,9 @@ class MeetingDetailActivity : AppCompatActivity() {
                 playPauseButton.setImageResource(R.drawable.ic_play)
             }
         }
+        // A tap made while the player was still preparing must not start
+        // playback behind a screen the user has left.
+        pendingPlayerAction = null
         // A backgrounded screen has nothing to follow; the chain would
         // otherwise keep waking the main thread every 90 ms.
         playerHandler.removeCallbacks(playerTick)
@@ -806,6 +1034,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onDestroy() {
         playerHandler.removeCallbacks(playerTick)
         playerReady = false
+        pendingPlayerAction = null
         releaseBoost()
         try {
             player?.release()
@@ -1132,17 +1361,67 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun importPhoto(uri: Uri) {
         val m = meeting ?: return
-        try {
-            val file = PhotoStore.newPhotoFile(this, m.id)
-            contentResolver.openInputStream(uri)?.use { input ->
-                file.outputStream().use { output -> input.copyTo(output) }
-            } ?: throw RuntimeException("cannot open image")
-            m.photos.add(file.name)
-            persist(m)
+        val file = PhotoStore.newPhotoFile(this, m.id)
+        // Off the main thread: a picked photo can live in a cloud provider
+        // that downloads it while it is read, which froze the screen for as
+        // long as that took.
+        runCopy(
+            copy = {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    file.outputStream().use { output -> input.copyTo(output) }
+                } ?: throw RuntimeException("cannot open image")
+            },
+            file = file,
+            failedText = R.string.photo_attach_failed,
+            record = { it.photos.add(file.name) }
+        ) {
             renderPhotos(m)
             ocrPhoto(m, file.name)
-        } catch (_: Exception) {
-            Toast.makeText(this, R.string.photo_attach_failed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Runs [copy] on a worker, then [record]s the file on the meeting and
+     * calls [done] back on the main thread. A copy that throws deletes
+     * whatever part of [file] it had written, rather than leaving it orphaned
+     * in filesDir. If the screen went away meanwhile (a rotation), the file
+     * is still recorded, straight onto the stored meeting.
+     */
+    private fun runCopy(
+        copy: () -> Unit,
+        file: File,
+        failedText: Int,
+        record: (Meeting) -> Unit,
+        done: () -> Unit
+    ) {
+        val meetingId = meeting?.id ?: return
+        val store = this.store
+        Toast.makeText(this, R.string.file_copying, Toast.LENGTH_SHORT).show()
+        Thread {
+            val ok = try {
+                copy()
+                true
+            } catch (_: Exception) {
+                file.delete()
+                false
+            }
+            runOnUiThread {
+                val m = meeting
+                if (isFinishing || isDestroyed || m == null) {
+                    if (ok) SYNC_EXECUTOR.execute { store.mutate(meetingId) { record(it) } }
+                    return@runOnUiThread
+                }
+                if (ok) {
+                    record(m)
+                    persist(m)
+                    done()
+                } else {
+                    Toast.makeText(this, failedText, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.apply {
+            name = "detail-file-copy"
+            start()
         }
     }
 
@@ -1151,7 +1430,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         val file = PhotoStore.fileFor(this, name)
         if (!file.exists()) return
         PhotoOcr.extract(this, file) { text ->
-            if (text != null && name in m.photos) {
+            // Blank is stored too, as "done, no text", so the backfill does
+            // not decode and OCR the photo again on every open. A failure
+            // (null) stores nothing and is retried next time.
+            if (text != null && name in m.photos && m.photoTexts[name] != text) {
                 m.photoTexts[name] = text
                 persist(m)
             }
@@ -1159,15 +1441,16 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun backfillPhotoOcr(m: Meeting) {
-        for (name in m.photos) {
+        for (name in m.photos.toList()) {
             if (!m.photoTexts.containsKey(name)) ocrPhoto(m, name)
         }
     }
 
     private fun photoTextBlock(m: Meeting): String {
-        if (m.photoTexts.isEmpty()) return ""
+        val texts = m.photoTexts.values.filter { it.isNotBlank() }
+        if (texts.isEmpty()) return ""
         return "\n\n[Text captured from attached photos and whiteboards]\n" +
-            m.photoTexts.values.joinToString("\n---\n").take(4_000)
+            texts.joinToString("\n---\n").take(4_000)
     }
 
     private fun showExportDialog() {
@@ -1217,19 +1500,42 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun writeActionItemsIcs(uri: Uri) {
         val m = meeting ?: return
-        try {
-            val ics = com.meetily.mobile.export.TaskExport.ics(
-                openActionItems(m), System.currentTimeMillis()
-            )
+        val ics = com.meetily.mobile.export.TaskExport.ics(
+            openActionItems(m), System.currentTimeMillis()
+        )
+        runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 out.write(ics.toByteArray(Charsets.UTF_8))
             } ?: throw RuntimeException("could not open destination")
-            Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(
-                this, getString(R.string.export_failed, e.message ?: "unknown error"),
-                Toast.LENGTH_LONG
-            ).show()
+        }
+    }
+
+    /**
+     * Writes an export on a worker and reports on the main thread. The
+     * destination is a document provider — possibly Drive, uploading as it
+     * is written — so the write can take as long as the network does.
+     */
+    private fun runExport(write: () -> Unit) {
+        Thread {
+            val failure = try {
+                write()
+                null
+            } catch (e: Exception) {
+                e.message ?: "unknown error"
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (failure == null) {
+                    Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(
+                        this, getString(R.string.export_failed, failure), Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        }.apply {
+            name = "detail-export"
+            start()
         }
     }
 
@@ -1248,8 +1554,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun writeExport(uri: Uri, isPdf: Boolean) {
-        val m = meeting ?: return
-        try {
+        // The worker reads a copy: laying out a long transcript takes a
+        // while, and the live meeting keeps changing under it.
+        val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
+        runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 if (isPdf) {
                     MeetingExporter.writePdf(m, out)
@@ -1257,12 +1565,6 @@ class MeetingDetailActivity : AppCompatActivity() {
                     out.write(MeetingExporter.markdown(m).toByteArray(Charsets.UTF_8))
                 }
             } ?: throw RuntimeException("could not open destination")
-            Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
-        } catch (e: Exception) {
-            Toast.makeText(
-                this, getString(R.string.export_failed, e.message ?: "unknown error"),
-                Toast.LENGTH_LONG
-            ).show()
         }
     }
 
@@ -1327,10 +1629,14 @@ class MeetingDetailActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 answerView.text = answer
                 askSend.isEnabled = true
-                // Keep the screen's copy in step with what was just written,
-                // so its own saves do not put the old list back.
-                m.qa.add(entry)
-                if (!saved) persist(m)
+                if (saved) {
+                    // Taken in from disk like any other background write;
+                    // adding it here as well could list it twice.
+                    requestSync()
+                } else {
+                    m.qa.add(entry)
+                    persist(m)
+                }
             }
         }.start()
     }
@@ -1374,6 +1680,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             return
         }
         saveEdits()
+        flushSync()
         SummaryService.start(this, m.id, "", SummaryService.MODE_SPEAKERS)
         Toast.makeText(this, R.string.speakers_started, Toast.LENGTH_LONG).show()
     }
@@ -1406,7 +1713,12 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         if (applicable.isEmpty()) {
             com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
-            Toast.makeText(this, R.string.suggest_none, Toast.LENGTH_LONG).show()
+            // "Found nothing" is only true when the lines still match; a run
+            // that did find names but was outdated by an edit says so.
+            Toast.makeText(
+                this, if (stale) R.string.suggest_stale else R.string.suggest_none,
+                Toast.LENGTH_LONG
+            ).show()
             return
         }
         confirmSpeakerSuggestions(m, applicable)
@@ -1592,6 +1904,8 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun generateSummary(template: SummaryTemplate) {
         val m = meeting ?: return
         saveEdits()
+        // The service reads the meeting from disk; it has to see these edits.
+        flushSync()
 
         if (m.transcriptText().isBlank() && m.notes.isBlank()) {
             Toast.makeText(this, R.string.nothing_to_summarize, Toast.LENGTH_SHORT).show()
@@ -1609,6 +1923,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (!JobGate.canStartBatch()) {
             JobGate.requestSummary(this, m.id, template.key, whenCharging = false)
             Toast.makeText(this, R.string.summary_queued, Toast.LENGTH_LONG).show()
+            // Watch for the run JobGate starts later, so its progress and
+            // result show here live rather than on the next visit.
+            bindSummaryService(create = false)
             return
         }
         showSummarizingUi()
@@ -1649,9 +1966,34 @@ class MeetingDetailActivity : AppCompatActivity() {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, m.title)
-            putExtra(Intent.EXTRA_TEXT, text)
         }
-        startActivity(Intent.createChooser(send, getString(R.string.share_meeting)))
+        if (text.length <= SHARE_TEXT_CAP) {
+            send.putExtra(Intent.EXTRA_TEXT, text)
+        } else {
+            // A multi-hour transcript goes as a file; the text carries only
+            // the part a message preview can use.
+            val file = try {
+                val dir = File(cacheDir, "shares").apply { mkdirs() }
+                val safe = m.title.take(60).replace(Regex("[^\\w\\-]+"), "_").ifBlank { "meeting" }
+                File(dir, "$safe.txt").apply { writeText(text) }
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.share_too_long, Toast.LENGTH_LONG).show()
+                return
+            }
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this, "$packageName.fileprovider", file
+            )
+            send.putExtra(Intent.EXTRA_STREAM, uri)
+            send.putExtra(Intent.EXTRA_TEXT, text.take(SHARE_PREVIEW_CHARS))
+            send.clipData = android.content.ClipData.newRawUri(m.title, uri)
+            send.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        try {
+            startActivity(Intent.createChooser(send, getString(R.string.share_meeting)))
+        } catch (_: RuntimeException) {
+            // Too large for the binder after all, or no app to take it.
+            Toast.makeText(this, R.string.share_too_long, Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
@@ -1717,7 +2059,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         ) { picked ->
             val current = meeting ?: return@show
             current.followsEvent = picked
-            // Through persist(), i.e. saveMerging: this screen holds the
+            // Through persist(), i.e. a merge onto the stored copy: this screen holds the
             // user's unsaved notes and attendee edits, so a load-then-save
             // would drop them.
             persist(current)
@@ -1856,8 +2198,11 @@ class MeetingDetailActivity : AppCompatActivity() {
                     // Words last a few hundred milliseconds, so a 400 ms tick
                     // visibly lags the audio. The extra work is one rebind of
                     // a single row, and only when the word actually changes.
+                    // The highlight exists on the transcript tab only; the
+                    // other tabs keep the slow tick.
                     playerHandler.postDelayed(
-                        this, if (followPlayback) FOLLOW_TICK_MS else IDLE_TICK_MS
+                        this,
+                        if (followPlayback && onTranscriptTab) FOLLOW_TICK_MS else IDLE_TICK_MS
                     )
                 }
             }
@@ -1879,7 +2224,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         playbackSpeed = steps[(at + 1).mod(steps.size)]
         settings.playbackSpeed = playbackSpeed
         renderSpeedLabel()
-        player?.let { if (it.isPlaying) applyPlaybackSpeed(it) }
+        readyPlayer?.let { if (it.isPlaying) applyPlaybackSpeed(it) }
     }
 
     private fun renderSpeedLabel() {
@@ -1963,54 +2308,107 @@ class MeetingDetailActivity : AppCompatActivity() {
         })
     }
 
-    /** Creates the player on first use; returns null if the file won't play. */
-    private fun ensurePlayer(): MediaPlayer? {
-        player?.let { return it }
-        val file = audioFileOrNull() ?: return null
-        return try {
-            val p = MediaPlayer()
+    /** The player, only once it is prepared; null while it is still preparing. */
+    private val readyPlayer: MediaPlayer?
+        get() = player?.takeIf { playerReady }
+
+    /** What the user asked of the player before it was ready; the latest wins. */
+    private var pendingPlayerAction: ((MediaPlayer) -> Unit)? = null
+
+    /**
+     * Runs [action] on the prepared player, creating it on first use.
+     *
+     * Preparing is asynchronous. Meeting audio is raw ADTS, which has no
+     * index, so the platform walks every frame header of the file to find
+     * its length — seconds of frozen screen on a multi-hour meeting when it
+     * was done with prepare() on the first tap. [action] now waits for it.
+     */
+    private fun withPlayer(action: ((MediaPlayer) -> Unit)? = null) {
+        readyPlayer?.let { p ->
+            action?.invoke(p)
+            return
+        }
+        if (action != null) pendingPlayerAction = action
+        if (player != null) return // preparing
+        val file = audioFileOrNull() ?: return
+        val p = MediaPlayer()
+        try {
             p.setDataSource(file.absolutePath)
-            p.prepare()
-            p.setOnCompletionListener {
-                playPauseButton.setImageResource(R.drawable.ic_play)
-                updatePlayerUi(p)
+            p.setOnPreparedListener { onPlayerPrepared(p) }
+            p.setOnErrorListener { failed, _, _ ->
+                // Only a failure to prepare is handled here; once playing,
+                // errors keep their old route through the completion listener.
+                if (player === failed && !playerReady) {
+                    onPlayerFailed(failed)
+                    true
+                } else {
+                    false
+                }
             }
-            playerReady = true
-            attachBoost(p)
-            playerSeek.max = p.duration.coerceAtLeast(1)
             player = p
-            updatePlayerUi(p)
-            p
+            playPauseButton.alpha = 0.5f
+            p.prepareAsync()
         } catch (_: Exception) {
-            playerReady = false
-            player = null
-            Toast.makeText(this, R.string.audio_play_failed, Toast.LENGTH_SHORT).show()
-            null
+            onPlayerFailed(p)
         }
     }
 
-    private fun togglePlayback() {
-        val p = ensurePlayer() ?: return
-        if (p.isPlaying) {
-            p.pause()
+    private fun onPlayerPrepared(p: MediaPlayer) {
+        if (player !== p || isDestroyed) return
+        playerReady = true
+        playPauseButton.alpha = 1f
+        p.setOnCompletionListener {
             playPauseButton.setImageResource(R.drawable.ic_play)
-        } else {
-            p.start()
-            applyPlaybackSpeed(p)
-            playPauseButton.setImageResource(R.drawable.ic_pause)
-            restartTick()
+            updatePlayerUi(p)
+        }
+        attachBoost(p)
+        playerSeek.max = p.duration.coerceAtLeast(1)
+        updatePlayerUi(p)
+        // The strip was scaled from the transcript while the real length
+        // was unknown; now it is known.
+        if (tab == Tab.AUDIO) meeting?.let { renderAudioTab(it) }
+        val action = pendingPlayerAction
+        pendingPlayerAction = null
+        action?.invoke(p)
+    }
+
+    private fun onPlayerFailed(p: MediaPlayer) {
+        try {
+            p.release()
+        } catch (_: Exception) {
+        }
+        if (player === p) player = null
+        playerReady = false
+        pendingPlayerAction = null
+        if (isFinishing || isDestroyed) return
+        playPauseButton.alpha = 1f
+        Toast.makeText(this, R.string.audio_play_failed, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun togglePlayback() {
+        withPlayer { p ->
+            if (p.isPlaying) {
+                p.pause()
+                playPauseButton.setImageResource(R.drawable.ic_play)
+            } else {
+                p.start()
+                applyPlaybackSpeed(p)
+                playPauseButton.setImageResource(R.drawable.ic_pause)
+                restartTick()
+            }
         }
     }
 
     private fun playFrom(audioMs: Long) {
-        val p = ensurePlayer() ?: return
-        p.seekTo(audioMs.toInt().coerceIn(0, p.duration))
-        if (!p.isPlaying) {
-            p.start()
-            applyPlaybackSpeed(p)
-            playPauseButton.setImageResource(R.drawable.ic_pause)
+        withPlayer { p ->
+            p.seekTo(audioMs.toInt().coerceIn(0, p.duration))
+            if (!p.isPlaying) {
+                p.start()
+                applyPlaybackSpeed(p)
+                playPauseButton.setImageResource(R.drawable.ic_pause)
+            }
+            restartTick()
         }
-        restartTick()
     }
 
     /**
@@ -2047,7 +2445,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         followScrolling = followPlayback
         renderFollowButton()
         if (followPlayback) {
-            player?.let { updateFollow(it.currentPosition.toLong()) }
+            readyPlayer?.let { updateFollow(it.currentPosition.toLong()) }
         } else {
             transcriptAdapter.clearActive()
         }
@@ -2175,12 +2573,25 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun updatePlayerUi(p: MediaPlayer) {
         playerSeek.progress = p.currentPosition
-        playerTime.text = getString(
-            R.string.player_time,
-            formatClock(p.currentPosition),
-            formatClock(p.duration)
+        setTextIfChanged(
+            playerTime,
+            getString(
+                R.string.player_time,
+                formatClock(p.currentPosition),
+                formatClock(p.duration)
+            )
         )
         if (tab == Tab.AUDIO) updateAudioTabPosition(p.currentPosition, p.duration)
+    }
+
+    /**
+     * These labels are wrap_content, so every setText asks for a layout pass
+     * — through the whole RecyclerView for the ones in the header — even
+     * when the text is the same. On the playback tick that was ten wasted
+     * passes a second: the clock only changes once a second.
+     */
+    private fun setTextIfChanged(view: TextView, text: CharSequence) {
+        if (!android.text.TextUtils.equals(view.text, text)) view.text = text
     }
 
     // --- Audio tab -----------------------------------------------------------
@@ -2208,18 +2619,20 @@ class MeetingDetailActivity : AppCompatActivity() {
         // segment's offset — which on a recording left running past the last
         // word is far short of the real length. The strip is scaled by that
         // value once and never re-submitted, so the two stacked timelines
-        // disagreed for the life of the screen.
-        val ready = ensurePlayer()
+        // disagreed for the life of the screen. Preparing is asynchronous;
+        // onPlayerPrepared renders this tab again with the real length.
+        val ready = readyPlayer
+        if (ready == null) withPlayer()
 
         waveform.onSeek = { fraction ->
-            ensurePlayer()?.let { p ->
+            withPlayer { p ->
                 val target = (fraction * p.duration).toInt()
                 p.seekTo(target)
                 updatePlayerUi(p)
             }
         }
         strip.onSeekMs = { ms ->
-            ensurePlayer()?.let { p ->
+            withPlayer { p ->
                 p.seekTo(ms.toInt().coerceIn(0, p.duration))
                 updatePlayerUi(p)
             }
@@ -2267,7 +2680,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             }.apply { name = "waveform-decode" }.start()
         }
-        updateAudioTabPosition(player?.currentPosition ?: 0, durationMs.toInt())
+        updateAudioTabPosition(readyPlayer?.currentPosition ?: 0, durationMs.toInt())
     }
 
     /**
@@ -2308,19 +2721,26 @@ class MeetingDetailActivity : AppCompatActivity() {
         waveform.setProgress(positionMs.toFloat() / total)
         strip.setPositionMs(positionMs.toLong())
 
-        headerView.findViewById<TextView>(R.id.audioElapsed).text = formatClock(positionMs)
-        headerView.findViewById<TextView>(R.id.audioRemaining).text =
+        setTextIfChanged(
+            headerView.findViewById(R.id.audioElapsed), formatClock(positionMs)
+        )
+        setTextIfChanged(
+            headerView.findViewById(R.id.audioRemaining),
             getString(R.string.audio_remaining, formatClock((total - positionMs).coerceAtLeast(0)))
+        )
 
         val line = headerView.findViewById<TextView>(R.id.nowPlayingLine)
-        val spoken = meeting?.segments
-            ?.lastOrNull { (it.audioMs ?: Long.MAX_VALUE) <= positionMs.toLong() }
+        // Through the follow index (a binary search) rather than a scan of
+        // the whole transcript on every tick.
+        val index = com.meetily.mobile.data.PlaybackFollow
+            .segmentAt(followTimeline, positionMs.toLong())
+        val spoken = meeting?.segments?.getOrNull(index)
         if (spoken == null || spoken.text.isBlank()) {
             line.visibility = View.GONE
         } else {
             val who = segmentSpeakerDisplay(this, spoken)
             line.visibility = View.VISIBLE
-            line.text = if (who.isNullOrBlank()) spoken.text else "$who — ${spoken.text}"
+            setTextIfChanged(line, if (who.isNullOrBlank()) spoken.text else "$who — ${spoken.text}")
         }
     }
 
@@ -2670,6 +3090,8 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun openCheckReview(meetingId: String) {
+        // The review compares against the stored transcript.
+        flushSync()
         startActivity(
             Intent(this, TranscriptCheckActivity::class.java)
                 .putExtra(TranscriptCheckActivity.EXTRA_MEETING_ID, meetingId)
@@ -2766,6 +3188,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun startNotesEnhance() {
         val m = meeting ?: return
         saveEdits()
+        flushSync()
         if (m.notes.isBlank()) return
         if (SummaryService.isRunning) {
             Toast.makeText(this, R.string.summary_busy, Toast.LENGTH_SHORT).show()
@@ -2794,21 +3217,6 @@ class MeetingDetailActivity : AppCompatActivity() {
         renderNotes(m)
         syncNotesButtons()
         Toast.makeText(this, R.string.notes_reverted, Toast.LENGTH_SHORT).show()
-    }
-
-    /** Pulls notes written by a background enhancement into this screen. */
-    private fun refreshNotesFromStore() {
-        val m = meeting ?: return
-        val saved = store.load(m.id) ?: return
-        if (saved.notes == m.notes && saved.notesOriginal == m.notesOriginal) return
-        // Don't clobber an in-progress manual edit.
-        if (headerView.findViewById<View>(R.id.notesEditMode).visibility == View.VISIBLE) {
-            return
-        }
-        m.notes = saved.notes
-        m.notesOriginal = saved.notesOriginal
-        notesInput.setText(m.notes)
-        setNotesMode(viewMode = m.notes.isNotBlank())
     }
 
     private fun renderNotes(m: Meeting) {
@@ -2842,21 +3250,28 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun importAttachment(uri: Uri) {
         val m = meeting ?: return
-        try {
-            val display = attachmentDisplayName(uri)
-            val file = AttachmentStore.newFile(this, m.id, display)
-            contentResolver.openInputStream(uri)?.use { input ->
-                file.outputStream().use { output -> input.copyTo(output) }
-            } ?: throw RuntimeException("cannot open file")
-            if (file.length() <= 0) {
-                file.delete()
-                throw RuntimeException("empty file")
-            }
-            m.attachmentsList.add(Attachment(file.name, display))
-            persist(m)
-            renderAttachments(m)
+        val display = attachmentDisplayName(uri)
+        val file = try {
+            AttachmentStore.newFile(this, m.id, display)
         } catch (_: Exception) {
             Toast.makeText(this, R.string.attach_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // Any file type from any provider: a large video, or a document that
+        // Drive downloads while it is read, blocked the main thread for the
+        // whole copy.
+        runCopy(
+            copy = {
+                contentResolver.openInputStream(uri)?.use { input ->
+                    file.outputStream().use { output -> input.copyTo(output) }
+                } ?: throw RuntimeException("cannot open file")
+                if (file.length() <= 0) throw RuntimeException("empty file")
+            },
+            file = file,
+            failedText = R.string.attach_failed,
+            record = { it.attachmentsList.add(Attachment(file.name, display)) }
+        ) {
+            renderAttachments(m)
         }
     }
 
@@ -3122,12 +3537,11 @@ class MeetingDetailActivity : AppCompatActivity() {
             var saved = false
             if (result.isNotEmpty()) {
                 try {
-                    val target = store.load(meetingId)
-                    if (target != null) {
+                    // One read-modify-write under the store lock: a save
+                    // from the screen between a load and a save here was lost.
+                    saved = store.mutate(meetingId) { target ->
                         target.chapters.clear()
                         target.chapters.addAll(result)
-                        store.save(target)
-                        saved = true
                     }
                 } catch (_: Exception) {
                 }
@@ -3233,6 +3647,24 @@ class MeetingDetailActivity : AppCompatActivity() {
          */
         private const val FOLLOW_TICK_MS = 90L
         private const val IDLE_TICK_MS = 400L
+
+        /**
+         * Every meeting screen's saves, in order. Shared rather than per
+         * instance so a save from a screen being rotated away still lands
+         * before the new instance's first read.
+         */
+        private val SYNC_EXECUTOR: java.util.concurrent.ExecutorService =
+            java.util.concurrent.Executors.newSingleThreadExecutor { task ->
+                Thread(task, "meeting-screen-save")
+            }
+
+        /**
+         * Above this many characters Share sends a file instead of text: the
+         * text crosses binder up to three times as UTF-16, and past about
+         * 1 MB the transaction fails and takes the app down with it.
+         */
+        private const val SHARE_TEXT_CAP = 100_000
+        private const val SHARE_PREVIEW_CHARS = 2_000
 
         /**
          * Set only by RecordingActivity when a recording has just finished,

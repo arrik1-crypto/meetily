@@ -245,6 +245,11 @@ class SummaryService : Service() {
                 main.post { finishRun(meetingId) }
                 return@Thread
             }
+            // What this run is summarising. An accuracy check can be accepted
+            // while the model works; the save compares against this to decide
+            // whether the result is already out of date.
+            val startFingerprint =
+                com.meetily.mobile.data.MeetingMerge.transcriptFingerprint(meeting.segments)
             // Effective template = instructions + the user's depth setting +
             // shared output rules (custom templates get the rules too).
             val template = SummaryTemplates.personalised(
@@ -308,41 +313,52 @@ class SummaryService : Service() {
             val finalItems = parsedItems
                 ?: ActionItems.fromMeetingContent(meeting.segments.toList(), notes)
 
-            // Save onto a FRESH copy: the user may have edited the meeting
-            // (notes, tags, speaker names) while the model was thinking.
-            val target = store.load(meetingId) ?: meeting
-            target.summary = result
-            /*
-             * Carry the user's state across a regeneration.
-             *
-             * The list was replaced wholesale, which threw away every tick
-             * the user had made and every reminder they had set — and worse,
-             * left the alarms armed, so a notification still fired for an
-             * item that no longer existed. Matching on normalised task text
-             * is the same identity Reminders already uses as its key.
-             */
-            val previous = target.actionItems.associateBy { it.task.trim().lowercase() }
-            val merged = finalItems.map { fresh ->
-                val old = previous[fresh.task.trim().lowercase()]
-                if (old == null) fresh
-                else fresh.copy(done = old.done, remindAtMs = old.remindAtMs)
-            }
-            // Anything the new summary dropped takes its alarm with it.
-            val keptKeys = merged.map { it.task.trim().lowercase() }.toSet()
-            for (gone in target.actionItems) {
-                if (gone.task.trim().lowercase() !in keptKeys && gone.remindAtMs != null) {
-                    runCatching {
-                        com.meetily.mobile.reminders.Reminders
-                            .cancelActionItem(this, meetingId, gone.task)
+            // Save onto a FRESH copy, as one read-modify-write under the store
+            // lock: the user may have edited the meeting (notes, tags, speaker
+            // names) while the model was thinking, and an accuracy check can
+            // save a new transcript at any moment. A plain load-then-save
+            // could lose that transcript, or have this summary lost under it.
+            val droppedReminders = mutableListOf<String>()
+            val saved = store.mutate(meetingId) { target ->
+                target.summary = result
+                /*
+                 * Carry the user's state across a regeneration.
+                 *
+                 * The list was replaced wholesale, which threw away every tick
+                 * the user had made and every reminder they had set — and worse,
+                 * left the alarms armed, so a notification still fired for an
+                 * item that no longer existed. Matching on normalised task text
+                 * is the same identity Reminders already uses as its key.
+                 */
+                val previous = target.actionItems.associateBy { it.task.trim().lowercase() }
+                val merged = finalItems.map { fresh ->
+                    val old = previous[fresh.task.trim().lowercase()]
+                    if (old == null) fresh
+                    else fresh.copy(done = old.done, remindAtMs = old.remindAtMs)
+                }
+                // Anything the new summary dropped takes its alarm with it,
+                // cancelled after the write so the lock stays short.
+                val keptKeys = merged.map { it.task.trim().lowercase() }.toSet()
+                for (gone in target.actionItems) {
+                    if (gone.task.trim().lowercase() !in keptKeys && gone.remindAtMs != null) {
+                        droppedReminders.add(gone.task)
                     }
                 }
+                target.actionItems = merged.toMutableList()
+                // Up to date only if the transcript is still the one that was
+                // summarised. Clearing the flag unconditionally hid the "out
+                // of date" hint when a check was accepted during the run.
+                target.summaryStale = com.meetily.mobile.data.MeetingMerge
+                    .transcriptFingerprint(target.segments) != startFingerprint
             }
-            target.actionItems = merged.toMutableList()
-            // Written from the transcript as it stands now, so any "this
-            // summary is out of date" flag is settled.
-            target.summaryStale = false
-            val saved = store.save(target)
-            if (!saved) {
+            if (saved) {
+                for (task in droppedReminders) {
+                    runCatching {
+                        com.meetily.mobile.reminders.Reminders
+                            .cancelActionItem(this, meetingId, task)
+                    }
+                }
+            } else {
                 android.util.Log.e(
                     "SummaryService",
                     "summary for $meetingId could not be written to disk"
@@ -622,9 +638,11 @@ class SummaryService : Service() {
     }
 
     private fun photoTextBlock(meeting: com.meetily.mobile.data.Meeting): String {
-        if (meeting.photoTexts.isEmpty()) return ""
+        // Blank entries only record that OCR found nothing in that photo.
+        val texts = meeting.photoTexts.values.filter { it.isNotBlank() }
+        if (texts.isEmpty()) return ""
         return "\n\n[Text captured from attached photos and whiteboards]\n" +
-            meeting.photoTexts.values.joinToString("\n---\n").take(4_000)
+            texts.joinToString("\n---\n").take(4_000)
     }
 
     companion object {

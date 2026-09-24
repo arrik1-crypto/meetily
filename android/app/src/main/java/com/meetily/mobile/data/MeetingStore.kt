@@ -77,6 +77,33 @@ class MeetingStore(context: Context) {
     }
 
     /**
+     * Writes a screen's edits onto the stored copy, and returns what is now
+     * stored — see [MeetingMerge.mergeScreenEdits] for which side owns what.
+     *
+     * [base] is the copy the screen last received from here, [ours] its
+     * current copy. Only the fields the screen changed since [base] are
+     * written, so a screen that has been open for an hour cannot put back a
+     * summary, an answer or an accepted transcript it never saw. With no
+     * edits nothing is written, which makes this the screen's refresh too.
+     *
+     * Returns null when nothing usable came back: the meeting is gone and
+     * the screen has nothing to write, or the write failed.
+     */
+    fun syncScreenCopy(base: Meeting, ours: Meeting, segmentsSeenThroughMs: Long): Meeting? {
+        return AtomicJson.exclusive<Meeting?> {
+            val onDisk = load(ours.id)
+            if (onDisk == null) {
+                // Unreadable or deleted underneath. Writing the screen's copy
+                // is what saving from a screen has always done here.
+                return@exclusive if (ours != base && save(ours)) ours else null
+            }
+            val merged = MeetingMerge.mergeScreenEdits(base, ours, onDisk, segmentsSeenThroughMs)
+            if (merged != onDisk && !save(merged)) return@exclusive null
+            merged
+        }
+    }
+
+    /**
      * Saves only what a transcription pass owns — the segments, the audio
      * file and the model that produced them — onto whatever is on disk.
      *

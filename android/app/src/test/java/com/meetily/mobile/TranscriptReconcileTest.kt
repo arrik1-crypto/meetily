@@ -216,4 +216,35 @@ class TranscriptReconcileTest {
         assertEquals(3, blocks.size)
         assertEquals(3, TranscriptReconcile.differences(blocks).size)
     }
+
+    @Test
+    fun merge_renumbersNewClustersIntoTheStoredScheme() {
+        fun clustered(audioMs: Long, text: String, cluster: Int) =
+            seg(audioMs, text).copy(clusterId = cluster)
+        // The check pass heard the same two voices but numbered them the
+        // other way round, and heard a third voice the stored pass did not.
+        val current = listOf(
+            clustered(0L, "hello there", 1),
+            clustered(5_000L, "good morning", 2)
+        )
+        val fresh = listOf(
+            clustered(0L, "hello there", 2),
+            clustered(5_000L, "good mourning", 1),
+            clustered(10_000L, "one more thing", 7)
+        )
+        val blocks = TranscriptReconcile.align(current, fresh)
+        assertEquals(3, blocks.size)
+        val merged = TranscriptReconcile.merge(current, fresh, blocks, setOf(1, 2))
+        assertEquals(listOf(1, 2, 3), merged.map { it.clusterId })
+        assertEquals("good mourning", merged[1].text)
+    }
+
+    @Test
+    fun merge_keepsNewClustersWhenTheStoredTranscriptHasNone() {
+        val current = listOf(seg(0L, "hello there"))
+        val fresh = listOf(seg(0L, "hello their").copy(clusterId = 4))
+        val blocks = TranscriptReconcile.align(current, fresh)
+        val merged = TranscriptReconcile.merge(current, fresh, blocks, setOf(0))
+        assertEquals(4, merged.single().clusterId)
+    }
 }

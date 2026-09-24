@@ -3,4 +3,5 @@
     <files-path name="photos" path="photos/" />
     <files-path name="audio" path="audio/" />
     <files-path name="attachments" path="attachments/" />
+    <cache-path name="shares" path="shares/" />
 </paths>

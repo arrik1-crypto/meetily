@@ -32,6 +32,17 @@ class RemindersAndOcrDataTest {
     }
 
     @Test
+    fun aPhotoWithNoTextStaysMarkedAsDone() {
+        // Dropping the blank entry on load sent that photo back through a
+        // full-resolution decode and OCR on every open.
+        val meeting = Meeting(id = "m3", title = "T", createdAtMs = now)
+        meeting.photoTexts["face.jpg"] = ""
+        val restored = Meeting.fromJson(meeting.toJson())
+        assertTrue(restored.photoTexts.containsKey("face.jpg"))
+        assertEquals("", restored.photoTexts["face.jpg"])
+    }
+
+    @Test
     fun searchFindsMeetingsByWhiteboardText() {
         val withBoard = Meeting(id = "a", title = "Design sync", createdAtMs = now - 86_400_000L)
         withBoard.photoTexts["wb.jpg"] = "flywheel diagram onboarding funnel"
