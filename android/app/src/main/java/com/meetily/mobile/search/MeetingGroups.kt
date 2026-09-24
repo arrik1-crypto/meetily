@@ -20,21 +20,25 @@ object MeetingGroups {
      * Lowercases, strips digits and punctuation (dates, "#12", "3/14"),
      * removes month names and weekday names, and collapses whitespace.
      */
-    fun normalizeTitle(title: String): String {
-        val noise = setOf(
-            "jan", "january", "feb", "february", "mar", "march", "apr",
-            "april", "may", "jun", "june", "jul", "july", "aug", "august",
-            "sep", "sept", "september", "oct", "october", "nov", "november",
-            "dec", "december", "mon", "monday", "tue", "tuesday", "wed",
-            "wednesday", "thu", "thursday", "fri", "friday", "sat",
-            "saturday", "sun", "sunday", "am", "pm"
-        )
-        return title.lowercase(Locale.ROOT)
-            .replace(Regex("[^\\p{L} ]+"), " ")
-            .split(Regex("\\s+"))
-            .filter { it.isNotBlank() && it !in noise }
+    fun normalizeTitle(title: String): String =
+        title.lowercase(Locale.ROOT)
+            .replace(NON_LETTER, " ")
+            .split(WHITESPACE)
+            .filter { it.isNotBlank() && it !in NOISE }
             .joinToString(" ")
-    }
+
+    // Built once: normalizeTitle runs per meeting, and per keystroke while a
+    // series filter is active.
+    private val NOISE = setOf(
+        "jan", "january", "feb", "february", "mar", "march", "apr",
+        "april", "may", "jun", "june", "jul", "july", "aug", "august",
+        "sep", "sept", "september", "oct", "october", "nov", "november",
+        "dec", "december", "mon", "monday", "tue", "tuesday", "wed",
+        "wednesday", "thu", "thursday", "fri", "friday", "sat",
+        "saturday", "sun", "sunday", "am", "pm"
+    )
+    private val NON_LETTER = Regex("[^\\p{L} ]+")
+    private val WHITESPACE = Regex("\\s+")
 
     /**
      * Groups meetings whose normalized titles match, keeping only groups

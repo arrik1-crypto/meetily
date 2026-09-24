@@ -82,10 +82,12 @@ object TopicChapters {
         }
     }
 
+    private val NON_TOKEN = Regex("[^\\p{L}\\p{N}']+")
+
     private fun wordCounts(section: List<TranscriptSegment>): Map<String, Int> {
         val counts = HashMap<String, Int>()
         for (seg in section) {
-            for (raw in seg.text.split(Regex("[^\\p{L}\\p{N}']+"))) {
+            for (raw in seg.text.split(NON_TOKEN)) {
                 val word = raw.lowercase(Locale.getDefault()).trim('\'')
                 if (word.length < 4 || word in STOPWORDS) continue
                 counts[word] = (counts[word] ?: 0) + 1

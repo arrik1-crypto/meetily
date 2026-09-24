@@ -222,7 +222,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                     settings.localOnlyLlm, seriesName, blocks
                 )
             } catch (e: Exception) {
-                getString(R.string.llm_failed_fallback, e.message ?: "unknown error")
+                getString(R.string.brief_failed, e.message ?: "unknown error")
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread

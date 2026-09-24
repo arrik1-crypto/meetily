@@ -125,8 +125,18 @@ object LocalLlm {
     /**
      * Runs one chat completion on-device. [messages] is the same
      * OpenAI-shaped array LlmClient builds: [{role, content}, …].
+     *
+     * [payload] names the bulk text (in practice the transcript) as it
+     * appears inside one of the messages. It is the only thing map-reduce
+     * may condense: instructions, output formats, the question and the
+     * user's own notes around it stay verbatim. No payload, no map-reduce —
+     * the prompt is then only middle-trimmed to fit.
      */
-    fun chat(messages: JSONArray, allowMapReduce: Boolean = true): String {
+    fun chat(
+        messages: JSONArray,
+        allowMapReduce: Boolean = true,
+        payload: String? = null
+    ): String {
         val context = appContext
             ?: throw IllegalStateException("On-device AI is not initialized")
         if (!LocalLlmModels.isRuntimeAvailable()) {
@@ -147,17 +157,28 @@ object LocalLlm {
             releasePending = false
             ensureLoaded(context, model)
 
-            // Map-reduce: when one message (in practice, the transcript) far
-            // exceeds the context, condense it section-by-section with the
-            // same model, then answer over the ordered notes — full coverage
-            // instead of a missing middle.
-            val longest = pairs.indices.maxByOrNull { pairs[it].second.length }
-            if (allowMapReduce && longest != null &&
-                needsMapReduce(pairs[longest].second.length)
+            // Map-reduce: when the prompt far exceeds the context, condense
+            // the transcript section-by-section with the same model, then
+            // answer over the ordered notes — full coverage instead of a
+            // missing middle.
+            //
+            // Only the named payload, never "the longest message": that was
+            // often the system prompt, and condensing it threw away the
+            // instructions, meeting labels and required structure along with
+            // the transcript, or squeezed the user's own notes into bullets.
+            val at = if (payload.isNullOrEmpty()) -1
+            else pairs.indexOfFirst { it.second.contains(payload) }
+            if (allowMapReduce && payload != null && at >= 0 &&
+                needsMapReduce(pairs.sumOf { it.second.length })
             ) {
-                condense(pairs[longest].second)?.let { condensed ->
+                condenseCached(model.key, payload)?.let { condensed ->
                     pairs = pairs.toMutableList().also {
-                        it[longest] = it[longest].first to condensed
+                        val content = it[at].second
+                        val start = content.indexOf(payload)
+                        it[at] = it[at].first to (
+                            content.substring(0, start) + condensed +
+                                content.substring(start + payload.length)
+                            )
                     }
                     stageListener?.invoke(0, 0)
                 }
@@ -279,6 +300,40 @@ object LocalLlm {
     }
 
     fun needsMapReduce(length: Int): Boolean = length > MAP_REDUCE_THRESHOLD
+
+    /**
+     * Condensed notes by (model, payload hash), most recent last. Section
+     * notes do not depend on the question, so without this every follow-up
+     * Ask on a long meeting re-ran the whole map-reduce — minutes of full
+     * CPU each time — and so did regenerating a summary with a different
+     * template. Guarded by [lock], like everything else it serves.
+     */
+    private val condensedCache = object : LinkedHashMap<String, String>(4, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String>?) =
+            size > CONDENSED_CACHE_ENTRIES
+    }
+    private const val CONDENSED_CACHE_ENTRIES = 3
+
+    /** [condense] through [condensedCache]; caller holds [lock]. */
+    private fun condenseCached(modelKey: String, payload: String): String? {
+        val key = cacheKey(modelKey, payload)
+        condensedCache[key]?.let { return it }
+        val condensed = condense(payload) ?: return null
+        // A pass with a failed section is not worth keeping: the next run
+        // may well manage that section, and a cache would pin the gap.
+        if (!abortRequested && !condensed.contains(PromptShaping.SECTION_UNAVAILABLE)) {
+            condensedCache[key] = condensed
+        }
+        return condensed
+    }
+
+    private fun cacheKey(modelKey: String, payload: String): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        digest.update(modelKey.toByteArray(Charsets.UTF_8))
+        digest.update(0.toByte())
+        digest.update(payload.toByteArray(Charsets.UTF_8))
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
 
     /**
      * Condenses [content] chunk-by-chunk into ordered section notes. Must be

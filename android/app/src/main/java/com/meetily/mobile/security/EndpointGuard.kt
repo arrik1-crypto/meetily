@@ -122,7 +122,9 @@ object EndpointGuard {
             ?: throw BlockedEndpointException("AI endpoint URL has no host: $baseUrl")
         when (uri.scheme?.lowercase()) {
             "https" -> {
-                if (localOnly && !isPrivateHost(host)) {
+                val hostClass = if (localOnly) classifyHost(host) else HostClass.PRIVATE
+                if (hostClass == HostClass.UNRESOLVED) throw unresolved(host)
+                if (hostClass != HostClass.PRIVATE) {
                     throw BlockedEndpointException(
                         "Local-only AI is on, and $host is not on your private " +
                             "network. Use a local endpoint, or turn off Local-only " +
@@ -131,7 +133,9 @@ object EndpointGuard {
                 }
             }
             "http" -> {
-                if (!isPrivateHost(host)) {
+                val hostClass = classifyHost(host)
+                if (hostClass == HostClass.UNRESOLVED) throw unresolved(host)
+                if (hostClass != HostClass.PRIVATE) {
                     throw BlockedEndpointException(
                         "Plain http is only allowed to private-network endpoints. " +
                             "Use https for $host."
@@ -148,16 +152,34 @@ object EndpointGuard {
      * True when every address the host resolves to is private. IP literals
      * never touch DNS; a resolution failure counts as not private.
      */
-    fun isPrivateHost(host: String): Boolean {
-        if (host.equals("localhost", ignoreCase = true)) return true
-        return try {
-            InetAddress.getAllByName(host).let { addrs ->
-                addrs.isNotEmpty() && addrs.all(::isPrivateAddress)
-            }
+    fun isPrivateHost(host: String): Boolean = classifyHost(host) == HostClass.PRIVATE
+
+    /**
+     * Why a host is or is not private. A failed lookup is kept apart from a
+     * public answer: both are refused, but they need different advice. Told
+     * "not on your private network", a user whose phone is simply offline —
+     * or away from the router that resolves nas.lan — was steered towards
+     * switching Local-only AI off, when nothing about the endpoint had
+     * changed.
+     */
+    enum class HostClass { PRIVATE, PUBLIC, UNRESOLVED }
+
+    fun classifyHost(host: String): HostClass {
+        if (host.equals("localhost", ignoreCase = true)) return HostClass.PRIVATE
+        val addrs = try {
+            InetAddress.getAllByName(host)
         } catch (e: Exception) {
-            false
+            return HostClass.UNRESOLVED
         }
+        if (addrs.isEmpty()) return HostClass.UNRESOLVED
+        return if (addrs.all(::isPrivateAddress)) HostClass.PRIVATE else HostClass.PUBLIC
     }
+
+    /** Refusal for a name that could not be looked up; the policy is unchanged. */
+    private fun unresolved(host: String) = BlockedEndpointException(
+        "Couldn't look up $host. Check your connection, or that you're on " +
+            "the network it lives on. Nothing was sent."
+    )
 
     fun isPrivateAddress(addr: InetAddress): Boolean {
         if (addr.isLoopbackAddress || addr.isLinkLocalAddress || addr.isSiteLocalAddress) {

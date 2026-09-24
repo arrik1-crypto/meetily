@@ -127,7 +127,20 @@ class MeetingDetailActivity : AppCompatActivity() {
                     // meeting the proposals belong to.
                     if (!failed) offerSpeakerSuggestions()
                 }
-                else -> refreshSummaryFromStore(reveal = true)
+                else -> {
+                    refreshSummaryFromStore(reveal = true)
+                    // The meeting was left as it was; say why nothing changed.
+                    if (failed) {
+                        Toast.makeText(
+                            this@MeetingDetailActivity,
+                            getString(
+                                R.string.summary_failed_kept,
+                                SummaryService.lastFailure ?: "unknown error"
+                            ),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
             }
         }
     }
@@ -272,9 +285,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun renderMeta(m: Meeting) {
-        val wordCount = m.transcriptText()
-            .split(Regex("\\s+"))
-            .count { it.isNotBlank() }
+        // Per segment rather than over one joined copy of the transcript.
+        val wordCount = m.segments.sumOf {
+            com.meetily.mobile.summarize.MeetingStats.countWords(it.text)
+        }
         metaView.text = getString(R.string.detail_meta, m.segments.size, wordCount)
     }
 
