@@ -542,25 +542,72 @@ class MainActivity : AppCompatActivity() {
      */
     private fun offerInterruptedWork() {
         if (!JobGate.canStartBatch()) return
-        val job = com.meetily.mobile.data.JobQueue
-            .interrupted(com.meetily.mobile.data.JobQueue.load(this))
-            .firstOrNull { store.load(it.meetingId) != null } ?: return
-        val title = store.load(job.meetingId)?.title.orEmpty()
+        val queue = com.meetily.mobile.data.JobQueue
+        val interrupted = queue.interrupted(queue.load(this))
+        // An import that died before its staged file became a meeting's
+        // audio can be offered back; one that died after it has either a
+        // meeting to show (its partial transcript) or nothing, in which case
+        // the renamed audio is an orphan nobody can reach.
+        val deadImport = interrupted.firstOrNull { it.kind == queue.KIND_IMPORT }
+        if (deadImport != null &&
+            !com.meetily.mobile.data.AudioStore.exists(this, deadImport.stagedFile)
+        ) {
+            if (deadImport.meetingId.isNotBlank() && !store.exists(deadImport.meetingId)) {
+                com.meetily.mobile.data.AudioStore.delete(
+                    this,
+                    com.meetily.mobile.data.AudioStore
+                        .newImportFile(this, deadImport.meetingId, deadImport.sourceName).name
+                )
+            }
+            queue.dequeueStaged(this, deadImport.stagedFile)
+            return
+        }
+        val job = deadImport ?: interrupted.firstOrNull { store.exists(it.meetingId) } ?: return
+        val title = if (job.kind == queue.KIND_IMPORT) {
+            job.sourceName
+        } else {
+            store.load(job.meetingId)?.title.orEmpty()
+        }
         AlertDialog.Builder(this)
             .setTitle(R.string.resume_job_title)
             .setMessage(getString(R.string.resume_job_body, title))
             .setPositiveButton(R.string.resume_job_yes) { _, _ ->
-                com.meetily.mobile.data.JobQueue
-                    .dequeue(this, job.kind, job.meetingId)
-                if (job.kind == com.meetily.mobile.data.JobQueue.KIND_SUMMARY) {
-                    JobGate.requestSummary(this, job.meetingId, job.payload, false)
+                if (job.kind == queue.KIND_IMPORT) {
+                    // Back on the queue as the file the user picked, and
+                    // started now if nothing else is running.
+                    queue.dequeueStaged(this, job.stagedFile)
+                    queue.enqueue(
+                        this,
+                        job.copy(
+                            meetingId = "", interrupted = false,
+                            queuedAtMs = System.currentTimeMillis()
+                        )
+                    )
+                    JobGate.drain(this)
+                    return@setPositiveButton
+                }
+                queue.dequeue(this, job.kind, job.meetingId)
+                // The user just said yes, so this is theirs now: never
+                // trimmed, and a first transcript stays one.
+                if (job.kind == queue.KIND_SUMMARY) {
+                    JobGate.requestSummary(
+                        this, job.meetingId, job.payload, false, required = true
+                    )
                 } else {
-                    JobGate.requestCheck(this, job.meetingId, job.payload, false)
+                    JobGate.requestCheck(
+                        this, job.meetingId, job.payload, false,
+                        required = true, firstTranscript = job.firstTranscript
+                    )
                 }
             }
             .setNegativeButton(R.string.resume_job_no) { _, _ ->
-                com.meetily.mobile.data.JobQueue
-                    .dequeue(this, job.kind, job.meetingId)
+                if (job.kind == queue.KIND_IMPORT) {
+                    // By staged file: every queued import shares a blank id.
+                    queue.dequeueStaged(this, job.stagedFile)
+                    com.meetily.mobile.data.AudioStore.delete(this, job.stagedFile)
+                } else {
+                    queue.dequeue(this, job.kind, job.meetingId)
+                }
             }
             .show()
     }

@@ -38,7 +38,9 @@ object AutoSummary {
             // standup; otherwise the explicit automatic-summary style.
             val seriesKey = MeetingGroups.normalizeTitle(title)
             val template = settings.seriesTemplate(seriesKey) ?: settings.autoSummaryTemplate
-            JobGate.requestSummary(context, meetingId, template, chargingOnly)
+            // Marked automatic, so a drain hours later re-checks the consent
+            // checked above instead of inheriting it.
+            JobGate.requestSummary(context, meetingId, template, chargingOnly, auto = true)
         } catch (_: Throwable) {
             // A bonus pass must never break finishing a meeting or an import.
         }

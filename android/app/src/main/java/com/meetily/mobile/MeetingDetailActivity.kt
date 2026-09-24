@@ -1607,7 +1607,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         // loaded on top of it, which is the exact double-load JobGate exists
         // to prevent. Queue instead — a summary is only ever delayed.
         if (!JobGate.canStartBatch()) {
-            JobGate.requestSummary(this, m.id, template.key, whenCharging = false)
+            JobGate.requestSummary(
+                this, m.id, template.key, whenCharging = false, required = true
+            )
             Toast.makeText(this, R.string.summary_queued, Toast.LENGTH_LONG).show()
             return
         }
@@ -2647,10 +2649,18 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun startCheck(m: Meeting, modelKey: String) {
         val file = audioFileOrNull() ?: return
+        // A second pass queued behind the one already checking this meeting
+        // would overwrite that pass's draft before the user had reviewed it.
+        if (ImportService.isRunning && ImportService.isRecheck &&
+            ImportService.currentMeetingId == m.id
+        ) {
+            Toast.makeText(this, R.string.check_already_running, Toast.LENGTH_LONG).show()
+            return
+        }
         // The check reads the meeting's own saved audio, so there is nothing
         // to stage — queueing it is enough when something else is running.
         if (!JobGate.canStartBatch()) {
-            JobGate.requestCheck(this, m.id, modelKey, whenCharging = false)
+            JobGate.requestCheck(this, m.id, modelKey, whenCharging = false, required = true)
             Toast.makeText(this, R.string.check_queued, Toast.LENGTH_LONG).show()
             return
         }

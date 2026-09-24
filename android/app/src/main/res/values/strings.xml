@@ -568,6 +568,8 @@
     <string name="status_hearing_speech">Hearing speech</string>
     <string name="status_processing">Transcribing</string>
     <string name="status_device_audio_ended">Device audio capture ended — stop and start again to resume</string>
+    <string name="fgs_timeout_summary">Android stopped this after its daily background time limit. Nothing was changed \u2014 start it again to finish.</string>
+    <string name="summary_timeout_notif">Summary not finished</string>
     <string name="fgs_timeout_import">Android stopped this after its daily background time limit. The part that finished has been kept — start it again to continue.</string>
     <string name="status_paused">Paused</string>
     <string name="status_loading_model">Loading the model…</string>
@@ -748,7 +750,7 @@
     <!-- Unplugging stops work that was only allowed to run because the phone
          was on power. It goes back on the queue rather than being lost. -->
     <string name="unplugged_stopped_title">Stopped — charger unplugged</string>
-    <string name="unplugged_stopped_check">Transcribing “%1$s” will finish next time you charge.</string>
+    <string name="unplugged_stopped_check">Transcribing “%1$s” will start over next time you charge.</string>
     <string name="unplugged_stopped_summary">The summary for “%1$s” will finish next time you charge.</string>
     <string name="resume_job_title">Resume interrupted work?</string>
     <string name="resume_job_body">\u201c%1$s\u201d was still being processed when Recap closed.</string>
@@ -812,6 +814,7 @@
     <string name="import_queue_failed">That file could not be copied for the queue.</string>
     <string name="check_queued">Queued \u2014 the check will start when the current job finishes.</string>
     <string name="summary_queued">Queued \u2014 the summary will start when the current job finishes.</string>
+    <string name="check_already_running">This meeting is already being checked. Review that result first.</string>
     <string name="busy_heavy_job">Recap is busy with a recording, import or summary. Try again when it finishes.</string>
 
     <!-- Model time estimates: measured on this device, not guessed. -->

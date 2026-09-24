@@ -76,18 +76,44 @@ class SummaryService : Service() {
     /** Kept so a stopped run can be requeued with the template it was given. */
     private var runTemplateKey = ""
 
+    /** Queued by AutoSummary, so its consent is re-checked; see runGeneration. */
+    private var runAuto = false
+
+    /**
+     * Who decided this run's fate: still running, stopped by the unplug, or
+     * committed to saving. One atomic value rather than a flag the main thread
+     * sets and the worker reads, so a stop that lands after the worker has
+     * committed is ignored instead of announcing — and requeueing — a summary
+     * that was just saved.
+     */
+    private val unplugState = java.util.concurrent.atomic.AtomicInteger(RUN_ACTIVE)
+
     /** The charger came out mid-run, so this summary is not being written. */
-    @Volatile private var stoppedByUnplug = false
+    private val stoppedByUnplug: Boolean
+        get() = unplugState.get() == RUN_STOPPED
+
+    /**
+     * Set by onTimeout. The worker is unwinding and the instance must refuse
+     * new runs until finishRun lands, as in ImportService.
+     */
+    @Volatile private var timedOut = false
+
+    /** The newest start this instance was handed; see ImportService.lastStartId. */
+    private var lastStartId = 0
 
     private val powerWatch = PowerWatch { stopForUnplug() }
 
     override fun onBind(intent: Intent?): IBinder = SummaryBinder()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         if (intent?.action != ACTION_START) return START_NOT_STICKY
         val meetingId = intent.getStringExtra(EXTRA_MEETING_ID).orEmpty()
         val templateKey = intent.getStringExtra(EXTRA_TEMPLATE).orEmpty()
-        if (isRunning || meetingId.isBlank()) return START_NOT_STICKY
+        if (isRunning || timedOut || meetingId.isBlank()) {
+            refuseStart(startId)
+            return START_NOT_STICKY
+        }
         isRunning = true
         // Closes JobGate's "a start is on its way" window; see
         // JobGate.canStartBatch.
@@ -95,11 +121,12 @@ class SummaryService : Service() {
         currentMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_SUMMARY
         chargingOnly = intent.getBooleanExtra(EXTRA_CHARGING_ONLY, false)
         runTemplateKey = templateKey
-        stoppedByUnplug = false
+        runAuto = intent.getBooleanExtra(EXTRA_AUTO, false)
+        unplugState.set(RUN_ACTIVE)
         lastStopped = false
-        // A previous stop leaves the native flag raised on purpose, so that a
-        // request arriving between runs is not lost. Clearing it here — and
-        // nowhere else — is what lets the retry actually generate.
+        // finishRun clears the abort flag when a stopped run ends; clearing it
+        // here as well means nothing left over can kill this run's first
+        // decode.
         LocalLlm.clearAbort()
         currentMeetingId = meetingId
         currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
@@ -116,8 +143,14 @@ class SummaryService : Service() {
         acquireWakeLock()
         // Only the deferred summary pass is watched. A summary the user
         // tapped for themselves while plugged in is theirs to wait for, and
-        // notes/speaker runs are seconds rather than minutes.
-        powerWatch.arm(this, chargingOnly && currentMode == MODE_SUMMARY)
+        // notes/speaker runs are seconds rather than minutes. And only on
+        // device: the stop cannot reach an HTTP request, so for an endpoint
+        // it saved no battery and threw away a finished (and paid-for)
+        // summary, only to upload the transcript again on the next charge.
+        powerWatch.arm(
+            this,
+            chargingOnly && currentMode == MODE_SUMMARY && LocalLlm.isSelected()
+        )
         // Only a summary run is worth resuming after a process death: notes
         // enhancement and speaker suggestions are quick, and re-running them
         // unasked would be more surprising than useful.
@@ -148,7 +181,7 @@ class SummaryService : Service() {
                 main.post { finishRun(meetingId, failed = meeting != null) }
                 return@Thread
             }
-            LocalLlm.stageListener = { section, total ->
+            val listener: (Int, Int) -> Unit = { section, total ->
                 if (total > 0) {
                     setProgress(
                         progressPercent(section, total),
@@ -158,6 +191,7 @@ class SummaryService : Service() {
                     setProgress(88, getString(R.string.notes_stage_writing))
                 }
             }
+            LocalLlm.stageListener = listener
             var failed = false
             try {
                 val enhanced = LlmClient.enhanceNotes(
@@ -178,7 +212,9 @@ class SummaryService : Service() {
             } catch (_: Exception) {
                 failed = true // original notes stay untouched
             } finally {
-                LocalLlm.stageListener = null
+                // Only our own: a timed-out worker finishing late must not
+                // wipe the listener of a newer run waiting on the model.
+                if (LocalLlm.stageListener === listener) LocalLlm.stageListener = null
             }
             main.post { finishRun(meetingId, failed) }
         }.apply {
@@ -253,6 +289,15 @@ class SummaryService : Service() {
                 ),
                 settings.userName
             )
+            // An automatic summary may have waited hours for a charger. If the
+            // consent it was queued under has since been withdrawn — the
+            // engine switched to an endpoint, or auto-summary turned off —
+            // nothing is sent anywhere. JobGate checks this at drain; this
+            // covers a settings change between then and now.
+            if (runAuto && !settings.autoSummaryAllowed) {
+                main.post { finishRun(meetingId, quiet = true) }
+                return@Thread
+            }
             val useLlm = settings.useLlm && settings.llmConfigured
             val rawTranscript = meeting.transcriptText()
             val speakerTranscript = meeting.transcriptTextWithSpeakers()
@@ -262,7 +307,7 @@ class SummaryService : Service() {
             // Map-reduce progress from the local engine surfaces as stages:
             // sections map onto 0-85%, the final write sits near the end,
             // and everything else stays indeterminate.
-            LocalLlm.stageListener = { section, total ->
+            val listener: (Int, Int) -> Unit = { section, total ->
                 if (total > 0) {
                     setProgress(
                         progressPercent(section, total),
@@ -272,7 +317,9 @@ class SummaryService : Service() {
                     setProgress(88, getString(R.string.summary_stage_writing))
                 }
             }
+            LocalLlm.stageListener = listener
             var parsedItems: List<com.meetily.mobile.data.ActionItem>? = null
+            var generationFailed = false
             val result = try {
                 if (useLlm) {
                     val raw = LlmClient.summarize(
@@ -289,19 +336,31 @@ class SummaryService : Service() {
                     )
                 }
             } catch (e: Exception) {
+                generationFailed = true
                 val fallback = ExtractiveSummarizer.summarize(
                     rawTranscript, notes, highlights, template.extractiveActionsOnly
                 )
                 getString(R.string.llm_failed_fallback, e.message ?: "unknown error") +
                     "\n\n" + fallback
             } finally {
-                LocalLlm.stageListener = null
+                // Only our own: a timed-out worker finishing late must not
+                // wipe the listener of a newer run waiting on the model.
+                if (LocalLlm.stageListener === listener) LocalLlm.stageListener = null
             }
-            if (stoppedByUnplug) {
+            // A generation that returned normally is a real summary, whatever
+            // arrived meanwhile: keep it, and let a late unplug stop go.
+            // Otherwise commit only if no stop got here first.
+            val committed = if (generationFailed) {
+                unplugState.compareAndSet(RUN_ACTIVE, RUN_COMMITTED)
+            } else {
+                unplugState.set(RUN_COMMITTED)
+                true
+            }
+            if (!committed || (generationFailed && timedOut)) {
                 // Nothing is written. The catch above has already turned the
                 // stopped generation into the extractive fallback, and saving
                 // THAT would quietly downgrade the meeting's summary as the
-                // price of unplugging a cable.
+                // price of unplugging a cable — or of Android's time limit.
                 main.post { finishRun(meetingId) }
                 return@Thread
             }
@@ -384,9 +443,28 @@ class SummaryService : Service() {
     }
 
     private fun renewWakeLockIfStale() {
+        // Released by onTimeout; a worker still unwinding must not take it back.
+        if (timedOut) return
         if (System.currentTimeMillis() - wakeLockAcquiredMs >= WAKE_LOCK_RENEW_MS) {
             acquireWakeLock()
         }
+    }
+
+    /**
+     * Turns down a start without breaking the startForegroundService
+     * contract; see ImportService.refuseStart.
+     */
+    private fun refuseStart(startId: Int) {
+        if (isRunning && !timedOut) return // already foreground; the run stops itself
+        try {
+            createChannel()
+            startForegroundCompat()
+        } catch (_: Exception) {
+            // Foreground time already exhausted; nothing more can be done.
+        }
+        stopForegroundCompat()
+        // A timed-out run's own finish stops the service, with this start's id.
+        if (!isRunning) stopSelfResult(startId)
     }
 
     private fun setProgress(newPercent: Int, text: String) {
@@ -412,16 +490,28 @@ class SummaryService : Service() {
      */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onTimeout(startId: Int, fgsType: Int) {
+        if (!isRunning) {
+            stopForegroundCompat()
+            stopSelfResult(lastStartId)
+            return
+        }
+        timedOut = true
+        powerWatch.disarm(this)
+        // The worker is one long native call; without this it went on
+        // generating after the service stopped, next to whatever heavy job
+        // the gate let in once isRunning was cleared.
+        LocalLlm.requestAbort()
         // Reported as a failure, because that is what it is from the user's
         // side: no summary, and re-running it is the way to get one.
-        powerWatch.disarm(this)
-        postDoneNotification(currentMeetingId, true)
-        isRunning = false
-        currentMeetingId = ""
-        currentTitle = ""
-        percent = -1
+        postTimeoutNotification(currentMeetingId)
+        try {
+            wakeLock?.release()
+        } catch (_: Exception) {
+        }
+        // isRunning deliberately NOT cleared: as in ImportService.onTimeout,
+        // the worker is still unwinding and finishRun clears it when the run
+        // is genuinely over, so no second heavy job starts beside it.
         stopForegroundCompat()
-        stopSelf()
     }
 
     /**
@@ -430,14 +520,24 @@ class SummaryService : Service() {
      * plugging back in picks it up exactly as the original deferral would.
      */
     private fun stopForUnplug() {
-        if (!isRunning || stoppedByUnplug) return
-        stoppedByUnplug = true
+        // Loses to a worker that has already committed its result.
+        if (!isRunning || !unplugState.compareAndSet(RUN_ACTIVE, RUN_STOPPED)) return
         setProgress(percent, getString(R.string.unplugged_stopped_title))
         // The generation is one long native call; this is what ends it.
         LocalLlm.requestAbort()
     }
 
-    private fun finishRun(meetingId: String, failed: Boolean = false) {
+    /** [quiet]: nothing ran (withdrawn consent), so nothing is announced. */
+    private fun finishRun(meetingId: String, failed: Boolean = false, quiet: Boolean = false) {
+        // The worker has returned by now, so the stop an unplug or a timeout
+        // raised has done its job. Left raised it outlived the run: every
+        // other on-device feature — Ask, catch-up, titles, briefs — failed
+        // with "generation was stopped" until the next summary started.
+        LocalLlm.clearAbort()
+        // And the model itself goes. The gate exists so a multi-GB LLM is
+        // never resident beside Whisper, and the job drained next is often
+        // exactly that. The generation has returned, so this frees at once.
+        LocalLlm.release()
         try {
             wakeLock?.release()
         } catch (_: Exception) {
@@ -445,25 +545,29 @@ class SummaryService : Service() {
         wakeLock = null
         wakeLockAcquiredMs = 0L
         powerWatch.disarm(this)
+        val wasTimedOut = timedOut
         if (currentMode == MODE_SUMMARY) {
             com.meetily.mobile.data.JobQueue.finished(
                 this, com.meetily.mobile.data.JobQueue.KIND_SUMMARY, meetingId
             )
-            // Strictly after finished(), which removes by kind+meeting and
-            // would take the requeued job straight back out again.
+            // After finished(), so the marker and the requeued job are never
+            // both in the queue for the same meeting.
             if (stoppedByUnplug) requeueForCharging(meetingId)
         }
         lastStopped = stoppedByUnplug
         observers.forEach { it.onSummaryDone(meetingId, failed) }
         if (stoppedByUnplug) {
             postUnpluggedNotification(currentTitle)
-        } else {
+        } else if (!wasTimedOut && !quiet) {
             // Always announce completion — on-device runs take minutes, and
-            // the user asked to see the finish from anywhere.
+            // the user asked to see the finish from anywhere. A timeout has
+            // already said what happened.
             postDoneNotification(meetingId, failed)
         }
-        stoppedByUnplug = false
+        unplugState.set(RUN_ACTIVE)
         chargingOnly = false
+        runAuto = false
+        timedOut = false
         isRunning = false
         currentMeetingId = ""
         currentTitle = ""
@@ -471,10 +575,12 @@ class SummaryService : Service() {
         percent = -1
         // Start the next queued job while this service is still foreground —
         // that is what makes the start legal on Android 12+, and it is what
-        // keeps two heavy engines from ever overlapping.
-        JobGate.drain(this)
-        stopForegroundCompat()
-        stopSelf()
+        // keeps two heavy engines from ever overlapping. Not after a timeout:
+        // the foreground is already gone and the dataSync budget spent.
+        if (!wasTimedOut) JobGate.drain(this)
+        // False when drain just started another job on this same class; its
+        // pending start keeps the service, and the notification is replaced.
+        if (stopSelfResult(lastStartId)) stopForegroundCompat()
     }
 
     // --- Notifications ------------------------------------------------------
@@ -555,8 +661,9 @@ class SummaryService : Service() {
 
     /**
      * Puts the stopped summary back on the queue, still marked as waiting for
-     * power. Plugging back in then wakes it through exactly the path the
-     * original deferral used — see PowerConnectedReceiver.
+     * power — and still marked automatic, so its consent is re-checked when
+     * it runs. Plugging back in wakes it through exactly the path the
+     * original deferral used — see ChargingJobService.
      */
     private fun requeueForCharging(meetingId: String) {
         com.meetily.mobile.data.JobQueue.enqueue(
@@ -566,9 +673,39 @@ class SummaryService : Service() {
                 meetingId,
                 runTemplateKey,
                 System.currentTimeMillis(),
-                chargingOnly = true
+                chargingOnly = true,
+                auto = runAuto
             )
         )
+        ChargingJobService.schedule(this)
+    }
+
+    /**
+     * Android's daily foreground-service limit ended the run. Not
+     * postDoneNotification: for a summary that says "Summary ready", and
+     * none was written.
+     */
+    private fun postTimeoutNotification(meetingId: String) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val title = when (currentMode) {
+            MODE_NOTES -> getString(R.string.notes_failed_notif)
+            MODE_SPEAKERS -> getString(R.string.speakers_failed_notif)
+            else -> getString(R.string.summary_timeout_notif)
+        }
+        val body = getString(R.string.fgs_timeout_summary)
+        val notification = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_sparkle)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setContentIntent(openMeetingIntent(meetingId, 7))
+            .build()
+        try {
+            manager.notify(NOTIF_DONE_ID, notification)
+        } catch (_: SecurityException) {
+        }
     }
 
     private fun postUnpluggedNotification(title: String) {
@@ -653,6 +790,8 @@ class SummaryService : Service() {
         const val EXTRA_TEMPLATE = "template"
         const val EXTRA_MODE = "mode"
         const val EXTRA_CHARGING_ONLY = "charging_only"
+        /** Queued by AutoSummary; see JobQueue.Job.auto. */
+        const val EXTRA_AUTO = "auto"
         const val MODE_SUMMARY = "summary"
         const val MODE_NOTES = "notes"
         const val MODE_SPEAKERS = "speakers"
@@ -669,6 +808,9 @@ class SummaryService : Service() {
             internal set
         private const val CHANNEL_ID = "summary"
         private const val NOTIF_ID = 50
+        private const val RUN_ACTIVE = 0
+        private const val RUN_STOPPED = 1
+        private const val RUN_COMMITTED = 2
         private const val NOTIF_DONE_ID = 51
 
         fun start(
@@ -677,7 +819,9 @@ class SummaryService : Service() {
             templateKey: String,
             mode: String = MODE_SUMMARY,
             /** This run only got to start because the phone is charging. */
-            chargingOnly: Boolean = false
+            chargingOnly: Boolean = false,
+            /** Queued by AutoSummary; consent is re-checked before it runs. */
+            auto: Boolean = false
         ) {
             val intent = Intent(context, SummaryService::class.java)
                 .setAction(ACTION_START)
@@ -685,6 +829,7 @@ class SummaryService : Service() {
                 .putExtra(EXTRA_TEMPLATE, templateKey)
                 .putExtra(EXTRA_MODE, mode)
                 .putExtra(EXTRA_CHARGING_ONLY, chargingOnly)
+                .putExtra(EXTRA_AUTO, auto)
             androidx.core.content.ContextCompat.startForegroundService(context, intent)
         }
     }

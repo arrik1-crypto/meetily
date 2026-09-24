@@ -207,6 +207,10 @@ class RecordingService : Service() {
         active = true
         deviceAudioMode = deviceAudio && Build.VERSION.SDK_INT >= 29
         isRunning = true
+        // An idle on-device LLM left over from a summary or an Ask would sit
+        // in memory beside live Whisper for the whole meeting. Never blocks:
+        // a generation in flight frees it when it ends.
+        com.meetily.mobile.llm.LocalLlm.release()
         finishing = false
         meetingId = UUID.randomUUID().toString()
         startedAtMs = System.currentTimeMillis()
@@ -487,7 +491,10 @@ class RecordingService : Service() {
                 // produced the existing transcript, which makes no sense when
                 // nothing has produced one.
                 settings.whisperModel,
-                whenCharging = settings.autoCheckWhileChargingOnly
+                whenCharging = settings.autoCheckWhileChargingOnly,
+                // It is the transcript: never trimmed from the queue, and
+                // resumed as a first pass if an unplug stops it part-way.
+                firstTranscript = true
             )
         } catch (_: Throwable) {
             // The audio is saved either way; the meeting screen offers the

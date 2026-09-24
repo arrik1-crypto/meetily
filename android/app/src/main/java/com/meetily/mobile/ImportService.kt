@@ -104,6 +104,22 @@ class ImportService : Service() {
     /** The charger came out mid-run, so this pass is being put back. */
     @Volatile private var stoppedByUnplug = false
 
+    /**
+     * The importer has returned and its result is on the way to finishRun.
+     * An unplug confirmed after this point has nothing left to save battery
+     * on, and honouring it threw away a pass that had already finished.
+     */
+    @Volatile private var importerReturned = false
+
+    /**
+     * The newest start this instance has been handed, including cancels and
+     * refused starts. finishRun stops with it rather than unconditionally: a
+     * job drained into THIS service class arrives as a newer start, and a
+     * bare stopSelf() tore the service down under it, leaving that job
+     * running with no foreground service at all.
+     */
+    private var lastStartId = 0
+
     private val powerWatch = PowerWatch { stopForUnplug() }
     @Volatile private var percent = 0
     @Volatile private var detail = ""
@@ -119,10 +135,11 @@ class ImportService : Service() {
     override fun onBind(intent: Intent?): IBinder = ImportBinder()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         when (intent?.action) {
             ACTION_CANCEL -> {
                 cancelled = true
-                if (!isRunning) stopSelf()
+                if (!isRunning) stopSelfResult(startId)
                 return START_NOT_STICKY
             }
             ACTION_START -> {
@@ -131,7 +148,10 @@ class ImportService : Service() {
                 // its worker is still unwinding. A bound client keeps the
                 // object alive, so a queued job could otherwise land on it and
                 // race the run that is on its way out.
-                if (isRunning || timedOut || uri == null) return START_NOT_STICKY
+                if (isRunning || timedOut || uri == null) {
+                    refuseStart(startId)
+                    return START_NOT_STICKY
+                }
                 isRunning = true
                 // Closes JobGate's "a start is on its way" window; see
                 // JobGate.canStartBatch.
@@ -143,6 +163,7 @@ class ImportService : Service() {
                 done = false
                 cancelled = false
                 stoppedByUnplug = false
+                importerReturned = false
                 chargingOnly = intent.getBooleanExtra(EXTRA_CHARGING_ONLY, false)
                 percent = 0
                 detail = ""
@@ -155,9 +176,12 @@ class ImportService : Service() {
                 // captured as audio only, and this pass is its FIRST
                 // transcript rather than a second opinion on an existing one.
                 // That distinction decides whether the summary should follow.
+                // The extra carries it across an unplug stop, after which the
+                // meeting holds the stopped pass's partial words.
                 firstTranscript = recheckMeetingId?.let { id ->
-                    com.meetily.mobile.data.MeetingStore(this).load(id)
-                        ?.segments?.isEmpty() == true
+                    intent.getBooleanExtra(EXTRA_FIRST_TRANSCRIPT, false) ||
+                        com.meetily.mobile.data.MeetingStore(this).load(id)
+                            ?.segments?.isEmpty() == true
                 } ?: false
                 adoptFile = intent.getStringExtra(EXTRA_ADOPT_FILE)
                 isRecheck = recheckMeetingId != null
@@ -167,6 +191,11 @@ class ImportService : Service() {
                 modelKey = intent.getStringExtra(EXTRA_MODEL)
                 createChannel()
                 startForegroundCompat(buildNotification(0))
+                // Whisper or NeMo is about to load. An idle on-device LLM from
+                // an earlier summary or Ask must not stay resident beside it —
+                // the pairing JobGate exists to prevent. Never blocks; a
+                // generation in flight frees it when it ends.
+                com.meetily.mobile.llm.LocalLlm.release()
                 // A dataSync service keeps the process alive but NOT the CPU:
                 // without this, a long import stalls or dies once the screen
                 // has been off for a while.
@@ -180,13 +209,42 @@ class ImportService : Service() {
                 if (recheckMeetingId != null) {
                     com.meetily.mobile.data.JobQueue.markRunning(
                         this, com.meetily.mobile.data.JobQueue.KIND_CHECK,
-                        recheckMeetingId!!, modelKey.orEmpty()
+                        recheckMeetingId!!, modelKey.orEmpty(),
+                        firstTranscript = firstTranscript
+                    )
+                }
+                // A queued import left the queue when it was drained; until
+                // its audio belongs to a saved meeting, this marker is the
+                // only thing that knows it exists.
+                adoptFile?.let {
+                    com.meetily.mobile.data.JobQueue.markImportRunning(
+                        this, it, sourceName, modelKey.orEmpty()
                     )
                 }
                 runImport(uri)
             }
         }
         return START_NOT_STICKY
+    }
+
+    /**
+     * Turns down a start without breaking the startForegroundService
+     * contract. A start that lands on an instance that is not in the
+     * foreground — refused because it timed out, or because it carried no
+     * file — still has to call startForeground, or Android crashes the app
+     * seconds later for not having done so.
+     */
+    private fun refuseStart(startId: Int) {
+        if (isRunning && !timedOut) return // already foreground; the run stops itself
+        try {
+            createChannel()
+            startForegroundCompat(buildNotification(0))
+        } catch (_: Exception) {
+            // Foreground time already exhausted; nothing more can be done.
+        }
+        stopForegroundCompat()
+        // A timed-out run's own finish stops the service, with this start's id.
+        if (!isRunning) stopSelfResult(startId)
     }
 
     /**
@@ -241,6 +299,9 @@ class ImportService : Service() {
                     adoptFile = adoptFile,
                     onMeetingCreated = { id ->
                         currentMeetingId = id
+                        adoptFile?.let {
+                            com.meetily.mobile.data.JobQueue.importAdopted(this, it, id)
+                        }
                         main.post {
                             if (isRunning) {
                                 observers.forEach {
@@ -288,6 +349,7 @@ class ImportService : Service() {
                     getString(R.string.import_stopped_early, formatMinutes(r.coveredMs))
                 }
             }
+            importerReturned = true
             main.post { finishRun(result?.meetingId, error, warning) }
         }.apply {
             name = "import-service"
@@ -319,16 +381,19 @@ class ImportService : Service() {
         wakeLock = null
         // Renamed into the meeting on success; anything left here means the
         // run failed before that, and the staged copy would just leak.
-        adoptFile?.let { com.meetily.mobile.data.AudioStore.delete(this, it) }
+        adoptFile?.let {
+            com.meetily.mobile.data.AudioStore.delete(this, it)
+            com.meetily.mobile.data.JobQueue.dequeueStaged(this, it)
+        }
         adoptFile = null
         powerWatch.disarm(this)
         if (recheckId != null) {
             com.meetily.mobile.data.JobQueue.finished(
                 this, com.meetily.mobile.data.JobQueue.KIND_CHECK, recheckId
             )
-            // Strictly after finished(), which removes by kind+meeting and
-            // would take the requeued job straight back out again.
-            if (stoppedByUnplug) requeueForCharging(recheckId)
+            // After finished(), so the marker and the requeued job are never
+            // both in the queue for the same meeting.
+            if (stoppedByUnplug) requeueForCharging(recheckId, wasFirstTranscript)
         }
         // The words exist now, so this is the moment the summary can start —
         // see AutoSummary. Only for a recording that had none before, and only
@@ -350,9 +415,10 @@ class ImportService : Service() {
         chargingOnly = false
         observers.forEach { it.onImportDone(meetingId, cancelled, error, warning) }
         if (stopped) {
-            // A cancel the user did not ask for has to say so. Nothing is
-            // lost — whatever the pass transcribed is still staged, and the
-            // job is back on the queue waiting for power.
+            // A cancel the user did not ask for has to say so. The job is
+            // back on the queue waiting for power and starts over from the
+            // beginning; a first transcript keeps its partial words meanwhile,
+            // but a check's partial draft is gone.
             postUnpluggedNotification(recheckId)
         } else if (!cancelled) {
             postCompletionNotification(meetingId, error, warning, wasFirstTranscript)
@@ -361,12 +427,18 @@ class ImportService : Service() {
         // observer that binds after the finish still needs to know what just
         // happened. Both are reset by the next ACTION_START.
         isRunning = false
+        val wasTimedOut = timedOut
+        timedOut = false
         // Hand over to the next queued job while this service is still in the
         // foreground — that is what makes starting one legal at all on
-        // Android 12+, and it is what serialises the queue.
-        JobGate.drain(this)
-        stopForegroundCompat()
-        stopSelf()
+        // Android 12+, and it is what serialises the queue. Not after a
+        // timeout: the service already left the foreground and the dataSync
+        // budget is spent, so a start drained onto it could never satisfy
+        // startForeground. The next activity resume drains instead.
+        if (!wasTimedOut) JobGate.drain(this)
+        // False when drain just started another job on this same class; its
+        // pending start keeps the service, and the notification is replaced.
+        if (stopSelfResult(lastStartId)) stopForegroundCompat()
     }
 
     private fun formatMinutes(ms: Long): String {
@@ -389,13 +461,17 @@ class ImportService : Service() {
      * two rather than at the end of the file.
      */
     private fun stopForUnplug() {
-        if (!isRunning || stoppedByUnplug) return
+        if (!isRunning || stoppedByUnplug || importerReturned) return
         stoppedByUnplug = true
         cancelled = true
     }
 
-    /** @see SummaryService.requeueForCharging */
-    private fun requeueForCharging(meetingId: String) {
+    /**
+     * @see SummaryService.requeueForCharging. [firstTranscript] travels with
+     * the job so the resumed pass still writes the meeting's transcript and
+     * starts its summary, instead of staging an accuracy check.
+     */
+    private fun requeueForCharging(meetingId: String, firstTranscript: Boolean) {
         com.meetily.mobile.data.JobQueue.enqueue(
             this,
             com.meetily.mobile.data.JobQueue.Job(
@@ -403,9 +479,12 @@ class ImportService : Service() {
                 meetingId,
                 modelKey.orEmpty(),
                 System.currentTimeMillis(),
-                chargingOnly = true
+                chargingOnly = true,
+                firstTranscript = firstTranscript,
+                required = firstTranscript
             )
         )
+        ChargingJobService.schedule(this)
     }
 
     // --- Notifications ------------------------------------------------------
@@ -486,9 +565,7 @@ class ImportService : Service() {
         // over for its own reason, and must not be reported as an unplug.
         stoppedByUnplug = false
         powerWatch.disarm(this)
-        postCompletionNotification(
-            currentMeetingId, getString(R.string.fgs_timeout_import), null
-        )
+        postTimeoutNotification(currentMeetingId)
         // isRunning deliberately NOT cleared here. The worker is still
         // unwinding — it has a batch to finish and a draft or transcript to
         // settle — and clearing the flag let a queued job start on this same
@@ -496,6 +573,47 @@ class ImportService : Service() {
         // using and racing it on the same fields. finishRun clears it when
         // the run is genuinely over.
         stopForegroundCompat()
+    }
+
+    /**
+     * Its own notification rather than postCompletionNotification, whose
+     * success branches win whenever a meeting id is known — which after
+     * hours of work it always is. The timeout read as "Import complete" or
+     * "Transcript check ready", the latter opening a review with nothing in
+     * it, and the explanation was never shown.
+     */
+    private fun postTimeoutNotification(meetingId: String?) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val body = getString(R.string.fgs_timeout_import)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setContentTitle(
+                if (recheckMeetingId != null && !firstTranscript) {
+                    getString(R.string.check_incomplete_notif)
+                } else {
+                    getString(R.string.import_incomplete_notif)
+                }
+            )
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+        // The meeting, never the check review: finishRun deletes the draft.
+        if (meetingId != null) {
+            builder.setContentIntent(
+                PendingIntent.getActivity(
+                    this, 13,
+                    Intent(this, MeetingDetailActivity::class.java)
+                        .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meetingId)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        }
+        try {
+            manager.notify(NOTIF_DONE_ID, builder.build())
+        } catch (_: SecurityException) {
+        }
     }
 
     private fun postUnpluggedNotification(meetingId: String?) {
@@ -629,6 +747,8 @@ class ImportService : Service() {
         const val EXTRA_RECHECK_MEETING_ID = "recheck_meeting_id"
         const val EXTRA_ADOPT_FILE = "adopt_file"
         const val EXTRA_CHARGING_ONLY = "charging_only"
+        /** This check is the meeting's first transcript; see JobQueue.Job. */
+        const val EXTRA_FIRST_TRANSCRIPT = "first_transcript"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45
