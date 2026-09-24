@@ -60,9 +60,17 @@ object CaptureTuning {
         emptyList()
     }
 
-    /** Stable-ish identity for persistence (device ids change across reboots). */
-    fun deviceKey(device: AudioDeviceInfo): String =
-        "${device.type}|${device.productName}"
+    /**
+     * Stable-ish identity for persistence (device ids change across reboots).
+     * Includes the address, which is what separates a phone's built-in mics;
+     * see [MicDeviceKeys].
+     */
+    fun deviceKey(device: AudioDeviceInfo): String = MicDeviceKeys.key(
+        device.type, device.productName?.toString().orEmpty(), addressOf(device)
+    )
+
+    private fun addressOf(device: AudioDeviceInfo): String =
+        if (Build.VERSION.SDK_INT >= 28) device.address?.trim().orEmpty() else ""
 
     fun deviceLabel(device: AudioDeviceInfo): String {
         val name = device.productName?.toString()?.trim().orEmpty()
@@ -72,11 +80,7 @@ object CaptureTuning {
             AudioDeviceInfo.TYPE_WIRED_HEADSET -> "wired headset"
             else -> ""
         }
-        val address = if (Build.VERSION.SDK_INT >= 28) {
-            device.address?.trim().orEmpty()
-        } else {
-            ""
-        }
+        val address = addressOf(device)
         val detail = listOf(kind, address).filter { it.isNotBlank() }.joinToString(", ")
         return if (detail.isBlank()) name else "$name ($detail)"
     }
@@ -84,9 +88,11 @@ object CaptureTuning {
     /** Currently-connected device matching a stored key, or null for auto. */
     fun findPreferred(context: Context, key: String): AudioDeviceInfo? {
         if (key == DEVICE_AUTO || key.isBlank()) return null
-        return inputDevices(context).firstOrNull { deviceKey(it) == key }
+        val devices = inputDevices(context)
+        val index = MicDeviceKeys.indexOf(devices.map { deviceKey(it) }, key)
+        return devices.getOrNull(index)
     }
 
     /** Human-readable name embedded in a stored key (for "not connected" UI). */
-    fun nameFromKey(key: String): String = key.substringAfter('|', key)
+    fun nameFromKey(key: String): String = MicDeviceKeys.nameOf(key)
 }

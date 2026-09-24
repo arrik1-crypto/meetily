@@ -60,11 +60,16 @@
                 android:resource="@xml/shortcuts" />
         </activity>
 
-        <!-- Exported so launcher shortcuts and the QS tile can open it
-             directly; it enforces the consent gate + mic permission itself. -->
+        <!-- Not exported: opening it starts recording with no further tap
+             once consent was given, so another app must not be able to
+             launch it (or feed it a nudge title, a calendar event id or a
+             device-audio request). Every real way in still works: the QS
+             tile, the widget, the notifications and reminders all use this
+             app's own context or PendingIntents, and the launcher starts
+             the static shortcut as this package. -->
         <activity
             android:name=".RecordingActivity"
-            android:exported="true"
+            android:exported="false"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".MainActivity" />

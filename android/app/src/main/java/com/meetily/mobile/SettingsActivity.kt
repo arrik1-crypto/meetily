@@ -1293,7 +1293,10 @@ class SettingsActivity : AppCompatActivity() {
             labels.add(CaptureTuning.deviceLabel(device))
             keys.add(CaptureTuning.deviceKey(device))
         }
-        val checked = keys.indexOf(settings.micDevice).coerceAtLeast(0)
+        // Same matching as the recorder uses, so a key saved by an older
+        // version (no address) still highlights its row.
+        val checked = com.meetily.mobile.whisper.MicDeviceKeys
+            .indexOf(keys, settings.micDevice).coerceAtLeast(0)
         AlertDialog.Builder(this)
             .setTitle(R.string.mic_device_button)
             .setSingleChoiceItems(labels.toTypedArray(), checked) { dialog, which ->

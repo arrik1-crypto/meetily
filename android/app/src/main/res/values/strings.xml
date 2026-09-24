@@ -40,8 +40,8 @@
     <string name="photo_added_short">Photo attached</string>
     <string name="recording_recovered">Recovered a recording that was interrupted</string>
     <string name="resume_recording">Recording…</string>
-    <string name="whisper_model_missing">Whisper model not downloaded — using system recognition. Download it in Settings.</string>
-    <string name="whisper_unavailable">Whisper isn\'t supported on this device — using system recognition.</string>
+    <string name="whisper_model_missing">On-device model not downloaded yet — recording audio only. It\'s transcribed on this phone once the model is downloaded (Settings).</string>
+    <string name="whisper_unavailable">On-device transcription isn\'t supported on this device — recordings are kept as audio only; nothing is sent to the system recognizer.</string>
 
     <!-- Acoustic diarization -->
     <string name="setting_diarize">Auto-detect speakers (experimental)</string>
@@ -621,6 +621,7 @@
     <string name="highlight">Highlight this moment</string>
     <string name="highlighted_toast">Moment highlighted ★</string>
     <string name="highlight_pending_toast">Will highlight the next transcribed segment ★</string>
+    <string name="highlight_marked_toast">Moment marked ★ — it\'s highlighted when the transcript is made</string>
     <string name="unhighlighted_toast">Highlight removed</string>
 
     <!-- Ask -->

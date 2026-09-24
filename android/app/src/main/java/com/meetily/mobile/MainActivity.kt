@@ -920,7 +920,9 @@ class MainActivity : AppCompatActivity() {
         val settings = AppSettings(this)
         // "whisper" here means any on-device engine (whisper.cpp, Parakeet,
         // Nemotron); anything else is the system recognizer, which on most
-        // phones is Google's and may process audio in the cloud.
+        // phones is Google's and may process audio in the cloud. The on-device
+        // engine never falls back to it: with no model ready the recording is
+        // kept as audio and transcribed on the phone later.
         if (settings.transcriptionEngine != "whisper") return false
         if (!settings.useLlm) return true
         return com.meetily.mobile.llm.EngineRouting.staysOnDevice(settings.llmEngine)
@@ -931,15 +933,30 @@ class MainActivity : AppCompatActivity() {
             Configuration.UI_MODE_NIGHT_YES
 
     // Gentle 4s idle pulse on the orb's glow halo (paused off-screen).
+    //
+    // A few breaths on arrival, then it rests. Running forever rendered a
+    // frame on every vsync for as long as the library sat open, which also
+    // kept a variable-refresh panel from idling down. Skipped in battery
+    // saver.
     private var glowAnimator: android.animation.ValueAnimator? = null
 
     private fun startIdleGlow() {
         if (glowAnimator != null) return
         val glow = findViewById<View>(R.id.orbGlow)
+        val rest = {
+            glow.alpha = 0.7f
+            glow.scaleX = 1f
+            glow.scaleY = 1f
+        }
+        val power = getSystemService(POWER_SERVICE) as? android.os.PowerManager
+        if (power?.isPowerSaveMode == true) {
+            rest()
+            return
+        }
         glowAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 2000
             repeatMode = android.animation.ValueAnimator.REVERSE
-            repeatCount = android.animation.ValueAnimator.INFINITE
+            repeatCount = IDLE_GLOW_REPEATS
             addUpdateListener { animator ->
                 val value = animator.animatedValue as Float
                 glow.alpha = 0.5f + 0.4f * value
@@ -947,6 +964,11 @@ class MainActivity : AppCompatActivity() {
                 glow.scaleX = scale
                 glow.scaleY = scale
             }
+            addListener(object : android.animation.AnimatorListenerAdapter() {
+                override fun onAnimationEnd(animation: android.animation.Animator) {
+                    rest()
+                }
+            })
             start()
         }
     }
@@ -964,5 +986,8 @@ class MainActivity : AppCompatActivity() {
         // screen; the rest are MeetingDetailActivity.ACTION_* values.
         private const val ACTION_FLAG = "flag"
         private const val ACTION_DELETE = "delete"
+
+        /** Six half-breaths, about 12 s, ending where it started. */
+        private const val IDLE_GLOW_REPEATS = 5
     }
 }

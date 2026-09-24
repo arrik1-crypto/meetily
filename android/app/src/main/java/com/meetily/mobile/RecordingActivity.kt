@@ -1,8 +1,6 @@
 package com.meetily.mobile
 
 import android.Manifest
-import android.animation.ObjectAnimator
-import android.animation.ValueAnimator
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -13,6 +11,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.util.TypedValue
@@ -63,7 +62,10 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private lateinit var transcriptAdapter: LiveTranscriptAdapter
     private lateinit var levelMeter: LevelMeterView
     private lateinit var audioOnlyPanel: View
-    private var liveTranscription = false
+
+    // Read on the audio thread in onLevel.
+    @Volatile
+    private var audioOnly = false
     private lateinit var speakerChipScroll: View
     private lateinit var speakerChipRow: LinearLayout
     private lateinit var notesInput: EditText
@@ -93,7 +95,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         }
 
     private val handler = Handler(Looper.getMainLooper())
-    private var pulseAnimator: ObjectAnimator? = null
+
+    /** Between onStart and onStop; nothing animates or ticks outside it. */
+    private var visible = false
 
     private val timerTick = object : Runnable {
         override fun run() {
@@ -181,15 +185,12 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         transcriptRecycler.adapter = transcriptAdapter
         // Audio-only is the default way the app records: there is no live
         // transcript to show, so the list is replaced by a level meter that
-        // proves the microphone is picking the room up.
-        liveTranscription = AppSettings(this).liveTranscription
+        // proves the microphone is picking the room up. This is only the
+        // layout before the service starts; the service reports the capture
+        // it actually runs (onCaptureMode), and that is what the screen keeps.
         levelMeter = findViewById(R.id.levelMeter)
         audioOnlyPanel = findViewById(R.id.audioOnlyPanel)
-        if (!liveTranscription) {
-            transcriptRecycler.visibility = View.GONE
-            findViewById<View>(R.id.transcriptHeading).visibility = View.GONE
-            audioOnlyPanel.visibility = View.VISIBLE
-        }
+        applyCaptureMode(RecordingService.plannedAudioOnly(this, settings))
         speakerChipScroll = findViewById(R.id.speakerChipScroll)
         speakerChipRow = findViewById(R.id.speakerChipRow)
         notesInput = findViewById(R.id.notesInput)
@@ -378,6 +379,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         transcriptAdapter.reset(svc.segmentsSnapshot(), svc.currentPartial())
         scrollToBottom()
         statusView.text = svc.currentStatusText()
+        applyCaptureMode(svc.capturesAudioOnly())
         applyPausedUi(svc.paused)
         rebuildSpeakerChips()
         startTimer()
@@ -507,11 +509,30 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     /** Arrives on the AUDIO thread, ~10x a second. Hop before touching views. */
     override fun onLevel(rms: Float) {
-        if (!liveTranscription) {
+        if (audioOnly) {
             levelMeter.post {
                 if (!isFinishing && !isDestroyed) levelMeter.push(rms)
             }
         }
+    }
+
+    override fun onCaptureMode(audioOnly: Boolean) {
+        applyCaptureMode(audioOnly)
+    }
+
+    /**
+     * The level-meter panel only when the session records audio with no live
+     * words — which is also the only case its "the transcript is made when
+     * you stop" note is true. Otherwise the transcript list: on the system
+     * recognizer it is the session's only output, and hiding it behind a
+     * meter that never moved made a working recording look dead.
+     */
+    private fun applyCaptureMode(audioOnly: Boolean) {
+        this.audioOnly = audioOnly
+        transcriptRecycler.visibility = if (audioOnly) View.GONE else View.VISIBLE
+        findViewById<View>(R.id.transcriptHeading).visibility =
+            if (audioOnly) View.GONE else View.VISIBLE
+        audioOnlyPanel.visibility = if (audioOnly) View.VISIBLE else View.GONE
     }
 
     override fun onSegmentAppended(index: Int, segment: TranscriptSegment) {
@@ -617,10 +638,14 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     }
 
     private fun onHighlightClicked() {
-        val toggled = service?.requestHighlight() ?: return
+        val result = service?.requestHighlight() ?: return
         Toast.makeText(
             this,
-            if (toggled) R.string.highlighted_toast else R.string.highlight_pending_toast,
+            when (result) {
+                RecordingService.HighlightResult.TOGGLED -> R.string.highlighted_toast
+                RecordingService.HighlightResult.QUEUED -> R.string.highlight_pending_toast
+                RecordingService.HighlightResult.MARKED -> R.string.highlight_marked_toast
+            },
             Toast.LENGTH_SHORT
         ).show()
     }
@@ -915,47 +940,89 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     }
 
     // Breathing orb glow (the design's 3.2s box-shadow keyframe, done with
-    // alpha + scale on the radial-gradient halo behind the orb).
-    private var glowAnimator: ValueAnimator? = null
+    // alpha + scale on the radial-gradient halo behind the orb) and the
+    // pulsing record dot.
+    //
+    // Stepped from one ~15 fps handler tick rather than two infinite
+    // animators. The animators asked for a frame on every vsync for the whole
+    // meeting — with the screen held on, that kept the display composing at
+    // its full 60-120 Hz and stopped an LTPO panel ever idling down — and on
+    // Android 13 and below they kept ticking while the screen was in the
+    // background. The motion is slow enough that 15 fps reads the same.
+    private var glowing = false
+    private var pulsing = false
 
-    private fun startGlow() {
-        if (glowAnimator != null) return
-        val glow = findViewById<View>(R.id.recOrbGlow)
-        glowAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
-            duration = 1600
-            repeatMode = ValueAnimator.REVERSE
-            repeatCount = ValueAnimator.INFINITE
-            addUpdateListener { animator ->
-                val value = animator.animatedValue as Float
+    private val ambientTick = object : Runnable {
+        override fun run() {
+            if (!visible || !(glowing || pulsing)) return
+            val now = SystemClock.uptimeMillis()
+            if (glowing) {
+                val value = easedWave(now, GLOW_HALF_PERIOD_MS)
+                val glow = findViewById<View>(R.id.recOrbGlow)
                 glow.alpha = 0.55f + 0.45f * value
                 val scale = 0.94f + 0.12f * value
                 glow.scaleX = scale
                 glow.scaleY = scale
             }
-            start()
+            if (pulsing) {
+                recordDot.alpha = 1f - 0.75f * easedWave(now, PULSE_HALF_PERIOD_MS)
+            }
+            handler.postDelayed(this, AMBIENT_FRAME_MS)
         }
     }
 
+    /** 0 to 1 and back over twice [halfPeriodMs], eased at both ends. */
+    private fun easedWave(nowMs: Long, halfPeriodMs: Long): Float {
+        val phase = (nowMs % (2 * halfPeriodMs)).toDouble() / halfPeriodMs
+        return ((1.0 - kotlin.math.cos(Math.PI * phase)) / 2.0).toFloat()
+    }
+
+    /** Runs the tick exactly when something should move and it can be seen. */
+    private fun scheduleAmbient() {
+        handler.removeCallbacks(ambientTick)
+        if (visible && (glowing || pulsing)) handler.post(ambientTick)
+    }
+
+    private fun startGlow() {
+        if (glowing) return
+        glowing = true
+        scheduleAmbient()
+    }
+
     private fun stopGlow() {
-        glowAnimator?.cancel()
-        glowAnimator = null
+        glowing = false
+        scheduleAmbient()
         findViewById<View>(R.id.recOrbGlow).alpha = 0.35f
     }
 
     private fun startPulse() {
-        if (pulseAnimator != null) return
-        pulseAnimator = ObjectAnimator.ofFloat(recordDot, View.ALPHA, 1f, 0.25f).apply {
-            duration = 750
-            repeatMode = ValueAnimator.REVERSE
-            repeatCount = ValueAnimator.INFINITE
-            start()
-        }
+        if (pulsing) return
+        pulsing = true
+        scheduleAmbient()
     }
 
     private fun stopPulse() {
-        pulseAnimator?.cancel()
-        pulseAnimator = null
+        pulsing = false
+        scheduleAmbient()
         recordDot.alpha = 0.3f
+    }
+
+    override fun onStart() {
+        super.onStart()
+        visible = true
+        scheduleAmbient()
+        // The timer only ever shows a live session's clock; it idles on its
+        // own until the service is active.
+        if (attached) startTimer()
+    }
+
+    override fun onStop() {
+        // Back only moves the task behind, so this screen lives for the whole
+        // meeting; nothing it draws is visible from here until onStart.
+        visible = false
+        handler.removeCallbacks(ambientTick)
+        handler.removeCallbacks(timerTick)
+        super.onStop()
     }
 
     private fun formatElapsed(ms: Long): String {
@@ -972,6 +1039,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     override fun onDestroy() {
         handler.removeCallbacks(timerTick)
+        handler.removeCallbacks(ambientTick)
         stopPulse()
         stopGlow()
         if (bound) {
@@ -982,11 +1050,12 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         super.onDestroy()
     }
 
-    private fun whisperReadyForDeviceAudio(): Boolean {
-        if (settings.transcriptionEngine != "whisper") return false
-        return com.meetily.mobile.whisper.TranscriptionModels
-            .isReady(this, settings.whisperModel)
-    }
+    /**
+     * Device audio needs the on-device pipeline, not a ready model: with no
+     * model the session captures audio only and transcribes it afterwards.
+     */
+    private fun whisperReadyForDeviceAudio(): Boolean =
+        settings.transcriptionEngine == "whisper"
 
     companion object {
         const val EXTRA_DEVICE_AUDIO = "device_audio"
@@ -1001,5 +1070,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         private const val PERMISSION_REQUEST = 4001
         private const val CALENDAR_REQUEST = 4002
         private const val NOTIF_REQUEST = 4003
+
+        private const val AMBIENT_FRAME_MS = 66L
+        private const val GLOW_HALF_PERIOD_MS = 1600L
+        private const val PULSE_HALF_PERIOD_MS = 750L
     }
 }

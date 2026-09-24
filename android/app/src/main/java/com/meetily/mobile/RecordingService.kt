@@ -63,7 +63,17 @@ class RecordingService : Service() {
          * Default no-op: only the recording screen cares.
          */
         fun onLevel(rms: Float) {}
+
+        /**
+         * Which capture the session actually runs: true when it records audio
+         * with no live words (the transcript is made from the file after the
+         * meeting). Sent once the session has resolved its engine.
+         */
+        fun onCaptureMode(audioOnly: Boolean) {}
     }
+
+    /** What a tap on Highlight did. */
+    enum class HighlightResult { TOGGLED, QUEUED, MARKED }
 
     inner class LocalBinder : Binder() {
         val service: RecordingService get() = this@RecordingService
@@ -86,14 +96,37 @@ class RecordingService : Service() {
     var paused = false
         private set
     private var whisperMode = false
+
+    /**
+     * The on-device session transcribes as it records. False in whisper mode
+     * means capture only: the audio is kept and transcribed afterwards.
+     */
+    private var liveWhisper = false
     private var finishing = false
+
+    /**
+     * The live transcript is known to be missing words (the transcriber fell
+     * behind, or its backlog was abandoned at finish), so the saved audio has
+     * to be transcribed after the meeting.
+     */
+    private var liveIncomplete = false
 
     // Device-audio capture (webinars): AudioPlaybackCapture via MediaProjection.
     private var deviceAudioMode = false
+
+    // Written on the audio thread (deviceAudioRecord), stopped on main.
+    @Volatile
     private var mediaProjection: android.media.projection.MediaProjection? = null
 
     private val segments = mutableListOf<TranscriptSegment>()
     private var pendingHighlight = false
+
+    /**
+     * Highlight taps in an audio-only session, as offsets into the captured
+     * audio. There is no line to star yet; the first transcript stars the
+     * line each one falls in (see HighlightMarks).
+     */
+    private val highlightMarks = mutableListOf<Long>()
 
     // Sticky speaker: new segments inherit this until it changes. Set from
     // the chip row, or by tagging the most recent segment. Volatile because
@@ -117,6 +150,12 @@ class RecordingService : Service() {
     private var notes = ""
     private val photos = mutableListOf<String>()
 
+    // Which metadata changed through this service since the last snapshot.
+    // Only those overwrite the stored copy; see MeetingStore.saveRecordingSnapshot.
+    private var titleDirty = false
+    private var notesDirty = false
+    private var attendeesDirty = false
+
     private var status = Status.STARTING
     private var statusText = ""
     private var partial = ""
@@ -127,6 +166,9 @@ class RecordingService : Service() {
     private var recognizer: SpeechRecognizer? = null
     private var listening = false
     private val mutedStreams = mutableListOf<Int>()
+
+    /** Ringer mode when ring-aliased streams were muted; -1 when none were. */
+    private var savedRingerMode = -1
     private var whisperRecorder: WhisperRecorder? = null
 
     /** A model load is in flight, so whisperRecorder is null but claimed. */
@@ -175,6 +217,13 @@ class RecordingService : Service() {
     fun photosSnapshot(): List<String> = photos.toList()
 
     /**
+     * True while the session records audio with no live words. The recording
+     * screen follows this rather than the settings, which say what was asked
+     * for, not what the session could actually run.
+     */
+    fun capturesAudioOnly(): Boolean = active && whisperMode && !liveWhisper
+
+    /**
      * Wall clock at which this session started — the same value the saved
      * meeting carries as createdAtMs. The live transcript needs it to label
      * lines by their offset into the recording when audio is not being kept
@@ -218,6 +267,10 @@ class RecordingService : Service() {
         accumulatedMs = 0L
         paused = false
         clusterNames.clear()
+        highlightMarks.clear()
+        liveIncomplete = false
+        silentSinceMs = 0L
+        micWarned = false
         audioWriter = null
         audioFileName = null
         // The title has to arrive on THIS Intent rather than be pushed
@@ -235,10 +288,16 @@ class RecordingService : Service() {
         store.markActive(meetingId)
         startForegroundNotification()
 
-        whisperMode = resolveWhisperMode()
+        whisperMode = settings.transcriptionEngine == "whisper"
+        liveWhisper = whisperMode && !plannedAudioOnly(this, settings)
         // Device audio rides the Whisper pipeline; without it, fall back to
         // the normal microphone path (the activity gates this upstream too).
         if (deviceAudioMode && !whisperMode) deviceAudioMode = false
+        observer?.onCaptureMode(capturesAudioOnly())
+        // The first snapshot, so the meeting (and whatever was typed before
+        // the session existed) is on disk without waiting for a first line —
+        // which in audio-only mode never comes.
+        scheduleSave()
         if (whisperMode) {
             startWhisper()
         } else if (!SpeechRecognizer.isRecognitionAvailable(this)) {
@@ -248,17 +307,22 @@ class RecordingService : Service() {
         }
     }
 
-    private fun resolveWhisperMode(): Boolean {
-        if (settings.transcriptionEngine != "whisper") return false
-        // "whisper" engine setting covers all on-device models — whisper.cpp
-        // ggml files and sherpa-onnx NeMo models alike.
-        return com.meetily.mobile.whisper.TranscriptionModels
-            .isReady(this, settings.whisperModel)
-    }
+    /** The status line for a running, unpaused on-device session. */
+    private fun normalListeningText(): String = getString(
+        if (liveWhisper && whisperRecorder?.liveSuspended != true) {
+            R.string.status_listening_whisper
+        } else {
+            R.string.status_recording_audio
+        }
+    )
 
     fun togglePause() {
         if (!active || finishing) return
         paused = !paused
+        // Silence from before the pause must not count toward the dead-mic
+        // window after it, and a warning raised before it is moot.
+        silentSinceMs = 0L
+        micWarned = false
         if (paused) {
             accumulatedMs += SystemClock.elapsedRealtime() - lastResumeAt
             if (whisperMode) {
@@ -273,7 +337,7 @@ class RecordingService : Service() {
             lastResumeAt = SystemClock.elapsedRealtime()
             if (whisperMode) {
                 whisperRecorder?.resume()
-                setStatus(Status.LISTENING, getString(R.string.status_listening_whisper))
+                setStatus(Status.LISTENING, normalListeningText())
             } else {
                 startListening()
             }
@@ -281,19 +345,25 @@ class RecordingService : Service() {
         updateNotification()
     }
 
-    fun requestHighlight(): Boolean {
-        // Returns true if a live segment was toggled, false if the highlight
-        // was queued for the next segment.
+    fun requestHighlight(): HighlightResult {
+        if (capturesAudioOnly()) {
+            // No line will arrive during this session, so a queued highlight
+            // was silently dropped. Remember where in the audio it was tapped
+            // instead; the transcript made after the meeting stars that line.
+            highlightMarks.add(elapsedMs())
+            scheduleSave()
+            return HighlightResult.MARKED
+        }
         if (partial.isNotEmpty() || segments.isEmpty()) {
             pendingHighlight = true
-            return false
+            return HighlightResult.QUEUED
         }
         val index = segments.size - 1
         val nowHi = !segments[index].highlighted
         segments[index] = segments[index].copy(highlighted = nowHi)
         observer?.onSegmentUpdated(index, segments[index])
         scheduleSave()
-        return true
+        return HighlightResult.TOGGLED
     }
 
     /**
@@ -390,11 +460,16 @@ class RecordingService : Service() {
 
     fun updateTitle(value: String) {
         title = value
+        titleDirty = true
         scheduleSave()
+        // The notification shows the title; status changes no longer repost
+        // it, so a rename has to.
+        updateNotification()
     }
 
     fun updateAttendees(value: String) {
         attendeesRaw = value
+        attendeesDirty = true
         // Reconcile the sticky speaker: if their name was renamed or removed,
         // clear it — otherwise segments keep getting silently tagged with a
         // name that no chip displays as active.
@@ -409,6 +484,7 @@ class RecordingService : Service() {
 
     fun updateNotes(value: String) {
         notes = value
+        notesDirty = true
         scheduleSave()
     }
 
@@ -425,12 +501,31 @@ class RecordingService : Service() {
         }
         finishing = true
         val recorder = whisperRecorder
-        if (recorder != null && !paused) {
+        // Also when paused: the chunk flushed at pause time is still being
+        // transcribed, and finishing straight away closed the session under
+        // it, so the last sentence before the pause was lost.
+        if (recorder != null) {
             setStatus(Status.FINISHING, getString(R.string.status_finishing))
+            if (recorder.liveSuspended) {
+                // Live gave up and the saved audio is transcribed afterwards;
+                // decoding the rest of the backlog now would only delay this.
+                recorder.abandonBacklog()
+                liveIncomplete = true
+            }
             recorder.finish {
                 main.post { completeFinish(onDone) }
             }
-            main.postDelayed({ completeFinish(onDone) }, 15_000)
+            main.postDelayed({
+                if (!finished && audioFileName != null) {
+                    // Still transcribing a backlog. With the audio kept, the
+                    // words are not lost by stopping: skip the rest and have
+                    // the saved file transcribed instead, rather than decode
+                    // for minutes after the service has gone.
+                    recorder.abandonBacklog()
+                    liveIncomplete = true
+                }
+                completeFinish(onDone)
+            }, 15_000)
         } else {
             completeFinish(onDone)
         }
@@ -462,6 +557,12 @@ class RecordingService : Service() {
             // an empty transcript. ImportService starts it when the words
             // actually exist.
             startPrimaryTranscription(id)
+        } else if (liveIncomplete) {
+            // The live transcript stops short of the meeting. The saved audio
+            // is transcribed in full and offered as a comparison, whatever
+            // the accuracy-check setting says — without it the tail is gone.
+            startPrimaryTranscription(id)
+            maybeStartAutoSummary(id)
         } else {
             maybeStartAutoCheck(id)
             maybeStartAutoSummary(id)
@@ -566,6 +667,8 @@ class RecordingService : Service() {
     fun discard() {
         finishing = true
         finished = true
+        // Nothing will keep these words; do not decode them.
+        whisperRecorder?.abandonBacklog()
         teardownEngines()
         main.removeCallbacks(saveRunnable)
         // Kill any queued snapshot first: an in-flight write landing after
@@ -610,17 +713,36 @@ class RecordingService : Service() {
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
 
+    /**
+     * Silences the recognizer's start/stop beeps, touching only what it can
+     * put back exactly.
+     *
+     * A stream the user had already muted is left alone, or restoring would
+     * unmute it. The system and notification streams share the ringer on
+     * phones, and unmuting them in vibrate mode switches the phone to ring —
+     * so they are only touched when the ringer is on normal anyway (in
+     * vibrate or silent they are already quiet).
+     */
     private fun muteSystemSounds() {
         if (!settings.muteRecognizerSounds || mutedStreams.isNotEmpty()) return
         val am = getSystemService(AUDIO_SERVICE) as? AudioManager ?: return
+        val ringerNormal = try {
+            am.ringerMode == AudioManager.RINGER_MODE_NORMAL
+        } catch (_: Exception) {
+            false
+        }
         for (stream in intArrayOf(
             AudioManager.STREAM_SYSTEM,
             AudioManager.STREAM_NOTIFICATION,
             AudioManager.STREAM_MUSIC
         )) {
+            val ringAliased = stream != AudioManager.STREAM_MUSIC
+            if (ringAliased && !ringerNormal) continue
             try {
+                if (am.isStreamMute(stream)) continue
                 am.adjustStreamVolume(stream, AudioManager.ADJUST_MUTE, 0)
                 mutedStreams.add(stream)
+                if (ringAliased) savedRingerMode = AudioManager.RINGER_MODE_NORMAL
             } catch (_: Exception) {
             }
         }
@@ -636,8 +758,17 @@ class RecordingService : Service() {
                 } catch (_: Exception) {
                 }
             }
+            // Muting a ring-aliased stream can move the ringer itself; put it
+            // back to what it was when this started.
+            if (savedRingerMode >= 0) {
+                try {
+                    if (am.ringerMode != savedRingerMode) am.ringerMode = savedRingerMode
+                } catch (_: Exception) {
+                }
+            }
         }
         mutedStreams.clear()
+        savedRingerMode = -1
     }
 
     private val restartRunnable = Runnable { startListening() }
@@ -752,11 +883,14 @@ class RecordingService : Service() {
     private fun startWhisper() {
         if (whisperRecorder != null || whisperStarting) return
         val model = WhisperModels.byKey(settings.whisperModel)
-        if (!settings.liveTranscription) {
+        if (!liveWhisper) {
             // Capture only: no ASR model, no diarization embedder, no voice
             // profiles, nothing loaded at all. The whole recording is
             // transcribed from the saved audio once the meeting ends, which
             // is both cheaper and more accurate. Straight to the recorder.
+            // Also where a session lands when live transcription was asked
+            // for but the model is not ready: never the system recognizer,
+            // which on most phones sends the audio off the device.
             finishStartWhisper(meetingId, model, null, null, null, null, null)
             return
         }
@@ -864,7 +998,7 @@ class RecordingService : Service() {
          * said nothing. Keeping the audio is the only way this session can
          * produce anything, so it wins over the preference for this run.
          */
-        val mustKeepAudio = !settings.liveTranscription
+        val mustKeepAudio = !liveWhisper
         if ((settings.saveAudio || mustKeepAudio) && audioWriter == null) {
             try {
                 val file = AudioStore.newRecordingFile(this, meetingId)
@@ -893,11 +1027,11 @@ class RecordingService : Service() {
             audioSource = CaptureTuning.audioSourceFor(this, settings.micSource),
             preferredDevice = CaptureTuning.findPreferred(this, settings.micDevice),
             recordFactory = if (deviceAudioMode && Build.VERSION.SDK_INT >= 29) {
-                { deviceAudioRecord() }
+                { deviceAudioRecord(session) }
             } else null,
             speakerSupplier = { activeSpeaker },
             chunkLabeler = labeler,
-            transcribe = settings.liveTranscription,
+            transcribe = liveWhisper,
             frameSink = if (writer != null) {
                 { frame -> writer.write(frame) }
             } else null,
@@ -922,10 +1056,8 @@ class RecordingService : Service() {
                     if (active && !finishing && !paused) {
                         setStatus(
                             if (processing) Status.PROCESSING else Status.LISTENING,
-                            getString(
-                                if (processing) R.string.status_processing
-                                else R.string.status_listening_whisper
-                            )
+                            if (processing) getString(R.string.status_processing)
+                            else normalListeningText()
                         )
                     }
                 }
@@ -941,13 +1073,7 @@ class RecordingService : Service() {
             whisperRecorder?.pause()
             setStatus(Status.PAUSED, getString(R.string.status_paused))
         } else {
-            setStatus(
-                Status.LISTENING,
-                getString(
-                    if (settings.liveTranscription) R.string.status_listening_whisper
-                    else R.string.status_recording_audio
-                )
-            )
+            setStatus(Status.LISTENING, normalListeningText())
         }
     }
 
@@ -1039,9 +1165,11 @@ class RecordingService : Service() {
     }
 
     /** Wall-clock ms since the input last carried any signal at all. */
+    @Volatile
     private var silentSinceMs = 0L
 
     /** Set once the warning has been raised, so it is not raised repeatedly. */
+    @Volatile
     private var micWarned = false
 
     /**
@@ -1064,12 +1192,24 @@ class RecordingService : Service() {
      * here is posted to main.
      */
     private fun watchForDeadMicrophone(rms: Float) {
-        if (paused) return
+        // Device audio has no microphone in it: playback capture is exact
+        // digital silence whenever nothing is playing, and losing the capture
+        // itself is reported by the projection's onStop.
+        if (paused || deviceAudioMode) {
+            silentSinceMs = 0L
+            return
+        }
         if (rms >= DEAD_MIC_RMS) {
             silentSinceMs = 0L
             if (micWarned) {
                 micWarned = false
-                main.post { if (active && !paused) setStatus(status, statusText) }
+                // Recomputed, not statusText: that holds the warning itself,
+                // so re-sending it left the warning on screen for good.
+                main.post {
+                    if (active && !paused && !finishing) {
+                        setStatus(Status.LISTENING, normalListeningText())
+                    }
+                }
             }
             return
         }
@@ -1081,7 +1221,8 @@ class RecordingService : Service() {
         if (!micWarned && now - silentSinceMs >= DEAD_MIC_AFTER_MS) {
             micWarned = true
             main.post {
-                if (!active) return@post
+                // Never over "Paused" or "Saving…".
+                if (!active || paused || finishing) return@post
                 setStatus(status, getString(R.string.mic_no_signal))
             }
         }
@@ -1103,6 +1244,10 @@ class RecordingService : Service() {
         // A model load may still be in flight; finishStartWhisper sees the
         // closed session and releases what it built rather than wiring it up.
         whisperStarting = false
+        // A recorder still loading its model reaches deviceAudioRecord only
+        // after this point; with the consent gone it cannot open a projection
+        // that nothing would ever stop.
+        pendingProjectionData = null
         try {
             mediaProjection?.stop()
         } catch (_: Exception) {
@@ -1127,6 +1272,10 @@ class RecordingService : Service() {
     }
 
     private fun scheduleSave() {
+        // Before start() the service is bound but has no session: no id and a
+        // 1970 start time, which saved a phantom "meetings/.json" whenever
+        // the device-audio consent dialog stayed up past the delay.
+        if (!active) return
         if (saveScheduled) return
         saveScheduled = true
         main.postDelayed(saveRunnable, 2500)
@@ -1146,22 +1295,29 @@ class RecordingService : Service() {
         Thread(it, "meeting-save")
     }
 
-    /**
-     * Late transcript chunks, one at a time and in arrival order.
-     *
-     * Deliberately NOT saveExecutor: that one is shut down by saveAndDrain()
-     * as the session closes, which is the exact moment these begin arriving.
-     */
-    private val lateExecutor = java.util.concurrent.Executors.newSingleThreadExecutor {
-        Thread(it, "meeting-late-append")
-    }
-
     private fun saveNow() {
         main.removeCallbacks(saveRunnable)
         saveScheduled = false
+        if (meetingId.isEmpty()) return
         val snapshot = buildMeeting()
+        val withTitle = titleDirty
+        val withNotes = notesDirty
+        val withAttendees = attendeesDirty
+        titleDirty = false
+        notesDirty = false
+        attendeesDirty = false
         try {
-            saveExecutor.execute { store.save(snapshot) }
+            saveExecutor.execute {
+                // A merge, not an overwrite: the meeting is in the library
+                // while it records, and a star, tag, attachment or summary
+                // added from there was reset by the next snapshot.
+                store.saveRecordingSnapshot(
+                    snapshot,
+                    withTitle = withTitle,
+                    withNotes = withNotes,
+                    withAttendees = withAttendees
+                )
+            }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // Shut down by the final flush; that write already happened.
         }
@@ -1196,11 +1352,13 @@ class RecordingService : Service() {
         notes = notes,
         attendees = Meeting.parseAttendees(attendeesRaw),
         photos = photos.toMutableList(),
-        audioFile = audioFileName
+        audioFile = audioFileName,
+        highlightMarksMs = highlightMarks.toMutableList()
     ).also { meeting ->
-        // Only the on-device Whisper/NeMo path has a model key an accuracy
-        // check can name and compare against; the system recognizer does not.
-        if (settings.transcriptionEngine == "whisper") {
+        // Only a model that actually transcribed live made these lines; the
+        // system recognizer has no key, and a capture-only session has no
+        // lines yet — the pass that writes them stamps its own model.
+        if (whisperMode && liveWhisper) {
             meeting.transcriptModel = settings.whisperModel
         }
     }
@@ -1221,6 +1379,7 @@ class RecordingService : Service() {
 
     private fun startForegroundNotification() {
         val notification = buildNotification()
+        postedNotificationKey = notificationKey()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             var type = ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
             if (deviceAudioMode) {
@@ -1240,7 +1399,7 @@ class RecordingService : Service() {
      * playback is capturable.
      */
     @androidx.annotation.RequiresApi(29)
-    private fun deviceAudioRecord(): android.media.AudioRecord? {
+    private fun deviceAudioRecord(session: String): android.media.AudioRecord? {
         val data = pendingProjectionData ?: return null
         val code = pendingProjectionCode
         pendingProjectionData = null
@@ -1276,6 +1435,19 @@ class RecordingService : Service() {
         } catch (_: Exception) {
         }
         mediaProjection = projection
+        // This runs on the audio thread and can land after the session was
+        // torn down (a slow model load, then Discard). teardownEngines has
+        // already stopped whatever it found, so a projection created now is
+        // stopped here or it keeps the cast indicator on for good.
+        main.post {
+            if (!active || finishing || meetingId != session) {
+                try {
+                    projection.stop()
+                } catch (_: Exception) {
+                }
+                if (mediaProjection === projection) mediaProjection = null
+            }
+        }
         val config = android.media.AudioPlaybackCaptureConfiguration.Builder(projection)
             .addMatchingUsage(android.media.AudioAttributes.USAGE_MEDIA)
             .addMatchingUsage(android.media.AudioAttributes.USAGE_GAME)
@@ -1300,30 +1472,53 @@ class RecordingService : Service() {
         }
     }
 
+    /**
+     * Everything the notification shows. It was rebuilt and reposted on every
+     * status change — several times per utterance on the recognizer path —
+     * though status never appears in it; each post is binder calls plus a
+     * SystemUI re-inflate, all for an identical row.
+     */
+    private fun notificationKey(): Triple<String, Boolean, Boolean> =
+        Triple(title, paused, micWarned)
+
+    private var postedNotificationKey: Triple<String, Boolean, Boolean>? = null
+
     private fun updateNotification() {
         if (!active) return
+        val key = notificationKey()
+        if (key == postedNotificationKey) return
+        postedNotificationKey = key
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager)
             .notify(NOTIF_ID, buildNotification())
     }
 
-    private fun buildNotification(): Notification {
-        val contentIntent = PendingIntent.getActivity(
+    // Fixed request codes and extras, so these never change: built once.
+    private val contentIntent: PendingIntent by lazy {
+        PendingIntent.getActivity(
             this, 0,
             Intent(this, RecordingActivity::class.java)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             pendingFlags()
         )
-        val pauseIntent = PendingIntent.getService(
+    }
+
+    private val pauseIntent: PendingIntent by lazy {
+        PendingIntent.getService(
             this, 1,
             Intent(this, RecordingService::class.java).setAction(ACTION_TOGGLE_PAUSE),
             pendingFlags()
         )
-        val stopIntent = PendingIntent.getService(
+    }
+
+    private val stopIntent: PendingIntent by lazy {
+        PendingIntent.getService(
             this, 2,
             Intent(this, RecordingService::class.java).setAction(ACTION_FINISH),
             pendingFlags()
         )
+    }
 
+    private fun buildNotification(): Notification {
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mic)
             .setContentTitle(title.ifBlank { getString(R.string.app_name) })
@@ -1398,11 +1593,7 @@ class RecordingService : Service() {
             teardownEngines()
             saveAndDrain()
         }
-        try {
-            lateExecutor.shutdown()
-            lateExecutor.awaitTermination(2, java.util.concurrent.TimeUnit.SECONDS)
-        } catch (_: Exception) {
-        }
+        // lateExecutor is deliberately left running: see its declaration.
         isRunning = false
         super.onDestroy()
     }
@@ -1436,6 +1627,35 @@ class RecordingService : Service() {
 
         /** Long enough that no ordinary pause reaches it. */
         private const val DEAD_MIC_AFTER_MS = 45_000L
+
+        /**
+         * Late transcript chunks, one at a time and in arrival order.
+         *
+         * Deliberately NOT saveExecutor: that one is shut down by
+         * saveAndDrain() as the session closes, which is the exact moment
+         * these begin arriving. And deliberately process-wide, never shut
+         * down: it lived on the service and was shut down in onDestroy, which
+         * follows the watchdog finish within about a second — so every chunk
+         * that finished after that was rejected and the meeting's tail lost.
+         * An idle single thread costs nothing.
+         */
+        private val lateExecutor = java.util.concurrent.Executors.newSingleThreadExecutor {
+            Thread(it, "meeting-late-append")
+        }
+
+        /**
+         * Whether a session started now would record audio with no live
+         * words: the on-device engine with live transcription off, or on but
+         * with a model that is not ready. Shared by the service, which acts on
+         * it, and the recording screen, which lays itself out before the
+         * service has started.
+         */
+        fun plannedAudioOnly(context: Context, settings: AppSettings): Boolean {
+            if (settings.transcriptionEngine != "whisper") return false
+            return !settings.liveTranscription ||
+                !com.meetily.mobile.whisper.TranscriptionModels
+                    .isReady(context, settings.whisperModel)
+        }
 
         /** True while a recording session is live in this process. */
         @Volatile
@@ -1480,7 +1700,9 @@ class RecordingService : Service() {
         // If the user swipes the app away mid-recording, save and stop cleanly.
         if (active && !finished) {
             val id = meetingId
-            val hadWords = segments.isNotEmpty()
+            // A live transcript that gave up partway does not count as words.
+            val hadWords = segments.isNotEmpty() &&
+                whisperRecorder?.liveSuspended != true
             teardownEngines()
             saveAndDrain()
             store.clearActive()
