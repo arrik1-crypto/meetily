@@ -119,6 +119,14 @@ data class Meeting(
      */
     val highlightMarksMs: MutableList<Long> = mutableListOf()
 ) {
+    /**
+     * True for a copy read by MeetingStore's light listings, which leave out
+     * word timings or whole fields. Such a copy is for display only:
+     * MeetingStore.save refuses it, because writing it back would silently
+     * strip what was never read. Not part of equality, not serialised.
+     */
+    var loadedPartially: Boolean = false
+
     /** Raw transcript text, no speaker labels (used for snippets, word counts, extractive summary). */
     fun transcriptText(): String =
         segments.joinToString("\n") { it.text }

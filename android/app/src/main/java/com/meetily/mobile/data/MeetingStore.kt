@@ -23,11 +23,50 @@ class MeetingStore(context: Context) {
         }.sortedByDescending { it.createdAtMs }
     }
 
-    /** A stat, not a parse — for callers that only need to know it is there. */
-    fun exists(id: String): Boolean = id.isNotBlank() && File(dir, "$id.json").exists()
+    /**
+     * Every meeting, newest first, WITHOUT word timings — which are most of a
+     * transcribed meeting's bytes and nearly all of its parse cost. Enough for
+     * anything that lists, counts, filters or searches the library.
+     *
+     * Reads the files themselves every time, so it can never be stale; it is
+     * just cheaper. The copies are display-only ([Meeting.loadedPartially]):
+     * load the meeting again before changing it.
+     */
+    fun listLight(): List<Meeting> = listParsed(keepTop = null)
+
+    /**
+     * Every meeting with only [fields] (plus "id") read, newest first when
+     * "createdAtMs" is among them. For whole-library scans that need a few
+     * fields — titles for series matching, action items for reminders — and
+     * should not pay for transcripts at all. Display-only, like [listLight].
+     */
+    fun listPartial(fields: Set<String>): List<Meeting> = listParsed(keepTop = fields + "id")
+
+    private fun listParsed(keepTop: Set<String>?): List<Meeting> {
+        val files = dir.listFiles { f -> f.isFile && f.name.endsWith(".json") } ?: return emptyList()
+        return files.mapNotNull { file ->
+            try {
+                Meeting.fromJson(LightJson.parse(file.readText(), keepTop, WORD_TIMINGS))
+                    .also { it.loadedPartially = true }
+            } catch (_: Exception) {
+                null
+            }
+        }.sortedByDescending { it.createdAtMs }
+    }
+
+    /** Whether [id] has a meeting file, without reading it. */
+    fun exists(id: String): Boolean = fileFor(id)?.isFile == true
+
+    /**
+     * The file for [id], or null when the id is not a plain file name — which
+     * only a crafted backup can produce, and which must never be joined onto
+     * this directory (see SafeFiles).
+     */
+    private fun fileFor(id: String): File? =
+        "$id.json".takeIf { SafeFiles.isPlainName(it) }?.let { File(dir, it) }
 
     fun load(id: String): Meeting? {
-        val file = File(dir, "$id.json")
+        val file = fileFor(id) ?: return null
         if (!file.exists()) return null
         return try {
             Meeting.fromJson(JSONObject(file.readText()))
@@ -47,10 +86,25 @@ class MeetingStore(context: Context) {
      * summary that was never written.
      */
     fun save(meeting: Meeting): Boolean {
+        // A light-listing copy is missing its word timings or more; writing it
+        // back would erase them with no error. Callers load() before editing.
+        if (meeting.loadedPartially) return false
+        val file = fileFor(meeting.id) ?: return false
         // Serialize once, outside the lock: Meeting is mutable and shared, so
         // building the JSON twice (as the fallback path used to) could put two
         // different snapshots into the two branches.
-        return AtomicJson.write(dir, "${meeting.id}.json", meeting.toJson().toString())
+        val json = meeting.toJson().toString()
+        return AtomicJson.exclusive {
+            if (meeting.id in tombstones) {
+                // Deleted from the library while some job still held it. The
+                // job's write would recreate the meeting with its audio and
+                // photos already gone, so a missing file stays missing. A file
+                // that is back (restored from a backup) is a live meeting again.
+                if (!file.exists()) return@exclusive false
+                tombstones.remove(meeting.id)
+            }
+            AtomicJson.write(dir, file.name, json)
+        }
     }
 
     /**
@@ -96,9 +150,25 @@ class MeetingStore(context: Context) {
      */
     fun saveTranscription(meeting: Meeting): Boolean {
         return AtomicJson.exclusive {
-            val onDisk = load(meeting.id)
+            val file = fileFor(meeting.id) ?: return@exclusive false
+            // The reload is what protects the user's edits, but an import
+            // persists after every chunk, and re-reading and re-parsing the
+            // whole growing file each time made a long import's IO grow with
+            // the square of its length. When nothing but this method has
+            // written the file since its last call, the copy it wrote IS
+            // what is on disk. The write generation is the authority (it sees
+            // same-second writes that a timestamp cannot); mtime and length
+            // additionally catch a restore, which replaces the file directly.
+            val base = lastTranscribed?.takeIf {
+                it.id == meeting.id &&
+                    it.generation == AtomicJson.generation(file) &&
+                    it.modifiedMs == file.lastModified() &&
+                    it.length == file.length()
+            }
+            val onDisk = base?.meeting ?: load(meeting.id)
             if (onDisk == null) {
                 HighlightMarks.apply(meeting.segments, meeting.highlightMarksMs)
+                lastTranscribed = null
                 return@exclusive save(meeting)
             }
             onDisk.segments.clear()
@@ -108,7 +178,16 @@ class MeetingStore(context: Context) {
             // Highlights tapped while an audio-only recording had no lines to
             // star land on the lines this pass just produced.
             HighlightMarks.apply(onDisk.segments, onDisk.highlightMarksMs)
-            save(onDisk)
+            val saved = save(onDisk)
+            lastTranscribed = if (saved) {
+                TranscriptionBase(
+                    meeting.id, AtomicJson.generation(file),
+                    file.lastModified(), file.length(), onDisk
+                )
+            } else {
+                null
+            }
+            saved
         }
     }
 
@@ -166,8 +245,19 @@ class MeetingStore(context: Context) {
         save(target)
     }
 
+    /**
+     * Removes the meeting file and remembers the id for the life of the
+     * process, so a job still holding the meeting (a summary, an import
+     * batch, a staged accuracy check) cannot write it back. Ids are random
+     * UUIDs, so a remembered one is never legitimately reused.
+     */
     fun delete(id: String) {
-        File(dir, "$id.json").delete()
+        val file = fileFor(id) ?: return
+        AtomicJson.exclusive {
+            tombstones.add(id)
+            if (lastTranscribed?.id == id) lastTranscribed = null
+            file.delete()
+        }
     }
 
     // --- Active-recording marker, for crash recovery ---------------------
@@ -197,5 +287,44 @@ class MeetingStore(context: Context) {
             ""
         }
         return id.ifBlank { null }
+    }
+
+    /** What saveTranscription last wrote, so the next batch can skip the reload. */
+    private class TranscriptionBase(
+        val id: String,
+        val generation: Long,
+        val modifiedMs: Long,
+        val length: Long,
+        val meeting: Meeting
+    )
+
+    companion object {
+        /** Word timings: the member the light listings leave out. */
+        private val WORD_TIMINGS = setOf("words")
+
+        /** Enough to name and date a meeting (and to match it to a series). */
+        val HEADER_FIELDS = setOf("id", "title", "createdAtMs")
+
+        /** [HEADER_FIELDS] plus the action items, for follow-ups and reminders. */
+        val ACTION_FIELDS = HEADER_FIELDS + "actionItems"
+
+        // Process-wide, like the write lock that guards both: every caller
+        // builds its own MeetingStore over the same directory.
+        private val tombstones = HashSet<String>()
+        private var lastTranscribed: TranscriptionBase? = null
+
+        /** True when [id] was deleted from the library during this process. */
+        fun wasDeleted(id: String): Boolean = AtomicJson.exclusive { id in tombstones }
+
+        /**
+         * Forgets a deletion because the meeting has come back on purpose —
+         * a backup restore just put its file in place.
+         */
+        fun forgetDeleted(id: String) {
+            AtomicJson.exclusive {
+                tombstones.remove(id)
+                if (lastTranscribed?.id == id) lastTranscribed = null
+            }
+        }
     }
 }

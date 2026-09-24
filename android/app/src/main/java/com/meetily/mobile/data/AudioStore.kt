@@ -33,7 +33,8 @@ object AudioStore {
         return File(dir(context), "$meetingId.$ext")
     }
 
-    fun fileFor(context: Context, name: String): File = File(dir(context), name)
+    // Names come from meeting JSON, which a restored backup controls.
+    fun fileFor(context: Context, name: String): File = SafeFiles.child(dir(context), name)
 
     fun exists(context: Context, name: String?): Boolean =
         !name.isNullOrBlank() && fileFor(context, name).length() > 0

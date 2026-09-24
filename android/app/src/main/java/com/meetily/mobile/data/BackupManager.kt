@@ -138,7 +138,12 @@ object BackupManager {
                     if (target != null && isUnder(target.parentFile, target)) {
                         val isMeeting = name.startsWith(MEETINGS)
                         if (extractSafely(zip, target, validateJson = isMeeting)) {
-                            if (isMeeting) restored++
+                            if (isMeeting) {
+                                restored++
+                                // Deleted earlier in this session and now
+                                // restored on purpose: it may be saved again.
+                                MeetingStore.forgetDeleted(target.name.removeSuffix(".json"))
+                            }
                         } else {
                             skipped++
                         }
@@ -224,7 +229,8 @@ object BackupManager {
             if (validateJson) {
                 // Parsed, not merely non-empty: a truncated JSON object is
                 // perfectly plausible as bytes and useless as a meeting.
-                Meeting.fromJson(org.json.JSONObject(part.readText()))
+                val meeting = Meeting.fromJson(org.json.JSONObject(part.readText()))
+                if (!isRestorable(meeting, target.name)) return false
             }
             // Delete-then-rename: renameTo does not replace on every Android
             // filesystem, and a failed rename must not leave the old file gone.
@@ -240,6 +246,25 @@ object BackupManager {
             part.delete()
         }
     }
+
+    /**
+     * Whether a parsed meeting may be restored as [fileName].
+     *
+     * Entry names are already reduced to plain names above, but the names
+     * INSIDE the JSON are not: every store later joins the id, audio file,
+     * photos and attachments onto its directory, so "../voice_profiles.json"
+     * in a crafted backup would make deleting that meeting delete the
+     * voiceprints, and an id like that would make saving it overwrite them.
+     * The id must also match the file it arrives in, or the first save would
+     * write a second copy of the meeting under another name. A backup this
+     * app wrote always passes; one that fails is counted as skipped.
+     */
+    internal fun isRestorable(meeting: Meeting, fileName: String): Boolean =
+        SafeFiles.isPlainName(fileName) &&
+            fileName == "${meeting.id}.json" &&
+            (meeting.audioFile == null || SafeFiles.isPlainName(meeting.audioFile)) &&
+            meeting.photos.all { SafeFiles.isPlainName(it) } &&
+            meeting.attachmentsList.all { SafeFiles.isPlainName(it.file) }
 
     private fun addDir(
         zip: ZipOutputStream,

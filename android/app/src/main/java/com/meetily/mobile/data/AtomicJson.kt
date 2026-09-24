@@ -1,6 +1,7 @@
 package com.meetily.mobile.data
 
 import java.io.File
+import java.io.FileOutputStream
 
 /**
  * Write-a-JSON-file-or-leave-the-old-one-alone, for the meeting store.
@@ -37,14 +38,28 @@ internal object AtomicJson {
     private val lock = Any()
 
     /**
+     * Writes attempted per file path since the process started, guarded by
+     * [lock]. Lets a read-modify-write caller tell "nothing has touched this
+     * file since my own last write" apart from "someone else wrote it",
+     * which a file timestamp cannot do: mtime can be whole seconds, and a
+     * star toggled in the same second as an import batch would be missed.
+     */
+    private val generations = HashMap<String, Long>()
+
+    /** How many writes to [file] this process has attempted. See [generations]. */
+    fun generation(file: File): Long = synchronized(lock) { generations[file.path] ?: 0L }
+
+    /**
      * Replaces [name] in [dir] with [json]. Returns false if the content
      * could not be written at all; the previous file is then untouched.
      */
     fun write(dir: File, name: String, json: String): Boolean = synchronized(lock) {
         val file = File(dir, name)
         val tmp = File(dir, "$name.tmp")
+        generations[file.path] = (generations[file.path] ?: 0L) + 1
+        val bytes = json.toByteArray(Charsets.UTF_8)
         try {
-            tmp.writeText(json)
+            writeSynced(tmp, bytes)
         } catch (_: Exception) {
             tmp.delete()
             return false
@@ -54,12 +69,31 @@ internal object AtomicJson {
         // Writing in place is not atomic, so a crash mid-write loses the
         // meeting — but refusing to save loses it for certain.
         return try {
-            file.writeText(json)
+            writeSynced(file, bytes)
             true
         } catch (_: Exception) {
             false
         } finally {
             tmp.delete()
+        }
+    }
+
+    /**
+     * Writes [bytes] and forces them to storage before returning, as
+     * android.util.AtomicFile does before its rename.
+     *
+     * Without the sync, the rename can reach the disk before the data does —
+     * f2fs, the userdata filesystem on many phones, has no ext4-style
+     * flush-on-rename. A forced reboot inside the writeback window then
+     * leaves a zero-length meeting file, which list() drops without a trace
+     * even though its audio survived. The recording service saves every few
+     * seconds, so during a recording the file is almost always in that
+     * window. One sync of a small JSON file costs a few milliseconds.
+     */
+    fun writeSynced(target: File, bytes: ByteArray) {
+        FileOutputStream(target).use { out ->
+            out.write(bytes)
+            out.fd.sync()
         }
     }
 

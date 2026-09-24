@@ -22,7 +22,19 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
             Reminders.ACTION_ITEM_REMINDER -> fireActionItem(context, intent)
-            Reminders.ACTION_CALENDAR_NUDGE -> fireNudge(context, intent)
+            // Off the main thread: matching events against the library reads
+            // every meeting file, and this fires as a meeting starts — just
+            // when the user may be opening the recorder.
+            Reminders.ACTION_CALENDAR_NUDGE -> {
+                val pending = goAsync()
+                Thread {
+                    try {
+                        fireNudge(context, intent)
+                    } finally {
+                        pending.finish()
+                    }
+                }.start()
+            }
             // Hourly sweep, and the calendar provider telling us it synced:
             // both just re-arm, which is how a newly arrived meeting gets a
             // nudge without the app being opened.
@@ -99,6 +111,8 @@ class ReminderReceiver : BroadcastReceiver() {
                 context.getString(R.string.nudges_channel_name),
                 NotificationManager.IMPORTANCE_DEFAULT
             )
+            // Read once per firing, not once per candidate event.
+            val seriesKeys by lazy { librarySeriesKeys(context) }
             for (event in candidates) {
                 val key = Reminders.NudgeTiming.nudgeKey(event.eventId, event.beginMs)
                 if (NudgeState.alreadyPosted(context, key)) continue
@@ -140,7 +154,7 @@ class ReminderReceiver : BroadcastReceiver() {
                     )
                 // When this event matches a known recurring series, offer a
                 // pre-meeting brief: last time's outcomes + open items.
-                if (hasSeriesHistory(context, event.title)) {
+                if (hasSeriesHistory(seriesKeys, event.title)) {
                     val brief = PendingIntent.getActivity(
                         context,
                         eventCode + 500,
@@ -170,16 +184,21 @@ class ReminderReceiver : BroadcastReceiver() {
         }
     }
 
-    /** True when the library holds at least one past meeting of this series. */
-    private fun hasSeriesHistory(context: Context, eventTitle: String): Boolean {
-        return try {
-            val key = com.meetily.mobile.search.MeetingGroups.normalizeTitle(eventTitle)
-            key.isNotBlank() && MeetingStore(context).list().any {
-                com.meetily.mobile.search.MeetingGroups.normalizeTitle(it.title) == key
-            }
+    /** Normalized titles of every meeting in the library; titles only are read. */
+    private fun librarySeriesKeys(context: Context): Set<String> =
+        try {
+            MeetingStore(context).listPartial(MeetingStore.HEADER_FIELDS)
+                .mapTo(HashSet()) {
+                    com.meetily.mobile.search.MeetingGroups.normalizeTitle(it.title)
+                }
         } catch (_: Exception) {
-            false
+            emptySet()
         }
+
+    /** True when the library holds at least one past meeting of this series. */
+    private fun hasSeriesHistory(libraryKeys: Set<String>, eventTitle: String): Boolean {
+        val key = com.meetily.mobile.search.MeetingGroups.normalizeTitle(eventTitle)
+        return key.isNotBlank() && key in libraryKeys
     }
 
     private fun ensureChannel(

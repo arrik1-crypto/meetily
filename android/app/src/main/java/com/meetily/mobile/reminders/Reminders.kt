@@ -24,6 +24,9 @@ object Reminders {
     const val ACTION_ITEM_REMINDER = "com.meetily.mobile.reminder.ACTION_ITEM"
     const val ACTION_CALENDAR_NUDGE = "com.meetily.mobile.reminder.CALENDAR_NUDGE"
     const val ACTION_REFRESH = "com.meetily.mobile.reminder.REFRESH"
+
+    /** Carried only by the [rescheduleAllIfCleared] sentinel; nothing handles it. */
+    private const val ACTION_SENTINEL = "com.meetily.mobile.reminder.SENTINEL"
     const val EXTRA_MEETING_ID = "meeting_id"
     const val EXTRA_TASK = "task"
     const val EXTRA_EVENT_ID = "event_id"
@@ -34,6 +37,7 @@ object Reminders {
 
     private const val NUDGE_REQUEST_BASE = 9100
     private const val REFRESH_REQUEST = 9099
+    private const val SENTINEL_REQUEST = 9098
 
     /**
      * Nudge timing. Exact alarms are denied by default on Android 14+, so the
@@ -156,11 +160,41 @@ object Reminders {
         }
     }
 
+    /**
+     * [rescheduleAll], but only when something has cleared this app's alarms.
+     *
+     * Called on every process start, and the process is cold-started all day
+     * by background triggers — calendar syncs, the hourly sweep, charger
+     * events, the widget. Alarms survive process death and app updates; only
+     * a reboot (BootReceiver re-arms) or a force-stop clears them, and both
+     * also discard every PendingIntent the app holds. So a far-future
+     * sentinel alarm that is still registered proves nothing was cleared, and
+     * the action-item re-arm — a pass over every meeting file — can be
+     * skipped.
+     */
+    fun rescheduleAllIfCleared(context: Context) {
+        val armed = PendingIntent.getBroadcast(
+            context,
+            SENTINEL_REQUEST,
+            sentinelIntent(context),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE
+        )
+        if (armed == null) {
+            rescheduleAll(context)
+        } else {
+            // Still re-read the calendar as every start did: one provider
+            // query, and it keeps the nudge set current.
+            scheduleNextCalendarNudge(context)
+        }
+    }
+
     /** Re-arms every future, not-done action-item reminder + the nudge chain. */
     fun rescheduleAll(context: Context) {
         val now = System.currentTimeMillis()
         val store = MeetingStore(context)
-        for (meeting in store.list()) {
+        // Action items only: a full list() parsed every transcript and every
+        // word timing in the library just to read a few remindAt stamps.
+        for (meeting in store.listPartial(MeetingStore.ACTION_FIELDS)) {
             for (item in meeting.actionItems) {
                 val at = item.remindAtMs ?: continue
                 if (!item.done && at > now) {
@@ -169,7 +203,32 @@ object Reminders {
             }
         }
         scheduleNextCalendarNudge(context)
+        armSentinel(context)
     }
+
+    /**
+     * Arms the marker [rescheduleAllIfCleared] looks for: a non-waking alarm
+     * a year out. If it ever fires, the receiver ignores it and the next
+     * start simply re-arms everything once.
+     */
+    private fun armSentinel(context: Context) {
+        try {
+            alarmManager(context).set(
+                AlarmManager.RTC,
+                System.currentTimeMillis() + 365L * 24 * 60 * 60_000L,
+                PendingIntent.getBroadcast(
+                    context,
+                    SENTINEL_REQUEST,
+                    sentinelIntent(context),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun sentinelIntent(context: Context): Intent =
+        Intent(context, ReminderReceiver::class.java).setAction(ACTION_SENTINEL)
 
     private fun scheduleAt(context: Context, atMs: Long, operation: PendingIntent) {
         val manager = alarmManager(context)

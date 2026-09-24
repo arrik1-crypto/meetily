@@ -18,7 +18,8 @@ object PhotoStore {
     fun newPhotoFile(context: Context, meetingId: String): File =
         File(dir(context), "${meetingId}_${System.currentTimeMillis()}.jpg")
 
-    fun fileFor(context: Context, name: String): File = File(dir(context), name)
+    // Names come from meeting JSON, which a restored backup controls.
+    fun fileFor(context: Context, name: String): File = SafeFiles.child(dir(context), name)
 
     fun uriFor(context: Context, file: File): Uri =
         FileProvider.getUriForFile(context, authority(context), file)

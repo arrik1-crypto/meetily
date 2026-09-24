@@ -11,6 +11,8 @@
     <string name="no_content_yet">No content yet</string>
     <string name="delete_meeting_title">Delete meeting?</string>
     <string name="delete_meeting_message">Delete \"%1$s\"? This cannot be undone.</string>
+    <string name="meeting_busy_delete">Available once this meeting has finished recording, transcribing or summarizing.</string>
+    <string name="meeting_busy_flag">Flag this meeting once the recording has stopped.</string>
     <string name="delete">Delete</string>
     <string name="action_settings">Settings</string>
     <string name="back">Back</string>
