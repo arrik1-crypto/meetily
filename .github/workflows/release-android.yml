@@ -61,7 +61,14 @@ jobs:
           MEETILY_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           MEETILY_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           MEETILY_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon bundleRelease assembleRelease
+        # Two invocations: the Play bundle ships its native libraries
+        # uncompressed (Play compresses downloads itself, and the device then
+        # loads them in place rather than keeping an extracted second copy),
+        # while the sideload APK keeps them compressed to stay small.
+        # See packaging.jniLibs in app/build.gradle.kts.
+        run: |
+          ./gradlew --no-daemon -PuncompressedNativeLibs bundleRelease
+          ./gradlew --no-daemon assembleRelease
 
       - name: Upload signed bundle + APK
         uses: actions/upload-artifact@v4

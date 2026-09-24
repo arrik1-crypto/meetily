@@ -33,18 +33,63 @@ object HeavyWork {
      *
      * One core is always held back for the UI thread; that reservation is
      * the difference between "slow" and "the system kills us".
+     *
+     * Also capped at [perfCores] (0 = unknown, no cap). ggml splits each op
+     * evenly and waits at a barrier after every graph node, so a thread on a
+     * LITTLE core holds up the big ones at every step while burning power
+     * spinning: on a 4-big + 4-LITTLE phone, 6 threads are no faster than 4.
      */
-    fun batchThreads(cores: Int, recordingActive: Boolean, batchJobs: Int = 1): Int {
+    fun batchThreads(
+        cores: Int,
+        recordingActive: Boolean,
+        batchJobs: Int = 1,
+        perfCores: Int = 0
+    ): Int {
         val reserved = (if (recordingActive) recordingThreads(cores) else 0) + 1
         val left = cores - reserved
         val jobs = batchJobs.coerceAtLeast(1)
-        return (left / jobs).coerceIn(MIN_THREADS, MAX_THREADS)
+        val budget = (left / jobs).coerceIn(MIN_THREADS, MAX_THREADS)
+        if (perfCores <= 0) return budget
+        return minOf(budget, perfCores.coerceAtLeast(MIN_THREADS))
     }
 
+    /**
+     * How many cores run at close to the fastest core's top clock: the big
+     * and prime cores, not the efficiency cluster. [maxFreqs] holds each
+     * core's cpuinfo_max_freq, null where unreadable. 0 unless every core
+     * could be read, which [batchThreads] treats as "no cap": a core that
+     * is hotplugged off can hide its cpufreq node, and counting only the
+     * visible ones could cap the pool below the big cores that exist.
+     */
+    fun performanceCores(maxFreqs: List<Long?>): Int {
+        if (maxFreqs.any { it == null || it <= 0 }) return 0
+        val known = maxFreqs.filterNotNull()
+        val top = known.maxOrNull() ?: return 0
+        return known.count { it >= top * PERF_CORE_RATIO }
+    }
+
+    private const val PERF_CORE_RATIO = 0.8
+
     private fun cores(): Int = Runtime.getRuntime().availableProcessors()
+
+    /** Read once: the topology does not change while the app runs. */
+    private val perfCores: Int by lazy {
+        try {
+            performanceCores((0 until cores()).map { cpu ->
+                try {
+                    java.io.File("/sys/devices/system/cpu/cpu$cpu/cpufreq/cpuinfo_max_freq")
+                        .readText().trim().toLongOrNull()
+                } catch (_: Exception) {
+                    null
+                }
+            })
+        } catch (_: Throwable) {
+            0
+        }
+    }
 
     fun recordingThreads(): Int = recordingThreads(cores())
 
     fun batchThreads(recordingActive: Boolean): Int =
-        batchThreads(cores(), recordingActive, 1)
+        batchThreads(cores(), recordingActive, 1, perfCores)
 }

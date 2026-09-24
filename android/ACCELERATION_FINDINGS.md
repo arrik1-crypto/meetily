@@ -12,9 +12,25 @@ Baseline, verified in this repo:
   target.
 - `llama_jni.c` never sets `mparams.n_gpu_layers`.
 - sherpa-onnx runs `provider = "cpu"` (`NemoEngine.kt`, `SherpaEmbedder.kt`).
-- The only acceleration in the app today is CPU-side: arm64 NEON/dotprod,
-  2–6 threads, quantized weights, and the q8_0 KV cache + flash attention
-  added in v2.9.0-beta3.
+- The only acceleration in the app today is CPU-side: arm64 NEON, 2–6
+  threads, quantized weights, and the q8_0 KV cache + flash attention added
+  in v2.9.0-beta3.
+- **Correction (2026-09):** this file used to say "NEON/dotprod". The build
+  never produced dotprod. `GGML_NATIVE` is off and nothing set
+  `GGML_CPU_ARM_ARCH` or `GGML_CPU_ALL_VARIANTS`, so ggml compiled for plain
+  `armv8-a`: emulated SDOT for every quantized dot product, F16 maths
+  converted through f32, and the dotprod/i8mm repack GEMMs compiled out
+  (ggml checks these features at compile time only). There are now two
+  builds of the JNI pair. The baseline stays `armv8-a`, because minSdk 26
+  still admits Cortex-A53/A73 phones, which would SIGILL on anything newer.
+  `:native-v82` builds `armv8.2-a+dotprod+fp16`, and `CpuFeatures.kt` loads
+  that pair only when every core lists `asimddp`, `asimdhp` and `fphp` in
+  `/proc/cpuinfo`. i8mm/SVE (armv8.6+) still take the dotprod path. Getting
+  those means runtime variants (`GGML_BACKEND_DL` +
+  `GGML_CPU_ALL_VARIANTS`), which needs ggml, whisper and llama built as
+  shared libraries and the variant MODULE libraries packaged. Not
+  attempted without a device to verify on. The speed-up has not been
+  measured.
 
 ---
 

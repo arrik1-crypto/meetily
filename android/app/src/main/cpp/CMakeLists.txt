@@ -54,15 +54,35 @@ FetchContent_Declare(
     whisper_cpp
     URL https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.8.6.tar.gz
 )
+# CPU features. ggml picks its kernels at COMPILE time and this build leaves
+# GGML_NATIVE off, so by default it targets plain armv8-a: no dotprod, no
+# fp16 vector arithmetic, and the dotprod/i8mm repack GEMMs are compiled out.
+# The app module keeps that baseline, because minSdk 26 still admits
+# Cortex-A53/A73 phones that would die with SIGILL on anything newer.
+#
+# The ":native-v82" Gradle module builds this same file a second time with
+# -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 and -DMEETILY_LIB_SUFFIX=_v82,
+# and CpuFeatures.kt loads that pair instead on phones whose every core
+# reports asimddp/asimdhp/fphp. Runtime-selected ggml variants
+# (GGML_BACKEND_DL + GGML_CPU_ALL_VARIANTS) would be neater, but need ggml,
+# whisper and llama as shared libraries and the variant MODULE libraries
+# packaged into the APK — too much to get right without a device to test on.
+set(MEETILY_LIB_SUFFIX "" CACHE STRING "Suffix for the JNI library names")
+if (GGML_CPU_ARM_ARCH AND NOT ANDROID_ABI STREQUAL "arm64-v8a")
+    message(FATAL_ERROR "GGML_CPU_ARM_ARCH is an arm64-v8a-only setting (got ${ANDROID_ABI})")
+endif()
+
 FetchContent_MakeAvailable(llama_cpp whisper_cpp)
 
-add_library(meetily_whisper SHARED whisper_jni.c)
-add_library(meetily_llama SHARED llama_jni.c chat_render.cpp)
+set(WHISPER_JNI meetily_whisper${MEETILY_LIB_SUFFIX})
+set(LLAMA_JNI meetily_llama${MEETILY_LIB_SUFFIX})
+add_library(${WHISPER_JNI} SHARED whisper_jni.c)
+add_library(${LLAMA_JNI} SHARED llama_jni.c chat_render.cpp)
 
 # 16 KB page-size alignment for Android 15+ devices.
-target_link_options(meetily_whisper PRIVATE "-Wl,-z,max-page-size=16384")
-target_link_options(meetily_llama PRIVATE "-Wl,-z,max-page-size=16384")
+target_link_options(${WHISPER_JNI} PRIVATE "-Wl,-z,max-page-size=16384")
+target_link_options(${LLAMA_JNI} PRIVATE "-Wl,-z,max-page-size=16384")
 
-target_link_libraries(meetily_whisper PRIVATE whisper log)
+target_link_libraries(${WHISPER_JNI} PRIVATE whisper log)
 # llama-common (not "common") is the target name at b10089.
-target_link_libraries(meetily_llama PRIVATE llama llama-common log)
+target_link_libraries(${LLAMA_JNI} PRIVATE llama llama-common log)

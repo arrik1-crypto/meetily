@@ -22,14 +22,58 @@
  */
 static int g_encoder_passes = 0;
 
+/*
+ * What the Kotlin side holds as its "context pointer".
+ *
+ * The abort flag has to live per context, not in a global: live
+ * transcription runs its own context alongside an import or an accuracy
+ * check, and stopping the batch job must not kill the live one.
+ */
+typedef struct {
+    struct whisper_context *ctx;
+    volatile int abort;
+} whisper_handle;
+
+static struct whisper_context *ctx_of(jlong ptr) {
+    whisper_handle *h = (whisper_handle *) (intptr_t) ptr;
+    return h != NULL ? h->ctx : NULL;
+}
+
+/*
+ * Polled by ggml between graph nodes, so a stop lands within one node of the
+ * encoder or decoder instead of after a whole 30-second window.
+ */
+static bool should_abort(void *user_data) {
+    const whisper_handle *h = (const whisper_handle *) user_data;
+    return h != NULL && h->abort != 0;
+}
+
 static bool count_encoder_pass(struct whisper_context *ctx,
                                struct whisper_state *state,
                                void *user_data) {
     (void) ctx;
     (void) state;
-    (void) user_data;
     g_encoder_passes++;
-    return true; /* never abort */
+    return !should_abort(user_data); /* false skips the encode */
+}
+
+/*
+ * Hands raw bytes to Kotlin, which decodes them as standard UTF-8.
+ *
+ * Whisper's tokens are byte-level BPE pieces, so its output is not
+ * guaranteed to be valid MODIFIED UTF-8, which is what NewStringUTF wants:
+ * a 4-byte character (emoji, rare Han) never is, and a sequence cut short
+ * is not either. CheckJNI aborts the process on that, and release ART
+ * mangles it, sometimes swallowing the record separators that follow.
+ * String(bytes, UTF_8) replaces a bad sequence with U+FFFD instead.
+ */
+static jbyteArray to_java_bytes(JNIEnv *env, const char *buf, size_t len) {
+    jbyteArray arr = (*env)->NewByteArray(env, (jsize) len);
+    if (arr == NULL) return NULL;
+    if (len > 0) {
+        (*env)->SetByteArrayRegion(env, arr, 0, (jsize) len, (const jbyte *) buf);
+    }
+    return arr;
 }
 
 JNIEXPORT jlong JNICALL
@@ -45,8 +89,14 @@ Java_com_meetily_mobile_whisper_WhisperBridge_initContext(
         LOGE("failed to load model");
         return 0;
     }
+    whisper_handle *h = (whisper_handle *) calloc(1, sizeof(whisper_handle));
+    if (h == NULL) {
+        whisper_free(ctx);
+        return 0;
+    }
+    h->ctx = ctx;
     LOGI("model loaded");
-    return (jlong) (intptr_t) ctx;
+    return (jlong) (intptr_t) h;
 }
 
 JNIEXPORT void JNICALL
@@ -55,17 +105,34 @@ Java_com_meetily_mobile_whisper_WhisperBridge_freeContext(
     (void) env;
     (void) thiz;
     if (ptr != 0) {
-        whisper_free((struct whisper_context *) (intptr_t) ptr);
+        whisper_handle *h = (whisper_handle *) (intptr_t) ptr;
+        whisper_free(h->ctx);
+        free(h);
     }
 }
 
-JNIEXPORT jstring JNICALL
-Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
+/*
+ * Stops a whisper_full already running on this context, from another
+ * thread. Sticky, like the llama flag: whoever raises it clears it before
+ * the next call, so a stop that arrives between calls is not lost.
+ */
+JNIEXPORT void JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_setAbort(
+        JNIEnv *env, jobject thiz, jlong ptr, jboolean on) {
+    (void) env;
+    (void) thiz;
+    if (ptr == 0) return;
+    ((whisper_handle *) (intptr_t) ptr)->abort = on ? 1 : 0;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_transcribeBytes(
         JNIEnv *env, jobject thiz, jlong ptr, jfloatArray samples,
         jstring language, jint n_threads, jboolean translate,
         jstring prompt) {
     (void) thiz;
-    struct whisper_context *ctx = (struct whisper_context *) (intptr_t) ptr;
+    whisper_handle *handle = (whisper_handle *) (intptr_t) ptr;
+    struct whisper_context *ctx = ctx_of(ptr);
     if (ctx == NULL || samples == NULL) return NULL;
 
     jsize n_samples = (*env)->GetArrayLength(env, samples);
@@ -83,6 +150,8 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
     params.print_timestamps = false;
     params.translate = translate ? true : false;
     params.suppress_blank = true;
+    params.abort_callback = should_abort;
+    params.abort_callback_user_data = handle;
 
     const char *lang = NULL;
     if (language != NULL) {
@@ -110,7 +179,11 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
         (*env)->ReleaseStringUTFChars(env, prompt, prompt_chars);
     }
     if (ret != 0) {
-        LOGE("whisper_full failed: %d", ret);
+        if (handle->abort) {
+            LOGI("whisper_full stopped on request");
+        } else {
+            LOGE("whisper_full failed: %d", ret);
+        }
         return NULL;
     }
 
@@ -138,7 +211,7 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribe(
         buf[len] = '\0';
     }
 
-    jstring out = (*env)->NewStringUTF(env, buf);
+    jbyteArray out = to_java_bytes(env, buf, len);
     free(buf);
     return out;
 }
@@ -163,7 +236,7 @@ JNIEXPORT jstring JNICALL
 Java_com_meetily_mobile_whisper_WhisperBridge_lastLanguage(
         JNIEnv *env, jobject thiz, jlong ptr) {
     (void) thiz;
-    struct whisper_context *ctx = (struct whisper_context *) (intptr_t) ptr;
+    struct whisper_context *ctx = ctx_of(ptr);
     if (ctx == NULL) return NULL;
     int id = whisper_full_lang_id(ctx);
     if (id < 0) return NULL;
@@ -172,13 +245,19 @@ Java_com_meetily_mobile_whisper_WhisperBridge_lastLanguage(
     return (*env)->NewStringUTF(env, str);
 }
 
-JNIEXPORT jstring JNICALL
-Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
+/*
+ * audio_ctx: encoder frames to run (50 per second of audio), or 0 for the
+ * model's full 30-second window. Only live capture passes a value; see
+ * WhisperBridge.liveAudioCtx for how it is sized.
+ */
+JNIEXPORT jbyteArray JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWordsBytes(
         JNIEnv *env, jobject thiz, jlong ptr, jfloatArray samples,
         jstring language, jint n_threads, jboolean translate,
-        jstring prompt) {
+        jstring prompt, jint audio_ctx) {
     (void) thiz;
-    struct whisper_context *ctx = (struct whisper_context *) (intptr_t) ptr;
+    whisper_handle *handle = (whisper_handle *) (intptr_t) ptr;
+    struct whisper_context *ctx = ctx_of(ptr);
     if (ctx == NULL || samples == NULL) return NULL;
 
     jsize n_samples = (*env)->GetArrayLength(env, samples);
@@ -204,12 +283,24 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
      */
     params.single_segment = true;
     params.encoder_begin_callback = count_encoder_pass;
+    params.encoder_begin_callback_user_data = handle;
+    params.abort_callback = should_abort;
+    params.abort_callback_user_data = handle;
     params.print_progress = false;
     params.print_realtime = false;
     params.print_special = false;
     params.print_timestamps = false;
     params.translate = translate ? true : false;
     params.suppress_blank = true;
+    /*
+     * whisper_full rejects a value above the model's own context, so
+     * anything at or past it means "the whole window". The field is copied
+     * into the state on every call, so passing 0 really does restore the
+     * default for the next caller.
+     */
+    if (audio_ctx > 0 && audio_ctx < whisper_n_audio_ctx(ctx)) {
+        params.audio_ctx = (int) audio_ctx;
+    }
 
     const char *lang = NULL;
     if (language != NULL) {
@@ -228,8 +319,8 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
 
     g_encoder_passes = 0;
     int ret = whisper_full(ctx, params, pcm, (int) n_samples);
-    LOGI("whisper_full: %d encoder pass(es) for %d samples",
-         g_encoder_passes, (int) n_samples);
+    LOGI("whisper_full: %d encoder pass(es) for %d samples (audio_ctx=%d)",
+         g_encoder_passes, (int) n_samples, params.audio_ctx);
     (*env)->ReleaseFloatArrayElements(env, samples, pcm, JNI_ABORT);
     if (lang != NULL) {
         (*env)->ReleaseStringUTFChars(env, language, lang);
@@ -238,7 +329,11 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
         (*env)->ReleaseStringUTFChars(env, prompt, prompt_chars);
     }
     if (ret != 0) {
-        LOGE("whisper_full failed: %d", ret);
+        if (handle->abort) {
+            LOGI("whisper_full stopped on request");
+        } else {
+            LOGE("whisper_full failed: %d", ret);
+        }
         return NULL;
     }
 
@@ -248,6 +343,8 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
     if (buf == NULL) return NULL;
     buf[0] = '\0';
     int word_open = 0;
+    /* A pure-space token was dropped; the next record carries its space. */
+    int pending_space = 0;
 
     /*
      * Languages written without spaces between words.
@@ -260,14 +357,18 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
      * then has a single "word" spanning up to 28 seconds, and every other
      * chunk's timing and speaker attribution is discarded.
      *
-     * For these scripts each token is its own record. Detected from the
-     * language whisper actually decoded, so it follows auto-detection rather
-     * than trusting the requested hint.
+     * For these scripts each character run gets its own record. Detected
+     * from the language whisper actually decoded, so it follows
+     * auto-detection rather than trusting the requested hint. Not when
+     * translating: whisper_full_lang_id still reports the SOURCE language
+     * then, but the text being decoded is English, which the space rule
+     * already handles — per-token records would cut its words into BPE
+     * pieces.
      */
     int no_space_script = 0;
-    {
-        const int lang = whisper_full_lang_id(ctx);
-        const char *code = (lang >= 0) ? whisper_lang_str(lang) : NULL;
+    if (!translate) {
+        const int lang_id = whisper_full_lang_id(ctx);
+        const char *code = (lang_id >= 0) ? whisper_lang_str(lang_id) : NULL;
         if (code != NULL) {
             no_space_script =
                 strcmp(code, "zh") == 0 || strcmp(code, "ja") == 0 ||
@@ -277,6 +378,12 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
         }
     }
 
+    /*
+     * Each record keeps the token's own leading space rather than stripping
+     * it, so the Kotlin side can rebuild the text by plain concatenation:
+     * "今日は" stays joined and "hello world" keeps its space. Joining
+     * stripped records with " " put a space between every CJK token.
+     */
     int n_segments = whisper_full_n_segments(ctx);
     for (int i = 0; i < n_segments; i++) {
         int n_tokens = whisper_full_n_tokens(ctx, i);
@@ -288,18 +395,49 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
             whisper_token_data td = whisper_full_get_token_data(ctx, i, j);
             long long ms = (long long) td.t0 * 10;
 
-            const char *emit = text;
-            int starts_word = (!word_open || text[0] == ' ' || no_space_script);
-            char header[40];
+            const unsigned char first = (unsigned char) text[0];
+            /*
+             * Byte-level BPE can split one character across tokens, e.g.
+             * [E4 B8][AD]. A token that opens with a continuation byte
+             * (10xxxxxx) is the rest of the previous record's character, so
+             * it always extends that record — even across a segment
+             * boundary — or a header would land between the character's
+             * bytes and corrupt both. Only with nothing written yet does it
+             * open a record of its own.
+             */
+            const int cont = (first & 0xC0) == 0x80;
+            int starts_word;
+            if (cont) {
+                starts_word = (len == 0);
+            } else {
+                const char *p = text;
+                while (*p == ' ') p++;
+                if (*p == '\0') { /* pure-space token */
+                    pending_space = 1;
+                    continue;
+                }
+                /*
+                 * In a no-space script a non-ASCII token starts its own
+                 * record, and so does an ASCII token after a non-ASCII one.
+                 * ASCII following ASCII extends it, so an English word or
+                 * number spoken inside Japanese stays one record instead of
+                 * one per BPE piece.
+                 */
+                const int prev_non_ascii =
+                        word_open && len > 0 && ((unsigned char) buf[len - 1]) >= 0x80;
+                starts_word = !word_open || first == ' ' || pending_space ||
+                        (no_space_script && (first >= 0x80 || prev_non_ascii));
+            }
+            char header[48];
             size_t hlen = 0;
             if (starts_word) {
                 hlen = (size_t) snprintf(header, sizeof(header),
-                                         "\x1e%lld\x1f", ms);
-                while (*emit == ' ') emit++;
-                if (*emit == '\0') continue; /* pure-space token */
+                                         "\x1e%lld\x1f%s", ms,
+                                         (pending_space && first != ' ') ? " " : "");
+                pending_space = 0;
                 word_open = 1;
             }
-            size_t tlen = strlen(emit);
+            size_t tlen = strlen(text);
             if (len + hlen + tlen + 1 > cap) {
                 cap = (len + hlen + tlen + 1) * 2;
                 char *grown = (char *) realloc(buf, cap);
@@ -313,14 +451,20 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWords(
                 memcpy(buf + len, header, hlen);
                 len += hlen;
             }
-            memcpy(buf + len, emit, tlen);
+            memcpy(buf + len, text, tlen);
             len += tlen;
             buf[len] = '\0';
         }
-        word_open = 0; /* segment boundary always starts a new word */
+        /*
+         * A segment boundary always starts a new word. In spaced scripts it
+         * is also a word break in the text, which the next segment's first
+         * token may not spell out with a leading space of its own.
+         */
+        word_open = 0;
+        if (!no_space_script) pending_space = 1;
     }
 
-    jstring out = (*env)->NewStringUTF(env, buf);
+    jbyteArray out = to_java_bytes(env, buf, len);
     free(buf);
     return out;
 }

@@ -12,7 +12,7 @@ object LlamaBridge {
     fun load(): Boolean {
         if (loaded) return true
         return try {
-            System.loadLibrary("meetily_llama")
+            com.meetily.mobile.data.CpuFeatures.loadEngineLibrary("meetily_llama")
             loaded = true
             true
         } catch (_: Throwable) {
@@ -34,8 +34,17 @@ object LlamaBridge {
     /**
      * [packedMessages]: per message, 0x1e + role + 0x1f + content. Returns
      * the assistant reply, or null on failure.
+     *
+     * Consecutive calls on the same model reuse the KV cache for the longest
+     * token prefix the prompts share, so a follow-up that repeats a large
+     * system message only pays for what changed.
      */
-    external fun generate(ptr: Long, packedMessages: String, maxTokens: Int): String?
+    fun generate(ptr: Long, packedMessages: String, maxTokens: Int): String? =
+        generateBytes(ptr, packedMessages, maxTokens)?.let { String(it, Charsets.UTF_8) }
+
+    // Raw bytes rather than a jstring: NewStringUTF needs modified UTF-8,
+    // which a model's emoji (4-byte UTF-8) never is.
+    private external fun generateBytes(ptr: Long, packedMessages: String, maxTokens: Int): ByteArray?
 
     /**
      * Stops a [generate] that is already running, from another thread.
