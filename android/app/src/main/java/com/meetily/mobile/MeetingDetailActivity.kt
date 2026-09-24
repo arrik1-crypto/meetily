@@ -963,7 +963,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     private fun pickReminderTime(index: Int) {
@@ -1094,7 +1094,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         AlertDialog.Builder(this)
             .setView(image)
             .setPositiveButton(android.R.string.ok, null)
-            .show()
+            .showSecure()
     }
 
     private fun confirmDeletePhoto(name: String) {
@@ -1464,7 +1464,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setNegativeButton(android.R.string.cancel) { _, _ ->
                 com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
             }
-            .show()
+            .showSecure()
     }
 
     private fun chooseTemplateAndSummarize() {
@@ -2432,7 +2432,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     private fun confirmDeleteSegment(index: Int) {
@@ -2491,7 +2491,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 assignSpeaker(index + 1)
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     /**
@@ -2554,7 +2554,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }.start()
             }
             .setNegativeButton(R.string.voice_save_no, null)
-            .show()
+            .showSecure()
     }
 
     // --- Transcript accuracy check -------------------------------------------
@@ -2976,7 +2976,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 renderAttachments(m)
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     private fun formatFileSize(bytes: Long): String = when {
@@ -3018,7 +3018,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.renamed, Toast.LENGTH_SHORT).show()
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     // --- Topic chapters ------------------------------------------------------
@@ -3046,7 +3046,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     private fun jumpToChapter(chapter: com.meetily.mobile.data.Chapter) {

@@ -398,6 +398,12 @@ class SettingsActivity : AppCompatActivity() {
 
         val autoTitle = findViewById<MaterialSwitch>(R.id.autoTitleSwitch)
         autoTitle.isChecked = settings.autoTitleFromTranscript
+        // The offline title needs no consent, but the endpoint refinement
+        // shares the auto-summary's gate and had no way to be granted from
+        // here, so on the endpoint engine it silently never ran.
+        autoTitle.setOnCheckedChangeListener { _, on ->
+            if (on) confirmEndpointTitles()
+        }
 
         val autoSummary = findViewById<MaterialSwitch>(R.id.autoSummarySwitch)
         val styleButton =
@@ -499,6 +505,25 @@ class SettingsActivity : AppCompatActivity() {
         return false
     }
 
+    /**
+     * The endpoint half of "name meetings from the transcript": it sends the
+     * transcript off-device unprompted, so it asks like the auto-summary
+     * does. Declining keeps the switch on — titles are then taken on the
+     * device only.
+     */
+    private fun confirmEndpointTitles() {
+        if (settings.llmEngine == "local") return
+        if (settings.autoSummaryEndpointOk) return
+        AlertDialog.Builder(this)
+            .setTitle(R.string.auto_title_endpoint_title)
+            .setMessage(R.string.auto_title_endpoint_body)
+            .setPositiveButton(R.string.auto_summary_endpoint_yes) { _, _ ->
+                settings.autoSummaryEndpointOk = true
+            }
+            .setNegativeButton(R.string.auto_title_endpoint_no, null)
+            .show()
+    }
+
     private fun persistAll() {
         settings.useLlm = useLlmSwitch.isChecked
         settings.preferOfflineRecognition = offlineSwitch.isChecked
@@ -576,6 +601,19 @@ class SettingsActivity : AppCompatActivity() {
             settings.llmEngine =
                 if (checkedId == R.id.engineLocal) "local" else "endpoint"
             applyEngineVisibility()
+            // Changing engine withdraws the endpoint consent (see
+            // AppSettings.llmEngine), which left an auto-summary switch
+            // showing ON while every automatic summary quietly stood down.
+            // Make the switch tell the truth, then ask again.
+            if (settings.llmEngine != "local" && !settings.autoSummaryEndpointOk) {
+                val autoSummary = findViewById<MaterialSwitch>(R.id.autoSummarySwitch)
+                if (autoSummary.isChecked) {
+                    autoSummary.isChecked = false
+                    confirmEndpointSummaries()
+                } else if (findViewById<MaterialSwitch>(R.id.autoTitleSwitch).isChecked) {
+                    confirmEndpointTitles()
+                }
+            }
         }
         findViewById<View>(R.id.manageLlmButton).setOnClickListener {
             showLlmModelDialog()
@@ -812,13 +850,33 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun readBackup(uri: Uri) {
-        val encrypted = try {
-            contentResolver.openInputStream(uri)?.use { BackupManager.sniffEncrypted(it) }
-                ?: false
-        } catch (e: Exception) {
-            false
-        }
-        if (encrypted) promptRestorePassphrase(uri) else doRestore(uri, null)
+        // Off the main thread: for a cloud document (Drive and the like),
+        // opening the stream blocks until the provider has downloaded the
+        // file, and a backup carries every meeting's audio — long enough for
+        // the app-not-responding dialog if it ran here.
+        Toast.makeText(this, R.string.restore_reading, Toast.LENGTH_SHORT).show()
+        Thread {
+            var error: String? = null
+            val encrypted = try {
+                contentResolver.openInputStream(uri)?.use { BackupManager.sniffEncrypted(it) }
+                    ?: false
+            } catch (e: Exception) {
+                // A file that cannot even be opened is a failure to report,
+                // not a hint that it is unencrypted.
+                error = e.message ?: "unknown error"
+                false
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when {
+                    error != null -> Toast.makeText(
+                        this, getString(R.string.restore_failed, error), Toast.LENGTH_LONG
+                    ).show()
+                    encrypted -> promptRestorePassphrase(uri)
+                    else -> doRestore(uri, null)
+                }
+            }
+        }.start()
     }
 
     private fun promptRestorePassphrase(uri: Uri) {
@@ -850,6 +908,13 @@ class SettingsActivity : AppCompatActivity() {
                 result = contentResolver.openInputStream(uri)?.use {
                     BackupManager.import(this, it, passphrase)
                 } ?: throw RuntimeException("could not open file")
+                // Restored reminders have no alarm armed yet, and any already
+                // due would otherwise wait for the next cold start and then be
+                // dropped as past. Best effort: the restore itself succeeded.
+                try {
+                    Reminders.rescheduleAll(applicationContext)
+                } catch (_: Exception) {
+                }
                 null
             } catch (e: BackupCrypto.WrongPassphraseException) {
                 getString(R.string.restore_wrong_passphrase)

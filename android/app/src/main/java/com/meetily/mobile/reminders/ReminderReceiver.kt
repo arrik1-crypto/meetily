@@ -12,11 +12,20 @@ import com.meetily.mobile.MeetingDetailActivity
 import com.meetily.mobile.R
 import com.meetily.mobile.RecordingActivity
 import com.meetily.mobile.RecordingService
+import com.meetily.mobile.data.ActionItem
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.CalendarHelper
+import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 
-/** Fires action-item reminders and calendar "record this?" nudges. */
+/**
+ * Fires action-item reminders and calendar "record this?" nudges.
+ *
+ * Not exported: only Recap's own alarms reach it (AlarmManager delivers a
+ * PendingIntent with the app's identity). It used to be exported for the
+ * calendar provider's broadcast, which let any app fire these internal
+ * actions on demand; that broadcast now lands in [CalendarChangedReceiver].
+ */
 class ReminderReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -35,10 +44,10 @@ class ReminderReceiver : BroadcastReceiver() {
                     }
                 }.start()
             }
-            // Hourly sweep, and the calendar provider telling us it synced:
-            // both just re-arm, which is how a newly arrived meeting gets a
-            // nudge without the app being opened.
-            Reminders.ACTION_REFRESH, Intent.ACTION_PROVIDER_CHANGED ->
+            // Hourly sweep: re-arm, which is how a newly arrived meeting gets
+            // a nudge without the app being opened. Calendar syncs arrive at
+            // CalendarChangedReceiver, the only exported entry point.
+            Reminders.ACTION_REFRESH ->
                 try {
                     Reminders.scheduleNextCalendarNudge(context)
                 } catch (_: Exception) {
@@ -52,32 +61,7 @@ class ReminderReceiver : BroadcastReceiver() {
         // Validate against current state: the item may be done or deleted.
         val meeting = MeetingStore(context).load(meetingId) ?: return
         val item = meeting.actionItems.firstOrNull { it.task == task } ?: return
-        if (item.done) return
-
-        ensureChannel(
-            context, CHANNEL_REMINDERS,
-            context.getString(R.string.reminders_channel_name),
-            NotificationManager.IMPORTANCE_HIGH
-        )
-        val open = PendingIntent.getActivity(
-            context,
-            (meetingId + "|" + task).hashCode(),
-            Intent(context, MeetingDetailActivity::class.java)
-                .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meetingId)
-                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        val notification = NotificationCompat.Builder(context, CHANNEL_REMINDERS)
-            .setSmallIcon(R.drawable.ic_check)
-            .setContentTitle(task)
-            .setContentText(
-                context.getString(R.string.reminder_notif_from, meeting.title)
-            )
-            .setStyle(NotificationCompat.BigTextStyle().bigText(task))
-            .setContentIntent(open)
-            .setAutoCancel(true)
-            .build()
-        notify(context, (meetingId + "|" + task).hashCode(), notification)
+        postActionItem(context, meeting, item)
     }
 
     private fun fireNudge(context: Context, intent: Intent) {
@@ -179,6 +163,16 @@ class ReminderReceiver : BroadcastReceiver() {
                 NudgeState.markPosted(context, key)
             }
         } finally {
+            // This alarm's own occurrence is spent, whether it posted or bailed
+            // (recording already running, event not found). Recording that is
+            // what stops the re-arm below from handing the same event a past
+            // trigger again, which would fire every few seconds until it starts.
+            val eventId = intent.getLongExtra(Reminders.EXTRA_EVENT_ID, 0L)
+            val begin = intent.getLongExtra(Reminders.EXTRA_EVENT_BEGIN, 0L)
+            if (eventId != 0L && begin != 0L) {
+                val key = Reminders.NudgeTiming.nudgeKey(eventId, begin)
+                if (!NudgeState.alreadyPosted(context, key)) NudgeState.markPosted(context, key)
+            }
             // Keep the chain alive no matter what this firing decided.
             Reminders.scheduleNextCalendarNudge(context)
         }
@@ -201,19 +195,6 @@ class ReminderReceiver : BroadcastReceiver() {
         return key.isNotBlank() && key in libraryKeys
     }
 
-    private fun ensureChannel(
-        context: Context,
-        id: String,
-        name: String,
-        importance: Int
-    ) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val manager =
-                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            manager.createNotificationChannel(NotificationChannel(id, name, importance))
-        }
-    }
-
     /**
      * A URI unique to one occurrence, so PendingIntents for two events whose
      * ids are congruent modulo 400 stay distinct. Nothing resolves it — it
@@ -222,17 +203,70 @@ class ReminderReceiver : BroadcastReceiver() {
     private fun nudgeUri(eventId: Long, beginMs: Long): android.net.Uri =
         android.net.Uri.parse("recap://nudge/$eventId/$beginMs")
 
-    private fun notify(context: Context, id: Int, notification: android.app.Notification) {
-        val manager =
-            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        try {
-            manager.notify(id, notification)
-        } catch (_: SecurityException) {
-        }
-    }
-
     companion object {
         private const val CHANNEL_REMINDERS = "reminders"
         private const val CHANNEL_NUDGES = "nudges"
+
+        /**
+         * Posts the reminder for [item], at most once per reminder time.
+         * Shared by the alarm and by [Reminders.rescheduleAll], which posts
+         * reminders that fell due while their alarm was gone; the delivery
+         * claim is what keeps the two from both notifying.
+         */
+        fun postActionItem(context: Context, meeting: Meeting, item: ActionItem) {
+            if (item.done) return
+            // A cleared reminder has no business firing.
+            val at = item.remindAtMs ?: return
+            if (!Reminders.claimDelivery(context, meeting.id, item.task, at)) return
+            val meetingId = meeting.id
+            val task = item.task
+
+            ensureChannel(
+                context, CHANNEL_REMINDERS,
+                context.getString(R.string.reminders_channel_name),
+                NotificationManager.IMPORTANCE_HIGH
+            )
+            val open = PendingIntent.getActivity(
+                context,
+                (meetingId + "|" + task).hashCode(),
+                Intent(context, MeetingDetailActivity::class.java)
+                    .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meetingId)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            val notification = NotificationCompat.Builder(context, CHANNEL_REMINDERS)
+                .setSmallIcon(R.drawable.ic_check)
+                .setContentTitle(task)
+                .setContentText(
+                    context.getString(R.string.reminder_notif_from, meeting.title)
+                )
+                .setStyle(NotificationCompat.BigTextStyle().bigText(task))
+                .setContentIntent(open)
+                .setAutoCancel(true)
+                .build()
+            notify(context, (meetingId + "|" + task).hashCode(), notification)
+        }
+
+        private fun ensureChannel(
+            context: Context,
+            id: String,
+            name: String,
+            importance: Int
+        ) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val manager =
+                    context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+                manager.createNotificationChannel(NotificationChannel(id, name, importance))
+            }
+        }
+
+        private fun notify(context: Context, id: Int, notification: android.app.Notification) {
+            val manager =
+                context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            try {
+                manager.notify(id, notification)
+            } catch (_: SecurityException) {
+            }
+        }
     }
 }

@@ -31,6 +31,9 @@ import java.util.Date
 class CalendarDiagnosticsActivity : AppCompatActivity() {
 
     private lateinit var container: LinearLayout
+
+    /** Bumped per render, so a slow earlier gather cannot paint over a newer one. */
+    private var renderGeneration = 0
     private val timeFormat: DateFormat by lazy {
         DateFormat.getDateTimeInstance(DateFormat.SHORT, DateFormat.SHORT)
     }
@@ -59,20 +62,63 @@ class CalendarDiagnosticsActivity : AppCompatActivity() {
         render()
     }
 
+    /** Everything the screen shows, gathered off the main thread. */
+    private class Snapshot(
+        val nudgesOn: Boolean,
+        val hasPermission: Boolean,
+        /** Null below Android 12, where exact alarms need no permission. */
+        val exactAlarms: Boolean?,
+        val calendars: List<CalendarHelper.CalendarInfo>,
+        val armed: List<NudgeState.Armed>,
+        val updatedMs: Long
+    )
+
+    /**
+     * The calendar queries run on a worker thread: they are cross-process
+     * calls that can expand recurring events, and this runs on every resume,
+     * including each return from the settings screens this page links to.
+     */
     private fun render() {
+        val generation = ++renderGeneration
+        val app = applicationContext
+        Thread {
+            val hasPermission = ContextCompat.checkSelfPermission(
+                app, Manifest.permission.READ_CALENDAR
+            ) == PackageManager.PERMISSION_GRANTED
+            val exact = if (Build.VERSION.SDK_INT >= 31) {
+                (app.getSystemService(android.content.Context.ALARM_SERVICE)
+                    as android.app.AlarmManager).canScheduleExactAlarms()
+            } else {
+                null
+            }
+            val snapshot = Snapshot(
+                nudgesOn = AppSettings(app).meetingNudges,
+                hasPermission = hasPermission,
+                exactAlarms = exact,
+                calendars = if (hasPermission) CalendarHelper.calendars(app) else emptyList(),
+                armed = NudgeState.armed(app),
+                updatedMs = NudgeState.lastUpdatedMs(app)
+            )
+            runOnUiThread {
+                if (isFinishing || isDestroyed || generation != renderGeneration) {
+                    return@runOnUiThread
+                }
+                show(snapshot)
+            }
+        }.start()
+    }
+
+    private fun show(snapshot: Snapshot) {
         container.removeAllViews()
-        val settings = AppSettings(this)
-        val hasPermission = ContextCompat.checkSelfPermission(
-            this, Manifest.permission.READ_CALENDAR
-        ) == PackageManager.PERMISSION_GRANTED
+        val hasPermission = snapshot.hasPermission
 
         // 1. The two switches that gate everything.
         section(getString(R.string.cal_diag_setup))
         row(
             getString(R.string.cal_diag_nudges_setting),
-            if (settings.meetingNudges) getString(R.string.cal_diag_on)
+            if (snapshot.nudgesOn) getString(R.string.cal_diag_on)
             else getString(R.string.cal_diag_off),
-            good = settings.meetingNudges
+            good = snapshot.nudgesOn
         )
         row(
             getString(R.string.cal_diag_permission),
@@ -80,10 +126,10 @@ class CalendarDiagnosticsActivity : AppCompatActivity() {
             else getString(R.string.cal_diag_denied),
             good = hasPermission
         )
-        if (Build.VERSION.SDK_INT >= 31) {
-            val manager = getSystemService(android.content.Context.ALARM_SERVICE)
-                as android.app.AlarmManager
-            val exact = manager.canScheduleExactAlarms()
+        val exact = snapshot.exactAlarms
+        // The SDK check is redundant with the null but keeps lint's NewApi
+        // analysis able to see the guard around the API-31 intent below.
+        if (Build.VERSION.SDK_INT >= 31 && exact != null) {
             row(
                 getString(R.string.cal_diag_exact_alarms),
                 if (exact) getString(R.string.cal_diag_granted)
@@ -112,7 +158,7 @@ class CalendarDiagnosticsActivity : AppCompatActivity() {
         }
 
         // 2. What Android actually exposes to this app.
-        val calendars = CalendarHelper.calendars(this)
+        val calendars = snapshot.calendars
         section(getString(R.string.cal_diag_calendars, calendars.size))
         if (calendars.isEmpty()) {
             note(getString(R.string.cal_diag_none))
@@ -137,7 +183,7 @@ class CalendarDiagnosticsActivity : AppCompatActivity() {
         if (!hasWork) note(getString(R.string.cal_diag_no_outlook))
 
         // 3. What is actually armed right now.
-        val armed = NudgeState.armed(this)
+        val armed = snapshot.armed
         section(getString(R.string.cal_diag_armed))
         if (armed.isEmpty()) {
             note(getString(R.string.cal_diag_armed_none))
@@ -146,7 +192,7 @@ class CalendarDiagnosticsActivity : AppCompatActivity() {
                 row(item.title, timeFormat.format(Date(item.beginMs)), good = true)
             }
         }
-        val updated = NudgeState.lastUpdatedMs(this)
+        val updated = snapshot.updatedMs
         if (updated > 0) {
             note(getString(R.string.cal_diag_checked_at, timeFormat.format(Date(updated))))
         }

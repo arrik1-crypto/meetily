@@ -377,14 +377,18 @@ class SummaryService : Service() {
              * The list was replaced wholesale, which threw away every tick
              * the user had made and every reminder they had set — and worse,
              * left the alarms armed, so a notification still fired for an
-             * item that no longer existed. Matching on normalised task text
-             * is the same identity Reminders already uses as its key.
+             * item that no longer existed. Items are matched on normalised
+             * task text, but a match keeps the OLD exact text: an armed alarm
+             * and ReminderReceiver both key on the exact string, so taking a
+             * re-cased "send the deck" from the model would leave the alarm
+             * pointing at an item that no longer exists, and it would fire
+             * into nothing.
              */
             val previous = target.actionItems.associateBy { it.task.trim().lowercase() }
             val merged = finalItems.map { fresh ->
                 val old = previous[fresh.task.trim().lowercase()]
                 if (old == null) fresh
-                else fresh.copy(done = old.done, remindAtMs = old.remindAtMs)
+                else fresh.copy(task = old.task, done = old.done, remindAtMs = old.remindAtMs)
             }
             // Anything the new summary dropped takes its alarm with it.
             val keptKeys = merged.map { it.task.trim().lowercase() }.toSet()

@@ -34,6 +34,8 @@ object ActionSheet {
         onPick: (String) -> Unit
     ) {
         val sheet = BottomSheetDialog(context)
+        // Callers put meeting titles and calendar events in here.
+        com.meetily.mobile.security.AppLock.secure(sheet)
         val content = LayoutInflater.from(context).inflate(R.layout.sheet_actions, null)
         sheet.setContentView(content)
         content.findViewById<TextView>(R.id.actionSheetTitle).text = title

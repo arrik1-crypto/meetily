@@ -630,7 +630,7 @@ class MainActivity : AppCompatActivity() {
                 }
             }
             .setOnDismissListener { interruptedDialog = null }
-            .show()
+            .showSecure()
     }
 
     /** The interrupted-work prompt while it is up; see offerInterruptedWork. */
@@ -993,7 +993,7 @@ class MainActivity : AppCompatActivity() {
                 refresh()
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure()
     }
 
     /**

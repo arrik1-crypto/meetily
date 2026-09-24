@@ -61,7 +61,8 @@ class ModelDownloadService : Service() {
     @Volatile private var cancelled = false
     @Volatile var percent = 0
         private set
-    private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var wakeLock: PowerManager.WakeLock? = null
+    @Volatile private var wakeLockAcquiredMs = 0L
     private val main = Handler(Looper.getMainLooper())
 
     /** Waiting (kind, key) pairs; main-thread confined. */
@@ -87,8 +88,12 @@ class ModelDownloadService : Service() {
                 if (kind.isBlank() || key.isBlank()) return START_NOT_STICKY
                 if (isRunning) {
                     // Queue behind the current download unless it's already
-                    // running or waiting.
-                    val duplicate = (currentKind == kind && currentKey == key) ||
+                    // running or waiting. A cancelled download that is still
+                    // unwinding (a stalled read can take a minute to notice)
+                    // is not "already running": re-picking that model must
+                    // queue, and finishRun starts whatever arrived after the
+                    // cancel instead of dropping it.
+                    val duplicate = (!cancelled && currentKind == kind && currentKey == key) ||
                         queue.any { it.first == kind && it.second == key }
                     if (!duplicate) {
                         queue.add(kind to key)
@@ -112,8 +117,9 @@ class ModelDownloadService : Service() {
                         PowerManager.PARTIAL_WAKE_LOCK, "meetily:model-download"
                     ).apply {
                         setReferenceCounted(false)
-                        acquire(2 * 60 * 60 * 1000L)
+                        acquire(WAKE_LOCK_TIMEOUT_MS)
                     }
+                    wakeLockAcquiredMs = SystemClock.elapsedRealtime()
                 } catch (_: Exception) {
                 }
                 runDownload(kind, key)
@@ -145,6 +151,7 @@ class ModelDownloadService : Service() {
                     // to late binders, so it must never read stale.
                     percent = p
                     if (throttle.shouldPost(p, SystemClock.uptimeMillis())) {
+                        renewWakeLockIfStale()
                         main.post {
                             if (isRunning) {
                                 observer?.onDownloadProgress(kind, key, p)
@@ -189,16 +196,21 @@ class ModelDownloadService : Service() {
         observer?.onDownloadDone(kind, key, cancelled, error)
         if (!cancelled) finished.add(name to error)
 
-        // Chain into the next queued download (unless cancel dropped it all).
-        val next = if (cancelled) null else queue.removeFirstOrNull()
+        // Chain into the next queued download. Cancel empties the queue on
+        // the main thread, as this runs, so anything still queued arrived
+        // after the cancel and is a fresh request: start it, and let the
+        // cancel end with the run it was aimed at.
+        val next = queue.removeFirstOrNull()
         if (next != null) {
+            cancelled = false
             queuedCount = queue.size
             currentKind = next.first
             currentKey = next.second
             percent = 0
             // Refresh the wakelock timeout for the new item.
             try {
-                wakeLock?.acquire(2 * 60 * 60 * 1000L)
+                wakeLock?.acquire(WAKE_LOCK_TIMEOUT_MS)
+                wakeLockAcquiredMs = SystemClock.elapsedRealtime()
             } catch (_: Exception) {
             }
             updateNotification(displayName(next.first, next.second), 0)
@@ -217,6 +229,24 @@ class ModelDownloadService : Service() {
         if (!cancelled) postCompletionNotification()
         isRunning = false
         stopSelf()
+    }
+
+    /**
+     * Re-arms the wake lock's timeout while bytes are still arriving. A
+     * single acquire lapsed after two hours, and the largest on-device models
+     * take longer than that on a slow link; with the screen off the download
+     * then crawled or died, and a failed download restarts from zero.
+     * Non-reference-counted, so a re-acquire just pushes the timeout out.
+     * Called from the download thread.
+     */
+    private fun renewWakeLockIfStale() {
+        val lock = wakeLock ?: return
+        if (SystemClock.elapsedRealtime() - wakeLockAcquiredMs < WAKE_LOCK_RENEW_MS) return
+        try {
+            lock.acquire(WAKE_LOCK_TIMEOUT_MS)
+            wakeLockAcquiredMs = SystemClock.elapsedRealtime()
+        } catch (_: Exception) {
+        }
     }
 
     fun requestCancel() {
@@ -385,5 +415,7 @@ class ModelDownloadService : Service() {
         private const val CHANNEL_ID = "model_download"
         private const val NOTIF_ID = 46
         private const val NOTIF_DONE_ID = 47
+        private const val WAKE_LOCK_TIMEOUT_MS = 2 * 60 * 60 * 1000L
+        private const val WAKE_LOCK_RENEW_MS = 10 * 60 * 1000L
     }
 }
