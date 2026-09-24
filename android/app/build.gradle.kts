@@ -54,7 +54,7 @@ android {
     // universal APK balloons past sideload-friendly sizes. Ship one APK per
     // ABI instead (phones = arm64-v8a, emulators = x86_64) and compress the
     // native libs inside the APK. Play releases use the AAB, which splits by
-    // ABI on its own, so this only affects assembleRelease output.
+    // ABI on its own, so the splits only affect assembleRelease output.
     splits {
         abi {
             isEnable = true
@@ -66,7 +66,24 @@ android {
 
     packaging {
         jniLibs {
-            useLegacyPackaging = true
+            // Compressed native libs keep the sideload APK small, at the cost
+            // of extracting them to disk at install: a compressed AND an
+            // extracted copy for the life of the install. Unlike the splits,
+            // this setting also reaches the AAB, where it buys nothing (Play
+            // compresses the download anyway), so the Play bundle is built
+            // with -PuncompressedNativeLibs (release-android.yml) and loads
+            // the libraries straight from the APK. Every .so here is linked
+            // for 16 KB pages, which that path requires on Android 15.
+            useLegacyPackaging = !project.hasProperty("uncompressedNativeLibs")
+            // The sherpa-onnx tarball also carries its C and C++ API
+            // libraries (~4.8 MB per ABI). Only its JNI library and
+            // onnxruntime are ever loaded; fetch_sherpa_libs.sh no longer
+            // copies the others, and this drops them from jniLibs folders
+            // filled by an older copy of the script.
+            excludes += setOf(
+                "**/libsherpa-onnx-c-api.so",
+                "**/libsherpa-onnx-cxx-api.so"
+            )
         }
     }
 
@@ -83,7 +100,17 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 shrinks and optimises the dex (appcompat, material and the
+            // ML Kit / play-services classes otherwise ship whole). Names are
+            // kept (-dontobfuscate in proguard-rules.pro) so CrashLog stack
+            // traces stay readable without a mapping file; the JNI-facing
+            // keep rules are there too.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
             // Pack native symbol tables into the AAB so Play's Android
             // Vitals can symbolicate crashes in the whisper/llama/sherpa
             // .so files instead of showing raw addresses.
@@ -120,6 +147,9 @@ dependencies {
     implementation("androidx.biometric:biometric:1.1.0")
     // Bundled on-device Latin OCR for whiteboard/photo text (no network).
     implementation("com.google.mlkit:text-recognition:16.0.1")
+    // The armv8.2-a+dotprod+fp16 build of the whisper/llama JNI libraries,
+    // chosen at runtime by CpuFeatures. Native code only.
+    implementation(project(":native-v82"))
 
     testImplementation("junit:junit:4.13.2")
     // Real org.json for JVM unit tests — the android.jar mockable stubs

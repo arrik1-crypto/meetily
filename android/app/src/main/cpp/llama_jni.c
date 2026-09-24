@@ -45,9 +45,10 @@ static char g_last_error[512] = "";
  *
  * The whole reply comes back from ONE JNI call, so without this the only
  * way to end a generation early is to wait for it — minutes, at full CPU,
- * on a phone that has just come off its charger. Checked once per decode,
- * which is the granularity the caller actually needs: a token, not a
- * paragraph.
+ * on a phone that has just come off its charger. Checked before every
+ * decode AND by ggml between graph nodes (the context's abort callback), so
+ * a 512-token prompt batch that is already running stops too, instead of
+ * finishing tens of seconds of work nobody wants any more.
  *
  * Deliberately NOT cleared here. Whoever set it clears it, so that a flag
  * raised while a run was between calls still stops the next one instead of
@@ -65,18 +66,40 @@ Java_com_meetily_mobile_llm_LlamaBridge_setAbort(JNIEnv *env, jobject thiz, jboo
     g_abort = on ? 1 : 0;
 }
 
+static bool llama_should_abort(void *data) {
+    (void) data;
+    return g_abort != 0;
+}
+
 /*
  * On-device chat completion for the local AI engine. One loaded model at a
  * time (the Kotlin side serializes calls); each generate() is a fresh
- * conversation: apply the model's chat template, clear the KV cache, decode
- * the prompt in n_batch chunks, then sample until EOG or the token budget.
+ * conversation: apply the model's chat template, drop whatever the KV cache
+ * holds past the prefix shared with the previous prompt, decode the rest in
+ * n_batch chunks, then sample until EOG or the token budget.
  */
 
 typedef struct {
     struct llama_model *model;
     struct llama_context *ctx;
     struct llama_sampler *smpl;
+    /*
+     * The prompt tokens whose KV entries are still valid in ctx, from the
+     * previous generate(). An Ask follow-up repeats the same system message
+     * (summary plus transcript, thousands of tokens) with only the tail
+     * changed, so everything up to the first differing token is reused
+     * instead of decoded again. n_cached is 0 whenever the cache state is
+     * unknown: after an abort, a failure, or a fresh load.
+     */
+    llama_token *cached;
+    int32_t n_cached;
 } local_llm;
+
+static void forget_cache(local_llm *llm) {
+    free(llm->cached);
+    llm->cached = NULL;
+    llm->n_cached = 0;
+}
 
 JNIEXPORT jlong JNICALL
 Java_com_meetily_mobile_llm_LlamaBridge_initModel(
@@ -100,6 +123,8 @@ Java_com_meetily_mobile_llm_LlamaBridge_initModel(
     cparams.n_batch = 512;
     cparams.n_threads = n_threads > 0 ? n_threads : 4;
     cparams.n_threads_batch = n_threads > 0 ? n_threads : 4;
+    cparams.abort_callback = llama_should_abort;
+    cparams.abort_callback_data = NULL;
 
     /*
      * Quantize the KV cache to q8_0: at 4096 ctx on a 7-9B model this frees
@@ -141,6 +166,8 @@ Java_com_meetily_mobile_llm_LlamaBridge_initModel(
     llm->model = model;
     llm->ctx = ctx;
     llm->smpl = smpl;
+    llm->cached = NULL;
+    llm->n_cached = 0;
     LOGI("local model loaded (n_ctx=%u)", cparams.n_ctx);
     return (jlong) (intptr_t) llm;
 }
@@ -155,6 +182,7 @@ Java_com_meetily_mobile_llm_LlamaBridge_freeModel(
     llama_sampler_free(llm->smpl);
     llama_free(llm->ctx);
     llama_model_free(llm->model);
+    forget_cache(llm);
     free(llm);
 }
 
@@ -404,8 +432,33 @@ Java_com_meetily_mobile_llm_LlamaBridge_countTokens(
     return (jint) n;
 }
 
-JNIEXPORT jstring JNICALL
-Java_com_meetily_mobile_llm_LlamaBridge_generate(
+/*
+ * Length of buf[0..len) without a trailing, incomplete UTF-8 sequence.
+ * Looks back at most three bytes for the last lead byte and cuts it off if
+ * fewer bytes follow it than it announces.
+ */
+static size_t utf8_complete_len(const char *buf, size_t len) {
+    size_t i = len;
+    size_t back = 0;
+    while (i > 0 && back < 4) {
+        const unsigned char c = (unsigned char) buf[i - 1];
+        if ((c & 0xC0) != 0x80) {
+            size_t need;
+            if (c < 0x80) need = 1;
+            else if ((c & 0xE0) == 0xC0) need = 2;
+            else if ((c & 0xF0) == 0xE0) need = 3;
+            else if ((c & 0xF8) == 0xF0) need = 4;
+            else return len; /* not a lead byte at all: leave it to the decoder */
+            return (len - (i - 1) < need) ? i - 1 : len;
+        }
+        i--;
+        back++;
+    }
+    return len;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_meetily_mobile_llm_LlamaBridge_generateBytes(
         JNIEnv *env, jobject thiz, jlong ptr, jstring packed, jint max_tokens) {
     (void) thiz;
     if (ptr == 0 || packed == NULL) return NULL;
@@ -444,12 +497,41 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
         n_prompt = limit;
     }
 
-    /* b10089: llama_kv_cache_clear was replaced by the memory API. */
-    llama_memory_clear(llama_get_memory(llm->ctx), true);
+    /*
+     * Reuse the KV entries of the longest prefix this prompt shares with the
+     * previous one. Capped one short of the whole prompt: the last token has
+     * to be decoded again, or there are no logits to sample the reply from.
+     *
+     * Falls back to a full clear when the cache cannot drop a partial
+     * sequence (recurrent and hybrid models refuse, and say so by returning
+     * false), and when a sliding-window cache has already evicted the start
+     * of the prefix (its lowest position is then above 0), since those
+     * tokens would otherwise be silently missing from attention.
+     */
+    llama_memory_t mem = llama_get_memory(llm->ctx);
+    int32_t n_reuse = 0;
+    if (llm->cached != NULL) {
+        const int32_t n_max = (llm->n_cached < n_prompt ? llm->n_cached : n_prompt) - 1;
+        while (n_reuse < n_max && llm->cached[n_reuse] == tokens[n_reuse]) n_reuse++;
+    }
+    /* Whatever happens below, the old token list no longer describes ctx. */
+    forget_cache(llm);
+    if (n_reuse > 0 &&
+        (!llama_memory_seq_rm(mem, 0, n_reuse, -1) ||
+         llama_memory_seq_pos_min(mem, 0) > 0 ||
+         llama_memory_seq_pos_max(mem, 0) != n_reuse - 1)) {
+        n_reuse = 0;
+    }
+    if (n_reuse == 0) {
+        /* b10089: llama_kv_cache_clear was replaced by the memory API. */
+        llama_memory_clear(mem, true);
+    } else {
+        LOGI("reusing %d cached prompt tokens of %d", n_reuse, n_prompt);
+    }
 
-    /* Decode the prompt in n_batch-sized chunks. */
+    /* Decode the rest of the prompt in n_batch-sized chunks. */
     const int32_t n_batch = (int32_t) llama_n_batch(llm->ctx);
-    for (int32_t i = 0; i < n_prompt; i += n_batch) {
+    for (int32_t i = n_reuse; i < n_prompt; i += n_batch) {
         if (g_abort) {
             FAIL(ABORT_MESSAGE);
             free(tokens);
@@ -457,7 +539,14 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
         }
         int32_t chunk = n_prompt - i < n_batch ? n_prompt - i : n_batch;
         struct llama_batch batch = llama_batch_get_one(tokens + i, chunk);
-        if (llama_decode(llm->ctx, batch) != 0) {
+        int32_t rc = llama_decode(llm->ctx, batch);
+        if (rc == 2 || (rc != 0 && g_abort)) {
+            /* The abort callback fired inside this batch. */
+            FAIL(ABORT_MESSAGE);
+            free(tokens);
+            return NULL;
+        }
+        if (rc != 0) {
             FAIL("reading the prompt failed at token %d of %d (n_batch=%d, "
                  "n_ctx=%d) — usually not enough memory for this model",
                  i, n_prompt, n_batch, (int) llama_n_ctx(llm->ctx));
@@ -465,7 +554,13 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
             return NULL;
         }
     }
-    free(tokens);
+    /*
+     * The prompt is now fully in the cache, so remember it for the next
+     * call. Tokens generated below are appended after it; the next call's
+     * seq_rm drops those along with anything else past the shared prefix.
+     */
+    llm->cached = tokens;
+    llm->n_cached = n_prompt;
 
     /* Sample until EOG or budget. */
     size_t out_cap = 4096;
@@ -522,16 +617,42 @@ Java_com_meetily_mobile_llm_LlamaBridge_generate(
             out[out_len] = '\0';
         }
         struct llama_batch batch = llama_batch_get_one(&tok, 1);
-        if (llama_decode(llm->ctx, batch) != 0) {
+        int32_t rc = llama_decode(llm->ctx, batch);
+        if (rc == 2 || (rc != 0 && g_abort)) {
+            /* Same rule as the check at the top of the loop. */
+            FAIL(ABORT_MESSAGE);
+            free(out);
+            return NULL;
+        }
+        if (rc != 0) {
             LOGE("decode failed mid-generation");
+            /* The cache may hold a half-written step; start clean next time. */
+            forget_cache(llm);
             break;
         }
     }
 
+    /*
+     * Drop an incomplete UTF-8 sequence at the very end. Byte-level BPE
+     * splits CJK characters and emoji across tokens, so a reply cut off by
+     * the token budget or a failed decode can stop between a character's
+     * bytes, and the tail would decode as a garbage character.
+     */
+    out_len = utf8_complete_len(out, out_len);
+    out[out_len] = '\0';
+
     if (out_len == 0 && g_last_error[0] == '\0') {
         FAIL("the model produced %d tokens, none of which were text", max_tokens);
     }
-    jstring result = (*env)->NewStringUTF(env, out);
+    /*
+     * Bytes, decoded by Kotlin as standard UTF-8. NewStringUTF wants
+     * modified UTF-8, which a 4-byte character (any emoji) never is: it
+     * aborts under CheckJNI and is mangled by release ART.
+     */
+    jbyteArray result = (*env)->NewByteArray(env, (jsize) out_len);
+    if (result != NULL && out_len > 0) {
+        (*env)->SetByteArrayRegion(env, result, 0, (jsize) out_len, (const jbyte *) out);
+    }
     free(out);
     return result;
 }

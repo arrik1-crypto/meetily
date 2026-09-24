@@ -413,10 +413,15 @@ class AudioFileImporter(
                 at += part.audio.size
             }
 
-            val raw = WhisperBridge.transcribeWords(
-                contextPtr, buffer, language, nThreads(), translate,
-                Vocab.promptFor(settings.customVocab)
-            )
+            // Abortable: one batch is a whole encoder window, up to a minute
+            // on a large model, and a cancel or an unplug should not have
+            // to wait it out at full CPU.
+            val raw = WhisperBridge.abortable(contextPtr, cancelled) {
+                WhisperBridge.transcribeWords(
+                    contextPtr, buffer, language, nThreads(), translate,
+                    Vocab.promptFor(settings.customVocab)
+                )
+            }
             // "auto" costs a whole extra encoder pass per call, so pay it
             // once and pin the answer for the rest of the file. Whisper is
             // also better placed to judge from the first real speech than
@@ -433,7 +438,7 @@ class AudioFileImporter(
                     val partWords = perPart[i]
                     if (partWords.isEmpty()) continue
                     addSegment(
-                        partWords.joinToString(" ") { it.text },
+                        WhisperBridge.joinWords(partWords),
                         parts[i].startSample,
                         partWords,
                         parts[i].clusterId
@@ -441,7 +446,10 @@ class AudioFileImporter(
                 }
             } else if (words.isNotEmpty()) {
                 addSegment(text, parts.first().startSample, words, parts.first().clusterId)
-            } else {
+            } else if (!cancelled()) {
+                // An aborted call also lands here with nothing, and must not
+                // be retried: that would spend the window the stop just saved.
+                //
                 // No word timings came back. parseWords derives the text FROM
                 // the words, so this also means no text — and the old code
                 // simply dropped the batch here. Pre-batching that lost one

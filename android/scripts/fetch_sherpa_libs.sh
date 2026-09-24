@@ -9,6 +9,9 @@ DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DEST="$DIR/app/src/main/jniLibs"
 
 if [ -f "$DEST/arm64-v8a/libsherpa-onnx-jni.so" ] && [ -f "$DEST/x86_64/libsherpa-onnx-jni.so" ]; then
+  # Older copies of this script installed the unused C/C++ API libraries
+  # too; clear them so they are not packaged.
+  rm -f "$DEST"/*/libsherpa-onnx-c-api.so "$DEST"/*/libsherpa-onnx-cxx-api.so
   echo "sherpa-onnx jniLibs already present"
   exit 0
 fi
@@ -49,7 +52,11 @@ for abi in arm64-v8a x86_64; do
     exit 1
   fi
   mkdir -p "$DEST/$abi"
-  cp "$SRC"/*.so "$DEST/$abi/"
+  # Only what the app loads: the JNI library and the onnxruntime it NEEDs.
+  # The tarball's libsherpa-onnx-c-api.so and -cxx-api.so (~4.8 MB per ABI)
+  # are for non-JNI users; its README says so, and nothing here loads them.
+  cp "$SRC/libsherpa-onnx-jni.so" "$SRC/libonnxruntime.so" "$DEST/$abi/"
+  rm -f "$DEST/$abi/libsherpa-onnx-c-api.so" "$DEST/$abi/libsherpa-onnx-cxx-api.so"
 done
 
 echo "Installed sherpa-onnx jniLibs:"

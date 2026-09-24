@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "MeetilyMobile"
 include(":app")
+include(":native-v82")

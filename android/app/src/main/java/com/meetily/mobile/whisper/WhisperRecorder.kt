@@ -367,8 +367,13 @@ class WhisperRecorder(
                     } else {
                         val ptr = contextPtr
                         if (ptr != 0L) {
+                            // Encode only as much of the 30 s window as this
+                            // chunk needs: live chunks are a few seconds each
+                            // and are never batched, so the full window made
+                            // every one cost as much as 30 seconds of speech.
                             val raw = WhisperBridge.transcribeWords(
-                                ptr, padded, language, nThreads, translate, vocabPrompt
+                                ptr, padded, language, nThreads, translate, vocabPrompt,
+                                audioCtx = WhisperBridge.liveAudioCtx(padded.size)
                             )
                             // Auto-detect costs a complete extra encoder pass
                             // on EVERY call, and live capture has no batching
