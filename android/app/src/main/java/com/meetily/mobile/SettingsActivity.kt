@@ -117,22 +117,20 @@ class SettingsActivity : AppCompatActivity() {
                 llmProgress.visibility = View.VISIBLE
                 llmProgress.isIndeterminate = percent == 0
                 llmProgress.progress = percent
-                llmStatus.text =
-                    getString(R.string.model_downloading, model.displayName, percent)
+                llmStatus.text = downloadingText(kind, key, model.displayName, percent)
             } else if (kind == ModelDownloadService.KIND_DIARIZE) {
                 val model = DiarizationModels.byKey(key)
                 diarizeProgress.visibility = View.VISIBLE
                 diarizeProgress.isIndeterminate = percent == 0
                 diarizeProgress.progress = percent
                 diarizeModelStatus.text =
-                    getString(R.string.model_downloading, model.displayName, percent)
+                    downloadingText(kind, key, model.displayName, percent)
             } else {
                 val name = com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
                 modelProgress.visibility = View.VISIBLE
                 modelProgress.isIndeterminate = percent == 0
                 modelProgress.progress = percent
-                whisperModelStatus.text =
-                    getString(R.string.model_downloading, name, percent)
+                whisperModelStatus.text = downloadingText(kind, key, name, percent)
             }
         }
 
@@ -248,6 +246,9 @@ class SettingsActivity : AppCompatActivity() {
             com.meetily.mobile.whisper.NemoModels.cleanPartials(this)
             DiarizationModels.cleanPartials(this)
             LocalLlmModels.cleanPartials(this)
+            // A pick parked behind a download that died with the process
+            // would otherwise claim "switching when ready" forever.
+            PendingModelSelection.clearStale(this)
         }
 
         findViewById<MaterialToolbar>(R.id.settingsToolbar).setNavigationOnClickListener {
@@ -631,12 +632,14 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun updateLocalLlmStatus() {
         val model = LocalLlmModels.byKey(settings.localLlmModel)
-        llmStatus.text =
+        llmStatus.text = withPendingNote(
+            ModelDownloadService.KIND_LLM,
             if (LocalLlmModels.isDownloaded(this, model)) {
                 getString(R.string.model_status_downloaded, model.displayName)
             } else {
                 getString(R.string.model_status_missing, model.displayName)
             }
+        )
     }
 
     private fun showLlmModelDialog() {
@@ -648,11 +651,15 @@ class SettingsActivity : AppCompatActivity() {
                     ModelPickerSheet.Entry(
                         key = model.key,
                         title = model.displayName,
-                        meta = getString(
-                            R.string.model_card_meta,
-                            model.sizeMb,
-                            getString(R.string.model_lang_multi),
-                            "GGUF"
+                        meta = pendingMeta(
+                            ModelDownloadService.KIND_LLM,
+                            model.key,
+                            getString(
+                                R.string.model_card_meta,
+                                model.sizeMb,
+                                getString(R.string.model_lang_multi),
+                                "GGUF"
+                            )
                         ),
                         downloaded = LocalLlmModels.isDownloaded(this, model),
                         selected = settings.localLlmModel == model.key
@@ -660,24 +667,25 @@ class SettingsActivity : AppCompatActivity() {
                 }
             },
             onPick = { key ->
-                val model = LocalLlmModels.byKey(key)
-                if (settings.localLlmModel != model.key) {
-                    settings.localLlmModel = model.key
-                    // Next generation loads the newly selected model.
-                    LocalLlm.release()
-                }
-                if (LocalLlmModels.isDownloaded(this, model)) {
-                    updateLocalLlmStatus()
-                } else {
-                    startModelDownload(ModelDownloadService.KIND_LLM, model.key)
-                    updateLocalLlmStatus()
-                }
+                // Switching frees the loaded model (in select) so the next
+                // generation loads the new one — but only once it is on disk.
+                pickModel(ModelDownloadService.KIND_LLM, LocalLlmModels.byKey(key).key)
             },
             onDelete = { entry ->
                 if (!deleteBlockedByDownload(ModelDownloadService.KIND_LLM, entry.key)) {
                     // Deleting the active model: drop the loaded instance first.
-                    if (settings.localLlmModel == entry.key) LocalLlm.release()
+                    val wasSelected = settings.localLlmModel == entry.key
+                    if (wasSelected) LocalLlm.release()
                     LocalLlmModels.delete(this, LocalLlmModels.byKey(entry.key))
+                    if (wasSelected) {
+                        reselectAfterDelete(
+                            ModelDownloadService.KIND_LLM,
+                            entry.key,
+                            LocalLlmModels.ALL
+                                .filter { LocalLlmModels.isDownloaded(this, it) }
+                                .map { it.key }
+                        )
+                    }
                     updateLocalLlmStatus()
                 }
             },
@@ -946,12 +954,14 @@ class SettingsActivity : AppCompatActivity() {
         whisperSection.visibility = if (whisperSwitch.isChecked) View.VISIBLE else View.GONE
         val key = settings.whisperModel
         val name = com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
-        whisperModelStatus.text =
+        whisperModelStatus.text = withPendingNote(
+            ModelDownloadService.KIND_WHISPER,
             if (com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
                 getString(R.string.model_status_downloaded, name)
             } else {
                 getString(R.string.model_status_missing, name)
             }
+        )
         // Translate and custom vocabulary are Whisper features: RecordingService
         // passes translate=false and vocabPrompt=null whenever a NeMo model is
         // loaded, and AudioFileImporter does the same. Both controls stayed
@@ -970,11 +980,14 @@ class SettingsActivity : AppCompatActivity() {
     private fun updateDiarizeSection() {
         diarizeSection.visibility = if (diarizeSwitch.isChecked) View.VISIBLE else View.GONE
         val model = DiarizationModels.byKey(settings.diarizationModel)
-        diarizeModelStatus.text = if (DiarizationModels.isDownloaded(this, model)) {
-            getString(R.string.model_status_downloaded, model.displayName)
-        } else {
-            getString(R.string.model_status_missing, model.displayName)
-        }
+        diarizeModelStatus.text = withPendingNote(
+            ModelDownloadService.KIND_DIARIZE,
+            if (DiarizationModels.isDownloaded(this, model)) {
+                getString(R.string.model_status_downloaded, model.displayName)
+            } else {
+                getString(R.string.model_status_missing, model.displayName)
+            }
+        )
     }
 
     private fun showModelDialog() {
@@ -989,19 +1002,25 @@ class SettingsActivity : AppCompatActivity() {
                         key = key,
                         title = com.meetily.mobile.whisper.TranscriptionModels
                             .displayName(key),
-                        meta = getString(
-                            R.string.model_card_meta,
-                            com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key),
+                        meta = pendingMeta(
+                            ModelDownloadService.KIND_WHISPER,
+                            key,
                             getString(
+                                R.string.model_card_meta,
+                                com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key),
+                                getString(
+                                    if (com.meetily.mobile.whisper.TranscriptionModels
+                                            .englishOnly(key)
+                                    ) R.string.model_lang_en else R.string.model_lang_multi
+                                ),
                                 if (com.meetily.mobile.whisper.TranscriptionModels
-                                        .englishOnly(key)
-                                ) R.string.model_lang_en else R.string.model_lang_multi
-                            ),
-                            if (com.meetily.mobile.whisper.TranscriptionModels.isNemo(key)) {
-                                "NVIDIA"
-                            } else {
-                                "Whisper"
-                            }
+                                        .isNemo(key)
+                                ) {
+                                    "NVIDIA"
+                                } else {
+                                    "Whisper"
+                                }
+                            )
                         ),
                         downloaded = com.meetily.mobile.whisper.TranscriptionModels
                             .isDownloaded(this, key),
@@ -1010,12 +1029,10 @@ class SettingsActivity : AppCompatActivity() {
                 }
             },
             onPick = { key ->
-                settings.whisperModel = key
-                if (com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
-                    updateWhisperSection()
-                } else {
-                    startDownload(key)
-                }
+                // A model that still has to download becomes the live
+                // selection only when it is on disk (ModelDownloadService
+                // applies it); until then recordings keep the working one.
+                pickModel(ModelDownloadService.KIND_WHISPER, key)
             },
             onDelete = { entry ->
                 if (!deleteBlockedByDownload(ModelDownloadService.KIND_WHISPER, entry.key)) {
@@ -1024,6 +1041,17 @@ class SettingsActivity : AppCompatActivity() {
                         com.meetily.mobile.whisper.NemoModels.delete(this, nemo)
                     } else {
                         WhisperModels.delete(this, WhisperModels.byKey(entry.key))
+                    }
+                    if (settings.whisperModel == entry.key) {
+                        reselectAfterDelete(
+                            ModelDownloadService.KIND_WHISPER,
+                            entry.key,
+                            com.meetily.mobile.whisper.TranscriptionModels.offeredKeys(this)
+                                .filter {
+                                    com.meetily.mobile.whisper.TranscriptionModels
+                                        .isReady(this, it)
+                                }
+                        )
                     }
                     updateWhisperSection()
                 }
@@ -1382,11 +1410,15 @@ class SettingsActivity : AppCompatActivity() {
                     ModelPickerSheet.Entry(
                         key = model.key,
                         title = model.displayName,
-                        meta = getString(
-                            R.string.model_card_meta,
-                            model.approxSizeMb,
-                            "Speaker ID", // language is in each model's name
-                            "sherpa-onnx"
+                        meta = pendingMeta(
+                            ModelDownloadService.KIND_DIARIZE,
+                            model.key,
+                            getString(
+                                R.string.model_card_meta,
+                                model.approxSizeMb,
+                                "Speaker ID", // language is in each model's name
+                                "sherpa-onnx"
+                            )
                         ),
                         downloaded = DiarizationModels.isDownloaded(this, model),
                         selected = settings.diarizationModel == model.key
@@ -1437,6 +1469,15 @@ class SettingsActivity : AppCompatActivity() {
             onDelete = { entry ->
                 if (!deleteBlockedByDownload(ModelDownloadService.KIND_DIARIZE, entry.key)) {
                     DiarizationModels.delete(this, DiarizationModels.byKey(entry.key))
+                    if (settings.diarizationModel == entry.key) {
+                        reselectAfterDelete(
+                            ModelDownloadService.KIND_DIARIZE,
+                            entry.key,
+                            DiarizationModels.ALL
+                                .filter { DiarizationModels.isDownloaded(this, it) }
+                                .map { it.key }
+                        )
+                    }
                     updateDiarizeSection()
                 }
             },
@@ -1476,21 +1517,94 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun applyDiarizeModelPick(model: DiarizationModel) {
-        settings.diarizationModel = model.key
-        if (DiarizationModels.isDownloaded(this, model)) {
-            updateDiarizeSection()
+        pickModel(ModelDownloadService.KIND_DIARIZE, model.key)
+    }
+
+    /**
+     * A pick from one of the model sheets. A model already on disk (or a
+     * re-pick of the live selection) takes effect now and cancels any
+     * earlier pick still waiting on a download. A model that still has to
+     * download is only PARKED: the live selection keeps pointing at the
+     * model that works, so a recording started during a 550 MB download
+     * still transcribes, and ModelDownloadService switches over when the
+     * download succeeds (see PendingModelSelection). A failed or cancelled
+     * download leaves the old model selected. When the live selection is
+     * not on disk either there is nothing working to protect, so the pick
+     * applies at once.
+     */
+    private fun pickModel(kind: String, key: String) {
+        val downloaded = PendingModelSelection.isDownloaded(this, kind, key)
+        val current = PendingModelSelection.selected(this, kind)
+        if (downloaded || current == key ||
+            !PendingModelSelection.isDownloaded(this, kind, current)
+        ) {
+            PendingModelSelection.clear(this, kind)
+            PendingModelSelection.select(this, kind, key)
         } else {
-            startDiarizeDownload(model.key)
+            PendingModelSelection.set(this, kind, key)
+        }
+        if (downloaded) {
+            refreshModelStatus(kind)
+        } else {
+            // Progress (and the "switches when ready" wording) comes from
+            // the download callbacks from here on.
+            startModelDownload(kind, key)
         }
     }
 
-    private fun startDiarizeDownload(modelKey: String) {
-        startModelDownload(ModelDownloadService.KIND_DIARIZE, modelKey)
+    private fun refreshModelStatus(kind: String) {
+        when (kind) {
+            ModelDownloadService.KIND_LLM -> updateLocalLlmStatus()
+            ModelDownloadService.KIND_DIARIZE -> updateDiarizeSection()
+            else -> updateWhisperSection()
+        }
     }
 
-    private fun startDownload(modelKey: String) {
-        startModelDownload(ModelDownloadService.KIND_WHISPER, modelKey)
+    /**
+     * After deleting the live selection, fall back to another downloaded
+     * model of the same kind if there is one. With none left the setting is
+     * left alone; its status line then reads "not downloaded yet", and every
+     * consumer checks the file before treating it as ready.
+     */
+    private fun reselectAfterDelete(kind: String, deletedKey: String, downloaded: List<String>) {
+        val next = PendingModelSelection.replacementAfterDelete(deletedKey, downloaded) ?: return
+        PendingModelSelection.select(this, kind, next)
+        val name = when (kind) {
+            ModelDownloadService.KIND_LLM -> LocalLlmModels.byKey(next).displayName
+            ModelDownloadService.KIND_DIARIZE -> DiarizationModels.byKey(next).displayName
+            else -> com.meetily.mobile.whisper.TranscriptionModels.displayName(next)
+        }
+        Toast.makeText(this, getString(R.string.model_reselected, name), Toast.LENGTH_SHORT)
+            .show()
     }
+
+    /** Progress line; says so when this download will switch the model over. */
+    private fun downloadingText(kind: String, key: String, name: String, percent: Int): String =
+        if (PendingModelSelection.get(this, kind) == key) {
+            getString(R.string.model_downloading_pending, name, percent)
+        } else {
+            getString(R.string.model_downloading, name, percent)
+        }
+
+    /** Appends "switching to X when its download finishes" to a status line. */
+    private fun withPendingNote(kind: String, status: String): String {
+        val pending = PendingModelSelection.get(this, kind) ?: return status
+        if (pending == PendingModelSelection.selected(this, kind)) return status
+        val name = when (kind) {
+            ModelDownloadService.KIND_LLM -> LocalLlmModels.byKey(pending).displayName
+            ModelDownloadService.KIND_DIARIZE -> DiarizationModels.byKey(pending).displayName
+            else -> com.meetily.mobile.whisper.TranscriptionModels.displayName(pending)
+        }
+        return status + "\n" + getString(R.string.model_pending_note, name)
+    }
+
+    /** Marks the picker card of a model that is parked behind its download. */
+    private fun pendingMeta(kind: String, key: String, meta: String): String =
+        if (PendingModelSelection.get(this, kind) == key) {
+            getString(R.string.model_meta_pending, meta)
+        } else {
+            meta
+        }
 
     /**
      * Hands the download to ModelDownloadService (foreground + wakelock), so

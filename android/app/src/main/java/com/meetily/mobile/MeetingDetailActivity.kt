@@ -1307,13 +1307,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         val radiusPx = 14 * density
         for (name in m.photos.toList()) {
             val file = PhotoStore.fileFor(this, name)
-            val thumb = PhotoStore.decodeSampled(file, 256) ?: continue
+            // A photo whose file is gone was skipped before; still skip it
+            // here, without touching its pixels on the main thread.
+            if (!file.exists()) continue
             val image = ShapeableImageView(this).apply {
                 shapeAppearanceModel = ShapeAppearanceModel.builder()
                     .setAllCornerSizes(radiusPx)
                     .build()
                 scaleType = ImageView.ScaleType.CENTER_CROP
-                setImageBitmap(thumb)
                 layoutParams = LinearLayout.LayoutParams(sizePx, sizePx).apply {
                     marginEnd = marginPx
                 }
@@ -1325,19 +1326,32 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             }
             strip.addView(image)
+            // Decoded off the main thread and cached; set only while this
+            // view still shows this photo and the screen is alive.
+            PhotoThumbLoader.loadThumb(this, image, file, sizePx) {
+                image.visibility = View.GONE
+            }
         }
     }
 
+    /** Set while the viewer's bitmap decodes, so repeated taps open one dialog. */
+    private var photoViewerLoading = false
+
     private fun showPhoto(file: File) {
-        val bitmap = PhotoStore.decodeSampled(file, 1400) ?: return
-        val image = ImageView(this).apply {
-            setImageBitmap(bitmap)
-            adjustViewBounds = true
+        if (photoViewerLoading) return
+        photoViewerLoading = true
+        PhotoThumbLoader.loadFull(this, file) { bitmap ->
+            photoViewerLoading = false
+            if (bitmap == null) return@loadFull
+            val image = ImageView(this).apply {
+                setImageBitmap(bitmap)
+                adjustViewBounds = true
+            }
+            AlertDialog.Builder(this)
+                .setView(image)
+                .setPositiveButton(android.R.string.ok, null)
+                .showSecure()
         }
-        AlertDialog.Builder(this)
-            .setView(image)
-            .setPositiveButton(android.R.string.ok, null)
-            .showSecure()
     }
 
     private fun confirmDeletePhoto(name: String) {
@@ -1347,6 +1361,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setPositiveButton(R.string.delete) { _, _ ->
                 m.photos.remove(name)
                 m.photoTexts.remove(name)
+                PhotoThumbLoader.evict(PhotoStore.fileFor(this, name))
                 PhotoStore.delete(this, name)
                 persist(m)
                 renderPhotos(m)

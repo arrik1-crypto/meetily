@@ -839,4 +839,11 @@
     <string name="estimate_h_min">about %1$d h %2$d m</string>
     <string name="model_card_meta_estimate">%1$s \u00b7 %2$s</string>
     <string name="check_accuracy_message_estimate">Run the audio through %1$s and compare. Nothing is replaced without your review.\n\nOn this phone that is %2$s for this meeting.</string>
+    <string name="check_applying_wait">Saving the transcript \u2014 one moment.</string>
+
+    <!-- Model picks that wait for their download (PendingModelSelection) -->
+    <string name="model_downloading_pending">Downloading %1$s… %2$d%% · it will be used once the download finishes</string>
+    <string name="model_pending_note">Switching to %1$s when its download finishes</string>
+    <string name="model_meta_pending">%1$s · downloading, will be used when ready</string>
+    <string name="model_reselected">Now using %1$s</string>
 </resources>

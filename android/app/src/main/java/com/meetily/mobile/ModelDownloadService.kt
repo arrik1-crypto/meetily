@@ -78,7 +78,7 @@ class ModelDownloadService : Service() {
             ACTION_CANCEL -> {
                 // Cancel means "stop downloading models": current + queued.
                 cancelled = true
-                queue.clear()
+                dropQueue()
                 queuedCount = 0
                 if (!isRunning) stopSelf()
             }
@@ -193,6 +193,15 @@ class ModelDownloadService : Service() {
     }
 
     private fun finishRun(kind: String, key: String, name: String, error: String?) {
+        // A model picked while it was still downloading becomes the live
+        // selection only now that it is on disk (or is forgotten if the
+        // download failed). Done here rather than in Settings so it happens
+        // even when nobody is observing — Settings closed or destroyed —
+        // and before the observer refreshes, so it renders the new choice.
+        try {
+            PendingModelSelection.onDownloadFinished(this, kind, key, cancelled, error)
+        } catch (_: Exception) {
+        }
         observer?.onDownloadDone(kind, key, cancelled, error)
         if (!cancelled) finished.add(name to error)
 
@@ -252,8 +261,23 @@ class ModelDownloadService : Service() {
     fun requestCancel() {
         cancelled = true
         main.post {
-            queue.clear()
+            dropQueue()
             queuedCount = 0
+        }
+    }
+
+    /**
+     * Empties the queue for a cancel. The dropped downloads never reach
+     * finishRun, so any model picked while waiting in line is un-picked
+     * here and the current selection stays. Main thread only.
+     */
+    private fun dropQueue() {
+        if (queue.isEmpty()) return
+        val dropped = queue.toList()
+        queue.clear()
+        try {
+            PendingModelSelection.onDownloadsDropped(this, dropped)
+        } catch (_: Exception) {
         }
     }
 
@@ -319,7 +343,13 @@ class ModelDownloadService : Service() {
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onTimeout(startId: Int, fgsType: Int) {
         cancelled = true
-        queue.clear()
+        dropQueue()
+        // The current download's finishRun may never be observed after the
+        // service stops; un-pick it now so the working model stays.
+        try {
+            PendingModelSelection.onDownloadsDropped(this, listOf(currentKind to currentKey))
+        } catch (_: Exception) {
+        }
         queuedCount = 0
         postCompletionNotification()
         isRunning = false

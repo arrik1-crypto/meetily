@@ -7,7 +7,8 @@ import org.json.JSONArray
 /**
  * The embedded on-device chat engine. Keeps one model loaded (lazily, per
  * selected key) and serializes generations; [release] drops it on memory
- * pressure or model switch. LlmClient routes here instead of HTTP when the
+ * pressure or model switch, and an idle timer drops it [IDLE_RELEASE_MS]
+ * after the last generation. LlmClient routes here instead of HTTP when the
  * AI engine setting is "local" — no socket is ever opened for local chat.
  */
 object LocalLlm {
@@ -65,6 +66,24 @@ object LocalLlm {
     /** Set when a release arrived mid-inference; honoured when it finishes. */
     @Volatile
     private var releasePending = false
+
+    /**
+     * How long a loaded model may sit unused before it is freed. A model is
+     * hundreds of megabytes to gigabytes of native memory; SummaryService
+     * releases it explicitly, but Ask, Ask Library, the pre-meeting brief and
+     * the digest all went through [chat] and left it resident until the
+     * system came asking. Long enough that a run of follow-up questions
+     * keeps the model warm, short enough that it does not linger.
+     */
+    const val IDLE_RELEASE_MS = 60_000L
+
+    /**
+     * Frees the model [IDLE_RELEASE_MS] after the last [chat] finished.
+     * Cancelled when a chat takes the lock, re-armed when it lets go, so a
+     * busy model is never on the clock. Created lazily and pure JVM, so the
+     * unit tests that touch this object never start a thread.
+     */
+    private val idleRelease by lazy { IdleReleaseTimer(IDLE_RELEASE_MS) { releaseIfIdle() } }
 
     /**
      * True while a stop has been asked for and not yet cleared.
@@ -154,6 +173,10 @@ object LocalLlm {
 
         lock.lock()
         try {
+            // In use again: stop the idle clock. Inside the lock, so a chat
+            // that was queued behind another cannot have the finishing one's
+            // timer left running over it.
+            idleRelease.cancel()
             releasePending = false
             ensureLoaded(context, model)
 
@@ -227,7 +250,11 @@ object LocalLlm {
             // A release that arrived mid-inference was deferred rather than
             // blocking its caller; honour it now, off the main thread.
             if (releasePending) freeLocked()
+            val stillLoaded = ptr != 0L
             lock.unlock()
+            // Every caller gets the idle release, not only the ones that
+            // remember to call release() themselves.
+            if (stillLoaded) idleRelease.schedule()
         }
     }
 
@@ -381,6 +408,23 @@ object LocalLlm {
             releasePending = true
             return
         }
+        try {
+            freeLocked()
+        } finally {
+            lock.unlock()
+        }
+    }
+
+    /**
+     * The idle timer's release. Unlike [release] it never leaves a request
+     * behind: if a generation holds the lock, or another is waiting for it,
+     * the model is in use, and that chat re-arms the timer when it finishes.
+     * Setting [releasePending] here would instead free the model the moment
+     * that chat ended, defeating the point of keeping it warm.
+     */
+    private fun releaseIfIdle() {
+        if (lock.hasQueuedThreads()) return
+        if (!lock.tryLock()) return
         try {
             freeLocked()
         } finally {

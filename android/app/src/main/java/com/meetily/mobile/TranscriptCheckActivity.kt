@@ -2,12 +2,15 @@ package com.meetily.mobile
 
 import android.media.MediaPlayer
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageButton
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.OnBackPressedCallback
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -55,8 +58,31 @@ class TranscriptCheckActivity : AppCompatActivity() {
     private lateinit var diffList: RecyclerView
     private lateinit var applyButton: MaterialButton
 
-    /** An apply is on a worker; the buttons are disabled but re-tappable. */
+    /**
+     * An apply is on a worker. The buttons are disabled and Back is held
+     * until it lands; the job itself lives in [applyJobs] so a rotation
+     * re-attaches to it instead of losing the result.
+     */
     private var applying = false
+
+    /** The meeting this screen was opened for, even when it no longer loads. */
+    private var meetingId: String? = null
+
+    /** This instance's hook into an in-flight [ApplyJob]; compared by identity. */
+    private val applyListener: (Applied) -> Unit = { onApplied(it) }
+
+    /** Swallows Back while an apply is committing, so it cannot land behind a closed screen. */
+    private val applyBackGuard = object : OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            Toast.makeText(
+                this@TranscriptCheckActivity, R.string.check_applying_wait, Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    /** The "summary is out of date" question is up; re-asked after a rotation. */
+    private var offeringRegenerate = false
+    private var regenerateDialog: AlertDialog? = null
 
     private var player: MediaPlayer? = null
 
@@ -66,8 +92,10 @@ class TranscriptCheckActivity : AppCompatActivity() {
         setContentView(R.layout.activity_transcript_check)
 
         store = MeetingStore(this)
+        onBackPressedDispatcher.addCallback(this, applyBackGuard)
+        // Up goes through the dispatcher so the apply guard covers it too.
         findViewById<MaterialToolbar>(R.id.checkToolbar)
-            .setNavigationOnClickListener { finish() }
+            .setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
         loading = findViewById(R.id.checkLoading)
         verdictPanel = findViewById(R.id.checkVerdictPanel)
         verdictView = findViewById(R.id.checkVerdict)
@@ -79,9 +107,23 @@ class TranscriptCheckActivity : AppCompatActivity() {
         diffList.layoutManager = LinearLayoutManager(this)
 
         val id = intent.getStringExtra(EXTRA_MEETING_ID)
+        meetingId = id
         val loaded = id?.let { store.load(it) }
+        // Rotated while the "regenerate the summary?" question was up: the
+        // transcript is already applied and the draft deleted, so there is
+        // nothing to compare — just ask again.
+        if (loaded != null && savedInstanceState?.getBoolean(STATE_OFFER_REGENERATE, false) == true) {
+            meeting = loaded
+            loading.visibility = View.GONE
+            offerRegenerate(loaded)
+            return
+        }
+        // An apply started before a rotation may still be running (the
+        // draft is still there) or may already have finished (the draft is
+        // gone); either way its result belongs to this screen.
+        val job = id?.let { applyJobs[it] }
         val pending = id?.let { TranscriptDraft.pending(this, it) }
-        if (loaded == null || pending == null) {
+        if ((loaded == null || pending == null) && job == null) {
             Toast.makeText(this, R.string.check_nothing_to_review, Toast.LENGTH_LONG).show()
             finish()
             return
@@ -106,7 +148,33 @@ class TranscriptCheckActivity : AppCompatActivity() {
         findViewById<View>(R.id.checkKeepButton).setOnClickListener { discardDraft() }
         applyButton.setOnClickListener { applyChoices(wholesale = false) }
 
-        compare(loaded, pending)
+        if (job != null) attachJob(job)
+        // attachJob may have delivered a finished result that closed the
+        // screen or put the regenerate question up.
+        if (loaded != null && pending != null && !isFinishing && !offeringRegenerate) {
+            compare(loaded, pending)
+        } else if (applying) {
+            loading.visibility = View.VISIBLE
+        }
+    }
+
+    /** Re-joins an apply that a previous instance of this screen started. */
+    private fun attachJob(job: ApplyJob) {
+        val finished = job.result
+        if (finished != null) {
+            meetingId?.let { applyJobs.remove(it) }
+            onApplied(finished)
+            return
+        }
+        job.listener = applyListener
+        setApplying(true)
+    }
+
+    private fun setApplying(on: Boolean) {
+        applying = on
+        applyBackGuard.isEnabled = on
+        loading.visibility = if (on) View.VISIBLE else View.GONE
+        setButtonsEnabled(!on)
     }
 
     /**
@@ -123,8 +191,10 @@ class TranscriptCheckActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 blocks = aligned
                 diffs = different
-                loading.visibility = View.GONE
+                // An apply re-attached after a rotation keeps its spinner.
+                loading.visibility = if (applying) View.VISIBLE else View.GONE
                 if (restoreReview && different.isNotEmpty()) showReview() else showVerdict()
+                setButtonsEnabled(!applying)
             }
         }.apply {
             name = "transcript-compare"
@@ -192,46 +262,83 @@ class TranscriptCheckActivity : AppCompatActivity() {
             return
         }
         if (applying) return
-        applying = true
+        val id = current.id
+        // A job for this meeting is still running (or its result is waiting
+        // for a screen) — never start a second merge over it.
+        if (applyJobs.containsKey(id)) return
         // compare() already moved this exact work off the main thread with a
         // comment saying why, and then this button handler — the one that
         // runs it a second time, plus a merge, a full JSON parse and a full
         // JSON write — did all of it inline. On a three-hour meeting that is
         // seconds of frozen screen at the end of a span-by-span review the
         // user does not want to lose.
-        loading.visibility = View.VISIBLE
-        setButtonsEnabled(false)
+        setApplying(true)
         val accepted = acceptFresh.toSet()
         val ordinals = diffs.filter { it.ordinal in accepted }.map { it.startMs }.toSet()
+        val job = ApplyJob()
+        job.listener = applyListener
+        applyJobs[id] = job
         Thread {
-            val outcome = applyOnWorker(current.id, pending, wholesale, ordinals)
-            runOnUiThread {
-                applying = false
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                loading.visibility = View.GONE
-                setButtonsEnabled(true)
-                when (outcome) {
-                    is Applied.Gone -> {
-                        Toast.makeText(this, R.string.meeting_not_found, Toast.LENGTH_SHORT)
-                            .show()
-                        finish()
-                    }
-                    is Applied.Nothing -> Toast.makeText(
-                        this, R.string.check_nothing_to_apply, Toast.LENGTH_SHORT
-                    ).show()
-                    is Applied.SaveFailed -> Toast.makeText(
-                        this, R.string.check_save_failed, Toast.LENGTH_LONG
-                    ).show()
-                    is Applied.Done -> {
-                        meeting = outcome.meeting
-                        if (outcome.hadSummary) offerRegenerate(outcome.meeting)
-                        else openMeeting(outcome.meeting.id)
-                    }
-                }
-            }
+            val outcome = applyOnWorker(id, pending, wholesale, ordinals)
+            // Delivered to whichever instance of this screen is current —
+            // the one that started it may have been rotated away.
+            mainHandler.post { job.complete(id, outcome) }
         }.apply {
             name = "transcript-apply"
             start()
+        }
+    }
+
+    /** An apply's result, on the main thread, for the live instance of this screen. */
+    private fun onApplied(outcome: Applied) {
+        setApplying(false)
+        if (isFinishing || isDestroyed) return
+        // Re-attached after a rotation that also lost the draft or the
+        // meeting: there is no review left to go back to.
+        val canReview = meeting != null && draft != null
+        when (outcome) {
+            is Applied.Gone -> {
+                Toast.makeText(this, R.string.meeting_not_found, Toast.LENGTH_SHORT).show()
+                finish()
+            }
+            is Applied.Nothing -> {
+                Toast.makeText(this, R.string.check_nothing_to_apply, Toast.LENGTH_SHORT).show()
+                if (!canReview) finish()
+            }
+            is Applied.SaveFailed -> {
+                Toast.makeText(this, R.string.check_save_failed, Toast.LENGTH_LONG).show()
+                if (!canReview) finish()
+            }
+            is Applied.Done -> {
+                meeting = outcome.meeting
+                if (outcome.hadSummary) offerRegenerate(outcome.meeting)
+                else openMeeting(outcome.meeting.id)
+            }
+        }
+    }
+
+    /**
+     * One apply in flight for a meeting. Main-thread only: the worker hands
+     * its result over with a post, and each instance of the screen attaches
+     * or detaches its [listener] as it is created and destroyed.
+     */
+    private class ApplyJob {
+        var listener: ((Applied) -> Unit)? = null
+
+        /** The result, held while no screen is attached (mid-rotation). */
+        var result: Applied? = null
+
+        fun complete(meetingId: String, outcome: Applied) {
+            // Removed from the map: the screen was closed for good. The
+            // commit itself is already durable; there is no one to tell.
+            if (applyJobs[meetingId] !== this) return
+            val target = listener
+            if (target != null) {
+                applyJobs.remove(meetingId)
+                target(outcome)
+            } else {
+                result = outcome
+            }
         }
     }
 
@@ -363,7 +470,11 @@ class TranscriptCheckActivity : AppCompatActivity() {
      * it — never silently, and never over an edited summary without asking.
      */
     private fun offerRegenerate(m: Meeting) {
-        AlertDialog.Builder(this)
+        offeringRegenerate = true
+        verdictPanel.visibility = View.GONE
+        reviewPanel.visibility = View.GONE
+        regenerateDialog?.dismiss()
+        regenerateDialog = AlertDialog.Builder(this)
             .setTitle(R.string.check_summary_stale_title)
             .setMessage(R.string.check_summary_stale_body)
             .setPositiveButton(R.string.check_regenerate) { _, _ ->
@@ -377,6 +488,7 @@ class TranscriptCheckActivity : AppCompatActivity() {
     }
 
     private fun openMeeting(meetingId: String, regenerate: Boolean = false) {
+        offeringRegenerate = false
         startActivity(
             android.content.Intent(this, MeetingDetailActivity::class.java)
                 .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meetingId)
@@ -434,6 +546,19 @@ class TranscriptCheckActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // A rotation recreates it from the saved flag; dismissing here only
+        // avoids leaking the window. dismiss() does not fire the cancel
+        // listener, so this does not count as an answer.
+        regenerateDialog?.dismiss()
+        regenerateDialog = null
+        val id = meetingId
+        val job = if (id != null) applyJobs[id] else null
+        if (id != null && job != null && job.listener === applyListener) {
+            job.listener = null
+            // Closed for good (not a rotation): keep nothing for a screen
+            // that is not coming back. The worker still commits.
+            if (isFinishing) applyJobs.remove(id)
+        }
         try {
             player?.release()
         } catch (_: Exception) {
@@ -517,6 +642,7 @@ class TranscriptCheckActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
         outState.putIntArray(STATE_ACCEPTED, acceptFresh.toIntArray())
         outState.putBoolean(STATE_REVIEWING, reviewPanel.visibility == View.VISIBLE)
+        outState.putBoolean(STATE_OFFER_REGENERATE, offeringRegenerate)
     }
 
     companion object {
@@ -524,6 +650,16 @@ class TranscriptCheckActivity : AppCompatActivity() {
 
         private const val STATE_ACCEPTED = "accepted_blocks"
         private const val STATE_REVIEWING = "reviewing"
+        private const val STATE_OFFER_REGENERATE = "offer_regenerate"
+
+        private val mainHandler = Handler(Looper.getMainLooper())
+
+        /**
+         * Applies in flight, by meeting id. Process-wide so the result of a
+         * commit survives the activity being recreated for a rotation.
+         * Touched on the main thread only.
+         */
+        private val applyJobs = HashMap<String, ApplyJob>()
 
         /** Rebuilds allowed when the transcript moves under an apply. */
         private const val APPLY_ATTEMPTS = 3
