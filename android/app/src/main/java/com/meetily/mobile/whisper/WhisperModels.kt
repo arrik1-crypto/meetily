@@ -1,10 +1,9 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 data class WhisperModel(
     val key: String,
@@ -13,10 +12,18 @@ data class WhisperModel(
     val sizeMb: Int,
     val englishOnly: Boolean,
     /** Pinned SHA-256, when known; see [ModelIntegrity.verify]. */
-    val sha256: String? = null
+    val sha256: String? = null,
+    /**
+     * Pinned Hugging Face commit of ggerganov/whisper.cpp, when known; null
+     * keeps following `main`. See android/scripts/model_hashes.py.
+     */
+    val revision: String? = null
 ) {
     val url: String
-        get() = "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$fileName"
+        get() = ModelIntegrity.pinRevision(
+            "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$fileName",
+            revision
+        )
 }
 
 object WhisperModels {
@@ -62,23 +69,29 @@ object WhisperModels {
     }
 
     fun delete(context: Context, model: WhisperModel) {
-        fileFor(context, model).delete()
+        val file = fileFor(context, model)
+        file.delete()
+        ResumableDownload.discardPartial(file)
     }
 
     fun deleteAll(context: Context) {
         dir(context).listFiles()?.forEach { it.delete() }
     }
 
-    /** Removes leftover .part-* files from interrupted downloads. */
+    /**
+     * Removes legacy `.part-*` leftovers and week-old resumable `.part`
+     * files; a recent `.part` is kept so the next download resumes it.
+     */
     fun cleanPartials(context: Context) {
-        dir(context).listFiles { f -> f.name.contains(".part-") }?.forEach { it.delete() }
+        ResumableDownload.cleanPartials(dir(context))
     }
 
     fun isRuntimeAvailable(): Boolean = WhisperBridge.load()
 
     /**
      * Blocking download with progress callback (0..100). Call from a worker
-     * thread. Writes to a .part file and renames on success.
+     * thread. Streams to a .part file (resumed if an earlier run was
+     * interrupted) and renames on success.
      */
     fun download(
         context: Context,
@@ -86,59 +99,13 @@ object WhisperModels {
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean = { false }
     ) {
-        val target = fileFor(context, model)
-        // Unique temp file per invocation so two downloads (e.g. after an
-        // activity recreate orphans one) can never interleave writes.
-        val partial = File(target.absolutePath + ".part-" + System.nanoTime())
-        val connection = URL(model.url).openConnection() as HttpURLConnection
-        try {
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 60_000
-            connection.instanceFollowRedirects = true
-            val status = connection.responseCode
-            if (status !in 200..299) {
-                throw RuntimeException("HTTP $status while downloading model")
-            }
-            val total = connection.contentLengthLong
-            val digest = ModelIntegrity.newDigest()
-            var received = 0L
-            connection.inputStream.use { input ->
-                partial.outputStream().use { output ->
-                    val buffer = ByteArray(256 * 1024)
-                    var read = 0L
-                    var lastPercent = -1
-                    while (true) {
-                        if (cancelled()) {
-                            throw InterruptedException("Download cancelled")
-                        }
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        output.write(buffer, 0, n)
-                        digest.update(buffer, 0, n)
-                        read += n
-                        if (total > 0) {
-                            val percent = ((read * 100) / total).toInt()
-                            if (percent != lastPercent) {
-                                lastPercent = percent
-                                onProgress(percent)
-                            }
-                        }
-                    }
-                    received = read
-                }
-            }
-            // Before the rename: a file that fails here never reaches the
-            // native loader.
-            ModelIntegrity.verify(model.fileName, received, total, model.sha256, digest)
-            if (!partial.renameTo(target)) {
-                partial.copyTo(target, overwrite = true)
-                partial.delete()
-            }
-        } catch (e: Exception) {
-            partial.delete()
-            throw e
-        } finally {
-            connection.disconnect()
-        }
+        ResumableDownload.download(
+            url = model.url,
+            target = fileFor(context, model),
+            label = model.fileName,
+            expectedSha256 = model.sha256,
+            cancelled = cancelled,
+            onBytes = ResumableDownload.percentReporter(onProgress)
+        )
     }
 }

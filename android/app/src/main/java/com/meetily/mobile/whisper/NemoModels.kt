@@ -1,10 +1,9 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 /**
  * NVIDIA NeMo speech models (Parakeet TDT, Nemotron streaming) served
@@ -76,7 +75,13 @@ data class NemoModel(
      * Removing the entry outright would strand those users: their selected
      * model key would stop resolving and fall through to the whisper family.
      */
-    val legacy: Boolean = false
+    val legacy: Boolean = false,
+    /**
+     * Pinned Hugging Face commit of [repo], when known; null keeps following
+     * `main`. One revision covers all [files]: they ship together.
+     * See android/scripts/model_hashes.py.
+     */
+    val revision: String? = null
 ) {
     val totalMb: Int get() = files.sumOf { it.sizeMb }
 
@@ -89,7 +94,7 @@ data class NemoModel(
         get() = if (!languagePrompt) null else if (englishOnly) "en" else "auto"
 
     fun urlFor(file: NemoFile): String =
-        "https://huggingface.co/$repo/resolve/main/${file.name}"
+        ModelIntegrity.pinRevision("https://huggingface.co/$repo/resolve/main/${file.name}", revision)
 }
 
 object NemoModels {
@@ -233,16 +238,18 @@ object NemoModels {
         File(context.filesDir, "nemo-models").deleteRecursively()
     }
 
+    /**
+     * Legacy `.part-*` leftovers and week-old resumable parts; a recent
+     * `.part` is kept so the next download resumes it within the file.
+     */
     fun cleanPartials(context: Context) {
-        File(context.filesDir, "nemo-models").walkTopDown()
-            .filter { it.isFile && it.name.contains(".part-") }
-            .forEach { it.delete() }
+        ResumableDownload.cleanPartials(File(context.filesDir, "nemo-models"), recursive = true)
     }
 
     /**
      * Blocking multi-file download with aggregate progress (0..100 weighted
      * by nominal sizes). Call from a worker thread. Files already complete
-     * are skipped, so an interrupted download resumes at file granularity.
+     * are skipped, and an interrupted file resumes from its `.part`.
      *
      * Progress is deduped by [NemoProgressAggregator]: reporting on every
      * socket read (as this did before) floods the main thread with
@@ -280,47 +287,15 @@ object NemoModels {
         cancelled: () -> Boolean,
         onBytes: (Long) -> Unit
     ) {
-        val partial = File(target.absolutePath + ".part-" + System.nanoTime())
-        val connection = URL(url).openConnection() as HttpURLConnection
-        try {
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 60_000
-            connection.instanceFollowRedirects = true
-            val status = connection.responseCode
-            if (status !in 200..299) {
-                throw RuntimeException("HTTP $status while downloading ${target.name}")
-            }
-            val expected = connection.contentLengthLong
-            var received = 0L
-            val digest = ModelIntegrity.newDigest()
-            connection.inputStream.use { input ->
-                partial.outputStream().use { output ->
-                    val buffer = ByteArray(256 * 1024)
-                    while (true) {
-                        if (cancelled()) {
-                            throw InterruptedException("Download cancelled")
-                        }
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        output.write(buffer, 0, n)
-                        digest.update(buffer, 0, n)
-                        received += n
-                        onBytes(received)
-                    }
-                }
-            }
-            // Length (truncation) and, where pinned, content — before the
-            // rename, so a bad part never reaches onnxruntime.
-            ModelIntegrity.verify(target.name, received, expected, expectedSha256, digest)
-            if (!partial.renameTo(target)) {
-                partial.copyTo(target, overwrite = true)
-                partial.delete()
-            }
-        } catch (e: Exception) {
-            partial.delete()
-            throw e
-        } finally {
-            connection.disconnect()
-        }
+        // Length (truncation) and, where pinned, content are verified before
+        // the rename, so a bad part never reaches onnxruntime.
+        ResumableDownload.download(
+            url = url,
+            target = target,
+            label = target.name,
+            expectedSha256 = expectedSha256,
+            cancelled = cancelled,
+            onBytes = { received, _ -> onBytes(received) }
+        )
     }
 }

@@ -181,7 +181,8 @@ class ModelDownloadService : Service() {
                     }
                 }
             } catch (e: InterruptedException) {
-                // Cancelled: partial already deleted by the downloader.
+                // Cancelled: the partial file is kept, so the next attempt
+                // resumes from where this one stopped (ResumableDownload).
             } catch (e: Exception) {
                 error = e.message ?: "network error"
             }
@@ -244,7 +245,8 @@ class ModelDownloadService : Service() {
      * Re-arms the wake lock's timeout while bytes are still arriving. A
      * single acquire lapsed after two hours, and the largest on-device models
      * take longer than that on a slow link; with the screen off the download
-     * then crawled or died, and a failed download restarts from zero.
+     * then crawled or died. A download that dies resumes from its partial
+     * file, but only if the process gets another chance to run it.
      * Non-reference-counted, so a re-acquire just pushes the timeout out.
      * Called from the download thread.
      */

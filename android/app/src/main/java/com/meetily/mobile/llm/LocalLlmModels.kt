@@ -1,10 +1,9 @@
 package com.meetily.mobile.llm
 
 import android.content.Context
+import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 data class LocalLlmModel(
     val key: String,
@@ -16,8 +15,18 @@ data class LocalLlmModel(
      * Pinned SHA-256 of the file, when known. Null skips only the hash
      * comparison; the length check in [ModelIntegrity.verify] still runs.
      */
-    val sha256: String? = null
-)
+    val sha256: String? = null,
+    /**
+     * Pinned Hugging Face commit, when known: [downloadUrl] then fetches
+     * `/resolve/<revision>/` instead of the mutable `/resolve/main/`.
+     * Null keeps following main. See android/scripts/model_hashes.py.
+     */
+    val revision: String? = null
+) {
+    /** [url] with [revision] pinned in, when set. */
+    val downloadUrl: String
+        get() = ModelIntegrity.pinRevision(url, revision)
+}
 
 /** GGUF chat models for the embedded llama.cpp engine (filesDir/llm-models). */
 object LocalLlmModels {
@@ -139,77 +148,43 @@ object LocalLlmModels {
     }
 
     fun delete(context: Context, model: LocalLlmModel) {
-        fileFor(context, model).delete()
+        val file = fileFor(context, model)
+        file.delete()
+        ResumableDownload.discardPartial(file)
     }
 
     fun deleteAll(context: Context) {
         dir(context).listFiles()?.forEach { it.delete() }
     }
 
+    /**
+     * Removes legacy `.part-*` leftovers and resumable `.part` files that
+     * have sat untouched for a week; a recent `.part` is kept so the next
+     * download resumes it (see [ResumableDownload]).
+     */
     fun cleanPartials(context: Context) {
-        dir(context).listFiles { f -> f.name.contains(".part-") }?.forEach { it.delete() }
+        ResumableDownload.cleanPartials(dir(context))
     }
 
     fun isRuntimeAvailable(): Boolean = LlamaBridge.load()
 
-    /** Blocking download with 0..100 progress; call from a worker thread. */
+    /**
+     * Blocking download with 0..100 progress; call from a worker thread.
+     * Resumes an interrupted `.part` when the server supports it.
+     */
     fun download(
         context: Context,
         model: LocalLlmModel,
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean = { false }
     ) {
-        val target = fileFor(context, model)
-        val partial = File(target.absolutePath + ".part-" + System.nanoTime())
-        val connection = URL(model.url).openConnection() as HttpURLConnection
-        try {
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 60_000
-            connection.instanceFollowRedirects = true
-            val status = connection.responseCode
-            if (status !in 200..299) {
-                throw RuntimeException("HTTP $status while downloading model")
-            }
-            val total = connection.contentLengthLong
-            val digest = ModelIntegrity.newDigest()
-            var received = 0L
-            connection.inputStream.use { input ->
-                partial.outputStream().use { output ->
-                    val buffer = ByteArray(256 * 1024)
-                    var read = 0L
-                    var lastPercent = -1
-                    while (true) {
-                        if (cancelled()) {
-                            throw InterruptedException("Download cancelled")
-                        }
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        output.write(buffer, 0, n)
-                        digest.update(buffer, 0, n)
-                        read += n
-                        if (total > 0) {
-                            val percent = ((read * 100) / total).toInt()
-                            if (percent != lastPercent) {
-                                lastPercent = percent
-                                onProgress(percent)
-                            }
-                        }
-                    }
-                    received = read
-                }
-            }
-            // Before the rename: a file that fails here never reaches the
-            // native loader.
-            ModelIntegrity.verify(model.fileName, received, total, model.sha256, digest)
-            if (!partial.renameTo(target)) {
-                partial.copyTo(target, overwrite = true)
-                partial.delete()
-            }
-        } catch (e: Exception) {
-            partial.delete()
-            throw e
-        } finally {
-            connection.disconnect()
-        }
+        ResumableDownload.download(
+            url = model.downloadUrl,
+            target = fileFor(context, model),
+            label = model.fileName,
+            expectedSha256 = model.sha256,
+            cancelled = cancelled,
+            onBytes = ResumableDownload.percentReporter(onProgress)
+        )
     }
 }

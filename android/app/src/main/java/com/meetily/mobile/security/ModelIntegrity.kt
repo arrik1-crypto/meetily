@@ -65,5 +65,33 @@ object ModelIntegrity {
         }
     }
 
+    /**
+     * A Hugging Face revision that can be pinned into a `/resolve/<rev>/`
+     * URL: a commit sha, or a branch/tag name made of URL-safe characters.
+     * Anything with a slash, space or `..` would change the path shape.
+     */
+    fun isValidRevision(revision: String): Boolean =
+        revision.isNotEmpty() && revision.length <= 128 &&
+            revision.all { it.isLetterOrDigit() || it == '.' || it == '_' || it == '-' } &&
+            !revision.contains("..")
+
+    /**
+     * [url] with its `/resolve/main/` segment swapped for `/resolve/<revision>/`
+     * when a revision is pinned; unchanged when [revision] is null or blank
+     * (the catalogues' current behaviour: follow the mutable main branch).
+     *
+     * Pinning a commit makes the bytes behind a URL immutable, which is what
+     * a pinned [verify] SHA-256 needs to stay valid across upstream pushes.
+     */
+    fun pinRevision(url: String, revision: String?): String {
+        val rev = revision?.trim()
+        if (rev.isNullOrEmpty()) return url
+        require(isValidRevision(rev)) { "Invalid model revision: $rev" }
+        val marker = "/resolve/main/"
+        val i = url.indexOf(marker)
+        require(i >= 0) { "Not a /resolve/main/ URL: $url" }
+        return url.substring(0, i) + "/resolve/" + rev + "/" + url.substring(i + marker.length)
+    }
+
     private val HEX = "0123456789abcdef".toCharArray()
 }

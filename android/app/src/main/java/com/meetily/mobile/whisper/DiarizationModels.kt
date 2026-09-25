@@ -1,10 +1,9 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
-import java.net.HttpURLConnection
-import java.net.URL
 
 data class DiarizationModel(
     val key: String,
@@ -71,75 +70,37 @@ object DiarizationModels {
     }
 
     fun delete(context: Context, model: DiarizationModel) {
-        fileFor(context, model).delete()
+        val file = fileFor(context, model)
+        file.delete()
+        ResumableDownload.discardPartial(file)
     }
 
     fun deleteAll(context: Context) {
         dir(context).listFiles()?.forEach { it.delete() }
     }
 
+    /** Legacy `.part-*` leftovers and week-old resumable parts; see [ResumableDownload]. */
     fun cleanPartials(context: Context) {
-        dir(context).listFiles { f -> f.name.contains(".part-") }?.forEach { it.delete() }
+        ResumableDownload.cleanPartials(dir(context))
     }
 
-    /** Blocking download with 0..100 progress; call from a worker thread. */
+    /**
+     * Blocking download with 0..100 progress; call from a worker thread.
+     * Resumes an interrupted `.part` when the server supports it.
+     */
     fun download(
         context: Context,
         model: DiarizationModel,
         onProgress: (Int) -> Unit,
         cancelled: () -> Boolean = { false }
     ) {
-        val target = fileFor(context, model)
-        val partial = File(target.absolutePath + ".part-" + System.nanoTime())
-        val connection = URL(model.url).openConnection() as HttpURLConnection
-        try {
-            connection.connectTimeout = 20_000
-            connection.readTimeout = 60_000
-            connection.instanceFollowRedirects = true
-            val status = connection.responseCode
-            if (status !in 200..299) {
-                throw RuntimeException("HTTP $status while downloading model")
-            }
-            val total = connection.contentLengthLong
-            val digest = ModelIntegrity.newDigest()
-            var received = 0L
-            connection.inputStream.use { input ->
-                partial.outputStream().use { output ->
-                    val buffer = ByteArray(256 * 1024)
-                    var read = 0L
-                    var lastPercent = -1
-                    while (true) {
-                        if (cancelled()) {
-                            throw InterruptedException("Download cancelled")
-                        }
-                        val n = input.read(buffer)
-                        if (n < 0) break
-                        output.write(buffer, 0, n)
-                        digest.update(buffer, 0, n)
-                        read += n
-                        if (total > 0) {
-                            val percent = ((read * 100) / total).toInt()
-                            if (percent != lastPercent) {
-                                lastPercent = percent
-                                onProgress(percent)
-                            }
-                        }
-                    }
-                    received = read
-                }
-            }
-            // Before the rename: a file that fails here never reaches the
-            // native loader.
-            ModelIntegrity.verify(model.fileName, received, total, model.sha256, digest)
-            if (!partial.renameTo(target)) {
-                partial.copyTo(target, overwrite = true)
-                partial.delete()
-            }
-        } catch (e: Exception) {
-            partial.delete()
-            throw e
-        } finally {
-            connection.disconnect()
-        }
+        ResumableDownload.download(
+            url = model.url,
+            target = fileFor(context, model),
+            label = model.fileName,
+            expectedSha256 = model.sha256,
+            cancelled = cancelled,
+            onBytes = ResumableDownload.percentReporter(onProgress)
+        )
     }
 }
