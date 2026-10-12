@@ -22,7 +22,10 @@ class RecapApp : Application() {
         // reads every meeting file to find a handful of reminders.
         Thread { com.meetily.mobile.reminders.Reminders.rescheduleAllIfCleared(this) }.start()
         com.meetily.mobile.llm.LocalLlm.init(this)
-        Thread { dropRemovedLiteRtModels() }.start()
+        Thread {
+            dropRemovedLiteRtModels()
+            reselectWithdrawnLlmModel()
+        }.start()
     }
 
     /**
@@ -44,6 +47,29 @@ class RecapApp : Application() {
         runCatching {
             val dir = java.io.File(filesDir, "litert-models")
             if (dir.exists()) dir.deleteRecursively()
+        }
+    }
+
+    /**
+     * Moves the on-device AI selection off a model the catalogue no longer
+     * offers (SaulLM 7B, withdrawn when its file was deleted upstream).
+     *
+     * A stored key that resolves to nothing left Settings marking no model as
+     * selected while LocalLlmModels.byKey quietly fell back to the default —
+     * which fails outright when the default was never downloaded, even with
+     * another model sitting on the phone. So a model already downloaded is
+     * preferred, then the default. On every other launch this is one
+     * preference read.
+     */
+    private fun reselectWithdrawnLlmModel() {
+        runCatching {
+            val settings = AppSettings(this)
+            val models = com.meetily.mobile.llm.LocalLlmModels.ALL
+            if (models.any { it.key == settings.localLlmModel }) return@runCatching
+            val onPhone = models.firstOrNull {
+                com.meetily.mobile.llm.LocalLlmModels.isDownloaded(this, it)
+            }
+            settings.localLlmModel = (onPhone ?: models.first()).key
         }
     }
 

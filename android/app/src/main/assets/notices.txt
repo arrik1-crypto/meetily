@@ -161,13 +161,9 @@ Mistral 7B Instruct v0.3
     Mistral AI
     https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3
 
-SaulLM 7B Instruct
-    Equall
-    https://huggingface.co/Equall/Saul-7B-Instruct-v1
-
     GGUF conversions of the above are downloaded from the quantisation
-    repositories they name in the app's model list (bartowski, unsloth,
-    tensorblock and the publishers' own repositories).
+    repositories they name in the app's model list (bartowski, unsloth and
+    the publishers' own repositories).
 
 Summaries produced by these models are drafts. They are not medical, legal or
 professional advice, whichever model made them.

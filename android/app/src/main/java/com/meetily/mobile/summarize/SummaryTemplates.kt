@@ -195,8 +195,9 @@ object SummaryTemplates {
                 "only the email itself, ready to send.",
             omitEmptySections = true
         ),
-        // Domain templates (pair well with the MedGemma / SaulLM models,
-        // but work with any engine). Both are explicitly framed as drafts.
+        // Domain templates (the clinical ones pair well with MedGemma, but
+        // all of them work with any engine). Each is explicitly framed as a
+        // draft.
         SummaryTemplate(
             key = "soap",
             labelRes = R.string.template_soap,
