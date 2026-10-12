@@ -59,9 +59,22 @@ class RecapApp : Application() {
      * which fails outright when the default was never downloaded, even with
      * another model sitting on the phone. So a model already downloaded is
      * preferred, then the default. On every other launch this is one
-     * preference read.
+     * preference read and one stat.
+     *
+     * The withdrawn model's file goes too, if one ever landed: the picker
+     * only lists catalogue models, so a 4 GB orphan would otherwise have no
+     * delete button — and would hide "Delete all" when it was the only model
+     * on the phone. Exact name only; nothing else in the folder is touched.
      */
     private fun reselectWithdrawnLlmModel() {
+        runCatching {
+            val orphan = java.io.File(
+                com.meetily.mobile.llm.LocalLlmModels.dir(this),
+                "Saul-7B-Instruct-v1-Q4_K_M.gguf"
+            )
+            orphan.delete()
+            com.meetily.mobile.data.ResumableDownload.discardPartial(orphan)
+        }
         runCatching {
             val settings = AppSettings(this)
             val models = com.meetily.mobile.llm.LocalLlmModels.ALL
