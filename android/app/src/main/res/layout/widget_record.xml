@@ -8,12 +8,15 @@
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingHorizontal="14dp"
-    android:paddingVertical="10dp">
+    android:paddingVertical="4dp">
 
+    <!-- Both actions fill the widget's height, so each touch target is as
+         tall as the widget (at least 48dp on a one-row widget of 56dp or
+         more) around the same centred content. -->
     <LinearLayout
         android:id="@+id/widgetRecord"
         android:layout_width="0dp"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:layout_weight="1"
         android:gravity="center_vertical"
         android:orientation="horizontal">
@@ -40,7 +43,7 @@
     <LinearLayout
         android:id="@+id/widgetImport"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
+        android:layout_height="match_parent"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingHorizontal="8dp"

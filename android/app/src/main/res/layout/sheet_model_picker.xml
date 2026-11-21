@@ -39,6 +39,7 @@
                 android:layout_height="wrap_content"
                 android:background="?attr/selectableItemBackground"
                 android:gravity="center"
+                android:minHeight="48dp"
                 android:paddingVertical="12dp"
                 android:text="@string/model_delete_all"
                 android:textAppearance="?attr/textAppearanceLabelLarge"

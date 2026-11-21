@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Screen-reader text: names, states and action labels that are read out
+     but never drawn. -->
+<resources>
+    <!-- Toggle states, for buttons whose on/off is shown only by tint. -->
+    <string name="a11y_on">On</string>
+    <string name="a11y_off">Off</string>
+
+    <!-- Transcript lines. Arguments: elapsed time, speaker, what was said. -->
+    <string name="a11y_line_desc">%1$s, %2$s: %3$s</string>
+    <string name="a11y_line_desc_no_speaker">%1$s: %2$s</string>
+    <string name="a11y_line_highlighted">Highlighted. %1$s</string>
+    <string name="a11y_line_tag_speaker">Tag speaker</string>
+    <string name="a11y_line_options">Speaker and line options</string>
+    <string name="a11y_line_play">Play from here</string>
+    <string name="a11y_line_highlight">Highlight</string>
+    <string name="a11y_line_unhighlight">Remove highlight</string>
+
+    <!-- Topic chapters. Arguments: chapter title, its line count and span. -->
+    <string name="a11y_chapter_desc">%1$s, %2$s</string>
+    <string name="a11y_expanded">Expanded</string>
+    <string name="a11y_collapsed">Collapsed</string>
+    <string name="a11y_expand">Expand</string>
+    <string name="a11y_collapse">Collapse</string>
+
+    <!-- Action items. -->
+    <string name="a11y_action_item_options">Action item options</string>
+    <string name="a11y_remove_action_item">Remove action item</string>
+
+    <!-- Meeting list, follow-ups and pre-meeting brief rows. -->
+    <string name="a11y_meeting_options">Meeting options</string>
+    <string name="a11y_open_meeting">Open meeting</string>
+    <!-- A series filter chip. Arguments: series name, meeting count. -->
+    <plurals name="a11y_series_chip">
+        <item quantity="one">%1$s, %2$d meeting</item>
+        <item quantity="other">%1$s, %2$d meetings</item>
+    </plurals>
+
+    <!-- Photos and files on a meeting. -->
+    <string name="a11y_photo">Photo</string>
+    <!-- Arguments: position, count. -->
+    <string name="a11y_photo_n">Photo %1$d of %2$d</string>
+    <string name="a11y_view_photo">View photo</string>
+    <string name="a11y_remove_photo">Remove photo</string>
+    <string name="a11y_open_file">Open file</string>
+    <string name="a11y_remove_file">Remove file</string>
+
+    <!-- Audio player. -->
+    <string name="a11y_playback_speed">Playback speed</string>
+    <!-- Argument: the speed, such as 1.5. -->
+    <string name="a11y_playback_speed_state">%1$s times</string>
+    <!-- Argument: decibels added. -->
+    <string name="a11y_boost_state">Plus %1$d decibels</string>
+
+    <!-- The Audio tab's speaker strip. -->
+    <string name="a11y_speaker_strip">Speaker timeline</string>
+    <plurals name="a11y_speaker_turns">
+        <item quantity="one">%d speaker turn</item>
+        <item quantity="other">%d speaker turns</item>
+    </plurals>
+    <string name="a11y_next_turn">Next speaker turn</string>
+    <string name="a11y_previous_turn">Previous speaker turn</string>
+
+    <!-- Accuracy check: which side of a difference will be kept. -->
+    <string name="a11y_chosen">Chosen</string>
+    <string name="a11y_not_chosen">Not chosen</string>
+
+    <!-- Notes formatting buttons, whose faces are B, I, H and symbols. -->
+    <string name="a11y_fmt_bold">Bold</string>
+    <string name="a11y_fmt_italic">Italic</string>
+    <string name="a11y_fmt_heading">Heading</string>
+    <string name="a11y_fmt_bullet">Bulleted list</string>
+    <string name="a11y_fmt_check">Checklist item</string>
+</resources>

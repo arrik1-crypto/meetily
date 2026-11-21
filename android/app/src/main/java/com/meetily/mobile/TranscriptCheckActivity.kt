@@ -619,6 +619,10 @@ class TranscriptCheckActivity : AppCompatActivity() {
         card.strokeWidth =
             ((if (selected) 2 else 1) * resources.displayMetrics.density).toInt()
         card.alpha = if (selected) 1f else 0.72f
+        // The outline was the only sign of which side will be kept.
+        androidx.core.view.ViewCompat.setStateDescription(
+            card, getString(if (selected) R.string.a11y_chosen else R.string.a11y_not_chosen)
+        )
     }
 
     private class DiffHolder(view: View) : RecyclerView.ViewHolder(view) {

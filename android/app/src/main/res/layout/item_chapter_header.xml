@@ -14,6 +14,7 @@
         android:id="@+id/chapterChevron"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
+        android:importantForAccessibility="no"
         android:minWidth="18dp"
         android:text="\u25B8"
         android:textColor="?attr/colorPrimary"

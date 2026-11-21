@@ -69,7 +69,7 @@
             android:layout_marginStart="10dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:gravity="center"
-            android:minWidth="40dp"
+            android:minWidth="48dp"
             android:textAppearance="?attr/textAppearanceLabelLarge"
             android:textColor="?attr/colorPrimary"
             android:textStyle="bold" />
@@ -83,7 +83,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/playback_boost"
             android:gravity="center"
-            android:minWidth="44dp"
+            android:minWidth="48dp"
             android:textAppearance="?attr/textAppearanceLabelLarge"
             android:textColor="?attr/colorPrimary"
             android:textStyle="bold" />
@@ -91,7 +91,7 @@
         <!-- Follow-along: highlights and scrolls the transcript with playback. -->
         <ImageButton
             android:id="@+id/followButton"
-            android:layout_width="44dp"
+            android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/follow_playback"
@@ -101,7 +101,7 @@
         <!-- Skip-silence toggle: jumps playback over non-speech stretches. -->
         <ImageButton
             android:id="@+id/skipSilenceButton"
-            android:layout_width="44dp"
+            android:layout_width="48dp"
             android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/skip_silence"

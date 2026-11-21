@@ -53,6 +53,12 @@ object NotesRenderer {
                         addView(
                             CheckBox(context).apply {
                                 isChecked = block.done
+                                // Built in code, this is the platform box, not
+                                // Material's 48dp one; and its text sits in the
+                                // next view, so it was announced with no name.
+                                minWidth = dp(context, 48)
+                                minHeight = dp(context, 48)
+                                contentDescription = inline(block.text).toString()
                                 setOnCheckedChangeListener { _, _ ->
                                     onToggleCheck(block.line)
                                 }

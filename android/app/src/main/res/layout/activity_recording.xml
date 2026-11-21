@@ -55,9 +55,9 @@
             style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:minHeight="36dp"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
+            android:minHeight="48dp"
+            android:insetTop="6dp"
+            android:insetBottom="6dp"
             android:text="@string/from_calendar"
             android:textColor="?attr/colorPrimary"
             app:icon="@drawable/ic_calendar"
@@ -150,11 +150,13 @@
             </LinearLayout>
         </LinearLayout>
 
+        <!-- 6dp, not 10dp: each chip's 48dp touch target already carries 4dp
+             of transparent inset above its pill (A11y.pillTouchTarget). -->
         <HorizontalScrollView
             android:id="@+id/speakerChipScroll"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="10dp"
+            android:layout_marginTop="6dp"
             android:fadingEdgeLength="24dp"
             android:requiresFadingEdge="horizontal"
             android:scrollbars="none"

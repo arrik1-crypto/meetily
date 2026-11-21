@@ -225,14 +225,18 @@ class MainActivity : AppCompatActivity() {
     private var importPaintedId: String? = null
     private var summaryPaintedId: String? = null
 
+    // Which banner updates are read out; see ProgressAnnouncer.
+    private val importAnnouncer = ProgressAnnouncer()
+    private val summaryAnnouncer = ProgressAnnouncer()
+
     private fun syncProgressViews() {
         importPaintedId = renderWork(
             importWork, importPaintedId,
-            importBanner, importBannerName, importBannerBar, importBannerPct
+            importBanner, importBannerName, importBannerBar, importBannerPct, importAnnouncer
         )
         summaryPaintedId = renderWork(
             summaryWork, summaryPaintedId,
-            summaryBanner, summaryBannerName, summaryBannerBar, summaryBannerPct
+            summaryBanner, summaryBannerName, summaryBannerBar, summaryBannerPct, summaryAnnouncer
         )
     }
 
@@ -249,7 +253,8 @@ class MainActivity : AppCompatActivity() {
         banner: View,
         name: TextView,
         bar: com.google.android.material.progressindicator.LinearProgressIndicator,
-        pct: TextView
+        pct: TextView,
+        announcer: ProgressAnnouncer
     ): String? {
         // Whatever this observer painted last, if it is not what it is
         // painting now, has to be wiped first — including when the work has
@@ -259,6 +264,7 @@ class MainActivity : AppCompatActivity() {
         }
         if (work == null) {
             banner.visibility = View.GONE
+            announcer.reset()
             return null
         }
         val inline = work.meetingId != null && adapter.setProgress(
@@ -267,6 +273,13 @@ class MainActivity : AppCompatActivity() {
         if (inline) {
             banner.visibility = View.GONE
             return work.meetingId
+        }
+        // The banner reads as one phrase ("Importing standup.m4a, 50%"), so
+        // the whole card is the live region, at milestones only.
+        if (announcer.shouldAnnounce(work.percent)) {
+            A11y.announceNextChange(banner)
+        } else {
+            A11y.endAnnouncement(banner)
         }
         banner.visibility = View.VISIBLE
         name.text = work.bannerTitle
@@ -764,7 +777,11 @@ class MainActivity : AppCompatActivity() {
         for (s in series) {
             addFilterChip(
                 label = getString(R.string.series_chip, s.displayName, s.meetings.size),
-                selected = s.key == selectedSeriesKey
+                selected = s.key == selectedSeriesKey,
+                // "Standup ×5" is read out as "Standup times 5".
+                description = resources.getQuantityString(
+                    R.plurals.a11y_series_chip, s.meetings.size, s.displayName, s.meetings.size
+                )
             ) {
                 selectedTag = null
                 flaggedOnly = false
@@ -775,20 +792,26 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun addFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    private fun addFilterChip(
+        label: String,
+        selected: Boolean,
+        description: String? = null,
+        onClick: () -> Unit
+    ) {
         val density = resources.displayMetrics.density
         val chip = TextView(this).apply {
             text = label
             maxLines = 1
-            setBackgroundResource(
-                if (selected) R.drawable.bg_pill_accent else R.drawable.bg_pill
+            // A 36dp pill inside a 48dp touch target.
+            A11y.pillTouchTarget(
+                this,
+                if (selected) R.drawable.bg_pill_accent else R.drawable.bg_pill,
+                visualHeightPx = (36 * density).toInt(),
+                paddingHorizontalPx = (14 * density).toInt(),
+                paddingVerticalPx = (7 * density).toInt()
             )
-            setPadding(
-                (14 * density).toInt(), (7 * density).toInt(),
-                (14 * density).toInt(), (7 * density).toInt()
-            )
+            if (description != null) contentDescription = description
             textSize = 13f
-            minHeight = (36 * density).toInt()
             gravity = android.view.Gravity.CENTER_VERTICAL
             isSelected = selected
             setOnClickListener { onClick() }

@@ -28,14 +28,16 @@
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
             android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="2"
             android:text="@string/private_by_design"
             android:textColor="@color/tx4"
             android:textSize="11sp" />
 
         <ImageButton
             android:id="@+id/themeToggle"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/theme_toggle"
             android:src="@drawable/ic_sun"
@@ -43,8 +45,8 @@
 
         <ImageButton
             android:id="@+id/followupsButton"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/followups_title"
             android:src="@drawable/ic_check"
@@ -52,8 +54,8 @@
 
         <ImageButton
             android:id="@+id/askButton"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/ask_library_title"
             android:src="@drawable/ic_sparkle"
@@ -61,8 +63,8 @@
 
         <ImageButton
             android:id="@+id/digestButton"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/digest_title"
             android:src="@drawable/ic_clock"
@@ -70,8 +72,8 @@
 
         <ImageButton
             android:id="@+id/settingsButton"
-            android:layout_width="44dp"
-            android:layout_height="44dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/action_settings"
             android:src="@drawable/ic_settings"
@@ -148,11 +150,13 @@
         android:textColorHint="@color/tx4"
         android:textSize="13sp" />
 
+    <!-- 4dp, not 10dp: each chip's 48dp touch target already carries 6dp of
+         transparent inset above its pill (A11y.pillTouchTarget). -->
     <HorizontalScrollView
         android:id="@+id/filterChipsScroll"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:paddingTop="10dp"
+        android:paddingTop="4dp"
         android:scrollbars="none"
         android:visibility="gone">
 
@@ -343,8 +347,10 @@
         android:id="@+id/importButton"
         style="@style/Widget.Material3.Button.OutlinedButton"
         android:layout_width="match_parent"
-        android:layout_height="46dp"
+        android:layout_height="48dp"
         android:layout_marginBottom="12dp"
+        android:insetTop="5dp"
+        android:insetBottom="5dp"
         android:text="@string/import_pill"
         android:textColor="@color/tx2"
         android:textSize="13sp"

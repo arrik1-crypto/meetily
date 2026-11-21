@@ -197,6 +197,9 @@ class MeetingAdapter(
                     onLongClick(meeting)
                     true
                 }
+                A11y.labelLongClick(
+                    h.itemView, h.itemView.context.getString(R.string.a11y_meeting_options)
+                )
                 bindStar(h, meeting)
                 bindProgress(h, meeting)
             }
