@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- TODO(owner): replace with the Play listing support address -->
+    <string name="support_email" translatable="false">support@example.com</string>
+</resources>

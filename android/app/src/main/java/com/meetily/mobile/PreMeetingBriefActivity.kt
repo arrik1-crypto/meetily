@@ -16,6 +16,7 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.search.MeetingGroups
+import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
 import java.text.DateFormat
@@ -143,8 +144,16 @@ class PreMeetingBriefActivity : AppCompatActivity() {
             R.string.pre_brief_last_fmt,
             last.title, dateFormat.format(Date(last.createdAtMs))
         )
+        // A clinical or legal summary keeps its fixed notice here too, in
+        // front, where the card's line limit cannot cut it off.
         findViewById<TextView>(R.id.briefLastBody).text =
-            body.ifBlank { getString(R.string.pre_brief_no_summary) }
+            if (body.isBlank()) {
+                getString(R.string.pre_brief_no_summary)
+            } else {
+                AiDisclaimers.prependTo(
+                    body, AiDisclaimers.texts(this, AiDisclaimers.categories(last))
+                )
+            }
         card.setOnClickListener {
             startActivity(
                 Intent(this, MeetingDetailActivity::class.java)
@@ -257,10 +266,17 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                 }
                 label to content
             }
+            val modelKey = AiReport.currentModelKey(this)
+            var generated = false
             val result = try {
-                LlmClient.preBrief(
+                val brief = LlmClient.preBrief(
                     settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
                     settings.localOnlyLlm, series, blocks
+                )
+                generated = true
+                // Built from these summaries, so it carries their notices.
+                AiDisclaimers.appendTo(
+                    brief, AiDisclaimers.texts(this, AiDisclaimers.union(fresh.take(4)))
                 )
             } catch (e: Exception) {
                 getString(R.string.brief_failed, e.message ?: "unknown error")
@@ -271,10 +287,41 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                 button.isEnabled = true
                 output.visibility = View.VISIBLE
                 output.text = result
+                showBriefReport(if (generated) result else null, modelKey)
             }
         }.apply {
             name = "pre-brief"
             start()
+        }
+    }
+
+    private var briefReportButton: MaterialButton? = null
+
+    /**
+     * "Report AI output" under a generated brief; hidden for the error line
+     * a failed run leaves. Added on first use, after the brief's text view.
+     */
+    private fun showBriefReport(brief: String?, modelKey: String) {
+        val output = findViewById<TextView>(R.id.briefText)
+        val button = briefReportButton ?: AiReport.addButton(output) {}.also {
+            briefReportButton = it
+            DisclaimerViews.copyWithNotices(output) {
+                AiDisclaimers.texts(this, AiDisclaimers.union(series.take(4)))
+            }
+        }
+        button.visibility = if (brief == null) View.GONE else View.VISIBLE
+        if (brief != null) {
+            button.setOnClickListener {
+                AiReport.show(
+                    this,
+                    AiReport.Subject(
+                        label = getString(R.string.aisafety_report_action),
+                        surface = "pre_meeting_brief",
+                        text = brief,
+                        modelKey = modelKey
+                    )
+                )
+            }
         }
     }
 

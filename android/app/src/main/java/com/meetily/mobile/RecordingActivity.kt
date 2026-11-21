@@ -609,13 +609,18 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             return
         }
         catchUpRunning = true
+        // After the text's scroll container: the scroll view holds one child.
+        val report = AiReport.addButton(body.parent as View) {}
+        report.visibility = View.GONE
         Thread {
+            var modelKey = AiReport.currentModelKey(this)
             val result = try {
                 com.meetily.mobile.summarize.LlmClient.catchUp(
                     settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
                     settings.localOnlyLlm, transcript
                 )
             } catch (_: Exception) {
+                modelKey = com.meetily.mobile.summarize.AiProvenance.EXTRACTIVE
                 extractiveCatchUp(transcript)
             }
             runOnUiThread {
@@ -623,6 +628,18 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 if (isFinishing || isDestroyed || !sheet.isShowing) return@runOnUiThread
                 progress.visibility = View.GONE
                 body.text = result
+                report.visibility = View.VISIBLE
+                report.setOnClickListener {
+                    AiReport.show(
+                        this,
+                        AiReport.Subject(
+                            label = getString(R.string.aisafety_report_action),
+                            surface = "live_catch_up",
+                            text = result,
+                            modelKey = modelKey
+                        )
+                    )
+                }
             }
         }.apply {
             name = "catch-up"

@@ -47,6 +47,7 @@ import com.meetily.mobile.notes.NotesMarkdown
 import com.meetily.mobile.notes.NotesRenderer
 import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.summarize.ActionItems
+import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.CustomTemplates
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
@@ -92,6 +93,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var askSend: MaterialButton
     private lateinit var askRow: View
     private lateinit var askDisabledHint: View
+
+    /** The summary's fixed clinical or legal notice, above it (AiDisclaimers). */
+    private lateinit var summaryNoticeView: TextView
+    private lateinit var reportSummaryButton: MaterialButton
 
     // --- Summary generation (owned by SummaryService) -----------------------
 
@@ -432,6 +437,17 @@ class MeetingDetailActivity : AppCompatActivity() {
             m.summaryStale = merged.summaryStale
             summaryChanged = true
         }
+        // The template and model decide the summary's notice; see renderSummary.
+        if (m.summaryTemplate == ours.summaryTemplate &&
+            m.summaryTemplate != merged.summaryTemplate
+        ) {
+            m.summaryTemplate = merged.summaryTemplate
+            summaryChanged = true
+        }
+        if (m.summaryModel == ours.summaryModel && m.summaryModel != merged.summaryModel) {
+            m.summaryModel = merged.summaryModel
+            summaryChanged = true
+        }
         if (m.notes == ours.notes && m.notesOriginal == ours.notesOriginal &&
             (m.notes != merged.notes || m.notesOriginal != merged.notesOriginal)
         ) {
@@ -648,6 +664,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         askSend = headerView.findViewById(R.id.askSend)
         askRow = headerView.findViewById(R.id.askRow)
         askDisabledHint = headerView.findViewById(R.id.askDisabledHint)
+        // Added in code beside the existing header views: a notice banner
+        // above the summary, and "Report AI output" after its action items.
+        summaryNoticeView = DisclaimerViews.addBannerBefore(summaryView)
+        reportSummaryButton = AiReport.addButton(headerView.findViewById(R.id.actionList)) {
+            meeting?.let { current -> summarySubject(current)?.let { AiReport.show(this, it) } }
+        }
+        reportSummaryButton.visibility = View.GONE
+        DisclaimerViews.copyWithNotices(summaryView) { summaryNotices() }
 
         val id = intent.getStringExtra(EXTRA_MEETING_ID)
         meeting = id?.let { store.load(it) }
@@ -823,6 +847,75 @@ class MeetingDetailActivity : AppCompatActivity() {
             summaryView.visibility = View.VISIBLE
             aiPanel.visibility = View.GONE
         }
+        DisclaimerViews.show(
+            summaryNoticeView, if (summary.isBlank()) emptyList() else summaryNotices()
+        )
+        reportSummaryButton.visibility = if (summary.isBlank()) View.GONE else View.VISIBLE
+    }
+
+    /** The stored summary's fixed notices, by the template and model that wrote it. */
+    private fun summaryNotices(): List<String> {
+        val m = meeting ?: return emptyList()
+        return AiDisclaimers.texts(this, AiDisclaimers.categories(m))
+    }
+
+    /** The summary and its action items as one reportable text. */
+    private fun summarySubject(m: Meeting): AiReport.Subject? {
+        if (m.summary.isBlank()) return null
+        val text = buildString {
+            append(m.summary.trim())
+            if (m.actionItems.isNotEmpty()) {
+                append("\n\nAction items:\n")
+                for (item in m.actionItems) {
+                    append("- ").append(item.task)
+                    if (!item.owner.isNullOrBlank()) append(" (").append(item.owner).append(')')
+                    append('\n')
+                }
+            }
+        }
+        return AiReport.Subject(
+            label = getString(R.string.aisafety_subject_summary),
+            surface = "meeting_summary",
+            text = text,
+            templateKey = m.summaryTemplate ?: "unknown",
+            modelKey = m.summaryModel
+        )
+    }
+
+    private fun answerSubject(question: String, answer: String) = AiReport.Subject(
+        label = getString(R.string.aisafety_subject_answer, question.take(48)),
+        surface = "meeting_answer",
+        text = "Q: $question\nA: $answer"
+    )
+
+    /** Overflow "Report AI output": everything generated on this meeting. */
+    private fun reportFromMenu() {
+        val m = meeting ?: return
+        val subjects = mutableListOf<AiReport.Subject>()
+        summarySubject(m)?.let { subjects.add(it) }
+        // notesOriginal is only kept once the notes were AI-enhanced.
+        if (m.notesOriginal.isNotEmpty() && m.notes.isNotBlank()) {
+            subjects.add(
+                AiReport.Subject(
+                    getString(R.string.aisafety_subject_notes), "meeting_notes_enhanced", m.notes
+                )
+            )
+        }
+        for (entry in m.qa) {
+            if (entry.answer.isNotBlank()) subjects.add(answerSubject(entry.question, entry.answer))
+        }
+        if (m.chapters.isNotEmpty()) {
+            subjects.add(
+                AiReport.Subject(
+                    getString(R.string.aisafety_subject_chapters), "meeting_chapters",
+                    m.chapters.joinToString("\n") { it.title }
+                )
+            )
+        }
+        subjects.add(
+            AiReport.Subject(getString(R.string.aisafety_subject_title), "meeting_title", m.title)
+        )
+        AiReport.choose(this, subjects)
     }
 
     private fun renderTranscript(m: Meeting) {
@@ -1586,12 +1679,13 @@ class MeetingDetailActivity : AppCompatActivity() {
         // The worker reads a copy: laying out a long transcript takes a
         // while, and the live meeting keeps changing under it.
         val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
+        val notices = summaryNotices()
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 if (isPdf) {
-                    MeetingExporter.writePdf(m, out)
+                    MeetingExporter.writePdf(m, out, notices)
                 } else {
-                    out.write(MeetingExporter.markdown(m).toByteArray(Charsets.UTF_8))
+                    out.write(MeetingExporter.markdown(m, notices).toByteArray(Charsets.UTF_8))
                 }
             } ?: throw RuntimeException("could not open destination")
         }
@@ -1610,6 +1704,17 @@ class MeetingDetailActivity : AppCompatActivity() {
         item.findViewById<TextView>(R.id.qaQuestion).text = question
         val answerView = item.findViewById<TextView>(R.id.qaAnswer)
         answerView.text = answer
+        // Reads the answer when tapped: a pending question's row is filled
+        // in later.
+        val report = AiReport.addButton(answerView, R.string.aisafety_report_short) {
+            val shown = answerView.text.toString()
+            if (shown == getString(R.string.ask_thinking)) {
+                Toast.makeText(this, R.string.aisafety_nothing_to_report, Toast.LENGTH_SHORT).show()
+            } else {
+                AiReport.show(this, answerSubject(question, shown))
+            }
+        }
+        report.contentDescription = getString(R.string.aisafety_report_answer_desc)
         qaList.addView(item)
         return answerView
     }
@@ -1969,6 +2074,8 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun showSummarizingUi() {
         aiPanel.visibility = View.GONE
+        summaryNoticeView.visibility = View.GONE
+        reportSummaryButton.visibility = View.GONE
         progress.visibility = View.VISIBLE
         summaryView.visibility = View.VISIBLE
         summaryView.text = getString(R.string.summarizing)
@@ -1987,7 +2094,8 @@ class MeetingDetailActivity : AppCompatActivity() {
                 append("ATTENDEES\n").append(m.attendeesText()).append("\n\n")
             }
             if (m.summary.isNotBlank()) {
-                append("SUMMARY\n").append(m.summary).append("\n\n")
+                append("SUMMARY\n")
+                append(AiDisclaimers.prependTo(m.summary, summaryNotices())).append("\n\n")
             }
             if (m.notes.isNotBlank()) {
                 append("NOTES\n").append(m.notes).append("\n\n")
@@ -2166,6 +2274,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             R.id.action_star -> {
                 toggleStar()
+                true
+            }
+            R.id.aisafety_action_report -> {
+                reportFromMenu()
                 true
             }
             else -> super.onOptionsItemSelected(item)

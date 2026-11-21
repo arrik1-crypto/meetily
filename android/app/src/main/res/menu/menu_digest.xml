@@ -6,4 +6,9 @@
         android:icon="@drawable/ic_share"
         android:title="@string/share_digest"
         app:showAsAction="always" />
+    <item
+        android:id="@+id/aisafety_action_report_digest"
+        android:title="@string/aisafety_report_action"
+        android:visible="false"
+        app:showAsAction="never" />
 </menu>

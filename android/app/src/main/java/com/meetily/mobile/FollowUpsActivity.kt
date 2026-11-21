@@ -66,6 +66,17 @@ class FollowUpsActivity : AppCompatActivity() {
             if (item.itemId == R.id.action_export_tasks) {
                 showExportChoices()
                 true
+            } else if (item.itemId == R.id.aisafety_action_report_tasks) {
+                // The items were extracted by the summary run that wrote them.
+                AiReport.show(
+                    this,
+                    AiReport.Subject(
+                        label = getString(R.string.aisafety_report_action),
+                        surface = "follow_ups",
+                        text = TaskExport.text(openItems())
+                    )
+                )
+                true
             } else {
                 false
             }

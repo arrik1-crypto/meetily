@@ -49,4 +49,8 @@
         android:id="@+id/action_check_accuracy"
         android:title="@string/check_accuracy"
         app:showAsAction="never" />
+    <item
+        android:id="@+id/aisafety_action_report"
+        android:title="@string/aisafety_report_action"
+        app:showAsAction="never" />
 </menu>

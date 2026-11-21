@@ -103,6 +103,15 @@ data class Meeting(
      */
     var summaryStale: Boolean = false,
     /**
+     * Key of the template that produced [summary], and the engine and model
+     * that wrote it ("local:<key>", "endpoint:<model>" or "extractive").
+     * Written with every summary so its fixed disclaimer (AiDisclaimers)
+     * follows the summary itself rather than whatever template is selected
+     * now. Null for summaries saved before these fields existed.
+     */
+    var summaryTemplate: String? = null,
+    var summaryModel: String? = null,
+    /**
      * An earlier calendar event this conversation follows on from, asserted
      * by the user and never inferred.
      *
@@ -228,6 +237,12 @@ data class Meeting(
         }
         if (summaryStale) {
             obj.put("summaryStale", true)
+        }
+        if (!summaryTemplate.isNullOrBlank()) {
+            obj.put("summaryTemplate", summaryTemplate)
+        }
+        if (!summaryModel.isNullOrBlank()) {
+            obj.put("summaryModel", summaryModel)
         }
         if (highlightMarksMs.isNotEmpty()) {
             val marksArr = JSONArray()
@@ -395,6 +410,8 @@ data class Meeting(
             meeting.starred = obj.optBoolean("starred", false)
             meeting.transcriptModel = obj.optString("transcriptModel", "").ifBlank { null }
             meeting.summaryStale = obj.optBoolean("summaryStale", false)
+            meeting.summaryTemplate = obj.optString("summaryTemplate", "").ifBlank { null }
+            meeting.summaryModel = obj.optString("summaryModel", "").ifBlank { null }
             val marksArr = obj.optJSONArray("highlightMarks") ?: JSONArray()
             for (i in 0 until marksArr.length()) {
                 val mark = marksArr.optLong(i, -1L)

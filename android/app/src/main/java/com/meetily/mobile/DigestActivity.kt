@@ -13,6 +13,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.llm.LocalLlm
+import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.LlmClient
 import com.meetily.mobile.summarize.WeeklyDigest
 import java.text.DateFormat
@@ -30,6 +31,14 @@ class DigestActivity : AppCompatActivity() {
 
     private lateinit var digestView: TextView
     private var shareText: String = ""
+
+    /**
+     * The written digest as the model produced it (for Report AI output),
+     * and the notices of the summaries it was built from.
+     */
+    @Volatile private var generatedDigest: String? = null
+    @Volatile private var generatedModel: String? = null
+    @Volatile private var digestNotices: List<String> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -60,13 +69,20 @@ class DigestActivity : AppCompatActivity() {
                 }
                 return@Thread
             }
-            val local = WeeklyDigest.buildLocal(
-                meetings, getString(R.string.digest_unassigned), formatDate
+            // Lines from clinical or legal summaries bring their notices.
+            val notices = AiDisclaimers.texts(this, AiDisclaimers.union(meetings))
+            digestNotices = notices
+            val local = AiDisclaimers.appendTo(
+                WeeklyDigest.buildLocal(
+                    meetings, getString(R.string.digest_unassigned), formatDate
+                ),
+                notices
             )
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 shareText = local
                 digestView.text = local
+                DisclaimerViews.copyWithNotices(digestView) { digestNotices }
                 if (useLlm) progress.visibility = View.VISIBLE
             }
             if (!useLlm) return@Thread
@@ -77,6 +93,7 @@ class DigestActivity : AppCompatActivity() {
             val apiKey = settings.llmApiKey
             val model = settings.llmModel
             val localOnly = settings.localOnlyLlm
+            val modelKey = AiReport.currentModelKey(this)
             val pending = digestRun(blocks) {
                 try {
                     LlmClient.digest(baseUrl, apiKey, model, localOnly, blocks)
@@ -104,8 +121,12 @@ class DigestActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 progress.visibility = View.GONE
                 if (upgraded != null) {
-                    shareText = upgraded
-                    digestView.text = upgraded
+                    val withNotices = AiDisclaimers.appendTo(upgraded, notices)
+                    shareText = withNotices
+                    digestView.text = withNotices
+                    generatedDigest = upgraded
+                    generatedModel = modelKey
+                    invalidateOptionsMenu()
                 } else {
                     Toast.makeText(this, R.string.digest_llm_failed, Toast.LENGTH_SHORT)
                         .show()
@@ -159,7 +180,28 @@ class DigestActivity : AppCompatActivity() {
         return true
     }
 
+    override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        // Only the written digest is AI output; the offline one is a listing.
+        menu.findItem(R.id.aisafety_action_report_digest)?.isVisible = generatedDigest != null
+        return super.onPrepareOptionsMenu(menu)
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        if (item.itemId == R.id.aisafety_action_report_digest) {
+            val text = generatedDigest
+            if (text != null) {
+                AiReport.show(
+                    this,
+                    AiReport.Subject(
+                        label = getString(R.string.aisafety_report_action),
+                        surface = "weekly_digest",
+                        text = text,
+                        modelKey = generatedModel
+                    )
+                )
+            }
+            return true
+        }
         if (item.itemId == R.id.action_share_digest) {
             if (shareText.isNotBlank()) {
                 startActivity(
