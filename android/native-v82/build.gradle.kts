@@ -17,7 +17,7 @@ plugins {
 // arm64 only: x86_64 is emulators, where the baseline is fine.
 android {
     namespace = "com.meetily.mobile.nativev82"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     defaultConfig {

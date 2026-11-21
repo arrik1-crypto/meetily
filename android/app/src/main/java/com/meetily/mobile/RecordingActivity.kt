@@ -81,18 +81,61 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private var attached = false
     private var suppressWatchers = false
 
+    /**
+     * Saved with the screen's state. On a large screen the portrait lock is
+     * ignored at targetSdk 36, so turning the device while the camera app is
+     * in front re-creates this Activity; the result still arrives, and with
+     * the field back to null the photo the user had just taken was dropped.
+     */
     private var pendingPhotoFile: File? = null
+
+    /**
+     * A photo whose result reached a re-created screen before its service
+     * connection did (results are delivered at onStart, the bind lands
+     * later). Handed to the session in [onServiceReady].
+     */
+    private var photoAwaitingService: File? = null
     private val takePicture =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
             val file = pendingPhotoFile
             pendingPhotoFile = null
             if (success && file != null && file.exists() && file.length() > 0) {
-                service?.addPhoto(file.name)
-                Toast.makeText(this, R.string.photo_added_short, Toast.LENGTH_SHORT).show()
+                val svc = service
+                if (svc != null) addPhotoToSession(svc, file) else photoAwaitingService = file
             } else {
                 file?.delete()
             }
         }
+
+    private fun addPhotoToSession(svc: RecordingService, file: File) {
+        svc.addPhoto(file.name)
+        Toast.makeText(this, R.string.photo_added_short, Toast.LENGTH_SHORT).show()
+    }
+
+    /** Saved with the screen's state; see [RecordingStartStage]. */
+    private var startStage = RecordingStartStage.IDLE
+
+    /** Until when [awaitStart] keeps waiting for a queued start to run. */
+    private var startWaitDeadline = 0L
+
+    /**
+     * A re-created screen whose session start was sent but not yet run by the
+     * service: attach once it is live, close if it never comes or has
+     * already ended. Never starts anything itself.
+     */
+    private val awaitStart = object : Runnable {
+        override fun run() {
+            val svc = service ?: return
+            if (attached || isFinishing || isDestroyed) return
+            when {
+                svc.active -> attachExistingSession(svc)
+                RecordingService.isRunning &&
+                    SystemClock.elapsedRealtime() < startWaitDeadline ->
+                    handler.postDelayed(this, START_POLL_MS)
+                else -> finish()
+            }
+        }
+    }
 
     private val handler = Handler(Looper.getMainLooper())
 
@@ -146,6 +189,14 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private val projectionConsent = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
     ) { result ->
+        // A session already under way keeps its capture. Starting it again
+        // would be ignored by the service, and the unused consent would sit
+        // in pendingProjectionData until that session ended.
+        if (RecordingService.isRunning) {
+            startStage = RecordingStartStage.STARTED
+            return@registerForActivityResult
+        }
+        startStage = RecordingStartStage.STARTED
         val data = result.data
         if (result.resultCode == RESULT_OK && data != null) {
             RecordingService.pendingProjectionCode = result.resultCode
@@ -160,6 +211,15 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before anything else: the activity-result registry replays a pending
+        // camera or consent result once this screen restarts, and both
+        // callbacks need to know what the previous instance had asked for.
+        startStage = RecordingStartStage.fromSaved(
+            savedInstanceState?.getString(STATE_START_STAGE)
+        )
+        savedInstanceState?.getString(STATE_PENDING_PHOTO)?.let {
+            pendingPhotoFile = File(it)
+        }
         ThemeManager.apply(this)
         setContentView(R.layout.activity_recording)
         deviceAudioRequested =
@@ -340,11 +400,41 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     // --- Service session setup -------------------------------------------
 
     private fun onServiceReady(svc: RecordingService) {
+        photoAwaitingService?.let { file ->
+            photoAwaitingService = null
+            // Taken during a session that has since ended: nothing to add it to.
+            if (svc.active) addPhotoToSession(svc, file) else file.delete()
+        }
         if (attached) return
-        if (svc.active) {
-            attachExistingSession(svc)
-        } else {
-            maybeConsentThenStart()
+        val micGranted = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+        when (
+            RecordingStartStage.resume(
+                startStage, svc.active, RecordingService.isRunning, micGranted
+            )
+        ) {
+            RecordingStartStage.Resume.ATTACH -> attachExistingSession(svc)
+            RecordingStartStage.Resume.START_FLOW -> {
+                startStage = RecordingStartStage.IDLE
+                maybeConsentThenStart()
+            }
+            RecordingStartStage.Resume.WAIT_FOR_RESULT -> {
+                // The consent result starts the session in its callback; until
+                // then the screen looks as it did once startNewSession ran.
+                if (startStage == RecordingStartStage.AWAITING_PROJECTION) {
+                    attached = true
+                    rebuildSpeakerChips()
+                    startTimer()
+                }
+            }
+            RecordingStartStage.Resume.WAIT_FOR_START -> {
+                startWaitDeadline = SystemClock.elapsedRealtime() + START_WAIT_MS
+                handler.post(awaitStart)
+            }
+            RecordingStartStage.Resume.SHOW_MIC_DENIED ->
+                statusView.text = getString(R.string.mic_permission_denied)
+            RecordingStartStage.Resume.CLOSE -> finish()
         }
     }
 
@@ -367,6 +457,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private fun attachExistingSession(svc: RecordingService) {
         attached = true
+        startStage = RecordingStartStage.STARTED
         suppressWatchers = true
         titleInput.setText(svc.titleValue())
         attendeesInput.setText(svc.attendeesValue())
@@ -381,11 +472,19 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         statusView.text = svc.currentStatusText()
         applyCaptureMode(svc.capturesAudioOnly())
         applyPausedUi(svc.paused)
+        // Re-created while the session was saving: a second Finish would open
+        // the meeting before the save that the first one started has landed.
+        if (svc.currentStatus() == RecordingService.Status.FINISHING) {
+            finishButton.isEnabled = false
+            pauseButton.isEnabled = false
+        }
         rebuildSpeakerChips()
         startTimer()
     }
 
     private fun startNewSession() {
+        // A late or repeated permission result must not start a second time.
+        if (attached) return
         attached = true
         // A nudge names the meeting. The service gets this on its start
         // Intent (see EXTRA_INITIAL_TITLE); this only mirrors it into the
@@ -418,8 +517,10 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
                 as android.media.projection.MediaProjectionManager
             try {
+                startStage = RecordingStartStage.AWAITING_PROJECTION
                 projectionConsent.launch(manager.createScreenCaptureIntent())
             } catch (_: Exception) {
+                startStage = RecordingStartStage.STARTED
                 RecordingService.start(this, initialTitle = nudgeTitle)
             }
         } else {
@@ -428,6 +529,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                     this, R.string.device_audio_needs_whisper, Toast.LENGTH_LONG
                 ).show()
             }
+            startStage = RecordingStartStage.STARTED
             RecordingService.start(this, initialTitle = nudgeTitle)
         }
         rebuildSpeakerChips()
@@ -453,6 +555,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         ) {
             ensureNotificationPermissionThenStart()
         } else {
+            startStage = RecordingStartStage.AWAITING_PERMISSION
             ActivityCompat.requestPermissions(
                 this, arrayOf(Manifest.permission.RECORD_AUDIO), PERMISSION_REQUEST
             )
@@ -466,6 +569,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         ) {
             // The recording works without it; we just won't show the ongoing
             // notification. Ask once, then start regardless of the answer.
+            startStage = RecordingStartStage.AWAITING_PERMISSION
             ActivityCompat.requestPermissions(
                 this, arrayOf(Manifest.permission.POST_NOTIFICATIONS), NOTIF_REQUEST
             )
@@ -487,6 +591,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 ) {
                     ensureNotificationPermissionThenStart()
                 } else {
+                    startStage = RecordingStartStage.MIC_DENIED
                     statusView.text = getString(R.string.mic_permission_denied)
                     Toast.makeText(this, R.string.mic_permission_denied, Toast.LENGTH_LONG).show()
                 }
@@ -576,9 +681,11 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     /**
      * "Catch me up": summarizes the meeting so far into a bottom sheet.
-     * Uses the configured LLM when available (portrait-locked screen, so no
-     * rotation can kill the run); otherwise the instant extractive
-     * summarizer — a late joiner gets an answer either way.
+     * Uses the configured LLM when available; otherwise the instant
+     * extractive summarizer — a late joiner gets an answer either way. The
+     * portrait lock no longer holds on large screens at targetSdk 36, so a
+     * rotation can re-create the screen mid-run; the result is then dropped
+     * by the isDestroyed check below and the user simply asks again.
      */
     private fun showCatchUp() {
         if (catchUpRunning) return
@@ -1038,9 +1145,16 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putString(STATE_START_STAGE, startStage.name)
+        pendingPhotoFile?.let { outState.putString(STATE_PENDING_PHOTO, it.absolutePath) }
+    }
+
     override fun onDestroy() {
         handler.removeCallbacks(timerTick)
         handler.removeCallbacks(ambientTick)
+        handler.removeCallbacks(awaitStart)
         stopPulse()
         stopGlow()
         if (bound) {
@@ -1071,6 +1185,13 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         private const val PERMISSION_REQUEST = 4001
         private const val CALENDAR_REQUEST = 4002
         private const val NOTIF_REQUEST = 4003
+
+        private const val STATE_START_STAGE = "recording_start_stage"
+        private const val STATE_PENDING_PHOTO = "recording_pending_photo"
+
+        /** How often, and for how long, a re-created screen waits on a queued start. */
+        private const val START_POLL_MS = 100L
+        private const val START_WAIT_MS = 10_000L
 
         private const val AMBIENT_FRAME_MS = 66L
         private const val GLOW_HALF_PERIOD_MS = 1600L
