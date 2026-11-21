@@ -92,7 +92,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     /**
      * A photo whose result reached a re-created screen before its service
      * connection did (results are delivered at onStart, the bind lands
-     * later). Handed to the session in [onServiceReady].
+     * later). Handed to the session in [onServiceReady]. Saved with the
+     * screen's state too, so a second re-creation inside that window does
+     * not drop it and leave its file behind.
      */
     private var photoAwaitingService: File? = null
     private val takePicture =
@@ -219,6 +221,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         )
         savedInstanceState?.getString(STATE_PENDING_PHOTO)?.let {
             pendingPhotoFile = File(it)
+        }
+        savedInstanceState?.getString(STATE_PHOTO_AWAITING_SERVICE)?.let {
+            photoAwaitingService = File(it)
         }
         ThemeManager.apply(this)
         setContentView(R.layout.activity_recording)
@@ -1149,6 +1154,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         super.onSaveInstanceState(outState)
         outState.putString(STATE_START_STAGE, startStage.name)
         pendingPhotoFile?.let { outState.putString(STATE_PENDING_PHOTO, it.absolutePath) }
+        photoAwaitingService?.let {
+            outState.putString(STATE_PHOTO_AWAITING_SERVICE, it.absolutePath)
+        }
     }
 
     override fun onDestroy() {
@@ -1188,6 +1196,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
         private const val STATE_START_STAGE = "recording_start_stage"
         private const val STATE_PENDING_PHOTO = "recording_pending_photo"
+        private const val STATE_PHOTO_AWAITING_SERVICE = "recording_photo_awaiting_service"
 
         /** How often, and for how long, a re-created screen waits on a queued start. */
         private const val START_POLL_MS = 100L
