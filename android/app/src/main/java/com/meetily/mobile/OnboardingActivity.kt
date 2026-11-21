@@ -11,6 +11,7 @@ class OnboardingActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_onboarding)
+        EdgeToEdge.setUp(this) { root() }
         findViewById<View>(R.id.getStartedButton).setOnClickListener {
             AppSettings(this).onboardingDone = true
             finish()

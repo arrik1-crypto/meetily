@@ -35,6 +35,10 @@ class DigestActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_digest)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.edge_scroll)
+        }
 
         val toolbar = findViewById<MaterialToolbar>(R.id.digestToolbar)
         setSupportActionBar(toolbar)

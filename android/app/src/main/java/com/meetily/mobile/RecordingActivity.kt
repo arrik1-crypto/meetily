@@ -162,6 +162,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_recording)
+        EdgeToEdge.setUp(this)
         deviceAudioRequested =
             intent?.getBooleanExtra(EXTRA_DEVICE_AUDIO, false) == true
         readNudgeExtras(intent)
@@ -256,7 +257,12 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         // Dismissing the keyboard with Back leaves the EditText focused, so
         // focus alone would strand the screen in notes layout — no timer, no
         // recording indicator — for the rest of the session. Watch the IME.
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.recordingRoot)) { _, insets ->
+        // The same listener keeps the screen clear of the system bars and the
+        // keyboard (a view holds one listener): edge-to-edge, the window is
+        // no longer resized for the IME, so the root pads itself by the
+        // keyboard or the navigation bar, whichever is taller.
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.recordingRoot)) { root, insets ->
+            EdgeToEdge.padRoot(root, insets)
             if (!insets.isVisible(WindowInsetsCompat.Type.ime())) dismissNotesFocus()
             insets
         }

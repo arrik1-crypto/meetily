@@ -56,15 +56,20 @@
     </style>
 
     <style name="Theme.Meetily" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- targetSdk 35 enforces edge-to-edge; opt out for now so the
-             existing layouts keep their insets (attr ignored below API 35). -->
-        <item name="android:windowOptOutEdgeToEdgeEnforcement">true</item>
-        <!-- Without these the status bar defaults to colorPrimary and reads as
-             a solid accent band above the pale surface. -->
-        <item name="android:statusBarColor">@color/bg</item>
-        <item name="android:navigationBarColor">@color/bg</item>
+        <!-- Every screen is edge-to-edge (EdgeToEdge.setUp in each activity):
+             the bars are transparent and the layouts take the insets, so the
+             theme no longer sets statusBarColor or navigationBarColor (both
+             deprecated from API 35, and no opt-out from targetSdk 36). These
+             two keep the bar icons dark on the pale day surface and light at
+             night in windows EdgeToEdge does not reach: the launch preview
+             and bottom sheets. -->
         <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
         <item name="android:windowLightNavigationBar">@bool/light_system_bars</item>
+        <!-- The launch preview still paints its status bar from the theme,
+             which falls back to colorPrimaryDark, and Material 3 points that
+             at colorPrimary: a solid accent band above the pale surface. -->
+        <item name="colorPrimaryDark">@color/bg</item>
+        <item name="bottomSheetDialogTheme">@style/ThemeOverlay.Nocturne.BottomSheetDialog</item>
         <!-- Dialogs: appcompat AlertDialog.Builder resolves alertDialogTheme,
              MaterialAlertDialogBuilder resolves materialAlertDialogTheme. Set
              BOTH or dialogs fall back to the unstyled system look. -->
@@ -124,6 +129,16 @@
         <item name="buttonBarPositiveButtonStyle">@style/Widget.Nocturne.DialogButton</item>
         <item name="buttonBarNegativeButtonStyle">@style/Widget.Nocturne.DialogButton</item>
         <item name="buttonBarNeutralButtonStyle">@style/Widget.Nocturne.DialogButton</item>
+    </style>
+
+    <!-- BottomSheetDialog only lays its sheet out edge-to-edge (background
+         on under the navigation bar, content padded above it by
+         Widget.Material3.BottomSheet) when the dialog window's navigation bar
+         is not opaque. With no colour in the app theme the window would get
+         the platform's opaque black bar instead: under a pale sheet, and with
+         the dark day-edition icons on it. -->
+    <style name="ThemeOverlay.Nocturne.BottomSheetDialog" parent="ThemeOverlay.Material3.BottomSheetDialog">
+        <item name="android:navigationBarColor">@android:color/transparent</item>
     </style>
 
     <style name="ShapeAppearance.Nocturne.Dialog" parent="ShapeAppearance.Material3.Corner.ExtraLarge">

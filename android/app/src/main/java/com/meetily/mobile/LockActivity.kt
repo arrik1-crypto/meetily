@@ -22,6 +22,7 @@ class LockActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_lock)
+        EdgeToEdge.setUp(this) { root() }
 
         findViewById<MaterialButton>(R.id.unlockButton).setOnClickListener { showPrompt() }
 

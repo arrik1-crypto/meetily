@@ -24,6 +24,10 @@ class LicensesActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_licenses)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.edge_scroll)
+        }
         findViewById<MaterialToolbar>(R.id.licensesToolbar).setNavigationOnClickListener {
             finish()
         }

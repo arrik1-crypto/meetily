@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- View tag key: the padding a view had before EdgeToEdge added any
+         system-bar, cutout or keyboard inset, so a later dispatch replaces
+         the inset instead of stacking another one on top. -->
+    <item name="edge_base_padding" type="id" />
+</resources>

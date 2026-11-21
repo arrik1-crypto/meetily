@@ -378,6 +378,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, OnboardingActivity::class.java))
         }
         setContentView(R.layout.activity_main)
+        EdgeToEdge.setUp(this) { root() }
 
         store = MeetingStore(this)
         emptyState = findViewById(R.id.emptyState)

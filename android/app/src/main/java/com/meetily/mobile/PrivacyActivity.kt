@@ -10,6 +10,10 @@ class PrivacyActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_privacy)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.edge_scroll)
+        }
         findViewById<MaterialToolbar>(R.id.privacyToolbar).setNavigationOnClickListener {
             finish()
         }

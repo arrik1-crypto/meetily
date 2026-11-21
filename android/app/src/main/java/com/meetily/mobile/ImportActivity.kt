@@ -132,6 +132,7 @@ class ImportActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_import)
+        EdgeToEdge.setUp(this) { root() }
 
         findViewById<MaterialToolbar>(R.id.importToolbar).setNavigationOnClickListener {
             finish() // import keeps running in the service

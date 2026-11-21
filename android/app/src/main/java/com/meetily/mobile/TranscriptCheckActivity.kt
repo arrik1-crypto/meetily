@@ -90,6 +90,7 @@ class TranscriptCheckActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_transcript_check)
+        EdgeToEdge.setUp(this) { root() }
 
         store = MeetingStore(this)
         onBackPressedDispatcher.addCallback(this, applyBackGuard)

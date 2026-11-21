@@ -56,6 +56,10 @@ class FollowUpsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_followups)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.edge_scroll)
+        }
         store = MeetingStore(this)
         list = findViewById(R.id.followUpList)
         emptyView = findViewById(R.id.followUpEmpty)

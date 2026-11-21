@@ -47,6 +47,10 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_pre_brief)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.edge_scroll)
+        }
         store = MeetingStore(this)
         settings = AppSettings(this)
         findViewById<MaterialToolbar>(R.id.briefToolbar).setNavigationOnClickListener {
