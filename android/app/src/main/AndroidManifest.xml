@@ -95,6 +95,11 @@
             android:parentActivityName=".SettingsActivity" />
 
         <activity
+            android:name=".TermsActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity" />
+
+        <activity
             android:name=".OnboardingActivity"
             android:exported="false" />
 

@@ -16,6 +16,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import com.meetily.mobile.licences.ModelTerms
 import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.WhisperModels
@@ -160,6 +161,10 @@ class ModelDownloadService : Service() {
                         }
                     }
                 }
+                // A licence that passes use restrictions on must have been
+                // accepted first (SettingsActivity asks); refusing here, as
+                // an ordinary download error, catches any path that did not.
+                ModelTerms.requireAccepted(this, key)
                 when (kind) {
                     KIND_DIARIZE -> DiarizationModels.download(
                         this, DiarizationModels.byKey(key), onProgress, { cancelled }

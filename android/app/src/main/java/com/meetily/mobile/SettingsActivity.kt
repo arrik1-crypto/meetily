@@ -24,6 +24,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.BackupManager
+import com.meetily.mobile.licences.ModelTerms
 import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.security.AppLock
@@ -365,6 +366,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.licensesLink).setOnClickListener {
             startActivity(Intent(this, LicensesActivity::class.java))
         }
+        findViewById<View>(R.id.termsLink).setOnClickListener {
+            startActivity(Intent(this, TermsActivity::class.java))
+        }
         findViewById<View>(R.id.reportBugLink).setOnClickListener {
             val send = Intent(Intent.ACTION_SEND).apply {
                 type = "text/plain"
@@ -662,7 +666,8 @@ class SettingsActivity : AppCompatActivity() {
                             )
                         ),
                         downloaded = LocalLlmModels.isDownloaded(this, model),
-                        selected = settings.localLlmModel == model.key
+                        selected = settings.localLlmModel == model.key,
+                        licence = ModelTerms.pickerLine(this, model.key)
                     )
                 }
             },
@@ -1024,7 +1029,8 @@ class SettingsActivity : AppCompatActivity() {
                         ),
                         downloaded = com.meetily.mobile.whisper.TranscriptionModels
                             .isDownloaded(this, key),
-                        selected = settings.whisperModel == key
+                        selected = settings.whisperModel == key,
+                        licence = ModelTerms.pickerLine(this, key)
                     )
                 }
             },
@@ -1421,7 +1427,8 @@ class SettingsActivity : AppCompatActivity() {
                             )
                         ),
                         downloaded = DiarizationModels.isDownloaded(this, model),
-                        selected = settings.diarizationModel == model.key
+                        selected = settings.diarizationModel == model.key,
+                        licence = ModelTerms.pickerLine(this, model.key)
                     )
                 }
             },
@@ -1534,6 +1541,21 @@ class SettingsActivity : AppCompatActivity() {
      */
     private fun pickModel(kind: String, key: String) {
         val downloaded = PendingModelSelection.isDownloaded(this, kind, key)
+        // Every download starts here, so this is where a model whose licence
+        // passes use restrictions on to the user waits for their one-time
+        // acceptance. Nothing is parked or selected until they agree; then
+        // the pick runs again and goes through.
+        if (!downloaded && !ModelTerms.mayDownload(this, key)) {
+            val name = when (kind) {
+                ModelDownloadService.KIND_LLM -> LocalLlmModels.byKey(key).displayName
+                ModelDownloadService.KIND_DIARIZE -> DiarizationModels.byKey(key).displayName
+                else -> com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
+            }
+            ModelTerms.confirm(this, key, name) {
+                if (!isFinishing && !isDestroyed) pickModel(kind, key)
+            }
+            return
+        }
         val current = PendingModelSelection.selected(this, kind)
         if (downloaded || current == key ||
             !PendingModelSelection.isDownloaded(this, kind, current)

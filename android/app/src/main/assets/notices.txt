@@ -11,6 +11,23 @@ listed in part two only when you choose to install them. A model's licence is
 set by its publisher and can change; the linked page is authoritative.
 
 
+Built with Llama
+
+    Recap can summarise on the phone with Meta's Llama 3.2 3B Instruct and
+    Llama 3.1 8B Instruct, which you can choose to download in Settings.
+    Their licence agreements are reproduced in part three, and the notices
+    they require are in part two.
+
+
+Model use restrictions
+
+    The licences of the Llama, Gemma and MedGemma models restrict what the
+    models may be used for, and require those restrictions to be passed on
+    to you. They are part of Recap's Terms of Use (Settings > Terms of use),
+    and Recap asks you to accept them once, before the first download of a
+    model under each licence.
+
+
 ================================================================================
 PART ONE - SOFTWARE INCLUDED IN THIS APP
 ================================================================================
@@ -75,10 +92,15 @@ Kotlin Standard Library
 PART TWO - MODELS DOWNLOADED ON DEMAND
 ================================================================================
 
+Each entry names the model, its licence, and where it is downloaded from.
+"Licence: see model page" means the licence was not confirmed from a primary
+source for this release. The publisher's page linked in the entry sets the
+terms; read it before you download the model.
+
 --- Speech recognition: Whisper ---
 
 Whisper (tiny, base, small, large-v3-turbo; several quantised)
-    MIT License
+    Licence: MIT License (code and model weights)
     Copyright (c) 2022 OpenAI
     https://github.com/openai/whisper
     Downloaded in ggml form from the whisper.cpp model repository:
@@ -87,21 +109,23 @@ Whisper (tiny, base, small, large-v3-turbo; several quantised)
 --- Speech recognition: NVIDIA NeMo, converted for sherpa-onnx ---
 
 Parakeet TDT 0.6B v2 (English)
-    Creative Commons Attribution 4.0 International (CC BY 4.0)
-    NVIDIA Corporation
+    Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+    Trained by NVIDIA Corporation
     https://huggingface.co/nvidia/parakeet-tdt-0.6b-v2
-    Downloaded from the sherpa-onnx conversion:
+    Converted to ONNX and quantised to int8 by the sherpa-onnx project, and
+    downloaded from that conversion:
     https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8
 
 Parakeet TDT 0.6B v3 (25 languages)
-    Creative Commons Attribution 4.0 International (CC BY 4.0)
-    NVIDIA Corporation
+    Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+    Trained by NVIDIA Corporation
     https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
-    Downloaded from the sherpa-onnx conversion:
+    Converted to ONNX and quantised to int8 by the sherpa-onnx project, and
+    downloaded from that conversion:
     https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
 
 Nemotron 3.5 ASR Streaming 0.6B (40 language-locales)
-    OpenMDW-1.1 - https://openmdw.ai/license/1-1/
+    Licence: see model page
     NVIDIA Corporation
     https://huggingface.co/nvidia/nemotron-3.5-asr-streaming-0.6b
     Downloaded from the sherpa-onnx conversion:
@@ -109,6 +133,7 @@ Nemotron 3.5 ASR Streaming 0.6B (40 language-locales)
     sherpa-onnx-nemotron-3.5-asr-streaming-0.6b-1120ms-int8-2026-06-11
 
 Nemotron Speech Streaming 0.6B (English)
+    Licence: see model page
     NVIDIA Corporation
     https://huggingface.co/nvidia/nemotron-speech-streaming-en-0.6b
     Downloaded from the sherpa-onnx conversion:
@@ -116,26 +141,26 @@ Nemotron Speech Streaming 0.6B (English)
     sherpa-onnx-nemotron-speech-streaming-en-0.6b-int8-2026-01-14
     Superseded by Nemotron 3.5; kept for installs that already have it.
 
-    The ONNX conversions above are republished by third parties and do not
-    themselves carry licence files. The governing terms are the ones on the
-    NVIDIA model pages linked for each entry.
-
 --- Speaker recognition (used to tell voices apart) ---
 
 WeSpeaker ResNet34 / ResNet152 / ResNet293 (VoxCeleb)
-    Creative Commons Attribution 4.0 International (CC BY 4.0), inherited
-    from the VoxCeleb training data
-    https://github.com/wenet-e2e/wespeaker
-    Downloaded from the sherpa-onnx speaker-recognition model release:
+    Licence: Creative Commons Attribution 4.0 International (CC BY 4.0),
+    which WeSpeaker applies because the models are trained on VoxCeleb
+    https://github.com/wenet-e2e/wespeaker/blob/master/docs/pretrained.md
+    Model metadata added by the sherpa-onnx project; downloaded from its
+    speaker-recognition model release:
     https://github.com/k2-fsa/sherpa-onnx/releases
 
 NeMo TitaNet large / small
+    Licence: see model page
     NVIDIA Corporation
     https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_large
+    https://catalog.ngc.nvidia.com/orgs/nvidia/teams/nemo/models/titanet_small
     Downloaded from the sherpa-onnx speaker-recognition model release:
     https://github.com/k2-fsa/sherpa-onnx/releases
 
 3D-Speaker CAM++ (English + Chinese)
+    Licence: Apache License 2.0
     Alibaba DAMO Academy / 3D-Speaker
     https://github.com/modelscope/3D-Speaker
     Downloaded from the sherpa-onnx speaker-recognition model release:
@@ -143,27 +168,84 @@ NeMo TitaNet large / small
 
 --- Summarisation: local language models (GGUF) ---
 
-Qwen 2.5 0.5B / 1.5B Instruct, Qwen 3.5 9B
-    Alibaba Cloud
-    https://huggingface.co/Qwen
+Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct
+    Licence: Apache License 2.0
+    Alibaba Cloud (Qwen team)
+    https://github.com/QwenLM/Qwen3/blob/v2.5/README.md
+    Downloaded from the Qwen team's own GGUF repositories:
+    https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF
+    https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF
 
-Llama 3.2 3B Instruct, Llama 3.1 8B Instruct
-    Meta Platforms, Inc. - Llama Community License
-    https://www.llama.com/llama-downloads/
+Qwen 3.5 9B
+    Licence: see model page
+    Alibaba Cloud (Qwen team)
+    https://huggingface.co/Qwen/Qwen3.5-9B
+    GGUF conversion downloaded from:
+    https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF
+
+Llama 3.2 3B Instruct - Built with Llama
+    Licence: Llama 3.2 Community License Agreement (full text in part three)
+    Acceptable Use Policy: https://www.llama.com/llama3_2/use-policy
+    Llama 3.2 is licensed under the Llama 3.2 Community License,
+    Copyright © Meta Platforms, Inc. All Rights Reserved.
+    https://www.llama.com/llama-downloads
+    GGUF conversion downloaded from:
+    https://huggingface.co/bartowski/Llama-3.2-3B-Instruct-GGUF
+
+Llama 3.1 8B Instruct - Built with Llama
+    Licence: Llama 3.1 Community License Agreement (full text in part three)
+    Acceptable Use Policy: https://llama.meta.com/llama3_1/use-policy
+    Llama 3.1 is licensed under the Llama 3.1 Community License,
+    Copyright © Meta Platforms, Inc. All Rights Reserved.
+    https://llama.meta.com/llama-downloads
+    GGUF conversion downloaded from:
+    https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF
+
     Llama is a trademark of Meta Platforms, Inc.
 
-Gemma 3 1B / 3 4B / 4 E2B / 4 E4B Instruct, MedGemma 4B
-    Google LLC - Gemma Terms of Use
-    https://ai.google.dev/gemma/terms
-    Gemma is provided under and subject to the Gemma Terms of Use.
+Gemma 3 1B Instruct, Gemma 3 4B Instruct
+    Licence: Gemma Terms of Use (copy in part three)
+    Prohibited Use Policy: https://ai.google.dev/gemma/prohibited_use_policy
+    Gemma is provided under and subject to the Gemma Terms of Use found at
+    ai.google.dev/gemma/terms
+    Google LLC
+    GGUF conversions downloaded from:
+    https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF
+    https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF
+
+Gemma 4 E2B Instruct, Gemma 4 E4B Instruct
+    Licence: see model page
+    Google LLC
+    https://ai.google.dev/gemma/docs/core/model_card_4
+    GGUF conversions downloaded from:
+    https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF
+    https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF
+
+MedGemma 4B
+    Licence: Health AI Developer Foundations Terms of Use (copy in part
+    three). MedGemma is built on Gemma 3, but these terms govern it, not the
+    Gemma Terms of Use.
+    Prohibited Use Policy:
+    https://developers.google.com/health-ai-developer-foundations/prohibited-use-policy
+    HAI-DEF is provided under and subject to the Health AI Developer
+    Foundations Terms of Use found at
+    https://developers.google.com/health-ai-developer-foundations/terms
+    Google LLC
+    https://github.com/Google-Health/medgemma
+    GGUF conversion downloaded from:
+    https://huggingface.co/unsloth/medgemma-4b-it-GGUF
 
 Mistral 7B Instruct v0.3
+    Licence: see model page
     Mistral AI
     https://huggingface.co/mistralai/Mistral-7B-Instruct-v0.3
+    GGUF conversion downloaded from:
+    https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF
 
-    GGUF conversions of the above are downloaded from the quantisation
-    repositories they name in the app's model list (bartowski, unsloth and
-    the publishers' own repositories).
+    The GGUF files above are quantised conversions made by the repositories
+    named for each model (bartowski, unsloth and the publishers' own). They
+    are modified versions of the original weights, and the original licence
+    applies to them.
 
 Summaries produced by these models are drafts. They are not medical, legal or
 professional advice, whichever model made them.
@@ -469,3 +551,737 @@ You are free to share and adapt the material for any purpose, including
 commercially, provided you give appropriate credit, provide a link to the
 licence, and indicate if changes were made. The attributions above are
 given for that purpose.
+
+--------------------------------------------------------------------------------
+Llama 3.2 Community License Agreement
+--------------------------------------------------------------------------------
+
+From https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE
+
+LLAMA 3.2 COMMUNITY LICENSE AGREEMENT
+
+Llama 3.2 Version Release Date: September 25, 2024
+
+“Agreement” means the terms and conditions for use, reproduction, distribution
+and modification of the Llama Materials set forth herein.
+
+
+“Documentation” means the specifications, manuals and documentation accompanying
+Llama 3.2 distributed by Meta at https://www.llama.com/docs/overview.
+
+
+“Licensee” or “you” means you, or your employer or any other person or entity
+(if you are entering into this Agreement on such person or entity’s behalf), of
+the age required under applicable laws, rules or regulations to provide legal
+consent and that has legal authority to bind your employer or such other person
+or entity if you are entering in this Agreement on their behalf.
+
+
+“Llama 3.2” means the foundational large language models and software and
+algorithms, including machine-learning model code, trained model weights,
+inference-enabling code, training-enabling code, fine-tuning enabling code and
+other elements of the foregoing distributed by Meta at
+https://www.llama.com/llama-downloads.
+
+
+“Llama Materials” means, collectively, Meta’s proprietary Llama 3.2 and
+Documentation (and any portion thereof) made available under this Agreement.
+
+
+“Meta” or “we” means Meta Platforms Ireland Limited (if you are located in or,
+if you are an entity, your principal place of business is in the EEA or
+Switzerland) and Meta Platforms, Inc. (if you are located outside of the EEA or
+Switzerland).
+
+
+By clicking “I Accept” below or by using or distributing any portion or element
+of the Llama Materials, you agree to be bound by this Agreement.
+
+
+1. License Rights and Redistribution.
+
+
+    a. Grant of Rights. You are granted a non-exclusive, worldwide,
+    non-transferable and royalty-free limited license under Meta’s intellectual
+    property or other rights owned by Meta embodied in the Llama Materials to
+    use, reproduce, distribute, copy, create derivative works of, and make
+    modifications to the Llama Materials.
+
+
+    b. Redistribution and Use.
+
+
+        i. If you distribute or make available the Llama Materials (or any
+        derivative works thereof), or a product or service (including another AI
+        model) that contains any of them, you shall (A) provide a copy of this
+        Agreement with any such Llama Materials; and (B) prominently display
+        “Built with Llama” on a related website, user interface, blogpost, about
+        page, or product documentation. If you use the Llama Materials or any
+        outputs or results of the Llama Materials to create, train, fine tune,
+        or otherwise improve an AI model, which is distributed or made
+        available, you shall also include “Llama” at the beginning of any such
+        AI model name.
+
+
+        ii. If you receive Llama Materials, or any derivative works thereof,
+        from a Licensee as part of an integrated end user product, then Section
+        2 of this Agreement will not apply to you.
+
+
+        iii. You must retain in all copies of the Llama Materials that you
+        distribute the following attribution notice within a “Notice” text file
+        distributed as a part of such copies: “Llama 3.2 is licensed under the
+        Llama 3.2 Community License, Copyright © Meta Platforms, Inc. All Rights
+        Reserved.”
+
+
+        iv. Your use of the Llama Materials must comply with applicable laws and
+        regulations (including trade compliance laws and regulations) and adhere
+        to the Acceptable Use Policy for the Llama Materials (available at
+        https://www.llama.com/llama3_2/use-policy), which is hereby incorporated
+        by reference into this Agreement.
+
+2. Additional Commercial Terms. If, on the Llama 3.2 version release date, the
+monthly active users of the products or services made available by or for
+Licensee, or Licensee’s affiliates, is greater than 700 million monthly active
+users in the preceding calendar month, you must request a license from Meta,
+which Meta may grant to you in its sole discretion, and you are not authorized
+to exercise any of the rights under this Agreement unless or until Meta
+otherwise expressly grants you such rights.
+
+
+3. Disclaimer of Warranty. UNLESS REQUIRED BY APPLICABLE LAW, THE LLAMA
+MATERIALS AND ANY OUTPUT AND RESULTS THEREFROM ARE PROVIDED ON AN “AS IS” BASIS,
+WITHOUT WARRANTIES OF ANY KIND, AND META DISCLAIMS ALL WARRANTIES OF ANY KIND,
+BOTH EXPRESS AND IMPLIED, INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES OF
+TITLE, NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+YOU ARE SOLELY RESPONSIBLE FOR DETERMINING THE APPROPRIATENESS OF USING OR
+REDISTRIBUTING THE LLAMA MATERIALS AND ASSUME ANY RISKS ASSOCIATED WITH YOUR USE
+OF THE LLAMA MATERIALS AND ANY OUTPUT AND RESULTS.
+
+
+4. Limitation of Liability. IN NO EVENT WILL META OR ITS AFFILIATES BE LIABLE
+UNDER ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, TORT, NEGLIGENCE, PRODUCTS
+LIABILITY, OR OTHERWISE, ARISING OUT OF THIS AGREEMENT, FOR ANY LOST PROFITS OR
+ANY INDIRECT, SPECIAL, CONSEQUENTIAL, INCIDENTAL, EXEMPLARY OR PUNITIVE DAMAGES,
+EVEN IF META OR ITS AFFILIATES HAVE BEEN ADVISED OF THE POSSIBILITY OF ANY OF
+THE FOREGOING.
+
+
+5. Intellectual Property.
+
+
+    a. No trademark licenses are granted under this Agreement, and in connection
+    with the Llama Materials, neither Meta nor Licensee may use any name or mark
+    owned by or associated with the other or any of its affiliates, except as
+    required for reasonable and customary use in describing and redistributing
+    the Llama Materials or as set forth in this Section 5(a). Meta hereby grants
+    you a license to use “Llama” (the “Mark”) solely as required to comply with
+    the last sentence of Section 1.b.i. You will comply with Meta’s brand
+    guidelines (currently accessible at
+    https://about.meta.com/brand/resources/meta/company-brand/). All goodwill
+    arising out of your use of the Mark will inure to the benefit of Meta.
+
+
+    b. Subject to Meta’s ownership of Llama Materials and derivatives made by or
+    for Meta, with respect to any derivative works and modifications of the
+    Llama Materials that are made by you, as between you and Meta, you are and
+    will be the owner of such derivative works and modifications.
+
+
+    c. If you institute litigation or other proceedings against Meta or any
+    entity (including a cross-claim or counterclaim in a lawsuit) alleging that
+    the Llama Materials or Llama 3.2 outputs or results, or any portion of any
+    of the foregoing, constitutes infringement of intellectual property or other
+    rights owned or licensable by you, then any licenses granted to you under
+    this Agreement shall terminate as of the date such litigation or claim is
+    filed or instituted. You will indemnify and hold harmless Meta from and
+    against any claim by any third party arising out of or related to your use
+    or distribution of the Llama Materials.
+
+
+6. Term and Termination. The term of this Agreement will commence upon your
+acceptance of this Agreement or access to the Llama Materials and will continue
+in full force and effect until terminated in accordance with the terms and
+conditions herein. Meta may terminate this Agreement if you are in breach of any
+term or condition of this Agreement. Upon termination of this Agreement, you
+shall delete and cease use of the Llama Materials. Sections 3, 4 and 7 shall
+survive the termination of this Agreement.
+
+
+7. Governing Law and Jurisdiction. This Agreement will be governed and construed
+under the laws of the State of California without regard to choice of law
+principles, and the UN Convention on Contracts for the International Sale of
+Goods does not apply to this Agreement. The courts of California shall have
+exclusive jurisdiction of any dispute arising out of this Agreement.
+
+--------------------------------------------------------------------------------
+Llama 3.1 Community License Agreement
+--------------------------------------------------------------------------------
+
+From https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/LICENSE
+
+ LLAMA 3.1 COMMUNITY LICENSE AGREEMENT
+
+ Llama 3.1 Version Release Date: July 23, 2024
+
+“Agreement” means the terms and conditions for use, reproduction, distribution
+and modification of the Llama Materials set forth herein.
+
+“Documentation” means the specifications, manuals and documentation accompanying
+Llama 3.1 distributed by Meta at https://llama.meta.com/doc/overview.
+
+“Licensee” or “you” means you, or your employer or any other person or entity
+(if you are entering into this Agreement on such person or entity’s behalf), of
+the age required under applicable laws, rules or regulations to provide legal
+consent and that has legal authority to bind your employer or such other person
+or entity if you are entering in this Agreement on their behalf.
+
+“Llama 3.1” means the foundational large language models and software and
+algorithms, including machine-learning model code, trained model weights,
+inference-enabling code, training-enabling code, fine-tuning enabling code and
+other elements of the foregoing distributed by Meta at
+https://llama.meta.com/llama-downloads.
+
+“Llama Materials” means, collectively, Meta’s proprietary Llama 3.1 and
+Documentation (and any portion thereof) made available under this Agreement.
+
+“Meta” or “we” means Meta Platforms Ireland Limited (if you are located in or,
+if you are an entity, your principal place of business is in the EEA or
+Switzerland) and Meta Platforms, Inc. (if you are located outside of the EEA or
+Switzerland).
+
+By clicking “I Accept” below or by using or distributing any portion or element
+of the Llama Materials, you agree to be bound by this Agreement.
+
+1. License Rights and Redistribution.
+    a. Grant of Rights. You are granted a non-exclusive, worldwide,
+    non-transferable and royalty-free limited license under Meta’s intellectual
+    property or other rights owned by Meta embodied in the Llama Materials to
+    use, reproduce, distribute, copy, create derivative works of, and make
+    modifications to the Llama Materials.
+
+    b. Redistribution and Use.
+
+          i. If you distribute or make available the Llama Materials (or any
+          derivative works thereof), or a product or service (including another
+          AI model) that contains any of them, you shall (A) provide a copy of
+          this Agreement with any such Llama Materials; and (B) prominently
+          display “Built with Llama” on a related website, user interface,
+          blogpost, about page, or product documentation. If you use the Llama
+          Materials or any outputs or results of the Llama Materials to create,
+          train, fine tune, or otherwise improve an AI model, which is
+          distributed or made available, you shall also include “Llama” at the
+          beginning of any such AI model name.
+
+          ii. If you receive Llama Materials, or any derivative works thereof,
+          from a Licensee as part of an integrated end user product, then
+          Section 2 of this Agreement will not apply to you.
+
+          iii. You must retain in all copies of the Llama Materials that you
+          distribute the following attribution notice within a “Notice” text
+          file distributed as a part of such copies: “Llama 3.1 is licensed
+          under the Llama 3.1 Community License, Copyright © Meta Platforms,
+          Inc. All Rights Reserved.”
+
+          iv. Your use of the Llama Materials must comply with applicable laws
+          and regulations (including trade compliance laws and regulations) and
+          adhere to the Acceptable Use Policy for the Llama Materials (available
+          at https://llama.meta.com/llama3_1/use-policy), which is hereby
+          incorporated by reference into this Agreement.
+
+2. Additional Commercial Terms. If, on the Llama 3.1 version release date, the
+monthly active users of the products or services made available by or for
+Licensee, or Licensee’s affiliates, is greater than 700 million monthly active
+users in the preceding calendar month, you must request a license from Meta,
+which Meta may grant to you in its sole discretion, and you are not authorized
+to exercise any of the rights under this Agreement unless or until Meta
+otherwise expressly grants you such rights.
+
+3. Disclaimer of Warranty. UNLESS REQUIRED BY APPLICABLE LAW, THE LLAMA
+MATERIALS AND ANY OUTPUT AND RESULTS THEREFROM ARE PROVIDED ON AN “AS IS” BASIS,
+WITHOUT WARRANTIES OF ANY KIND, AND META DISCLAIMS ALL WARRANTIES OF ANY KIND,
+BOTH EXPRESS AND IMPLIED, INCLUDING, WITHOUT LIMITATION, ANY WARRANTIES OF
+TITLE, NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE.
+YOU ARE SOLELY RESPONSIBLE FOR DETERMINING THE APPROPRIATENESS OF USING OR
+REDISTRIBUTING THE LLAMA MATERIALS AND ASSUME ANY RISKS ASSOCIATED WITH YOUR USE
+OF THE LLAMA MATERIALS AND ANY OUTPUT AND RESULTS.
+
+4. Limitation of Liability. IN NO EVENT WILL META OR ITS AFFILIATES BE LIABLE
+UNDER ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, TORT, NEGLIGENCE, PRODUCTS
+LIABILITY, OR OTHERWISE, ARISING OUT OF THIS AGREEMENT, FOR ANY LOST PROFITS OR
+ANY INDIRECT, SPECIAL, CONSEQUENTIAL, INCIDENTAL, EXEMPLARY OR PUNITIVE DAMAGES,
+EVEN IF META OR ITS AFFILIATES HAVE BEEN ADVISED OF THE POSSIBILITY OF ANY OF
+THE FOREGOING.
+
+5. Intellectual Property.
+
+    a. No trademark licenses are granted under this Agreement, and in connection
+    with the Llama Materials, neither Meta nor Licensee may use any name or mark
+    owned by or associated with the other or any of its affiliates, except as
+    required for reasonable and customary use in describing and redistributing
+    the Llama Materials or as set forth in this Section 5(a). Meta hereby grants
+    you a license to use “Llama” (the “Mark”) solely as required to comply with
+    the last sentence of Section 1.b.i. You will comply with Meta’s brand
+    guidelines (currently accessible at
+    https://about.meta.com/brand/resources/meta/company-brand/). All goodwill
+    arising out of your use of the Mark will inure to the benefit of Meta.
+
+    b. Subject to Meta’s ownership of Llama Materials and derivatives made by or
+    for Meta, with respect to any derivative works and modifications of the
+    Llama Materials that are made by you, as between you and Meta, you are and
+    will be the owner of such derivative works and modifications.
+
+    c. If you institute litigation or other proceedings against Meta or any
+    entity (including a cross-claim or counterclaim in a lawsuit) alleging that
+    the Llama Materials or Llama 3.1 outputs or results, or any portion of any
+    of the foregoing, constitutes infringement of intellectual property or other
+    rights owned or licensable by you, then any licenses granted to you under
+    this Agreement shall terminate as of the date such litigation or claim is
+    filed or instituted. You will indemnify and hold harmless Meta from and
+    against any claim by any third party arising out of or related to your use
+    or distribution of the Llama Materials.
+
+6. Term and Termination. The term of this Agreement will commence upon your
+acceptance of this Agreement or access to the Llama Materials and will continue
+in full force and effect until terminated in accordance with the terms and
+conditions herein. Meta may terminate this Agreement if you are in breach of any
+term or condition of this Agreement. Upon termination of this Agreement, you
+shall delete and cease use of the Llama Materials. Sections 3, 4 and 7 shall
+survive the termination of this Agreement.
+
+7. Governing Law and Jurisdiction. This Agreement will be governed and construed
+under the laws of the State of California without regard to choice of law
+principles, and the UN Convention on Contracts for the International Sale of
+Goods does not apply to this Agreement. The courts of California shall have
+exclusive jurisdiction of any dispute arising out of this Agreement.
+
+--------------------------------------------------------------------------------
+Gemma Terms of Use
+--------------------------------------------------------------------------------
+
+Copy of the terms as last modified March 24, 2025, from the
+ScanCode LicenseDB. The current version is at
+https://ai.google.dev/gemma/terms
+
+Gemma Terms of Use
+
+Last modified: March 24, 2025
+
+By using, reproducing, modifying, distributing, performing or displaying any
+portion or element of Gemma, Model Derivatives including via any Hosted Service,
+(each as defined below) (collectively, the "Gemma Services") or otherwise
+accepting the terms of this Agreement, you agree to be bound by this Agreement.
+
+Section 1: DEFINITIONS
+
+1.1 Definitions
+
+(a) "Agreement" or "Gemma Terms of Use" means these terms and conditions that
+govern the use, reproduction, Distribution or modification of the Gemma Services
+and any terms and conditions incorporated by reference.
+
+(b) "Distribution" or "Distribute" means any transmission, publication, or other
+sharing of Gemma or Model Derivatives to a third party, including by providing
+or making Gemma or its functionality available as a hosted service via API, web
+access, or any other electronic or remote means ("Hosted Service").
+
+(c) "Gemma" means the set of machine learning language models, trained model
+weights and parameters identified in the Appendix, regardless of the source that
+you obtained it from.
+
+(d) "Google" means Google LLC.
+
+(e) "Model Derivatives" means all (i) modifications to Gemma, (ii) works based
+on Gemma, or (iii) any other machine learning model which is created by transfer
+of patterns of the weights, parameters, operations, or Output of Gemma, to that
+model in order to cause that model to perform similarly to Gemma, including
+distillation methods that use intermediate data representations or methods based
+on the generation of synthetic data Outputs by Gemma for training that model.
+For clarity, Outputs are not deemed Model Derivatives.
+
+(f) "Output" means the information content output of Gemma or a Model Derivative
+that results from operating or otherwise using Gemma or the Model Derivative,
+including via a Hosted Service.
+
+1.2
+
+As used in this Agreement, "including" means "including without limitation".
+
+Section 2: ELIGIBILITY AND USAGE
+
+2.1 Eligibility
+
+You represent and warrant that you have the legal capacity to enter into this
+Agreement (including being of sufficient age of consent). If you are accessing
+or using any of the Gemma Services for or on behalf of a legal entity, (a) you
+are entering into this Agreement on behalf of yourself and that legal entity,
+(b) you represent and warrant that you have the authority to act on behalf of
+and bind that entity to this Agreement and (c) references to "you" or "your" in
+the remainder of this Agreement refers to both you (as an individual) and that
+entity.
+
+2.2 Use
+
+You may use, reproduce, modify, Distribute, perform or display any of the Gemma
+Services only in accordance with the terms of this Agreement, and must not
+violate (or encourage or permit anyone else to violate) any term of this
+Agreement.
+
+Section 3: DISTRIBUTION AND RESTRICTIONS
+
+3.1 Distribution and Redistribution
+
+You may reproduce or Distribute copies of Gemma or Model Derivatives if you meet
+all of the following conditions:
+
+    You must include the use restrictions referenced in Section 3.2 as an
+    enforceable provision in any agreement (e.g., license agreement, terms of
+    use, etc.) governing the use and/or distribution of Gemma or Model
+    Derivatives and you must provide notice to subsequent users you Distribute
+    to that Gemma or Model Derivatives are subject to the use restrictions in
+    Section 3.2.
+    You must provide all third party recipients of Gemma or Model Derivatives a
+    copy of this Agreement.
+    You must cause any modified files to carry prominent notices stating that
+    you modified the files.
+    All Distributions (other than through a Hosted Service) must be accompanied
+    by a "Notice" text file that contains the following notice: "Gemma is
+    provided under and subject to the Gemma Terms of Use found at
+    ai.google.dev/gemma/terms".
+
+You may add your own intellectual property statement to your modifications and,
+except as set forth in this Section, may provide additional or different terms
+and conditions for use, reproduction, or Distribution of your modifications, or
+for any such Model Derivatives as a whole, provided your use, reproduction,
+modification, Distribution, performance, and display of Gemma otherwise complies
+with the terms and conditions of this Agreement. Any additional or different
+terms and conditions you impose must not conflict with the terms of this
+Agreement.
+
+3.2 Use Restrictions
+
+You must not use any of the Gemma Services:
+
+    for the restricted uses set forth in the Gemma Prohibited Use Policy at
+    ai.google.dev/gemma/prohibited_use_policy ("Prohibited Use Policy"), which
+    is hereby incorporated by reference into this Agreement; or
+    in violation of applicable laws and regulations.
+
+To the maximum extent permitted by law, Google reserves the right to restrict
+(remotely or otherwise) usage of any of the Gemma Services that Google
+reasonably believes are in violation of this Agreement.
+
+3.3 Generated Output
+
+Google claims no rights in Outputs you generate using Gemma. You and your users
+are solely responsible for Outputs and their subsequent uses.
+
+Section 4: ADDITIONAL PROVISIONS
+
+4.1 Updates
+
+Google may update Gemma from time to time.
+
+4.2 Trademarks
+
+Nothing in this Agreement grants you any rights to use Google's trademarks,
+trade names, logos or to otherwise suggest endorsement or misrepresent the
+relationship between you and Google. Google reserves any rights not expressly
+granted herein.
+
+4.3 DISCLAIMER OF WARRANTY
+
+UNLESS REQUIRED BY APPLICABLE LAW, THE GEMMA SERVICES, AND OUTPUTS, ARE PROVIDED
+ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER
+EXPRESS OR IMPLIED, INCLUDING ANY WARRANTIES OR CONDITIONS OF TITLE,
+NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. YOU ARE
+SOLELY RESPONSIBLE FOR DETERMINING THE APPROPRIATENESS OF USING, REPRODUCING,
+MODIFYING, PERFORMING, DISPLAYING OR DISTRIBUTING ANY OF THE GEMMA SERVICES OR
+OUTPUTS AND ASSUME ANY AND ALL RISKS ASSOCIATED WITH YOUR USE OR DISTRIBUTION OF
+ANY OF THE GEMMA SERVICES OR OUTPUTS AND YOUR EXERCISE OF RIGHTS AND PERMISSIONS
+UNDER THIS AGREEMENT.
+
+4.4 LIMITATION OF LIABILITY
+
+TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT AND UNDER NO
+LEGAL THEORY, WHETHER IN TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY,
+CONTRACT, OR OTHERWISE, UNLESS REQUIRED BY APPLICABLE LAW, SHALL GOOGLE OR ITS
+AFFILIATES BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY DIRECT, INDIRECT,
+SPECIAL, INCIDENTAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR LOST
+PROFITS OF ANY KIND ARISING FROM THIS AGREEMENT OR RELATED TO, ANY OF THE GEMMA
+SERVICES OR OUTPUTS EVEN IF GOOGLE OR ITS AFFILIATES HAVE BEEN ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGES.
+
+4.5 Term, Termination, and Survival
+
+The term of this Agreement will commence upon your acceptance of this Agreement
+(including acceptance by your use, modification, or Distribution, reproduction,
+performance or display of any portion or element of the Gemma Services) and will
+continue in full force and effect until terminated in accordance with the terms
+of this Agreement. Google may terminate this Agreement if you are in breach of
+any term of this Agreement. Upon termination of this Agreement, you must delete
+and cease use and Distribution of all copies of Gemma and Model Derivatives in
+your possession or control. Sections 1, 2.1, 3.3, 4.2 to 4.9 shall survive the
+termination of this Agreement.
+
+4.6 Governing Law and Jurisdiction
+
+This Agreement will be governed by the laws of the State of California without
+regard to choice of law principles. The UN Convention on Contracts for the
+International Sale of Goods does not apply to this Agreement. The state and
+federal courts of Santa Clara County, California shall have exclusive
+jurisdiction of any dispute arising out of this Agreement.
+
+4.7 Severability
+
+If any provision of this Agreement is held to be invalid, illegal or
+unenforceable, the remaining provisions shall be unaffected thereby and remain
+valid as if such provision had not been set forth herein.
+
+4.8 Entire Agreement
+
+This Agreement states all the terms agreed between the parties and supersedes
+all other agreements between the parties as of the date of acceptance relating
+to its subject matter.
+
+4.9 No Waiver
+
+Google will not be treated as having waived any rights by not exercising (or
+delaying the exercise of) any rights under this Agreement.
+
+--------------------------------------------------------------------------------
+Health AI Developer Foundations Terms of Use
+--------------------------------------------------------------------------------
+
+Copy of the terms as last modified November 15, 2024, from the
+ScanCode LicenseDB. The current version is at
+https://developers.google.com/health-ai-developer-foundations/terms
+
+Health AI Developer Foundations Terms of Use
+
+Last modified: November 15, 2024
+
+By using, reproducing, modifying, distributing, performing, or displaying any
+portion or element of the HAI-DEF Services (as defined below), or otherwise
+accepting these Health AI Developer Foundations Terms of Use (the
+"Agreement"), you agree to be bound by this Agreement.
+
+Section 1: DEFINITIONS
+
+1.1 Definitions
+
+(a) "Clinical Use" means, any use in diagnosis or treatment of patients
+(including as part of a research study).
+
+(b) "Distribution " or "Distribute " means any transmission, publication,
+or other sharing of HAI-DEF or Model Derivatives to a third party, including by
+providing or making HAI-DEF or its functionality available as a hosted service
+via API, web access, or any other electronic or remote means ("Hosted
+Service").
+
+(c) "Google" means Google LLC.
+
+(d) "Health AI Developer Foundations " or "HAI-DEF " means the set of
+machine learning language models, trained model weights, and parameters
+identified at
+developers.google.com/health-ai-developer-foundations,
+regardless of the source that you obtained it from.
+
+(e) "Health AI Developer Foundations Services " or "HAI-DEF Services"
+means collectively HAI-DEF or Model Derivatives, including as may be accessed or
+used via a Hosted Service.
+
+(f) "Health Regulatory Authority" means any regulatory authority that
+oversees health-related products and services, including any national, supra
+national, regional, state, or local regulatory authority, department, bureau,
+commission, council, or other authority that is responsible for granting Health
+Regulatory Authorizations allowing distribution of products, or overseeing the
+development, use, manufacture, transport, storage, or commercialization of
+products and services for the diagnosis, cure, prevention, treatment, and/or
+mitigation of disorders, diseases, or conditions in humans.
+
+(g) "Health Regulatory Authorization" means, with respect to any country or
+jurisdiction, all approvals, registrations, licenses, or authorizations from the
+relevant Regulatory Authority in a country or jurisdiction for conducting
+research, Clinical Use, marketing and/or commercializing of a product or service
+in such country or jurisdiction.
+
+(h) "Model Derivatives" means (i) all modifications to HAI-DEF, (ii) all
+works based on HAI-DEF, or (iii) any other machine learning model which is
+created by transfer of patterns of the weights, parameters, operations, or
+Output of HAI-DEF, to that model in order to cause that model to perform
+similarly to HAI-DEF, including distillation methods that use intermediate data
+representations or methods based on the generation of synthetic data Outputs by
+HAI-DEF for training that model. Outputs are not deemed Model Derivatives.
+
+(i) "Output" means the information content output of HAI-DEF or a Model
+Derivative that results from operating or otherwise using HAI-DEF or the Model
+Derivative, including via a Hosted Service.
+
+1.2
+
+In this Agreement, "including " means "including but not limited to".
+
+Section 2: ELIGIBILITY AND USAGE
+
+2.1 Eligibility
+
+You represent and warrant that you have the legal capacity to enter into this
+Agreement (including being of sufficient age of consent). If you are accessing
+or using any of the HAI-DEF Services for or on behalf of a legal entity, (a) you
+are entering into this Agreement on behalf of yourself and that legal entity,
+(b) you represent and warrant that you have the authority to act on behalf of
+and bind that entity to this Agreement, and (c) references to "you " or
+"your" in the remainder of this Agreement refers to both you (as an
+individual) and that entity.
+
+2.2 Use
+
+You may use, reproduce, modify, Distribute, perform, or display any of the
+HAI-DEF Services only in accordance with the terms of this Agreement, and must
+not violate (or encourage or permit anyone else to violate) any term of this
+Agreement. HAI-DEF's recipe source code, model inference code, model training
+code, utility code, and other source code deliverables are licensed under Apache
+2.0 available at
+https://www.apache.org/licenses/LICENSE-2.0.
+
+Section 3: DISTRIBUTION AND RESTRICTIONS
+
+3.1 Distribution and Redistribution
+
+You may reproduce or Distribute copies of HAI-DEF or Model Derivatives if you
+meet all of the following conditions:
+
+1. You must include the use restrictions in Section 3.2 as an enforceable
+provision in any agreement (e.g., license agreement, terms of use, etc.)
+governing the use and/or Distribution of HAI-DEF or Model Derivatives and you
+must notify subsequent users you Distribute to that HAI-DEF or Model Derivatives
+are subject to the use restrictions in Section 3.2.
+2. You must provide all third party recipients of HAI-DEF or Model Derivatives a
+copy of this Agreement.
+3. You must, when applicable, seek Health Regulatory Authorization from the
+relevant Health Regulatory Authority.
+4. You must cause any modified files to carry prominent notices stating that you
+modified the files.
+5. All Distributions (other than through a Hosted Service) must be accompanied
+by a "Notice " text file that contains the following notice: "HAI-DEF
+   is provided under and subject to the Health AI Developer Foundations Terms
+   of Use found at
+   https://developers.google.com/health-ai-developer-foundations/terms".
+
+You may add your own intellectual property statement to your modifications and,
+except as set forth in this Section, may provide additional or different terms
+and conditions for use, reproduction, or Distribution of your modifications, or
+for any such Model Derivatives as a whole, provided your use, reproduction,
+modification, Distribution, performance, and display of HAI-DEF otherwise
+complies with the terms and conditions of this Agreement. Any additional or
+different terms and conditions you impose must not conflict with the terms of
+this Agreement.
+
+3.2 Use Restrictions
+
+You must not use any of the HAI-DEF Services:
+
+1. for the restricted uses described in the Health AI Developer Foundations
+Prohibited Use Policy at
+https://developers.google.com/health-ai-developer-foundations/prohibited-use-policy
+("Prohibited Use Policy"), which is hereby incorporated by reference into this
+Agreement;
+2. for any use that could cause a Health Regulatory Authority to deem Google to
+be a "manufacturer" of a medical device; or
+3. in violation of applicable laws and regulations.
+
+To the maximum extent permitted by law and without limiting any of Google's
+other rights, Google reserves the right to restrict (remotely or otherwise)
+usage of any of the HAI-DEF Services that Google reasonably believes are in
+violation of this Agreement.
+
+3.3 Generated Output
+
+Google will not claim ownership over any original Outputs you generate using
+HAI-DEF. You acknowledge that Google or HAI-DEF may generate the same or similar
+Outputs for others, including Google, and that Google reserves all of Google's
+rights in the Outputs it generates independently of you. You and your users are
+solely responsible for Outputs and their subsequent uses.
+
+Section 4: ADDITIONAL PROVISIONS
+
+4.1 Updates
+
+Google may update HAI-DEF from time to time.
+
+4.2 Trademarks
+
+Nothing in this Agreement grants you any rights to use Google's trademarks,
+trade names, logos or to otherwise suggest endorsement or misrepresent the
+relationship between you and Google. Google reserves any rights not expressly
+granted herein.
+
+4.3 DISCLAIMER OF WARRANTY
+
+UNLESS REQUIRED BY APPLICABLE LAW, THE HAI-DEF SERVICES AND OUTPUTS ARE PROVIDED
+ON AN "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, EITHER
+EXPRESS OR IMPLIED, INCLUDING ANY WARRANTIES OR CONDITIONS OF TITLE,
+NON-INFRINGEMENT, MERCHANTABILITY, OR FITNESS FOR A PARTICULAR PURPOSE. YOU ARE
+SOLELY RESPONSIBLE FOR DETERMINING THE APPROPRIATENESS OF USING, REPRODUCING,
+MODIFYING, PERFORMING, DISPLAYING, OR DISTRIBUTING ANY OF THE HAI-DEF SERVICES
+OR OUTPUTS AND ASSUME ANY AND ALL RISKS ASSOCIATED WITH YOUR USE OR DISTRIBUTION
+OF ANY OF THE HAI-DEF SERVICES OR OUTPUTS AND YOUR EXERCISE OF RIGHTS AND
+PERMISSIONS UNDER THIS AGREEMENT. YOU AGREE THAT GOOGLE WILL NOT BE DEEMED TO BE
+FURNISHING ANY MEDICAL ADVICE OR HEALTH CARE SERVICES BY VIRTUE OF PROVIDING THE
+HAI-DEF SERVICES.
+
+4.4 LIMITATION OF LIABILITY
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT AND UNDER NO
+LEGAL THEORY, WHETHER IN TORT (INCLUDING NEGLIGENCE), PRODUCT LIABILITY,
+CONTRACT, OR OTHERWISE, UNLESS REQUIRED BY APPLICABLE LAW, WILL GOOGLE OR ITS
+AFFILIATES BE LIABLE TO YOU FOR DAMAGES, INCLUDING ANY DIRECT, INDIRECT,
+SPECIAL, INCIDENTAL, EXEMPLARY, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR LOST
+PROFITS OF ANY KIND ARISING FROM THIS AGREEMENT OR RELATED TO ANY OF THE HAI-DEF
+SERVICES OR OUTPUTS EVEN IF GOOGLE OR ITS AFFILIATES HAVE BEEN ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGES.
+
+4.5 Indemnification
+
+Unless prohibited by applicable law, you will defend and indemnify Google, and
+its affiliates, directors, officers, employees, and contractors against all
+liabilities, damages, losses, costs, fees (including legal fees), and expenses
+relating to any allegations or third-party legal proceeding (including
+regulatory proceedings) to the extent arising from: (a) your violation of any
+term of this Agreement; (b) damage or injury to any person or property as a
+result of your use of HAI-DEF (including your modification, Distribution,
+reproduction, performance, display, or adaptation of HAI-DEF); (c) your gross
+negligence or willful misconduct in connection with HAI-DEF; or (d) any claim
+that any modifications or combinations to HAI-DEF made by you, including Model
+Derivatives, infringe or violate a third party's intellectual property or other
+rights, including applicable privacy or data protection rights.
+
+4.6 Term, Termination, and Survival
+
+The term of this Agreement will commence upon your acceptance of this Agreement
+(including acceptance by your use, modification, or Distribution, reproduction,
+performance, or display of any portion or element of the HAI-DEF Services) and
+will continue in full force and effect until terminated in accordance with the
+terms of this Agreement. Google may terminate this Agreement if you are in
+breach of any term of this Agreement or if Google reasonably determines that a
+Health Regulatory Authority may deem that Google is, or is reasonably likely to
+be considered a "manufacturer" of a medical device in connection with your use
+of the HAI-DEF Services. Upon termination of this Agreement, you must delete and
+cease use and Distribution of all copies of HAI-DEF and Model Derivatives in
+your possession or control. Sections 1, 2.1, 3.3, and 4.2 to 4.7 will survive
+the termination of this Agreement.
+
+4.7 General Legal Terms
+
+This Agreement states all terms agreed between the parties and supersedes all
+other agreements between the parties relating to its subject matter. If any
+provision of this Agreement is held to be invalid, illegal or unenforceable, the
+rest of the Agreement will remain in effect. Google's delay or omission in
+exercising any right under this Agreement will not be treated as a waiver of
+that right. CALIFORNIA LAW WILL GOVERN ALL DISPUTES ARISING OUT OF OR RELATING
+TO THIS AGREEMENT AND THE HAI-DEF SERVICES, REGARDLESS OF ANY CONFLICT OF LAWS
+RULES. THESE DISPUTES WILL BE RESOLVED EXCLUSIVELY IN THE FEDERAL OR STATE
+COURTS OF SANTA CLARA COUNTY, CALIFORNIA, USA, AND THE PARTIES CONSENT TO
+PERSONAL JURISDICTION IN THOSE COURTS.
