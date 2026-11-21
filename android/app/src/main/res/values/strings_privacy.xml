@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- One-time offer to installs kept on Android's speech service when the
+         default engine became on-device (AppSettings.migrateEngineDefault). -->
+    <string name="privacy_engine_notice_title">Transcribe on this phone?</string>
+    <string name="privacy_engine_notice_body">Recap now transcribes meetings on the phone by default. Your meetings still go through Android\'s speech service, which may send the audio to Google\'s servers and keeps no recording to re-transcribe later.\n\nSwitch to on-device transcription? It needs a one-time model download (Settings → Transcription), and you can switch back at any time.</string>
+    <string name="privacy_engine_notice_switch">Use on-device</string>
+    <string name="privacy_engine_notice_keep">Keep current</string>
+
+    <!-- Confirmation when the on-device engine is switched off in Settings. -->
+    <string name="privacy_system_engine_title">Use Android\'s speech service?</string>
+    <string name="privacy_system_engine_body">Android\'s speech service may send meeting audio to Google\'s servers (or your phone maker\'s) to transcribe it, unless \"Prefer on-device transcription\" is on and your phone supports it. It also keeps no recording, so these meetings can\'t be re-transcribed on this phone later.</string>
+    <string name="privacy_system_engine_body_offline">Your phone\'s offline speech model will be used while \"Prefer on-device transcription\" stays on. Android\'s speech service keeps no recording, though, so these meetings can\'t be re-transcribed on this phone later.</string>
+    <string name="privacy_system_engine_confirm">Use speech service</string>
+
+    <!-- A meeting recorded as audio only while no transcription model was
+         downloaded (the first meeting of a fresh install, typically). -->
+    <string name="privacy_transcript_needs_model">No transcript yet. The audio is saved: download a transcription model in Settings → Transcription, then choose ⋮ → Check transcript accuracy to transcribe it on this phone.</string>
+
+    <!-- Shown under the Photos heading of a meeting, where photo text reading
+         (PhotoOcr, Google ML Kit) is offered and runs. -->
+    <string name="privacy_ocr_disclosure">Text in photos is read on this phone, so you can search it and use it in summaries. Google\'s ML Kit, which reads it, sends Google diagnostic data about the device, the app and its performance. Your photos and their text are not sent.</string>
+
+    <!-- TODO(owner): set the date this privacy policy takes effect, and keep
+         it in step with docs/privacy-policy.md. -->
+    <string name="privacy_policy_effective_date" translatable="false">[effective date]</string>
+</resources>

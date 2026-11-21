@@ -626,6 +626,16 @@
         android:textSize="20sp"
         android:textStyle="bold" />
 
+    <!-- Photo text reading (PhotoOcr) runs when a photo is attached here, and
+         on opening a meeting whose photos have not been read yet. -->
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:text="@string/privacy_ocr_disclosure"
+        android:textAppearance="?attr/textAppearanceBodySmall"
+        android:textColor="?attr/colorOnSurfaceVariant" />
+
     <HorizontalScrollView
         android:id="@+id/photoScroll"
         android:layout_width="match_parent"

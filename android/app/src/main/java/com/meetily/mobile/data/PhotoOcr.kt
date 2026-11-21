@@ -12,9 +12,16 @@ import java.io.File
 import java.util.concurrent.Executors
 
 /**
- * On-device OCR for attached photos (ML Kit's bundled Latin recognizer — no
- * network, no Play-services download). Extracted text is stored on the
- * meeting so whiteboard shots become searchable and feed LLM summaries.
+ * On-device OCR for attached photos (ML Kit's bundled Latin recognizer, so no
+ * Play-services model download). Extracted text is stored on the meeting so
+ * whiteboard shots become searchable and feed LLM summaries.
+ *
+ * The photo and its text never leave the phone, but the SDK is not silent:
+ * ML Kit logs device, app and performance diagnostics to Google through its
+ * own transport (MLKitLoggingOptions with enableFirelog=true in the shipped
+ * dex), per Google's ML Kit data disclosure. The meeting screen says so under
+ * Photos (privacy_ocr_disclosure), and so does the privacy policy. Anything
+ * written about this class must not claim "no network".
  */
 object PhotoOcr {
 

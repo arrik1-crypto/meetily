@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Replaces android:usesCleartextTraffic="true", which Android 17 plans to
+  deprecate. The app makes exactly two kinds of HTTP request:
+
+  1. Model downloads (ResumableDownload), from fixed catalogue URLs on
+     huggingface.co and github.com and the CDN hosts they redirect to. Those
+     are https-only in code (every hop, redirects included) and, as a second
+     layer, https-only here.
+
+  2. The AI endpoint the user types in (LlmClient), which may legitimately be
+     plain http to a machine on their own network: Ollama on 192.168.x.y,
+     nas.lan, a Tailscale 100.x address. A network security config cannot
+     express IP ranges or user-entered host names, so the base config has to
+     permit cleartext. EndpointGuard is the enforcement point for that: every
+     request is vetted before it is sent, plain http is refused unless every
+     address the host resolves to is loopback or private, and with Local-only
+     AI on (the default) https is held to the same rule.
+
+  Only the system trust store is used, which is also the platform default
+  for this targetSdk. User-installed CAs are not trusted.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Model download hosts, including the CDN subdomains their download
+         links redirect to (cdn-lfs.huggingface.co, *.hf.co,
+         objects.githubusercontent.com, release-assets.githubusercontent.com). -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">huggingface.co</domain>
+        <domain includeSubdomains="true">hf.co</domain>
+        <domain includeSubdomains="true">github.com</domain>
+        <domain includeSubdomains="true">githubusercontent.com</domain>
+    </domain-config>
+</network-security-config>

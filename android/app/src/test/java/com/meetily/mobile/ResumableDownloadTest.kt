@@ -8,6 +8,7 @@ import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.data.ResumeLogic
 import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.security.ModelIntegrity
+import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.NemoModels
 import com.meetily.mobile.whisper.WhisperModels
 import java.io.ByteArrayInputStream
@@ -104,6 +105,35 @@ class ResumableDownloadTest {
         assertNull(ResumeLogic.resolveRedirect(url, "http://cdn.example/a"))
         assertNull(ResumeLogic.resolveRedirect(url, "ftp://cdn.example/a"))
         assertNull(ResumeLogic.resolveRedirect(url, null))
+    }
+
+    @Test
+    fun downloadsAreHttpsOnlyOnEveryHop() {
+        // The base network security config permits cleartext for LAN AI
+        // endpoints, so this rule is what keeps model files off plain http.
+        assertTrue(ResumeLogic.isHttps(url))
+        assertTrue(ResumeLogic.isHttps("HTTPS://huggingface.co/a"))
+        assertFalse(ResumeLogic.isHttps("http://huggingface.co/a"))
+        assertFalse(ResumeLogic.isHttps("ftp://huggingface.co/a"))
+        assertFalse(ResumeLogic.isHttps("not a url"))
+        assertFalse(ResumeLogic.isHttps(""))
+        // An http page may not redirect to more http either.
+        assertNull(ResumeLogic.resolveRedirect("http://cdn.example/a", "/b"))
+        assertNull(ResumeLogic.resolveRedirect("http://cdn.example/a", "http://cdn.example/b"))
+        assertEquals(
+            "https://cdn.example/b",
+            ResumeLogic.resolveRedirect("http://cdn.example/a", "https://cdn.example/b")
+        )
+    }
+
+    @Test
+    fun cataloguesOnlyListHttpsDownloads() {
+        for (m in LocalLlmModels.ALL) assertTrue(m.key, ResumeLogic.isHttps(m.downloadUrl))
+        for (m in WhisperModels.ALL) assertTrue(m.key, ResumeLogic.isHttps(m.url))
+        for (m in NemoModels.ALL) {
+            for (f in m.files) assertTrue(m.key, ResumeLogic.isHttps(m.urlFor(f)))
+        }
+        for (m in DiarizationModels.ALL) assertTrue(m.key, ResumeLogic.isHttps(m.url))
     }
 
     @Test
@@ -361,6 +391,22 @@ class ResumableDownloadTest {
         } catch (_: ModelIntegrity.IntegrityException) {
         }
         assertFalse(part.exists())
+    }
+
+    @Test
+    fun plainHttpDownloadIsRefusedBeforeAnyRequest() {
+        val server = FakeServer()
+        try {
+            ResumableDownload.download(
+                "http://huggingface.co/org/repo/resolve/main/model.bin",
+                target, "model.bin", dataSha, { false }, { _, _ -> }, server
+            )
+            fail("plain http download accepted")
+        } catch (_: IOException) {
+        }
+        assertTrue(server.requests.isEmpty())
+        assertFalse(target.exists())
+        assertFalse(ResumableDownload.partFile(target).exists())
     }
 
     @Test

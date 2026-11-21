@@ -829,7 +829,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         renderFollowsFrom(m)
         if (tab == Tab.AUDIO) renderAudioTab(m)
         tagHint.text = getString(
-            if (m.segments.isEmpty()) R.string.no_transcript else R.string.tap_to_tag_hint
+            when {
+                m.segments.isNotEmpty() -> R.string.tap_to_tag_hint
+                // Recorded as audio only with no model on the phone: say how
+                // to get the words, not that none were captured.
+                m.audioFile != null && com.meetily.mobile.whisper.TranscriptionModels
+                    .downloadedKeys(this).isEmpty() -> R.string.privacy_transcript_needs_model
+                else -> R.string.no_transcript
+            }
         )
         // Transcript lines belong to the Transcript tab only — and so does
         // the heading that introduces them. On the Summary tab the lines are

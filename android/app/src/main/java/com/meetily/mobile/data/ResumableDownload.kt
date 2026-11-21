@@ -174,8 +174,21 @@ object ResumeLogic {
         status in 400..499 && status != 408 && status != 429
 
     /**
+     * True for an absolute https URL. Model files are only ever fetched over
+     * https, on every hop: the base network security config has to permit
+     * cleartext for LAN AI endpoints, so the platform would not stop a plain
+     * http download, and with no sha256 pinned a file swapped in transit
+     * would load straight into the native runtime.
+     */
+    fun isHttps(url: String): Boolean = try {
+        URL(url).protocol.equals("https", ignoreCase = true)
+    } catch (_: Exception) {
+        false
+    }
+
+    /**
      * Absolute URL for a redirect's Location (which may be relative), or null
-     * when there is none or it would downgrade https to http / leave http(s).
+     * when there is none or it is not https (see [isHttps]).
      */
     fun resolveRedirect(current: String, location: String?): String? {
         if (location.isNullOrBlank()) return null
@@ -189,9 +202,7 @@ object ResumeLogic {
         } catch (_: Exception) {
             return null
         }
-        val proto = next.protocol.lowercase()
-        if (proto != "https" && proto != "http") return null
-        if (from.protocol.equals("https", ignoreCase = true) && proto != "https") return null
+        if (!next.protocol.equals("https", ignoreCase = true)) return null
         return next.toString()
     }
 
@@ -237,6 +248,7 @@ object HttpRangeTransport : RangeTransport {
     override fun open(url: String, headers: Map<String, String>): RangeResponse {
         var current = url
         repeat(MAX_REDIRECTS + 1) {
+            if (!ResumeLogic.isHttps(current)) throw IOException("Model downloads must use https")
             val c = URL(current).openConnection() as HttpURLConnection
             c.connectTimeout = 20_000
             c.readTimeout = 60_000
@@ -351,6 +363,8 @@ object ResumableDownload {
         onBytes: (Long, Long) -> Unit,
         transport: RangeTransport = HttpRangeTransport
     ) {
+        // Before anything touches the disk or the network; see isHttps.
+        if (!ResumeLogic.isHttps(url)) throw IOException("$label must be downloaded over https")
         val key = target.absolutePath
         if (!active.add(key)) throw IOException("$label is already downloading")
         try {

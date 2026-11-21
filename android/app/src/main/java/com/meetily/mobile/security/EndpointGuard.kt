@@ -30,6 +30,13 @@ import java.net.URI
  * narrows the window to the moment between check and connect rather than
  * removing it. Cleartext is confined to the private network by rule 1 either
  * way, and local setups are usually IP literals, which never touch DNS.
+ *
+ * This is also where the app's cleartext policy is enforced. The base config
+ * in res/xml/network_security_config.xml has to permit cleartext, since a
+ * network security config cannot name IP ranges or hosts the user types in,
+ * so the platform will not stop an http request to a public address: rule 1
+ * here does. Model downloads, the only other HTTP client, are https-only in
+ * ResumableDownload and in that config's domain entries.
  */
 object EndpointGuard {
 

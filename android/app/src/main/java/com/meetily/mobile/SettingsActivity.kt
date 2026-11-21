@@ -333,6 +333,7 @@ class SettingsActivity : AppCompatActivity() {
             if (checked && !WhisperModels.isRuntimeAvailable()) {
                 Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG).show()
             }
+            if (!checked) confirmSystemEngine()
         }
         manageModelsButton.setOnClickListener { showModelDialog() }
         diarizeSwitch.setOnCheckedChangeListener { _, _ -> updateDiarizeSection() }
@@ -522,6 +523,33 @@ class SettingsActivity : AppCompatActivity() {
                 settings.autoSummaryEndpointOk = true
             }
             .setNegativeButton(R.string.auto_title_endpoint_no, null)
+            .show()
+    }
+
+    /**
+     * Turning the on-device engine off hands meetings to Android's speech
+     * service, which on most phones is Google's and may send the audio to its
+     * servers, and which leaves no recording to re-transcribe. Said once per
+     * switch-off; Cancel or Back puts the switch back. The cloud half of the
+     * warning is dropped only when the phone's offline recognizer is both
+     * preferred and available, the same test RecordingService.createRecognizer
+     * makes.
+     */
+    private fun confirmSystemEngine() {
+        val offlineRecognizer = offlineSwitch.isChecked &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+            android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.privacy_system_engine_title)
+            .setMessage(
+                if (offlineRecognizer) R.string.privacy_system_engine_body_offline
+                else R.string.privacy_system_engine_body
+            )
+            .setPositiveButton(R.string.privacy_system_engine_confirm, null)
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                whisperSwitch.isChecked = true
+            }
+            .setOnCancelListener { whisperSwitch.isChecked = true }
             .show()
     }
 

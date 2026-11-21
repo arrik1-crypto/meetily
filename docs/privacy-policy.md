@@ -1,84 +1,193 @@
 # Recap — Privacy Policy
 
-_Last updated: July 23, 2026_
+_Effective date: [effective date — set before publishing, and match
+`privacy_policy_effective_date` in the app]_
 
-Recap is a privacy-first meeting recorder, transcriber, and summarizer for
-Android. It records and processes your meetings **on your device**.
+<!-- This page and the in-app policy (privacy_policy_body in
+     android/app/src/main/res/values/strings.xml) must say the same thing.
+     Change both together. -->
 
-## What is stored
+Recap records, transcribes and summarises meetings on your phone. This
+policy explains what the app stores, what can leave your phone and when, and
+how to delete it.
 
-Meeting audio is transcribed to text on the device; the app saves the
-transcript, your notes, summaries, attendee names, speaker tags, action
-items, voice profiles you enroll, and any photos or files you attach. All of
-this is stored in the app's private storage on your phone. No account is
-required, and the developer operates no servers: we never receive, collect,
-or have access to any of your data.
+## In short
 
-## What leaves your device
+- No account, no ads, and no analytics or tracking of Recap's own. The
+  developer runs no servers and receives nothing from the app.
+- Your meetings stay on your phone unless you send them somewhere: by sharing
+  or exporting, by switching to Android's speech service, or by connecting an
+  AI endpoint.
+- Two things use the network without your meeting content: model downloads
+  you ask for, and diagnostics that Google's ML Kit (which reads text in
+  photos) sends to Google.
 
-By default, nothing. Three optional features can send data out, and only
-when you turn them on:
+## What is stored on your phone
 
-- **AI endpoint (optional).** If you configure an OpenAI-compatible endpoint
-  (such as Ollama on your own computer, Groq, or OpenRouter), the meeting
-  transcript, your notes, and attendee names are sent to that endpoint to
-  generate summaries and answers. Data handling is then governed by whoever
-  operates that endpoint. The embedded on-device AI engine, by contrast,
-  never touches the network, and "Local-only AI" is on by default — the app
-  refuses AI endpoints outside your private network.
-- **Cloud speech recognition (optional path).** The system transcription
-  engine may use your device's speech-recognition service, which on many
-  phones may process audio in the cloud. Use the on-device Whisper, Parakeet,
-  or Nemotron engines to keep audio fully on the device.
-- **Model downloads.** Enabling on-device transcription or AI models
-  downloads model files from Hugging Face or GitHub. These downloads send no
-  personal data; they are ordinary file fetches.
+All of this is kept in Recap's private storage, which other apps cannot read:
+
+- Meetings: title, date, transcript with timings and speaker names, your
+  notes, summaries, action items and reminders, highlights, topics, tags and
+  attendee names.
+- Meeting audio, when kept. On-device transcription keeps it by default.
+- Photos you attach, the text read from them, and files you attach.
+- Voice profiles you save: a voiceprint (numbers describing how a person
+  sounds, used to recognise them in later meetings) and the short recordings
+  it was made from. Ask people before saving their voice.
+- Details from your calendar saved with a meeting: the event title, attendee
+  names, and the name and time of an earlier event you link it to.
+- Downloaded transcription and AI models.
+- Settings, including an AI endpoint address and API key if you enter them.
+- Reports of the last three crashes.
+
+## Backups
+
+Recap opts out of Android's cloud backup and device-to-device transfer, so
+Android does not copy any of this off the phone. The in-app backup
+(Settings → Data) writes a file to a place you choose. It contains meetings,
+audio, photos, attached files and voice profiles, can be encrypted with a
+passphrase (AES-256), and never includes settings or API keys.
+
+## Transcription
+
+By default Recap transcribes on the phone with a model you download once
+(Whisper, Parakeet or Nemotron). Until a model is downloaded, meetings are
+recorded as audio only and can be transcribed later. Neither the audio nor the
+words leave the phone. Speaker detection and voice profiles also work entirely
+on the phone.
+
+If you turn off on-device transcription in Settings, Recap uses Android's
+speech service instead. On most phones that service is Google's, and Android
+documents that it is likely to send audio to remote servers; the speech
+provider's own privacy policy then applies. With "Prefer on-device
+transcription" on, phones running Android 12 or later that have an offline
+speech model use that instead. This engine keeps no recording.
+
+## Reading text in photos
+
+Text in photos you attach, such as a whiteboard, is read on the phone with
+Google's ML Kit text recognition, so you can search it and use it in
+summaries. The photos and their text are not sent anywhere for this. ML Kit
+does send Google diagnostic information: details of the device and the app
+(such as phone model, Android version and app version) and performance
+measurements, which may include identifiers used for those diagnostics. ML Kit
+starts with the app, so this can happen even if you never attach a photo.
+Google describes it in its
+[ML Kit data disclosure](https://developers.google.com/ml-kit/android-data-disclosure).
+
+## AI summaries and questions
+
+Summaries, answers, enhanced notes, titles and digests are made on the phone
+unless you set up an AI endpoint: by default with a built-in summariser, or
+with an AI model you download, which never uses the network.
+
+If you turn on an AI endpoint, the meeting's transcript, notes, title,
+attendee names, text from its photos, your name (if you entered it) and the
+instructions of the summary style are sent to the address you entered, with
+your API key. That happens whenever you use an AI feature, or after every
+meeting if you turn on automatic summaries or titles and agree to send them.
+Asking across your library, a pre-meeting brief or a weekly digest sends
+excerpts from several meetings.
+
+Local-only AI is on by default: Recap then sends only to this phone or your
+private network (for example Ollama on your computer), and plain http is never
+used outside your private network. If you turn Local-only AI off and use a
+cloud provider such as Groq or OpenRouter, that provider receives the data and
+its own terms and privacy policy apply.
+
+## Model downloads
+
+Models are downloaded only when you ask, over https, from Hugging Face
+(huggingface.co and its download servers) or GitHub (github.com and its
+download servers). Like any website, they see your IP address, which file is
+requested and the technical details Android sends with a web request, such as
+the Android version and phone model. Their own privacy policies apply. Nothing
+about your meetings is sent.
+
+## Crash and bug reports
+
+If Recap crashes, a report is saved on the phone: the app version, Android
+version, phone model and the technical error, which can include fragments of
+what the app was working on. Recap never sends it. On the next launch you can
+share it through your own share sheet, to whoever you choose, or decline.
+Separately, if your phone shares usage and diagnostics with Google, Android may
+report crashes and freezes of any app, Recap included, to Google Play, which
+shows the developer aggregated statistics. That is a setting of your phone,
+not of Recap.
 
 ## Sharing and export
 
-When you share or export a meeting, a clip, or a backup, you choose where it
-goes; the app never sends anything anywhere on its own. Exported backups can
-be encrypted with a passphrase (AES-256).
+When you share or export a meeting, audio, a clip, action items, a digest or a
+backup, it goes where you choose and is then outside Recap's control. Recap
+never shares your content on its own.
+
+## No analytics, ads or accounts
+
+Recap has no sign-in, shows no ads, and contains no analytics or tracking of
+its own. The developer does not receive, sell or share your data; the
+developer sees only reports or messages you choose to send.
+
+## Permissions
+
+- **Microphone:** to record meetings and voice profiles, only after you start
+  a recording, with a notification showing while it runs.
+- **Screen capture:** only if you choose to record audio from other apps, such
+  as a webinar. Android asks each time, and only the audio is captured, never
+  the screen.
+- **Calendar (optional):** read-only, as described below.
+- **Notifications:** recording, transcription and download progress,
+  reminders and meeting nudges.
+- **Internet:** model downloads, your AI endpoint if you set one up, and ML Kit
+  diagnostics.
+- **Running in the background, starting after a restart, exact alarms and
+  keeping the phone awake:** so recordings, transcriptions and downloads
+  finish with the screen off, and reminders arrive on time.
+
+Photos come from your camera app or the system picker; Recap has no camera or
+photo-library permission.
 
 ## Calendar
 
-If you enable calendar pre-fill or meeting nudges, the app reads event
-titles and attendees (read-only) to pre-fill meetings and remind you to
-record. It never writes to your calendar and never uploads calendar data.
+If you allow calendar access, Recap reads event titles, times and attendees on
+the phone to name meetings, suggest recording when one starts, and link
+follow-on meetings. Attendee email addresses are only used to make up a name
+when an attendee has none, and are not saved. Recap never changes your
+calendar and never sends calendar data anywhere, except as part of a meeting
+you send to an AI endpoint.
 
-## Microphone and screen-capture permissions
+## Deleting your data
 
-The microphone is used only while you are recording a meeting or enrolling a
-voice profile, always behind an explicit start action and a visible ongoing
-notification. The "record device audio" mode uses Android's screen-capture
-consent dialog solely to capture audio from other apps (for example a
-webinar); no screen video is captured or stored.
+Deleting a meeting removes its transcript, audio, photos and attached files
+from the phone. Saved voices are deleted under Settings → Voice profiles, and
+downloaded models from their lists in Settings. To remove everything, clear
+Recap's storage in Android settings or uninstall the app. Copies you exported
+or shared, and anything sent to a speech service or AI endpoint, are outside
+Recap and have to be deleted there.
 
 ## Security
 
-Meeting data is excluded from Android's device and cloud backups. You can
-require your fingerprint, face, or device PIN to open the app, and block
-screenshots and the recents preview.
-
-## Deletion
-
-Deleting a meeting removes its data, audio, and photos from the device.
-Uninstalling the app removes everything.
+You can require your fingerprint, face or screen lock to open Recap, and hide
+meeting content from screenshots and the recent-apps view. Every AI endpoint
+is checked against your Local-only AI setting before anything is sent, and
+model files are only accepted over https.
 
 ## Children
 
-Recap is not directed at children under 13.
+Recap is not directed at children under 13. It does not collect personal
+information from anyone: what it creates stays on the phone unless you send it
+somewhere.
 
-## Consent to record
+## Recording other people
 
-Recording people may require their consent depending on your jurisdiction.
-You are responsible for recording lawfully.
-
-## Contact
-
-Questions about this policy: open an issue on the app's GitHub repository.
+Recording people can require their consent depending on where you are. You
+are responsible for recording lawfully.
 
 ## Changes
 
-If this policy changes, the updated text will be published at this same URL
-with a new "last updated" date.
+If this policy changes, the new version comes with an app update and is
+published at the same web address with a new effective date.
+
+## Contact
+
+Questions or requests about privacy: [support email — the address on Recap's
+Google Play listing, also `support_email` in the app]
