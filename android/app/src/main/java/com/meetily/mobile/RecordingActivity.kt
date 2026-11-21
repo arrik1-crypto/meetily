@@ -381,6 +381,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         statusView.text = svc.currentStatusText()
         applyCaptureMode(svc.capturesAudioOnly())
         applyPausedUi(svc.paused)
+        applyDeviceAudioEndedUi()
         rebuildSpeakerChips()
         startTimer()
     }
@@ -415,13 +416,18 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             android.os.Build.VERSION.SDK_INT >= 29 &&
             whisperReadyForDeviceAudio()
         ) {
-            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
-                as android.media.projection.MediaProjectionManager
-            try {
-                projectionConsent.launch(manager.createScreenCaptureIntent())
-            } catch (_: Exception) {
-                RecordingService.start(this, initialTitle = nudgeTitle)
-            }
+            // Android 15 QPR1+ ends the capture when the screen locks; that
+            // has to be said before the meeting, not found out after it.
+            DeviceAudioLockDialog.showIfNeeded(
+                this, settings,
+                onContinue = { launchProjectionConsent() },
+                onMicrophone = {
+                    Toast.makeText(
+                        this, R.string.devaudio_lock_mic_chosen, Toast.LENGTH_SHORT
+                    ).show()
+                    RecordingService.start(this, initialTitle = nudgeTitle)
+                }
+            )
         } else {
             if (deviceAudioRequested) {
                 Toast.makeText(
@@ -553,6 +559,16 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         statusView.text = text
         if (status == RecordingService.Status.PAUSED) applyPausedUi(true)
         else if (status != RecordingService.Status.FINISHING) applyPausedUi(false)
+        applyDeviceAudioEndedUi()
+    }
+
+    /**
+     * Android ended the device-audio capture, and nothing short of a new
+     * consent brings it back: Resume would only claim to be recording again.
+     * Finish stays, so what was captured can be saved.
+     */
+    private fun applyDeviceAudioEndedUi() {
+        if (service?.deviceAudioEnded == true) pauseButton.isEnabled = false
     }
 
     override fun onFinished(meetingId: String) {
@@ -1057,6 +1073,17 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
      */
     private fun whisperReadyForDeviceAudio(): Boolean =
         settings.transcriptionEngine == "whisper"
+
+    /** The system screen-capture consent; declined or failed means microphone. */
+    private fun launchProjectionConsent() {
+        val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+            as android.media.projection.MediaProjectionManager
+        try {
+            projectionConsent.launch(manager.createScreenCaptureIntent())
+        } catch (_: Exception) {
+            RecordingService.start(this, initialTitle = nudgeTitle)
+        }
+    }
 
     companion object {
         const val EXTRA_DEVICE_AUDIO = "device_audio"

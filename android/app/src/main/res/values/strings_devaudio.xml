@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Device-audio capture and the lock screen. On Android 15 QPR1 and
+         later the system stops a media projection when the screen locks, and
+         device audio rides one. See DeviceAudioLock. -->
+
+    <!-- Shown before the screen-capture consent, Android 15 and later. -->
+    <string name="devaudio_lock_title">Keep the screen unlocked</string>
+    <string name="devaudio_lock_message">Android stops device-audio capture as soon as the screen locks or times out, and Recap can\'t restart it without asking you again.\n\nKeep the phone unlocked with the screen on for the whole meeting. Recap keeps the screen awake while it is in front, but not while you are watching in another app, so set a longer screen timeout first if you need to. If capture does stop, what was recorded up to then is kept.</string>
+    <string name="devaudio_lock_dont_show">Don\'t show this again</string>
+    <string name="devaudio_lock_continue">Continue</string>
+    <string name="devaudio_lock_use_mic">Use microphone</string>
+    <string name="devaudio_lock_mic_chosen">Recording from the microphone instead.</string>
+
+    <!-- Ongoing recording notification. -->
+    <string name="devaudio_notif_live">Recording device audio — keep the screen unlocked</string>
+    <string name="devaudio_notif_ended">Device audio stopped — tap Finish to save</string>
+    <string name="devaudio_notif_ended_detail">Android stopped device-audio capture. It does this when the screen locks or times out, or when screen sharing is stopped. What was recorded up to then is kept: tap Finish to save it, then start a new recording to carry on.</string>
+    <!-- Lock-screen stand-in: says what happened without the meeting title. -->
+    <string name="devaudio_notif_ended_public">Device audio stopped</string>
+</resources>
