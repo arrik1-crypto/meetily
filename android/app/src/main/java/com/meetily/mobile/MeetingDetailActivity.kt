@@ -619,8 +619,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         setContentView(R.layout.activity_detail)
         EdgeToEdge.setUp(this) {
             root(bottom = false)
-            list(R.id.detailRecycler)
-            bar(R.id.playerBar)
+            // The player bar is gone for meetings without audio; whichever
+            // of the two is on the bottom edge takes the navigation bar.
+            listAbove(R.id.detailRecycler, R.id.playerBar)
         }
 
         store = MeetingStore(this)
@@ -2518,10 +2519,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         playerSpeedButton = findViewById(R.id.playerSpeed)
         skipSilenceButton = findViewById(R.id.skipSilenceButton)
         if (audioFileOrNull() == null) {
-            playerBar.visibility = View.GONE
+            showPlayerBar(false)
             return
         }
-        playerBar.visibility = View.VISIBLE
+        showPlayerBar(true)
         playerTime.text = formatClock(0)
         playbackSpeed = settings.playbackSpeed
         renderSpeedLabel()
@@ -2559,6 +2560,16 @@ class MeetingDetailActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(bar: SeekBar?) {}
             override fun onStopTrackingTouch(bar: SeekBar?) {}
         })
+    }
+
+    /**
+     * Shows or hides the player bar. The list below the toolbar takes the
+     * navigation-bar inset only while the bar is gone (EdgeToEdge.listAbove),
+     * and a visibility change does not re-send insets, so ask for them here.
+     */
+    private fun showPlayerBar(shown: Boolean) {
+        playerBar.visibility = if (shown) View.VISIBLE else View.GONE
+        androidx.core.view.ViewCompat.requestApplyInsets(playerBar)
     }
 
     /** The player, only once it is prepared; null while it is still preparing. */

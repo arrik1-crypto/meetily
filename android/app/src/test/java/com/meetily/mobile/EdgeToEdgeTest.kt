@@ -116,6 +116,51 @@ class EdgeToEdgeTest {
     }
 
     @Test
+    fun listAboveAShownBarKeepsItsOwnPadding() {
+        // The bar is on the bottom edge and takes the navigation bar itself.
+        assertEquals(
+            base,
+            EdgeToEdge.listAbovePadding(base, barsBottom = 126, imeBottom = 0, barShown = true)
+        )
+    }
+
+    @Test
+    fun listAboveAGoneBarTakesTheNavigationBar() {
+        assertEquals(
+            EdgeToEdge.bottomPadding(base, 126, 0),
+            EdgeToEdge.listAbovePadding(base, barsBottom = 126, imeBottom = 0, barShown = false)
+        )
+        assertEquals(
+            base,
+            EdgeToEdge.listAbovePadding(base, barsBottom = 126, imeBottom = 900, barShown = false)
+        )
+    }
+
+    @Test
+    fun listAndOptionalBarTakeTheNavigationBarExactlyOnce() {
+        // The meeting screen: root without the bottom, a list, and a player
+        // bar that is only there when the meeting kept its audio. The bar's
+        // padding only counts while it is shown; a gone bar takes no space.
+        for (shown in listOf(true, false)) {
+            for (ime in listOf(0, 40, 126, 900)) {
+                val root = EdgeToEdge.rootPadding(base, portrait, ime, exceptBottom)
+                val list = EdgeToEdge.listAbovePadding(base, portrait.bottom, ime, shown)
+                val bar = EdgeToEdge.bottomPadding(base, portrait.bottom, ime)
+                val added = (root.bottom - base.bottom) + (list.bottom - base.bottom) +
+                    (if (shown) bar.bottom - base.bottom else 0)
+                assertEquals("shown=$shown ime=$ime", maxOf(ime, portrait.bottom), added)
+            }
+        }
+    }
+
+    @Test
+    fun showingAndHidingTheBarMovesTheInsetWithoutStackingIt() {
+        val hidden = EdgeToEdge.listAbovePadding(base, 126, 0, barShown = false)
+        EdgeToEdge.listAbovePadding(base, 126, 0, barShown = true)
+        assertEquals(hidden, EdgeToEdge.listAbovePadding(base, 126, 0, barShown = false))
+    }
+
+    @Test
     fun noInsetsLeavesThePaddingAlone() {
         val none = Edges(0, 0, 0, 0)
         assertEquals(base, EdgeToEdge.rootPadding(base, none, 0, allSides))

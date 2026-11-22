@@ -19,6 +19,7 @@ import com.meetily.mobile.search.MeetingGroups
 import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
+import com.meetily.mobile.summarize.QuotedAiText
 import java.text.DateFormat
 import java.util.Date
 
@@ -163,6 +164,40 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                 Intent(this, MeetingDetailActivity::class.java)
                     .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, last.id)
             )
+        }
+        showLastReport(last, card)
+    }
+
+    private var lastReportButton: MaterialButton? = null
+
+    /**
+     * "Report AI output" for the last-time card's summary. It goes below the
+     * card, not inside it: the whole card is one tap target that opens the
+     * meeting, and its line limit could cut a control off. Hidden while the
+     * card shows extractive key points or the no-summary line, which no
+     * model wrote (QuotedAiText).
+     */
+    private fun showLastReport(last: Meeting, card: View) {
+        val button = lastReportButton ?: AiReport.addButton(card) {}.also {
+            lastReportButton = it
+            // Two report buttons can share this screen; name this one.
+            it.contentDescription = getString(R.string.polish_report_last_time_desc)
+        }
+        val text = QuotedAiText.lastCardText(last.summary, last.summaryModel)
+        button.visibility = if (text == null) View.GONE else View.VISIBLE
+        if (text != null) {
+            button.setOnClickListener {
+                AiReport.show(
+                    this,
+                    AiReport.Subject(
+                        label = getString(R.string.aisafety_report_action),
+                        surface = "pre_meeting_brief_last_time",
+                        text = text,
+                        templateKey = last.summaryTemplate ?: QuotedAiText.UNRECORDED,
+                        modelKey = last.summaryModel
+                    )
+                )
+            }
         }
     }
 
