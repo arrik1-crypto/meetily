@@ -293,6 +293,80 @@ class ExitInfoLogicTest {
         assertEquals("a\nb\n", short)
     }
 
+    /** An ART ANR dump shaped like a real one: a long runtime section first. */
+    private fun anrFixture(statsLines: Int = 300, withMain: Boolean = true): List<String> {
+        val out = mutableListOf(
+            "Subject: Input dispatching timed out (com.meetily.mobile/.MainActivity)",
+            "",
+            "----- pid 4242 at 2026-11-01 10:00:00.000 -----",
+            "Cmd line: com.meetily.mobile",
+            "Build fingerprint: 'google/panther/panther:16/BP2A/1:user/release-keys'",
+            "ABI: 'arm64'",
+            "Build type: optimized",
+            "Zygote loaded classes=21000 post zygote classes=900",
+            "Dumping registered class loaders"
+        )
+        repeat(statsLines) { out += "Dumping cumulative Gc timings $it" }
+        out += "suspend all histogram:\tSum: 1.2ms"
+        out += "DALVIK THREADS (3):"
+        out += "\"Signal Catcher\" daemon prio=10 tid=6 Runnable"
+        repeat(20) { out += "  native: #$it pc 0000 /apex/com.android.art/lib64/libart.so" }
+        out += ""
+        if (withMain) {
+            out += "\"main\" prio=5 tid=1 Native"
+            out += "  | group=\"main\" sCount=1"
+            out += "  at com.meetily.mobile.whisper.WhisperBridge.transcribe(Native method)"
+            out += ""
+        }
+        out += "\"worker\" prio=5 tid=12 Waiting"
+        out += "  at java.lang.Object.wait(Native method)"
+        return out
+    }
+
+    @Test
+    fun anrFocusKeepsTheMainThreadPastALongRuntimeSection() {
+        val fixture = anrFixture()
+        // The plain head of this dump ends before the main thread.
+        val plain = ExitInfoLogic.traceHead(fixture.asSequence())
+        assertFalse(plain.contains("\"main\" prio=5"))
+
+        val focused = ExitInfoLogic.traceHead(ExitInfoLogic.anrFocus(fixture.asSequence()))
+        assertTrue(focused, focused.contains("Subject: Input dispatching timed out"))
+        assertTrue(focused, focused.contains("Cmd line: com.meetily.mobile"))
+        assertTrue(focused, focused.contains("Build type: optimized"))
+        assertTrue(focused, focused.contains("[303 lines of runtime statistics left out]"))
+        assertTrue(focused, focused.contains("DALVIK THREADS (3):"))
+        assertTrue(focused, focused.contains("[22 lines of other threads left out]"))
+        assertTrue(focused, focused.contains("\"main\" prio=5 tid=1 Native"))
+        assertTrue(focused, focused.contains("WhisperBridge.transcribe"))
+        assertTrue(focused, focused.contains("\"worker\" prio=5"))
+        assertFalse(focused, focused.contains("Signal Catcher"))
+        assertFalse(focused, focused.contains("Gc timings"))
+        assertFalse(focused, focused.contains("[trace cut"))
+        // Still under the same cap.
+        assertTrue(focused.lines().size <= ExitInfoLogic.ANR_TRACE_LINES + 2)
+    }
+
+    @Test
+    fun anrFocusFallsBackWhenTheLayoutIsNotArts() {
+        // No thread dump at all: the same as the plain head.
+        val plainText = (1..300).map { "line $it" }
+        assertEquals(
+            ExitInfoLogic.traceHead(plainText.asSequence()),
+            ExitInfoLogic.traceHead(ExitInfoLogic.anrFocus(plainText.asSequence()))
+        )
+        val short = listOf("Subject: x", "Build type: optimized", "Heap: 10% free")
+        assertEquals(short, ExitInfoLogic.anrFocus(short.asSequence()).toList())
+
+        // A dump with no main thread: the dump from its start.
+        val noMain = ExitInfoLogic.traceHead(
+            ExitInfoLogic.anrFocus(anrFixture(statsLines = 10, withMain = false).asSequence())
+        )
+        assertTrue(noMain, noMain.contains("[13 lines of runtime statistics left out]"))
+        assertTrue(noMain, noMain.contains("DALVIK THREADS (3):\n\"Signal Catcher\""))
+        assertTrue(noMain, noMain.contains("\"worker\" prio=5"))
+    }
+
     @Test
     fun renderedExitNamesWhatHappenedAndWhatWasRunning() {
         val e = exit(

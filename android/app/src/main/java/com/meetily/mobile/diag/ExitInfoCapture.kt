@@ -58,16 +58,24 @@ object ExitInfoCapture {
      * written any report it found, so the launch prompt can offer it now
      * rather than next time. Immediately when the scan is done; otherwise
      * when it finishes, or after [PROMPT_WAIT_MS] at the latest.
+     *
+     * Callbacks run in the order given, which MainActivity relies on to put
+     * the crash offer before the resume prompt: one given while earlier ones
+     * still wait for the drain the scan posted goes behind them, even when
+     * the scan has just finished.
      */
     fun whenScanned(callback: () -> Unit) {
+        var done = false
         val now = synchronized(lock) {
-            if (!scanned) waiters += callback
-            scanned
+            done = scanned
+            val runNow = scanned && waiters.isEmpty()
+            if (!runNow) waiters += callback
+            runNow
         }
-        if (now) {
-            callback()
-        } else {
-            main.postDelayed({ drain() }, PROMPT_WAIT_MS)
+        when {
+            now -> callback()
+            done -> main.post { drain() }
+            else -> main.postDelayed({ drain() }, PROMPT_WAIT_MS)
         }
     }
 
@@ -137,14 +145,18 @@ object ExitInfoCapture {
         )
     }
 
-    /** The head of the ANR trace Android took before the kill, if it kept one. */
+    /**
+     * The ANR trace Android took before the kill, if it kept one: its opening
+     * and the main thread's stack (ExitInfoLogic.anrFocus), capped.
+     */
     @RequiresApi(Build.VERSION_CODES.R)
     private fun anrTrace(info: ApplicationExitInfo): String? = try {
         info.traceInputStream?.use { stream ->
             val head = ExitInfoLogic.traceHead(
-                stream.bufferedReader(Charsets.UTF_8).lineSequence()
+                ExitInfoLogic.anrFocus(stream.bufferedReader(Charsets.UTF_8).lineSequence())
             )
-            "--- ANR trace (first ${ExitInfoLogic.ANR_TRACE_LINES} lines at most) ---\n$head"
+            "--- ANR trace (opening and main thread, " +
+                "${ExitInfoLogic.ANR_TRACE_LINES} lines at most) ---\n$head"
         }
     } catch (_: Throwable) {
         null

@@ -353,11 +353,15 @@ class MainActivity : AppCompatActivity() {
      * user decides where (or whether) it goes, via their own share sheet.
      */
     private fun maybeOfferCrashReport() {
+        // One prompt at a time. The resume prompt normally waits for this one
+        // (see onResume); should it be up anyway, the report stays pending
+        // for the next launch rather than opening on top of it.
+        if (interruptedDialog?.isShowing == true) return
         val crash = com.meetily.mobile.diag.CrashLog.pendingCrash(this) ?: return
         // Same offer for a death Android recorded (native crash, ANR, memory
         // kill), worded for it: the app may not have "crashed" as such.
         val fromExitRecord = com.meetily.mobile.diag.CrashLog.isExitReport(crash)
-        androidx.appcompat.app.AlertDialog.Builder(this)
+        crashDialog = AlertDialog.Builder(this)
             .setTitle(
                 if (fromExitRecord) R.string.exitinfo_prompt_title
                 else R.string.crash_prompt_title
@@ -383,8 +387,18 @@ class MainActivity : AppCompatActivity() {
             .setNegativeButton(R.string.crash_dismiss) { _, _ ->
                 com.meetily.mobile.diag.CrashLog.markConsumed(this, crash)
             }
+            // A death during a batch job also left that job to offer back;
+            // its prompt comes once this one is answered. Not while stopped:
+            // the next onResume offers it then.
+            .setOnDismissListener {
+                crashDialog = null
+                if (canOfferInterruptedWork()) offerInterruptedWork()
+            }
             .show()
     }
+
+    /** The crash-report offer while it is up; see maybeOfferCrashReport. */
+    private var crashDialog: AlertDialog? = null
 
     /**
      * Offers the on-device engine, once, to an install that predates it as
@@ -619,8 +633,19 @@ class MainActivity : AppCompatActivity() {
         // so this is the reliable drain trigger — the charger broadcast can
         // only ask the user to come here.
         JobGate.drain(this)
-        offerInterruptedWork()
+        // After the exit-record scan, like the crash offer onCreate queued
+        // first: a native crash, ANR or memory kill during a batch job leaves
+        // both a report and a job to resume, and the report goes first.
+        // Immediate once the scan is done, so only the first resume can wait.
+        com.meetily.mobile.diag.ExitInfoCapture.whenScanned {
+            if (canOfferInterruptedWork()) offerInterruptedWork()
+        }
     }
+
+    /** Visible and not on its way out: the only time a prompt may open. */
+    private fun canOfferInterruptedWork(): Boolean =
+        !isFinishing && !isDestroyed &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.STARTED)
 
     /**
      * Offers back work that died with the process — a force-stop from an ANR
@@ -636,6 +661,8 @@ class MainActivity : AppCompatActivity() {
         // pressed — so an app-lock unlock, or Home and back, used to stack a
         // second identical prompt on the first.
         if (interruptedDialog?.isShowing == true) return
+        // One prompt at a time: the crash offer's dismissal calls this again.
+        if (crashDialog?.isShowing == true) return
         if (!JobGate.canStartBatch()) return
         val queue = com.meetily.mobile.data.JobQueue
         val interrupted = queue.interrupted(queue.load(this))

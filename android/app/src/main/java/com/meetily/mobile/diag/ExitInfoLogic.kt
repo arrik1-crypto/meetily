@@ -93,6 +93,9 @@ object ExitInfoLogic {
     const val ANR_TRACE_LINES = 200
     const val ANR_TRACE_CHARS = 24_000
 
+    /** Most opening lines anrFocus keeps before it looks for the thread dump. */
+    const val ANR_OPENING_LINES = 60
+
     /** Raw tombstone bytes kept beside a report. */
     const val TOMBSTONE_CAP_BYTES = 512 * 1024
 
@@ -308,6 +311,77 @@ object ExitInfoLogic {
         return out.toString()
     }
 
+    /**
+     * The parts of an ANR trace that explain it, in order: the opening (the
+     * subject, the process, and ART's command line, fingerprint, ABI and
+     * build type, through the "Build type:" line, at most
+     * [ANR_OPENING_LINES]), then the thread dump from the main thread on.
+     *
+     * Between the two, ART writes class loaders, libraries, GC timing
+     * histograms and JIT statistics, often hundreds of lines, and its thread
+     * dump starts with the Signal Catcher, the thread taking the dump. So
+     * the plain head of the file can end before the main thread's stack,
+     * the one an ANR is about. What is passed over is marked with a line
+     * saying how much.
+     *
+     * Kept in case the layout is not ART's: with no "DALVIK THREADS" line
+     * the lines after the opening follow as they are, and with no main
+     * thread the dump follows from its start, each up to [ANR_TRACE_LINES]
+     * lines (traceHead caps the whole).
+     */
+    fun anrFocus(lines: Sequence<String>): Sequence<String> = sequence {
+        val source = lines.iterator()
+        var opening = 0
+        while (opening < ANR_OPENING_LINES && source.hasNext()) {
+            val line = source.next()
+            yield(line)
+            opening++
+            if (line.startsWith("Build type:")) break
+        }
+        // Up to the thread dump; what it passes is held back (bounded) for
+        // a trace that has none.
+        val passed = ArrayList<String>()
+        var skipped = 0
+        var dump: String? = null
+        while (source.hasNext()) {
+            val line = source.next()
+            if (line.startsWith(THREAD_DUMP_MARK)) {
+                dump = line
+                break
+            }
+            if (passed.size < ANR_TRACE_LINES) passed += line
+            skipped++
+        }
+        if (dump == null) {
+            yieldAll(passed)
+            return@sequence
+        }
+        if (skipped > 0) yield("[$skipped lines of runtime statistics left out]")
+        yield(dump)
+        // Then on to the main thread, holding back the threads before it in
+        // case it never comes.
+        passed.clear()
+        skipped = 0
+        while (source.hasNext()) {
+            val line = source.next()
+            if (line.startsWith(MAIN_THREAD_MARK)) {
+                if (skipped > 0) yield("[$skipped lines of other threads left out]")
+                yield(line)
+                yieldAll(source)
+                return@sequence
+            }
+            if (passed.size < ANR_TRACE_LINES) passed += line
+            skipped++
+        }
+        yieldAll(passed)
+    }
+
+    /** Opens ART's thread dump: `DALVIK THREADS (25):`. */
+    private const val THREAD_DUMP_MARK = "DALVIK THREADS"
+
+    /** Opens the main thread's entry in it: `"main" prio=5 tid=1 Native`. */
+    private const val MAIN_THREAD_MARK = "\"main\""
+
     /** The line CrashLog.render puts where a Java crash names its thread. */
     fun headline(exits: List<Exit>): String =
         "Exit: " + exits.joinToString(", ") { reasonName(it.reason) } +
@@ -318,7 +392,7 @@ object ExitInfoLogic {
      *
      * [updatedSince]: the app was updated after this exit, so the version in
      * the report header is not the one that died. [trace] is the ANR trace
-     * head or the decoded tombstone, already capped.
+     * excerpt (anrFocus) or the decoded tombstone, already capped.
      */
     fun renderExit(exit: Exit, updatedSince: Boolean, trace: String?): String = buildString {
         append("Reason: ").append(reasonPhrase(exit.reason, exit.description))
