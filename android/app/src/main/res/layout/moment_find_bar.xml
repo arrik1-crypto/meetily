@@ -1,0 +1,75 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Find in meeting (MeetingFindBar): under the meeting screen's toolbar
+     while it is open. Every control is a 48dp target, and the icon-only
+     ones carry labels. The count is spoken politely as it changes. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/momentFindBar"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?android:attr/colorBackground"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:paddingStart="16dp"
+    android:paddingEnd="4dp"
+    android:paddingBottom="4dp"
+    android:visibility="gone">
+
+    <!-- Not saved by the view system: the bar puts its own query back once
+         the meeting has been read (MeetingFindBar.restore). -->
+    <EditText
+        android:id="@+id/momentFindInput"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:background="@drawable/bg_field"
+        android:hint="@string/moment_find_hint"
+        android:imeOptions="actionSearch"
+        android:importantForAutofill="no"
+        android:inputType="text"
+        android:maxLines="1"
+        android:minHeight="48dp"
+        android:paddingHorizontal="12dp"
+        android:saveEnabled="false"
+        android:textColor="?attr/colorOnSurface"
+        android:textColorHint="@color/tx4"
+        android:textSize="14sp" />
+
+    <TextView
+        android:id="@+id/momentFindCount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:gravity="center"
+        android:maxLines="1"
+        android:minWidth="40dp"
+        android:textAppearance="?attr/textAppearanceLabelMedium"
+        android:textColor="?attr/colorOnSurfaceVariant" />
+
+    <ImageButton
+        android:id="@+id/momentFindPrevious"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/moment_find_previous"
+        android:src="@drawable/moment_ic_up"
+        app:tint="?attr/colorOnSurface" />
+
+    <ImageButton
+        android:id="@+id/momentFindNext"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/moment_find_next"
+        android:src="@drawable/moment_ic_down"
+        app:tint="?attr/colorOnSurface" />
+
+    <ImageButton
+        android:id="@+id/momentFindClose"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:background="?attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/moment_find_close"
+        android:src="@drawable/moment_ic_close"
+        app:tint="?attr/colorOnSurfaceVariant" />
+</LinearLayout>

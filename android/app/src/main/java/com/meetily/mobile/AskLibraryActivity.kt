@@ -207,10 +207,16 @@ class AskLibraryActivity : AppCompatActivity() {
                 excerptView.text = hit.excerpts.joinToString("\n") { "“$it”" }
             }
             row.setOnClickListener {
-                startActivity(
-                    Intent(this, MeetingDetailActivity::class.java)
-                        .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, hit.meeting.id)
-                )
+                val open = Intent(this, MeetingDetailActivity::class.java)
+                    .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, hit.meeting.id)
+                    .putExtra(MeetingDetailActivity.EXTRA_TITLE, hit.meeting.title)
+                    .putExtra(MeetingDetailActivity.EXTRA_CREATED_AT_MS, hit.meeting.createdAtMs)
+                // At the moment quoted first, with its term marked by Find in meeting.
+                if (hit.segmentIndex >= 0) {
+                    open.putExtra(MeetingDetailActivity.EXTRA_SEGMENT, hit.segmentIndex)
+                    hit.term?.let { open.putExtra(MeetingDetailActivity.EXTRA_QUERY, it) }
+                }
+                startActivity(open)
             }
             sourcesList.addView(row)
         }

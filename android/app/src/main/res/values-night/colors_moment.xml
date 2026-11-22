@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark: a deep amber under the light transcript text, and a bright
+         one with dark text for the current match. -->
+    <color name="moment_find_match">#5A4A16</color>
+    <color name="moment_find_current">#FFC94D</color>
+    <color name="moment_find_current_text">#1F1400</color>
+</resources>

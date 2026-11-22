@@ -61,6 +61,21 @@
             android:textColor="@color/tx4"
             android:textSize="11sp" />
 
+        <!-- While searching: the words around the match and where they are
+             ("0:42:10 · …the vendor contract is signed…"), match marked.
+             Three lines, since the row is narrow and the match sits early. -->
+        <TextView
+            android:id="@+id/meetingSnippet"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="5dp"
+            android:ellipsize="end"
+            android:lineSpacingMultiplier="1.15"
+            android:maxLines="3"
+            android:textColor="@color/tx2"
+            android:textSize="12sp"
+            android:visibility="gone" />
+
         <!-- Work in flight for THIS meeting (summary, transcription). The
              card already names the meeting, so the label carries only the
              kind and the percentage. -->

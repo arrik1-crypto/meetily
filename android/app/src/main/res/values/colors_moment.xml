@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Search matches: home-list snippets and Find in meeting. Amber, the
+         familiar colour of a find highlight, and apart from the blue accent
+         that a starred line (bg_line_highlight) and the spoken word already
+         use. moment_find_current is the match next and previous are on; its
+         text is drawn in moment_find_current_text. -->
+    <color name="moment_find_match">#FFE7A0</color>
+    <color name="moment_find_current">#F2A21B</color>
+    <color name="moment_find_current_text">#1F1400</color>
+</resources>

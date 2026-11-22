@@ -7,6 +7,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.color.MaterialColors
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.search.HomeSearch
 import java.text.DateFormat
 import java.util.Calendar
 import java.util.Date
@@ -25,7 +26,13 @@ class MeetingAdapter(
 
     private sealed class Row {
         data class Header(val label: String, val count: String) : Row()
-        data class Item(val meeting: Meeting, val time: String, val meta: String) : Row()
+        data class Item(
+            val meeting: Meeting,
+            val time: String,
+            val meta: String,
+            /** While searching, where the meeting matched (bindSnippet). */
+            val moment: HomeSearch.Moment? = null
+        ) : Row()
     }
 
     /** Work in flight for one meeting; [percent] < 0 renders indeterminate. */
@@ -100,7 +107,11 @@ class MeetingAdapter(
      */
     private var metaCache = java.util.IdentityHashMap<Meeting, String>()
 
-    fun submit(meetings: List<Meeting>) {
+    /**
+     * [moments] are, by meeting id, where a search matched: each matching
+     * row shows the words around its match. Empty outside a search.
+     */
+    fun submit(meetings: List<Meeting>, moments: Map<String, HomeSearch.Moment> = emptyMap()) {
         rows.clear()
         val previousMeta = metaCache
         metaCache = java.util.IdentityHashMap(meetings.size)
@@ -130,7 +141,8 @@ class MeetingAdapter(
                     time = timeFormat.format(Date(meeting.createdAtMs)),
                     meta = metaCache.getOrPut(meeting) {
                         previousMeta[meeting] ?: metaLine(meeting)
-                    }
+                    },
+                    moment = moments[meeting.id]
                 )
             )
         }
@@ -181,6 +193,7 @@ class MeetingAdapter(
         val time: TextView = view.findViewById(R.id.meetingTime)
         val title: TextView = view.findViewById(R.id.meetingTitle)
         val meta: TextView = view.findViewById(R.id.meetingMeta)
+        val snippet: TextView = view.findViewById(R.id.meetingSnippet)
         val star: android.widget.ImageButton = view.findViewById(R.id.meetingStar)
         val progressRow: View = view.findViewById(R.id.meetingProgressRow)
         val progressLabel: TextView = view.findViewById(R.id.meetingProgressLabel)
@@ -226,6 +239,7 @@ class MeetingAdapter(
                     h.itemView, h.itemView.context.getString(R.string.a11y_meeting_options)
                 )
                 bindStar(h, meeting)
+                bindSnippet(h, row.moment)
                 bindProgress(h, meeting)
             }
         }
@@ -254,6 +268,64 @@ class MeetingAdapter(
             if (meeting.starred) R.string.unstar_meeting else R.string.star_meeting
         )
         h.star.setOnClickListener { onToggleStar(meeting) }
+    }
+
+    /**
+     * The words around a search match, with the match marked, after where
+     * they are: a time into the recording, or the field they come from. A
+     * screen reader hears them as a sentence, without the ellipses.
+     */
+    private fun bindSnippet(h: ItemHolder, moment: HomeSearch.Moment?) {
+        if (moment == null) {
+            h.snippet.visibility = View.GONE
+            h.snippet.text = null
+            h.snippet.contentDescription = null
+            return
+        }
+        val context = h.itemView.context
+        val snippet = moment.snippet
+        val time = moment.timeLabel
+        val label = time ?: context.getString(
+            when (moment.field) {
+                HomeSearch.Field.NOTES -> R.string.moment_snippet_notes
+                HomeSearch.Field.SUMMARY -> R.string.moment_snippet_summary
+                HomeSearch.Field.ACTION_ITEM -> R.string.moment_snippet_action
+                HomeSearch.Field.PHOTO_TEXT -> R.string.moment_snippet_photo
+                else -> R.string.moment_snippet_summary
+            }
+        )
+        val prefix = "$label · "
+        val text = android.text.SpannableString(prefix + snippet.text)
+        if (snippet.hasMatch) {
+            val start = prefix.length + snippet.matchStart
+            val end = prefix.length + snippet.matchEnd
+            text.setSpan(
+                android.text.style.BackgroundColorSpan(
+                    androidx.core.content.ContextCompat.getColor(context, R.color.moment_find_match)
+                ),
+                start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            text.setSpan(
+                android.text.style.StyleSpan(android.graphics.Typeface.BOLD),
+                start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+        }
+        h.snippet.text = text
+        val words = snippet.spoken()
+        h.snippet.contentDescription = if (time != null) {
+            context.getString(R.string.moment_snippet_a11y_time, time, words)
+        } else {
+            context.getString(
+                when (moment.field) {
+                    HomeSearch.Field.NOTES -> R.string.moment_snippet_a11y_notes
+                    HomeSearch.Field.ACTION_ITEM -> R.string.moment_snippet_a11y_action
+                    HomeSearch.Field.PHOTO_TEXT -> R.string.moment_snippet_a11y_photo
+                    else -> R.string.moment_snippet_a11y_summary
+                },
+                words
+            )
+        }
+        h.snippet.visibility = View.VISIBLE
     }
 
     private fun bindProgress(h: ItemHolder, meeting: Meeting) {

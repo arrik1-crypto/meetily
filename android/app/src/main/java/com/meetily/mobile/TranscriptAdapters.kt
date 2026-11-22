@@ -294,6 +294,69 @@ class TranscriptLinesAdapter(
         notifyItemChanged(position)
     }
 
+    // --- Find in meeting (MeetingFindBar) ------------------------------------
+
+    /**
+     * Where a line's text matches the find bar, as start and end pairs,
+     * worked out as the line is bound: an edited line is never marked at
+     * offsets from before the edit. Null while the bar is closed.
+     */
+    private var findMatcher: ((String) -> IntArray)? = null
+    private var findSegment = -1
+    private var findStart = -1
+
+    /** Behind every match, and behind (with its own text colour) the one the bar is on. */
+    var findMatchColor: Int = 0
+    var findCurrentColor: Int = 0
+    var findCurrentTextColor: Int = 0
+
+    /** Marks every match of [matcher] (null clears them), with the one at [segment] / [start] as current. */
+    fun setFind(matcher: ((String) -> IntArray)?, segment: Int, start: Int) {
+        findMatcher = matcher
+        findSegment = segment
+        findStart = start
+        notifyDataSetChanged()
+    }
+
+    /** Moves the current match, repainting only the lines it leaves and lands on. */
+    fun setFindCurrent(segment: Int, start: Int) {
+        if (segment == findSegment && start == findStart) return
+        val previous = findSegment
+        findSegment = segment
+        findStart = start
+        if (previous != segment) rebindSegment(previous)
+        rebindSegment(segment)
+    }
+
+    /** A line opened at from a search, marked for a moment; -1 when none. */
+    private var flashedSegment = -1
+
+    fun flashSegment(segmentIndex: Int) {
+        val previous = flashedSegment
+        flashedSegment = segmentIndex
+        if (previous != segmentIndex) rebindSegment(previous)
+        rebindSegment(segmentIndex)
+    }
+
+    fun clearFlash() = flashSegment(-1)
+
+    /**
+     * The first line shown at or below adapter [position]: for a chapter
+     * header, that chapter's first line, collapsed or not. -1 below the end.
+     */
+    fun segmentAtOrAfter(position: Int): Int {
+        for (p in position.coerceAtLeast(0) until rows.size) {
+            when (val row = rows[p]) {
+                is Row.LineRow -> return row.segIndex
+                is Row.ChapterRow -> {
+                    val first = segmentChapter.indexOfFirst { it == row.chapterIndex }
+                    if (first >= 0) return first
+                }
+            }
+        }
+        return -1
+    }
+
     fun submit(
         segments: List<TranscriptSegment>,
         chapters: List<com.meetily.mobile.data.Chapter> = emptyList(),
@@ -411,11 +474,16 @@ class TranscriptLinesAdapter(
     /**
      * Expands the chapter owning [segmentIndex] if needed, so callers that
      * scroll to a segment (playback follow, deep links, search hits, jump to
-     * chapter) never target a hidden row.
+     * chapter) never target a hidden row. True when it expanded one: the
+     * rows moved, so a row on screen from before is not where it was.
      */
-    fun ensureVisible(segmentIndex: Int) {
-        val chapter = segmentChapter.getOrNull(segmentIndex) ?: return
-        if (chapter >= 0 && collapsed.remove(chapter)) rebuild()
+    fun ensureVisible(segmentIndex: Int): Boolean {
+        val chapter = segmentChapter.getOrNull(segmentIndex) ?: return false
+        if (chapter >= 0 && collapsed.remove(chapter)) {
+            rebuild()
+            return true
+        }
+        return false
     }
 
     fun update(index: Int, segment: TranscriptSegment) {
@@ -516,6 +584,8 @@ class TranscriptLinesAdapter(
         }
         bindLineText(holder.text, row, holder.itemView)
         when {
+            row.segIndex == flashedSegment ->
+                holder.itemView.setBackgroundResource(R.drawable.moment_bg_line_found)
             row.segIndex == activeSegment ->
                 holder.itemView.setBackgroundResource(R.drawable.bg_line_active)
             segment.highlighted ->
@@ -552,14 +622,20 @@ class TranscriptLinesAdapter(
         val segment = row.segment
         val words = segment.words
         val wordTap = onWordTap
+        val found = findMatcher?.invoke(segment.text)
         if (wordTap == null || words.isNullOrEmpty() || segment.audioMs == null) {
-            view.text = segment.text
+            view.text = if (found == null || found.isEmpty()) {
+                segment.text
+            } else {
+                android.text.SpannableString(segment.text).also { markFound(it, found, row.segIndex) }
+            }
             view.movementMethod = null
             view.isClickable = false
             view.isLongClickable = false
             return
         }
         val span = android.text.SpannableString(segment.text)
+        if (found != null) markFound(span, found, row.segIndex)
         val spokenWord = if (row.segIndex == activeSegment) activeWord else -1
         // TalkBack lists every ClickableSpan as a link, so a forty-word line
         // became forty links to step through. While it is exploring, words
@@ -622,6 +698,31 @@ class TranscriptLinesAdapter(
             view.setOnLongClickListener(null)
             view.isClickable = false
             view.isLongClickable = false
+        }
+    }
+
+    /** Marks the find bar's matches ([found] start/end pairs) in a line's text. */
+    private fun markFound(span: android.text.SpannableString, found: IntArray, segIndex: Int) {
+        var k = 0
+        while (k + 1 < found.size) {
+            val start = found[k]
+            val end = found[k + 1]
+            k += 2
+            if (start < 0 || end > span.length || start >= end) continue
+            val current = segIndex == findSegment && start == findStart
+            val background = if (current) findCurrentColor else findMatchColor
+            if (background != 0) {
+                span.setSpan(
+                    android.text.style.BackgroundColorSpan(background),
+                    start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
+            if (current && findCurrentTextColor != 0) {
+                span.setSpan(
+                    android.text.style.ForegroundColorSpan(findCurrentTextColor),
+                    start, end, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+            }
         }
     }
 

@@ -36,8 +36,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var orbCaption: TextView
     private var allMeetings: List<Meeting> = emptyList()
 
-    /** Meeting id -> lowercased searchable text, built with the library load. */
-    private var searchBlobs: Map<String, String> = emptyMap()
+    /** Meeting id -> lowercased searchable text (HomeSearch.index), built with the library load. */
+    private var searchBlobs: Map<String, HomeSearch.Indexed> = emptyMap()
+
+    /** Where each listed meeting matched the search shown, and that search. */
+    private var shownMoments: Map<String, HomeSearch.Moment> = emptyMap()
+    private var shownQuery = ""
 
     // Library filters: at most one active — flagged, a tag, or a series.
     private var selectedTag: String? = null
@@ -498,6 +502,7 @@ class MainActivity : AppCompatActivity() {
                         .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meeting.id)
                         .putExtra(MeetingDetailActivity.EXTRA_TITLE, meeting.title)
                         .putExtra(MeetingDetailActivity.EXTRA_CREATED_AT_MS, meeting.createdAtMs)
+                        .putMomentExtras(meeting.id)
                 )
             },
             onLongClick = { meeting -> showMeetingActions(meeting) },
@@ -802,7 +807,7 @@ class MainActivity : AppCompatActivity() {
             // lowercase it on EVERY keystroke, on the main thread. A
             // five-character query did that five times over the whole library.
             val blobs = try {
-                loaded.associate { it.id to HomeSearch.blobFor(it) }
+                loaded.associate { it.id to HomeSearch.index(it) }
             } catch (_: Throwable) {
                 emptyMap()
             }
@@ -947,13 +952,21 @@ class MainActivity : AppCompatActivity() {
         val candidates = filtered
         val blobs = searchBlobs
         searchWorker.execute {
+            val moments = HashMap<String, HomeSearch.Moment>()
             val matched = try {
                 candidates.filter { meeting ->
                     // Falls back to the live scan only for a meeting that
                     // arrived after the last load (an import landing
                     // mid-session).
-                    val blob = blobs[meeting.id] ?: HomeSearch.blobFor(meeting)
-                    HomeSearch.matches(blob, query)
+                    val indexed = blobs[meeting.id] ?: HomeSearch.index(meeting)
+                    HomeSearch.matches(indexed.blob, query).also { matches ->
+                        // The line and words to show under the row, found in
+                        // the same blob: no transcript is scanned again.
+                        if (matches) {
+                            HomeSearch.moment(meeting, indexed, query)
+                                ?.let { moments[meeting.id] = it }
+                        }
+                    }
                 }
             } catch (_: Throwable) {
                 return@execute
@@ -962,13 +975,31 @@ class MainActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed || generation != filterGeneration) {
                     return@runOnUiThread
                 }
-                showFiltered(matched)
+                showFiltered(matched, moments, query)
             }
         }
     }
 
-    private fun showFiltered(filtered: List<Meeting>) {
-        adapter.submit(filtered)
+    /**
+     * Opens a search hit at its moment: the transcript line it matched, with
+     * the search ready in Find in meeting when the line's words matched.
+     */
+    private fun Intent.putMomentExtras(meetingId: String): Intent {
+        val moment = shownMoments[meetingId] ?: return this
+        if (moment.segmentIndex < 0) return this
+        putExtra(MeetingDetailActivity.EXTRA_SEGMENT, moment.segmentIndex)
+        if (moment.inLineText) putExtra(MeetingDetailActivity.EXTRA_QUERY, shownQuery)
+        return this
+    }
+
+    private fun showFiltered(
+        filtered: List<Meeting>,
+        moments: Map<String, HomeSearch.Moment> = emptyMap(),
+        query: String = ""
+    ) {
+        shownMoments = moments
+        shownQuery = query
+        adapter.submit(filtered, moments)
         emptyState.visibility = if (allMeetings.isEmpty()) View.VISIBLE else View.GONE
         meetingCount.text = when {
             allMeetings.isEmpty() -> getString(R.string.empty_body)
