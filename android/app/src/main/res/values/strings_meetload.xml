@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Meeting screen: shown under the title and date while a long meeting
+         is read, and spoken politely when it appears (MeetingDetailActivity
+         showLoading). -->
+    <string name="meetload_opening">Opening meeting…</string>
+</resources>

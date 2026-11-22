@@ -396,6 +396,16 @@ class TranscriptLinesAdapter(
         rebuild()
     }
 
+    /** The collapsed chapters by index, to keep the arrangement across a re-created screen. */
+    fun collapsedChapters(): IntArray = collapsed.sorted().toIntArray()
+
+    /** Puts back an arrangement from [collapsedChapters]. */
+    fun setCollapsedChapters(indices: IntArray) {
+        collapsed.clear()
+        indices.forEach { collapsed.add(it) }
+        rebuild()
+    }
+
     val hasChapters: Boolean get() = lastChapters.isNotEmpty()
 
     /**

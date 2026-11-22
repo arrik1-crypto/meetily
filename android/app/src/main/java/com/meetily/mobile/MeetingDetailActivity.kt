@@ -24,6 +24,7 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.ConcatAdapter
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -69,6 +70,13 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var store: MeetingStore
     private lateinit var settings: AppSettings
     private var meeting: Meeting? = null
+
+    /**
+     * The meeting is read off the main thread (onCreate, onMeetingRead);
+     * work that needs it before then waits here. See whenLoaded.
+     */
+    private val loadGate = LoadGate<Meeting>()
+    private var loadModel: MeetingLoadModel? = null
 
     // The document layout above the transcript lives in one pre-inflated
     // header view inside a ConcatAdapter; transcript lines are recycled so
@@ -202,13 +210,26 @@ class MeetingDetailActivity : AppCompatActivity() {
         summaryBound = true
     }
 
+    /** Between onStart and onStop; and whether onStart has run at all. */
+    private var started = false
+    private var hasStarted = false
+
     override fun onStart() {
         super.onStart()
+        started = true
+        hasStarted = true
+        // Nothing to refresh or attach to until the meeting has been read;
+        // onMeetingRead does this itself when the read lands.
         val m = meeting ?: return
+        attachOnStart(m)
+    }
+
+    /** onStart's work, for a screen that has its meeting. */
+    private fun attachOnStart(m: Meeting) {
         // One read, off the main thread, for everything that may have changed
         // while this screen was away: late lines, a summary, enhanced notes,
         // an answer, chapters, an accepted accuracy check. Skipped straight
-        // after onCreate, which has just read the file.
+        // after the screen's own read of the file (onMeetingRead).
         if (skipStartSync) {
             skipStartSync = false
             offerPendingReviews()
@@ -242,6 +263,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        started = false
+        // Away for a while during the read, not just rotated: the file may
+        // have been read before something saved meanwhile (onMeetingRead).
+        if (loadGate.isLoading && !isChangingConfigurations) loadModel?.load?.ownerLeft()
         summaryService?.removeObserver(summaryObserver)
         if (summaryBound) {
             try {
@@ -293,7 +318,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private var summaryDoneWanted = false
     private var offerReviewsWanted = false
 
-    /** onCreate has just read the file, so the first onStart has nothing to fetch. */
+    /** The screen has just read the file, so the next onStart has nothing to fetch. */
     private var skipStartSync = false
 
     private val mainHandler = Handler(Looper.getMainLooper())
@@ -573,39 +598,81 @@ class MeetingDetailActivity : AppCompatActivity() {
      * taken orphaned in filesDir/photos with no error shown.
      */
     private var pendingPhotoFile: File? = null
+
+    /** The camera's answer, held while the meeting is read; saved with the state. */
+    private var pendingPhotoResult: Boolean? = null
     private val takePicture =
         registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
-            val file = pendingPhotoFile
-            pendingPhotoFile = null
-            val m = meeting
-            if (success && file != null && file.exists() && file.length() > 0 && m != null) {
-                m.photos.add(file.name)
-                persist(m)
-                renderPhotos(m)
-                ocrPhoto(m, file.name)
-            } else {
-                file?.delete()
-            }
+            onPhotoResult(success)
         }
+
+    /**
+     * Records the photo just taken once the meeting is in hand. A result
+     * replayed into a re-created screen arrives at its onStart, before the
+     * meeting has been read again; it found no meeting, took the failure
+     * branch and deleted the photo the user had just taken.
+     */
+    private fun onPhotoResult(success: Boolean) {
+        pendingPhotoResult = success
+        whenLoaded(onFailed = { recordPhoto(null) }) { m -> recordPhoto(m) }
+    }
+
+    private fun recordPhoto(m: Meeting?) {
+        val success = pendingPhotoResult ?: return
+        pendingPhotoResult = null
+        val file = pendingPhotoFile
+        pendingPhotoFile = null
+        if (success && file != null && file.exists() && file.length() > 0 && m != null) {
+            m.photos.add(file.name)
+            persist(m)
+            renderPhotos(m)
+            ocrPhoto(m, file.name)
+        } else {
+            file?.delete()
+        }
+    }
+
+    /**
+     * Leaving for good before the read landed: a photo the camera handed
+     * back is still recorded, straight onto the stored meeting, as runCopy
+     * does for a file whose screen went away. Its text is read on the next
+     * visit (backfillPhotoOcr).
+     */
+    private fun recordPhotoUnread() {
+        val success = pendingPhotoResult ?: return
+        pendingPhotoResult = null
+        val file = pendingPhotoFile ?: return
+        pendingPhotoFile = null
+        val meetingId = intent.getStringExtra(EXTRA_MEETING_ID)
+        val store = this.store
+        SYNC_EXECUTOR.execute {
+            val kept = success && meetingId != null && file.length() > 0 &&
+                store.mutate(meetingId) { it.photos.add(file.name) }
+            if (!kept) file.delete()
+        }
+    }
+
+    // Like the camera's, these results can reach a re-created screen before
+    // its meeting has been read, so they wait for it.
     private val pickImage =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            uri?.let { importPhoto(it) }
+            uri?.let { picked -> whenLoaded { importPhoto(picked) } }
         }
     private val pickAttachment =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            uri?.let { importAttachment(it) }
+            uri?.let { picked -> whenLoaded { importAttachment(picked) } }
         }
     private val exportMd =
         registerForActivityResult(ActivityResultContracts.CreateDocument("text/markdown")) { uri ->
-            uri?.let { writeExport(it, isPdf = false) }
+            uri?.let { target -> whenLoaded { writeExport(target, isPdf = false) } }
         }
     private val exportPdf =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/pdf")) { uri ->
-            uri?.let { writeExport(it, isPdf = true) }
+            uri?.let { target -> whenLoaded { writeExport(target, isPdf = true) } }
         }
     private val exportIcs =
         registerForActivityResult(ActivityResultContracts.CreateDocument("text/calendar")) { uri ->
-            uri?.let { writeActionItemsIcs(it) }
+            uri?.let { target -> whenLoaded { writeActionItemsIcs(target) } }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -689,21 +756,18 @@ class MeetingDetailActivity : AppCompatActivity() {
         DisclaimerViews.copyWithNotices(summaryView) { summaryNotices() }
 
         val id = intent.getStringExtra(EXTRA_MEETING_ID)
-        meeting = id?.let { store.load(it) }
-        val m = meeting
-        if (m == null) {
+        if (id == null) {
             Toast.makeText(this, R.string.meeting_not_found, Toast.LENGTH_SHORT).show()
             finish()
             return
         }
-
-        titleView.text = m.title
-        dateView.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-            .format(Date(m.createdAtMs))
-        segmentsSeenThroughMs = com.meetily.mobile.data.MeetingMerge.highWaterMs(m.segments)
-        syncBase = com.meetily.mobile.data.MeetingMerge.snapshot(m)
-        skipStartSync = true
-        renderMeta(m)
+        // The title and date go up at once when they are known without the
+        // file. Everything else waits for the read (onMeetingRead): on a
+        // long meeting that is a megabyte of JSON and its word timings, which
+        // used to be parsed here on the main thread.
+        knownHeader(savedInstanceState)?.let { (title, createdAtMs) ->
+            showHeader(title, createdAtMs)
+        }
 
         headerView.findViewById<View>(R.id.generateButton).setOnClickListener {
             chooseTemplateAndSummarize()
@@ -726,20 +790,144 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         setUpNotesEditor()
 
-        setUpTabs()
         // Before the first render, not after: renderTranscript ->
         // renderFollowsFrom is the only thing that makes the offer card
         // visible, and nothing re-runs it on this path. Setting the flag
         // afterwards left the card hidden on arrival from a finished
         // recording — the one moment it exists for — and then popped it up
         // out of context on the next unrelated re-render.
-        if (savedInstanceState == null &&
-            intent?.getBooleanExtra(EXTRA_OFFER_FOLLOW, false) == true
-        ) {
-            offerFollowLink = true
-            // Removed so a rotation cannot re-show a card already dismissed.
-            intent.removeExtra(EXTRA_OFFER_FOLLOW)
+        if (savedInstanceState == null) {
+            if (intent?.getBooleanExtra(EXTRA_OFFER_FOLLOW, false) == true) {
+                offerFollowLink = true
+                // Removed so a rotation cannot re-show a card already dismissed.
+                intent.removeExtra(EXTRA_OFFER_FOLLOW)
+            }
+        } else {
+            // Carried in the state until answered: a rotation while the
+            // meeting is read must not lose the offer, and one after "Not
+            // now" must not bring it back.
+            offerFollowLink = savedInstanceState.getBoolean(STATE_OFFER_FOLLOW)
         }
+        requestedActionPending = savedInstanceState?.getBoolean(STATE_ACTION_PENDING) ?: true
+        restoreView = savedInstanceState?.getBundle(STATE_VIEW)
+        if (savedInstanceState?.containsKey(STATE_PHOTO_RESULT) == true) {
+            // The camera answered a screen that went before its meeting was
+            // read, so the photo is still to be recorded.
+            onPhotoResult(savedInstanceState.getBoolean(STATE_PHOTO_RESULT))
+        }
+        showLoading()
+        // Last: a read that finished while no screen was attached is handed
+        // over (onMeetingRead) before this returns.
+        val model = ViewModelProvider(this, MeetingLoadModel.FACTORY)[MeetingLoadModel::class.java]
+        loadModel = model
+        model.open(
+            id, store, SYNC_EXECUTOR,
+            wantHeader = headerCreatedAtMs < 0,
+            listener = loadListener
+        )
+    }
+
+    /**
+     * The home screen's long-press sheet and the accuracy check hand work
+     * over as an intent extra so every heavy action keeps its one
+     * implementation here, with its existing service and progress wiring.
+     * Posted so the screen is laid out before a dialog or sheet appears.
+     */
+    private fun runRequestedAction() {
+        // Once per screen, however often it is re-created: the original
+        // intent comes back with a re-created screen, so without this the
+        // rename dialog would reopen (or a summary start twice) on every
+        // configuration change. The flag travels in the saved state, so a
+        // rotation before the read landed still runs it.
+        if (!requestedActionPending) return
+        headerView.post {
+            // Taken only here, by a screen still alive to run it. A
+            // re-creation queued ahead of this post destroys this screen
+            // first; the next one must then still find the action pending in
+            // the saved state and the extra on the intent the two share.
+            if (isFinishing || isDestroyed || !requestedActionPending) return@post
+            requestedActionPending = false
+            if (intent.getBooleanExtra(EXTRA_REGENERATE_SUMMARY, false)) {
+                intent.removeExtra(EXTRA_REGENERATE_SUMMARY)
+                chooseTemplateAndSummarize()
+                return@post
+            }
+            val action = intent.getStringExtra(EXTRA_ACTION) ?: return@post
+            intent.removeExtra(EXTRA_ACTION)
+            when (action) {
+                ACTION_RENAME -> renameMeeting()
+                ACTION_SUMMARIZE -> chooseTemplateAndSummarize()
+                ACTION_TOPICS -> topicsAction()
+                ACTION_CHECK_ACCURACY -> confirmCheckAccuracy()
+                ACTION_SHARE -> shareMeeting()
+            }
+        }
+    }
+
+    // --- Opening the meeting ---------------------------------------------------
+
+    /**
+     * Runs [action] with the meeting once it has been read and rendered, and
+     * at once when it already has. The meeting is read off the main thread,
+     * so this is the way in for anything that needs it straight after
+     * onCreate: a jump to a segment, a find bar, an edit to apply, an
+     * activity result. Main thread only; actions run in the order given.
+     * When the meeting cannot be read the screen shows its error and
+     * finishes, and only [onFailed] runs.
+     */
+    private fun whenLoaded(onFailed: (() -> Unit)? = null, action: (Meeting) -> Unit) {
+        loadGate.whenLoaded(action, onFailed)
+    }
+
+    /** True until the intent's action (runRequestedAction) has run; saved with the state. */
+    private var requestedActionPending = false
+
+    /** Tab, chapters and scroll from the screen before a re-creation, put back once read. */
+    private var restoreView: Bundle? = null
+
+    /** The date the header shows, or -1 while it shows nothing yet. */
+    private var headerCreatedAtMs = -1L
+
+    private val loadListener = object : RetainedLoad.Listener<Meeting, Meeting> {
+        override fun onHeader(header: Meeting) {
+            if (meeting == null) showHeader(header.title, header.createdAtMs)
+        }
+
+        override fun onResult(result: Meeting?) {
+            onMeetingRead(result)
+        }
+    }
+
+    /**
+     * The read has landed. Renders everything onCreate used to render with
+     * the meeting in hand, does onStart's part, then runs the intent's action
+     * and whatever waited (whenLoaded). A missing or unreadable meeting takes
+     * the error path the synchronous read had.
+     */
+    private fun onMeetingRead(read: Meeting?) {
+        if (isFinishing || isDestroyed || !loadGate.isLoading) return
+        val m = read?.takeIf { it.id == intent.getStringExtra(EXTRA_MEETING_ID) }
+        if (m == null) {
+            hideLoading()
+            loadGate.failed()
+            Toast.makeText(this, R.string.meeting_not_found, Toast.LENGTH_SHORT).show()
+            finish()
+            return
+        }
+        meeting = m
+        hideLoading()
+        showHeader(m.title, m.createdAtMs)
+        segmentsSeenThroughMs = com.meetily.mobile.data.MeetingMerge.highWaterMs(m.segments)
+        syncBase = com.meetily.mobile.data.MeetingMerge.snapshot(m)
+        renderMeta(m)
+
+        val view = restoreView
+        restoreView = null
+        if (view != null) restoreTabAndChapters(view)
+        setUpTabs()
+        // Before the first renderTranscript: a restored Audio tab starts
+        // preparing the player there.
+        setUpPlayer()
         renderSummary(m.summary)
         renderActionItems(m)
         renderTranscript(m)
@@ -751,40 +939,167 @@ class MeetingDetailActivity : AppCompatActivity() {
         setNotesMode(viewMode = m.notes.isNotBlank())
         attendeesInput.setText(m.attendeesText())
         tagsInput.setText(m.tags.joinToString(", "))
-        setUpPlayer()
         renderStats(m)
+        if (view != null) restoreScroll(view)
+        invalidateOptionsMenu()
         maybeAutoTitle(m)
-        runRequestedAction(firstCreate = savedInstanceState == null)
+
+        // What onStart could not do without the meeting. Its refresh is
+        // skipped only when this read is as new as the visit: a screen left
+        // and come back to while the file was read may hold a copy from
+        // before a save made meanwhile (a queued summary finishing, enhanced
+        // notes, an accepted accuracy check), which nothing else fetches.
+        val fresh = loadModel?.load?.ownerLeftDuringRead != true
+        when {
+            started -> {
+                skipStartSync = fresh
+                attachOnStart(m)
+            }
+            // The first onStart is still to come, and finds the meeting.
+            !hasStarted -> skipStartSync = fresh
+            // Stopped since: the next onStart reads again, as after any absence.
+            else -> skipStartSync = false
+        }
+        runRequestedAction()
+        loadGate.loaded(m)
     }
 
     /**
-     * The home screen's long-press sheet and the accuracy check hand work
-     * over as an intent extra so every heavy action keeps its one
-     * implementation here, with its existing service and progress wiring.
-     * Posted so the screen is laid out before a dialog or sheet appears.
+     * A title and date to show before the file is read: kept by the screen
+     * before a re-creation, or handed over by the list that opened this one
+     * (EXTRA_TITLE). Null when the read has to supply them.
      */
-    private fun runRequestedAction(firstCreate: Boolean) {
-        // Rotating re-delivers the original intent, so without this the
-        // rename dialog would reopen (or a summary start twice) on every
-        // configuration change.
-        if (!firstCreate) return
-        if (intent.getBooleanExtra(EXTRA_REGENERATE_SUMMARY, false)) {
-            intent.removeExtra(EXTRA_REGENERATE_SUMMARY)
-            headerView.post { chooseTemplateAndSummarize() }
-            return
+    private fun knownHeader(saved: Bundle?): Pair<String, Long>? {
+        saved?.getString(STATE_TITLE)?.let { return it to saved.getLong(STATE_CREATED_AT) }
+        val title = intent.getStringExtra(EXTRA_TITLE) ?: return null
+        val createdAtMs = intent.getLongExtra(EXTRA_CREATED_AT_MS, -1L)
+        return if (createdAtMs >= 0) title to createdAtMs else null
+    }
+
+    private fun showHeader(title: String, createdAtMs: Long) {
+        titleView.text = title
+        dateView.text = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+            .format(Date(createdAtMs))
+        headerCreatedAtMs = createdAtMs
+    }
+
+    /** The header's views below the date while the meeting is read, with their visibility. */
+    private var hiddenWhileLoading: List<Pair<View, Int>> = emptyList()
+    private var loadingRow: View? = null
+    private var loadingLabel: TextView? = null
+
+    /**
+     * Shows the progress row once a read has taken long enough to notice, so
+     * a short meeting opens without a flash of it, and has a screen reader
+     * say so politely.
+     */
+    private val revealLoading = Runnable {
+        val row = loadingRow ?: return@Runnable
+        val label = loadingLabel ?: return@Runnable
+        row.visibility = View.VISIBLE
+        A11y.setStatusText(label, getString(R.string.meetload_opening), announce = true)
+    }
+
+    /**
+     * Holds the screen at its title and date while the meeting is read: the
+     * rest of the header is hidden and a progress row stands in for it. The
+     * attendee and tag fields beside the date go too, since anything typed
+     * there would be overwritten by the meeting's own when the read lands.
+     * The row keeps its space while it waits to appear, so nothing on screen
+     * moves when it does.
+     */
+    private fun showLoading() {
+        val header = headerView as? LinearLayout ?: return
+        var dateRow: View = dateView
+        while (dateRow.parent !== header) dateRow = dateRow.parent as? View ?: return
+        val below = header.indexOfChild(dateRow) + 1
+        val hide = (below until header.childCount).map { header.getChildAt(it) } +
+            listOf<View>(attendeesInput, tagsInput)
+        hiddenWhileLoading = hide.map { it to it.visibility }
+        for (view in hide) view.visibility = View.GONE
+        val label = TextView(this).apply {
+            textSize = 14f
+            setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
         }
-        val action = intent.getStringExtra(EXTRA_ACTION) ?: return
-        intent.removeExtra(EXTRA_ACTION)
-        headerView.post {
-            if (isFinishing || isDestroyed) return@post
-            when (action) {
-                ACTION_RENAME -> renameMeeting()
-                ACTION_SUMMARIZE -> chooseTemplateAndSummarize()
-                ACTION_TOPICS -> topicsAction()
-                ACTION_CHECK_ACCURACY -> confirmCheckAccuracy()
-                ACTION_SHARE -> shareMeeting()
-            }
+        val bar = com.google.android.material.progressindicator.LinearProgressIndicator(this).apply {
+            isIndeterminate = true
+            // The label says what is happening; the bar alone says nothing.
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
+        val row = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(0, dp(28), 0, dp(8))
+            visibility = View.INVISIBLE
+            addView(
+                bar,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                )
+            )
+            addView(
+                label,
+                LinearLayout.LayoutParams(
+                    LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT
+                ).apply { topMargin = dp(10) }
+            )
+        }
+        header.addView(
+            row, below,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT
+            )
+        )
+        loadingRow = row
+        loadingLabel = label
+        mainHandler.postDelayed(revealLoading, LOADING_REVEAL_MS)
+    }
+
+    private fun hideLoading() {
+        mainHandler.removeCallbacks(revealLoading)
+        loadingLabel?.let { A11y.endAnnouncement(it) }
+        loadingRow?.let { row -> (row.parent as? android.view.ViewGroup)?.removeView(row) }
+        loadingRow = null
+        loadingLabel = null
+        for ((view, visibility) in hiddenWhileLoading) view.visibility = visibility
+        hiddenWhileLoading = emptyList()
+    }
+
+    /** Tab, collapsed chapters and scroll position, for the screen after a re-creation. */
+    private fun viewState(): Bundle? {
+        // Re-created again before the read landed: pass on what came in.
+        if (meeting == null) return restoreView
+        val recycler = findViewById<RecyclerView>(R.id.detailRecycler) ?: return null
+        val manager = recycler.layoutManager as? LinearLayoutManager ?: return null
+        val position = manager.findFirstVisibleItemPosition()
+        val top = manager.findViewByPosition(position)?.top ?: recycler.paddingTop
+        return Bundle().apply {
+            putString(VIEW_TAB, tab.name)
+            putBoolean(VIEW_CHAPTERS_ARRANGED, collapsedApplied)
+            putIntArray(VIEW_COLLAPSED, transcriptAdapter.collapsedChapters())
+            putInt(VIEW_POSITION, position)
+            putInt(VIEW_OFFSET, top - recycler.paddingTop)
+        }
+    }
+
+    /** Before the first render: the tab, and the chapters as they were left. */
+    private fun restoreTabAndChapters(state: Bundle) {
+        tab = Tab.entries.firstOrNull { it.name == state.getString(VIEW_TAB) } ?: Tab.SUMMARY
+        if (state.getBoolean(VIEW_CHAPTERS_ARRANGED)) {
+            // Not collapsed all over again on the way back to the transcript.
+            collapsedApplied = true
+            transcriptAdapter.setCollapsedChapters(
+                state.getIntArray(VIEW_COLLAPSED) ?: IntArray(0)
+            )
+        }
+    }
+
+    /** After the render: back to where the list was. */
+    private fun restoreScroll(state: Bundle) {
+        val position = state.getInt(VIEW_POSITION, RecyclerView.NO_POSITION)
+        if (position < 0) return
+        val recycler = findViewById<RecyclerView>(R.id.detailRecycler) ?: return
+        val manager = recycler.layoutManager as? LinearLayoutManager ?: return
+        manager.scrollToPositionWithOffset(position, state.getInt(VIEW_OFFSET))
     }
 
     /** Conversation insights: talk-time bars + monologue/questions/pace line. */
@@ -1207,6 +1522,9 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        // Closed before its meeting was read: the read would otherwise go on
+        // to the end on the worker the next screen opened reads on.
+        if (isFinishing) loadModel?.close()
         saveEdits()
         player?.let { p ->
             if (playerReady && p.isPlaying) {
@@ -1223,6 +1541,11 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        mainHandler.removeCallbacks(revealLoading)
+        // The model outlives a rotation; it must not hold on to this screen.
+        loadModel?.load?.detach(loadListener)
+        // A rotation hands an unrecorded photo on in the saved state.
+        if (isFinishing && !isChangingConfigurations && loadGate.isLoading) recordPhotoUnread()
         playerHandler.removeCallbacks(playerTick)
         playerReady = false
         pendingPlayerAction = null
@@ -1575,6 +1898,15 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         pendingPhotoFile?.let { outState.putString(STATE_PENDING_PHOTO, it.absolutePath) }
+        pendingPhotoResult?.let { outState.putBoolean(STATE_PHOTO_RESULT, it) }
+        outState.putBoolean(STATE_ACTION_PENDING, requestedActionPending)
+        outState.putBoolean(STATE_OFFER_FOLLOW, offerFollowLink)
+        // The next screen shows these at once, before its own read.
+        if (headerCreatedAtMs >= 0) {
+            outState.putString(STATE_TITLE, meeting?.title ?: titleView.text.toString())
+            outState.putLong(STATE_CREATED_AT, headerCreatedAtMs)
+        }
+        viewState()?.let { outState.putBundle(STATE_VIEW, it) }
     }
 
     private fun capturePhoto() {
@@ -2257,6 +2589,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
+        // Every item acts on the meeting, so none is offered before it has
+        // been read; onMeetingRead asks for the menu again once it lands.
+        val loaded = meeting != null
+        for (i in 0 until menu.size()) menu.getItem(i).isEnabled = loaded
         menu.findItem(R.id.action_star)?.setTitle(
             if (meeting?.starred == true) R.string.unstar_meeting else R.string.star_meeting
         )
@@ -2342,6 +2678,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        // The items are disabled until the meeting has been read
+        // (onPrepareOptionsMenu); none of them may run before then, however
+        // it is reached.
+        if (meeting == null) return true
         return when (item.itemId) {
             R.id.action_summarize -> {
                 chooseTemplateAndSummarize()
@@ -3998,6 +4338,30 @@ class MeetingDetailActivity : AppCompatActivity() {
         private const val STATE_PENDING_PHOTO = "pending_photo"
         const val EXTRA_OFFER_FOLLOW = "offer_follow"
         const val EXTRA_MEETING_ID = "meeting_id"
+
+        /**
+         * Optional, together: the meeting's title and createdAtMs, from a
+         * caller that already has them (the home list), so the screen shows
+         * them in its first frame. Without them the read supplies both.
+         */
+        const val EXTRA_TITLE = "meeting_title"
+        const val EXTRA_CREATED_AT_MS = "meeting_created_at_ms"
+
+        /** How long a read may take before the progress row appears. */
+        private const val LOADING_REVEAL_MS = 250L
+
+        // What a re-created screen needs before (and after) its own read.
+        private const val STATE_PHOTO_RESULT = "photo_result"
+        private const val STATE_ACTION_PENDING = "action_pending"
+        private const val STATE_OFFER_FOLLOW = "offer_follow_pending"
+        private const val STATE_TITLE = "header_title"
+        private const val STATE_CREATED_AT = "header_created_at"
+        private const val STATE_VIEW = "view_state"
+        private const val VIEW_TAB = "tab"
+        private const val VIEW_CHAPTERS_ARRANGED = "chapters_arranged"
+        private const val VIEW_COLLAPSED = "collapsed_chapters"
+        private const val VIEW_POSITION = "position"
+        private const val VIEW_OFFSET = "offset"
 
         /** Set by the accuracy check when the user asked to redo the summary. */
         const val EXTRA_REGENERATE_SUMMARY = "regenerate_summary"
