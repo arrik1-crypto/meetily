@@ -1,11 +1,8 @@
 package com.meetily.mobile
 
 import android.os.Bundle
-import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.appbar.MaterialToolbar
 
 /**
@@ -24,14 +21,12 @@ class TermsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_terms)
-        // Pads for the system bars itself, so the screen reads correctly
-        // whether or not the window is drawn edge to edge.
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById<View>(R.id.termsRoot)) { view, insets ->
-            val bars = insets.getInsets(
-                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
-            )
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
+        // Edge-to-edge like every other screen, laid out as the licences
+        // screen is: the root clears the top and sides, and the scroller on
+        // the bottom edge scrolls its text clear of the navigation bar.
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.edgeScroll)
         }
         findViewById<MaterialToolbar>(R.id.termsToolbar).setNavigationOnClickListener {
             finish()

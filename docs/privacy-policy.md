@@ -115,6 +115,14 @@ report crashes and freezes of any app, Recap included, to Google Play, which
 shows the developer aggregated statistics. That is a setting of your phone,
 not of Recap.
 
+Report AI output, offered with summaries, answers and other generated text,
+opens a draft email to the developer in your own email app. It holds the
+reason you pick, your comment, where the text was shown, the app and Android
+versions, and the model and summary style used; the generated text itself is
+added only if you tick the box. Nothing is sent unless you send that email. If
+no email app can open it, the report is copied to the clipboard instead, and
+Recap keeps no copy of it.
+
 ## Sharing and export
 
 When you share or export a meeting, audio, a clip, action items, a digest or a
