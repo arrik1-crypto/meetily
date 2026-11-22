@@ -126,6 +126,41 @@ class ModelLicencesTest {
     }
 
     @Test
+    fun noticesNameTheSameLicenceAsThePickers() {
+        // The picker cards and the acceptance dialog read ModelLicences; the
+        // licences screen reads part two of notices.txt, written by hand in
+        // build_notices.py. Each model's "Licence:" line there must name the
+        // licence ModelLicences gives it, or the two screens disagree.
+        val partTwo = asset("notices.txt")
+            .substringAfter("PART TWO - MODELS DOWNLOADED ON DEMAND")
+            .substringBefore("PART THREE - LICENCE TEXTS")
+            .lines()
+        for (key in catalogueKeys) {
+            val heading = noticesEntry[key]
+                ?: throw AssertionError("no notices.txt entry heading for $key in this test")
+            val start = partTwo.indexOf(heading)
+            assertTrue("notices.txt part two has no entry \"$heading\" ($key)", start >= 0)
+            // An entry runs from its heading to the next unindented line.
+            val licenceLine = partTwo.drop(start + 1)
+                .takeWhile { it.isBlank() || it.startsWith(" ") }
+                .map { it.trim() }
+                .firstOrNull { it.startsWith("Licence:") }
+                ?: throw AssertionError("notices.txt entry \"$heading\" has no Licence: line")
+            val licence = ModelLicences.forKey(key)!!
+            assertTrue(
+                "$key is $licence in ModelLicences but notices.txt says \"$licenceLine\"",
+                licenceLine.contains(noticesName(licence))
+            )
+            if (licence != Licence.SEE_MODEL_PAGE) {
+                assertFalse(
+                    "$key is $licence in ModelLicences but notices.txt says \"$licenceLine\"",
+                    licenceLine.contains("see model page")
+                )
+            }
+        }
+    }
+
+    @Test
     fun termsOfUseIncorporateEveryFamilysTermsAndPolicy() {
         val terms = asset("terms_of_use.txt")
         for (family in TermsFamily.values()) {
@@ -146,6 +181,49 @@ class ModelLicencesTest {
         }
         assertFalse(saul.containsMatchIn(asset("notices.txt")))
         assertFalse(saul.containsMatchIn(asset("terms_of_use.txt")))
+    }
+
+    /**
+     * The heading of each model's entry in part two of notices.txt. A model
+     * added to a catalogue, or an entry heading renamed, must be added here.
+     */
+    private val noticesEntry: Map<String, String> =
+        WhisperModels.ALL.associate {
+            it.key to "Whisper (tiny, base, small, large-v3-turbo; several quantised)"
+        } + mapOf(
+            "parakeet-tdt-v2" to "Parakeet TDT 0.6B v2 (English)",
+            "parakeet-tdt-v3" to "Parakeet TDT 0.6B v3 (25 languages)",
+            "nemotron-3.5" to "Nemotron 3.5 ASR Streaming 0.6B (40 language-locales)",
+            "nemotron-en" to "Nemotron Speech Streaming 0.6B (English)",
+            "resnet34-en" to "WeSpeaker ResNet34 / ResNet152 / ResNet293 (VoxCeleb)",
+            "resnet152-en" to "WeSpeaker ResNet34 / ResNet152 / ResNet293 (VoxCeleb)",
+            "resnet293-en" to "WeSpeaker ResNet34 / ResNet152 / ResNet293 (VoxCeleb)",
+            "titanet-large-en" to "NeMo TitaNet large / small",
+            "titanet-en" to "NeMo TitaNet large / small",
+            "campplus-zh-en" to "3D-Speaker CAM++ (English + Chinese)",
+            "qwen2.5-0.5b" to "Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct",
+            "qwen2.5-1.5b" to "Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct",
+            "qwen3.5-9b" to "Qwen 3.5 9B",
+            "llama3.2-3b" to "Llama 3.2 3B Instruct - Built with Llama",
+            "llama3.1-8b" to "Llama 3.1 8B Instruct - Built with Llama",
+            "gemma3-1b" to "Gemma 3 1B Instruct, Gemma 3 4B Instruct",
+            "gemma3-4b" to "Gemma 3 1B Instruct, Gemma 3 4B Instruct",
+            "gemma4-e2b" to "Gemma 4 E2B Instruct, Gemma 4 E4B Instruct",
+            "gemma4-e4b" to "Gemma 4 E2B Instruct, Gemma 4 E4B Instruct",
+            "mistral-7b" to "Mistral 7B Instruct v0.3",
+            "medgemma-4b" to "MedGemma 4B"
+        )
+
+    /** How a "Licence:" line in part two of notices.txt names [licence]. */
+    private fun noticesName(licence: Licence): String = when (licence) {
+        Licence.MIT -> "MIT License"
+        Licence.APACHE_2 -> "Apache License 2.0"
+        Licence.CC_BY_4 -> "CC BY 4.0"
+        Licence.GEMMA -> "Gemma Terms of Use"
+        Licence.HAI_DEF -> "Health AI Developer Foundations Terms of Use"
+        Licence.LLAMA_3_2 -> "Llama 3.2 Community License"
+        Licence.LLAMA_3_1 -> "Llama 3.1 Community License"
+        Licence.SEE_MODEL_PAGE -> "see model page"
     }
 
     private fun squash(text: String): String = text.split(Regex("\\s+")).joinToString(" ")

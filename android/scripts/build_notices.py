@@ -16,8 +16,10 @@ The MODELS section is maintained by hand below — it tracks the model
 registries (WhisperModels, NemoModels, DiarizationModels, LocalLlmModels),
 not anything fetchable. Every licence it names must agree with
 app/src/main/java/com/meetily/mobile/licences/ModelLicences.kt, which labels
-the model pickers and decides which downloads ask for acceptance first;
-ModelLicencesTest checks the two against each other. A licence is named only
+the model pickers and decides which downloads ask for acceptance first.
+ModelLicencesTest finds each model's entry by its heading and checks that the
+entry's "Licence:" line names the same licence, so a renamed heading or a new
+model means updating that test's heading map too. A licence is named only
 when a primary source for it was read; anything else says "Licence: see
 model page" and links the publisher's page.
 
@@ -506,7 +508,10 @@ def main() -> int:
     ]
 
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text("".join(body).rstrip("\n") + "\n")
+    # Bytes, not write_text: the app reads the asset as UTF-8 and the
+    # agreements carry "©" and curly quotes, which the platform's default
+    # encoding (cp1252 on Windows) would corrupt; bytes also keep LF endings.
+    OUT.write_bytes(("".join(body).rstrip("\n") + "\n").encode("utf-8"))
     print(f"wrote {OUT} ({OUT.stat().st_size} bytes)")
     return 0
 

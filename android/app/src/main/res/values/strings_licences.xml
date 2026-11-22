@@ -11,7 +11,9 @@
 
     <!-- Model picker card line, e.g. "Licence: Apache License 2.0". -->
     <string name="licences_picker_label">Licence: %1$s</string>
-    <string name="licences_see_model_page">see model page</string>
+    <!-- Licence not confirmed from a primary source. notices.txt (the
+         Open-source licences screen) links the publisher's page for it. -->
+    <string name="licences_see_model_page">see model page (linked in Settings &gt; Open-source licences)</string>
 
     <string name="licences_name_mit" translatable="false">MIT License</string>
     <string name="licences_name_apache_2" translatable="false">Apache License 2.0</string>
