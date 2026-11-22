@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Recording notification. The action is also offered on the redacted
+         lock-screen version, so it must never name anything about the
+         meeting. See NotificationMark. -->
+    <string name="services_notif_mark">Mark moment</string>
+    <!-- Replaces the notification's line for a few seconds after a mark.
+         %1$s is the recording's clock, as the transcript labels it
+         (0:12:34). -->
+    <string name="services_notif_marked_at">Marked at %1$s</string>
+</resources>
