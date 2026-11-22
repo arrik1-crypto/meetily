@@ -83,6 +83,24 @@ class LibrarySearchTest {
     }
 
     @Test
+    fun keptHitsStillCarryTheirMoment() {
+        val meetings = (0 until 6).map { i ->
+            meeting(
+                "m$i", "Sync $i",
+                transcript = listOf("good morning", "the rollout plan is ready"),
+                ageDays = i.toLong()
+            )
+        }
+        val hits = LibrarySearch.search(meetings, "rollout", limit = 4, nowMs = now)
+        assertEquals(listOf("m0", "m1", "m2", "m3"), hits.map { it.meeting.id })
+        for (hit in hits) {
+            assertEquals(1, hit.segmentIndex)
+            assertEquals("rollout", hit.term)
+            assertTrue(hit.excerpts.first().contains("rollout plan"))
+        }
+    }
+
+    @Test
     fun unspacedScriptsTokenizeAsBigrams() {
         val terms = LibrarySearch.tokenize("上次会议关于预算说了什么")
         assertTrue("预算" in terms)

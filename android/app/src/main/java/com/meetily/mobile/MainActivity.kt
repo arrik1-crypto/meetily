@@ -39,7 +39,10 @@ class MainActivity : AppCompatActivity() {
     /** Meeting id -> lowercased searchable text (HomeSearch.index), built with the library load. */
     private var searchBlobs: Map<String, HomeSearch.Indexed> = emptyMap()
 
-    /** Where each listed meeting matched the search shown, and that search. */
+    /**
+     * Where each listed meeting matched the search shown, and that search as
+     * typed (trimmed, not lowercased), for Find in meeting to start from.
+     */
     private var shownMoments: Map<String, HomeSearch.Moment> = emptyMap()
     private var shownQuery = ""
 
@@ -929,7 +932,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyFilter() {
         val generation = ++filterGeneration
-        val query = HomeSearch.normalizeQuery(searchInput.text.toString())
+        val typed = searchInput.text.toString().trim()
+        val query = HomeSearch.normalizeQuery(typed)
         var filtered = allMeetings
         if (flaggedOnly) {
             filtered = filtered.filter { it.starred }
@@ -975,7 +979,7 @@ class MainActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed || generation != filterGeneration) {
                     return@runOnUiThread
                 }
-                showFiltered(matched, moments, query)
+                showFiltered(matched, moments, typed)
             }
         }
     }
@@ -995,10 +999,10 @@ class MainActivity : AppCompatActivity() {
     private fun showFiltered(
         filtered: List<Meeting>,
         moments: Map<String, HomeSearch.Moment> = emptyMap(),
-        query: String = ""
+        typed: String = ""
     ) {
         shownMoments = moments
-        shownQuery = query
+        shownQuery = typed
         adapter.submit(filtered, moments)
         emptyState.visibility = if (allMeetings.isEmpty()) View.VISIBLE else View.GONE
         meetingCount.text = when {

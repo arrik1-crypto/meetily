@@ -816,7 +816,16 @@ class MeetingDetailActivity : AppCompatActivity() {
         momentPending = savedInstanceState?.getBoolean(STATE_MOMENT_PENDING)
             ?: (intent.hasExtra(EXTRA_SEGMENT) || intent.hasExtra(EXTRA_QUERY))
         if (momentPending) whenLoaded { landOnMoment(it) }
-        savedInstanceState?.getBundle(STATE_FIND)?.let { find -> whenLoaded { findBar.restore(find) } }
+        // Kept until the bar takes it, so a screen re-created again before
+        // the read lands passes it on (onSaveInstanceState) instead of
+        // dropping a find, or a landing still to come.
+        pendingFindState = savedInstanceState?.getBundle(STATE_FIND)
+        pendingFindState?.let { find ->
+            whenLoaded {
+                pendingFindState = null
+                findBar.restore(find)
+            }
+        }
         if (savedInstanceState?.containsKey(STATE_PHOTO_RESULT) == true) {
             // The camera answered a screen that went before its meeting was
             // read, so the photo is still to be recorded.
@@ -1920,7 +1929,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         viewState()?.let { outState.putBundle(STATE_VIEW, it) }
         outState.putBoolean(STATE_MOMENT_PENDING, momentPending)
-        findBar.saveState()?.let { outState.putBundle(STATE_FIND, it) }
+        (findBar.saveState() ?: pendingFindState)?.let { outState.putBundle(STATE_FIND, it) }
     }
 
     private fun capturePhoto() {
@@ -4330,6 +4339,9 @@ class MeetingDetailActivity : AppCompatActivity() {
     /** True until the line the screen was opened at (EXTRA_SEGMENT) is shown; saved with the state. */
     private var momentPending = false
 
+    /** The find bar from the screen before a re-creation, until the read lands and it is restored. */
+    private var pendingFindState: Bundle? = null
+
     private val endFlash = Runnable { transcriptAdapter.clearFlash() }
 
     private val findHost = object : MeetingFindBar.Host {
@@ -4417,8 +4429,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         val recycler = findViewById<RecyclerView>(R.id.detailRecycler) ?: return
         recycler.postDelayed({
             if (isFinishing || isDestroyed || !onTranscriptTab) return@postDelayed
-            val position = transcriptAdapter.positionOfSegment(segment) + 1
-            recycler.layoutManager?.findViewByPosition(position)?.performAccessibilityAction(
+            // Not positionOfSegment: a chapter collapsed since must stay so.
+            val position = transcriptAdapter.visiblePositionOf(segment)
+            if (position < 0) return@postDelayed
+            // +1 for the header, which is its own adapter inside the ConcatAdapter.
+            recycler.layoutManager?.findViewByPosition(position + 1)?.performAccessibilityAction(
                 android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null
             )
         }, MOMENT_FOCUS_DELAY_MS)

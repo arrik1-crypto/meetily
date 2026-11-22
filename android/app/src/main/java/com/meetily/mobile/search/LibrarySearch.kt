@@ -114,7 +114,7 @@ object LibrarySearch {
     ): List<Hit> {
         val terms = tokenize(question)
         if (terms.isEmpty()) return emptyList()
-        val hits = mutableListOf<Hit>()
+        val scored = mutableListOf<Pair<Meeting, Double>>()
         for (meeting in meetings) {
             var score = 0.0
             score += 5.0 * damped(countHits(meeting.title, terms))
@@ -134,10 +134,14 @@ object LibrarySearch {
             val ageDays = ((nowMs - meeting.createdAtMs) / 86_400_000L)
                 .coerceAtLeast(0)
             score *= 1.0 + 0.3 / (1.0 + ageDays / 30.0)
-            val moment = firstMoment(meeting, terms)
-            hits.add(Hit(meeting, score, excerpts(meeting, terms), moment.first, moment.second))
+            scored.add(meeting to score)
         }
-        return hits.sortedByDescending { it.score }.take(limit)
+        // Excerpts and the moment scan transcripts again, so only for the
+        // meetings kept.
+        return scored.sortedByDescending { it.second }.take(limit).map { (meeting, score) ->
+            val (segment, term) = firstMoment(meeting, terms)
+            Hit(meeting, score, excerpts(meeting, terms), segment, term)
+        }
     }
 
     /** Log-damped so one term repeated 50 times doesn't drown everything. */

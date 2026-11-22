@@ -503,6 +503,12 @@ class TranscriptLinesAdapter(
         return segmentPositions.getOrNull(index)?.takeIf { it >= 0 } ?: 0
     }
 
+    /**
+     * Adapter position of a segment as the rows stand, or -1 when its
+     * chapter is collapsed (or there is no such line). Never expands.
+     */
+    fun visiblePositionOf(index: Int): Int = segmentPositions.getOrNull(index) ?: -1
+
     class Holder(view: View) : RecyclerView.ViewHolder(view) {
         val time: TextView = view.findViewById(R.id.lineTime)
         val speaker: TextView = view.findViewById(R.id.lineSpeaker)

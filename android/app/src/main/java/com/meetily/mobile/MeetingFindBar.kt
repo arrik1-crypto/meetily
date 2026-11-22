@@ -100,6 +100,11 @@ class MeetingFindBar(
 
     /** Bumped per search and on close, so only the newest result is shown. */
     private var generation = 0
+
+    /** The search still running: why it ran, where it goes, and the texts it searches. */
+    private class Pending(val reason: Reason, val anchor: Anchor, val texts: List<String>)
+
+    private var pending: Pending? = null
     private var released = false
     private var ignoreEdits = false
 
@@ -112,6 +117,9 @@ class MeetingFindBar(
     private var landingSegment = -1
 
     private val typed = Runnable { search(Reason.TYPED, anchorFromScreen()) }
+
+    /** True while [typed] waits for the typing to pause. */
+    private var typedQueued = false
 
     init {
         activity.onBackPressedDispatcher.addCallback(activity, back)
@@ -126,6 +134,7 @@ class MeetingFindBar(
                 if (ignoreEdits) return
                 handler.removeCallbacks(typed)
                 handler.postDelayed(typed, TYPING_PAUSE_MS)
+                typedQueued = true
             }
         })
         input.setOnEditorActionListener { _, actionId, event ->
@@ -177,12 +186,14 @@ class MeetingFindBar(
     fun close() {
         if (!isOpen) return
         handler.removeCallbacks(typed)
+        typedQueued = false
         generation++
         activity.getSystemService(InputMethodManager::class.java)
             ?.hideSoftInputFromWindow(input.windowToken, 0)
         input.clearFocus()
         bar.visibility = View.GONE
         back.isEnabled = false
+        pending = null
         landing = false
         result = FindInMeeting.Result(emptyList(), capped = false)
         current = -1
@@ -196,12 +207,22 @@ class MeetingFindBar(
 
     /**
      * The transcript was rendered again: an edit, a late line, an accepted
-     * check, a replace. Counts and marks follow it; nothing scrolls.
+     * check, a replace. Counts and marks follow it; nothing scrolls, except
+     * for a search the user asked for that has not come back yet.
      */
     fun transcriptChanged() {
-        if (!isOpen || searchedQuery.isBlank()) return
+        // A typed query still to be searched reads the new lines when it runs.
+        if (!isOpen || typedQueued) return
         val texts = host.findTexts() ?: return
-        if (texts == indexTexts) return
+        pending?.let { running ->
+            // A search is still running over the old lines. Run it again
+            // over these for the same reason and to the same place, so a
+            // typed query, a next or previous, or a landing still goes
+            // there and is still spoken.
+            if (texts != running.texts) search(running.reason, running.anchor)
+            return
+        }
+        if (searchedQuery.isBlank() || texts == indexTexts) return
         val at = result.matches.getOrNull(current)
         search(Reason.QUIET, if (at == null) Anchor.AtOrAfter(0, 0) else Anchor.AtOrAfter(at.segment, at.start))
     }
@@ -252,7 +273,9 @@ class MeetingFindBar(
     fun release() {
         released = true
         generation++
+        pending = null
         handler.removeCallbacks(typed)
+        typedQueued = false
     }
 
     private fun setQuery(query: String) {
@@ -295,9 +318,11 @@ class MeetingFindBar(
 
     private fun search(reason: Reason, anchor: Anchor) {
         handler.removeCallbacks(typed)
+        typedQueued = false
         val texts = host.findTexts() ?: return
         val query = input.text.toString()
         val ticket = ++generation
+        pending = Pending(reason, anchor, texts)
         val cachedTexts = indexTexts
         val cachedIndex = index
         EXECUTOR.execute {
@@ -312,7 +337,9 @@ class MeetingFindBar(
                 null
             }
             handler.post {
-                if (released || ticket != generation || found == null || !isOpen) return@post
+                if (released || ticket != generation) return@post
+                pending = null
+                if (found == null || !isOpen) return@post
                 indexTexts = texts
                 index = found.first
                 show(found.second, query, reason, anchor)
