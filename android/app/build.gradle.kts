@@ -151,7 +151,9 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.biometric:biometric:1.1.0")
-    // Bundled on-device Latin OCR for whiteboard/photo text (no network).
+    // Bundled on-device Latin OCR for whiteboard/photo text. Photos stay on
+    // the phone, but ML Kit sends Google diagnostics (see PhotoOcr and the
+    // privacy policy).
     implementation("com.google.mlkit:text-recognition:16.0.1")
     // The armv8.2-a+dotprod+fp16 build of the whisper/llama JNI libraries,
     // chosen at runtime by CpuFeatures. Native code only.

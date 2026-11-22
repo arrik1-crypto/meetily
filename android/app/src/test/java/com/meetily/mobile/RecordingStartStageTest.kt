@@ -67,6 +67,20 @@ class RecordingStartStageTest {
     }
 
     @Test
+    fun anOpenDeviceAudioWarningIsShownAgainWithoutRepeatingTheStartFlow() {
+        // Re-running the flow here would ask for notifications a second time.
+        assertEquals(
+            Resume.SHOW_DEVICE_AUDIO_WARNING,
+            resume(RecordingStartStage.AWAITING_DEVICE_AUDIO_WARNING)
+        )
+        // Microphone revoked in Settings since: ask for it before recording.
+        assertEquals(
+            Resume.START_FLOW,
+            resume(RecordingStartStage.AWAITING_DEVICE_AUDIO_WARNING, mic = false)
+        )
+    }
+
+    @Test
     fun savedStagesRoundTripAndUnknownOnesStartFresh() {
         for (stage in RecordingStartStage.entries) {
             assertEquals(stage, RecordingStartStage.fromSaved(stage.name))

@@ -1122,7 +1122,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         val playable = audioMs != null && ::playerBar.isInitialized &&
             playerBar.visibility == View.VISIBLE
         val actions = mutableListOf<A11y.Action>()
-        if (playable && audioMs != null) {
+        if (playable) {
             actions.add(A11y.Action(getString(R.string.a11y_line_play)) { playFrom(audioMs) })
         }
         actions.add(A11y.Action(getString(R.string.edit_text_action)) { editSegmentText(index) })

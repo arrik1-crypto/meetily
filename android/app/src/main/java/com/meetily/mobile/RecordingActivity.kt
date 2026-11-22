@@ -451,6 +451,15 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             }
             RecordingStartStage.Resume.SHOW_MIC_DENIED ->
                 statusView.text = getString(R.string.mic_permission_denied)
+            RecordingStartStage.Resume.SHOW_DEVICE_AUDIO_WARNING -> {
+                // The previous instance already ran consent, the permission
+                // prompts, the model check and the calendar prefill; only the
+                // warning it had up is shown again.
+                attached = true
+                rebuildSpeakerChips()
+                startTimer()
+                showDeviceAudioWarning()
+            }
             RecordingStartStage.Resume.CLOSE -> finish()
         }
     }
@@ -535,23 +544,13 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         ) {
             // Android 15 QPR1+ ends the capture when the screen locks; that
             // has to be said before the meeting, not found out after it.
-            // While the warning is up nothing has been asked of the system,
-            // so the stage reads IDLE: the warning is a plain dialog that a
-            // re-creation dismisses, and the new screen runs the start flow
-            // again and shows it afresh rather than waiting for a consent
-            // result that was never requested.
-            startStage = RecordingStartStage.IDLE
-            DeviceAudioLockDialog.showIfNeeded(
-                this, settings,
-                onContinue = { launchProjectionConsent() },
-                onMicrophone = {
-                    Toast.makeText(
-                        this, R.string.devaudio_lock_mic_chosen, Toast.LENGTH_SHORT
-                    ).show()
-                    startStage = RecordingStartStage.STARTED
-                    RecordingService.start(this, initialTitle = nudgeTitle)
-                }
-            )
+            // The warning is a plain dialog that a re-creation dismisses.
+            // Consent and permissions are settled by now, so the stage
+            // records that the warning is up: the new screen shows it again
+            // by itself instead of re-running the start flow, which would
+            // ask for notifications a second time.
+            startStage = RecordingStartStage.AWAITING_DEVICE_AUDIO_WARNING
+            showDeviceAudioWarning()
         } else {
             if (deviceAudioRequested) {
                 Toast.makeText(
@@ -576,6 +575,24 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         } else if (settings.calendarPrefill && calendarReadable) {
             loadCalendarEvents(manual = false)
         }
+    }
+
+    /**
+     * The screen-lock warning before the device-audio consent, ending in that
+     * consent or, if the user would rather, a microphone-only session.
+     */
+    private fun showDeviceAudioWarning() {
+        DeviceAudioLockDialog.showIfNeeded(
+            this, settings,
+            onContinue = { launchProjectionConsent() },
+            onMicrophone = {
+                Toast.makeText(
+                    this, R.string.devaudio_lock_mic_chosen, Toast.LENGTH_SHORT
+                ).show()
+                startStage = RecordingStartStage.STARTED
+                RecordingService.start(this, initialTitle = nudgeTitle)
+            }
+        )
     }
 
     private fun ensurePermissionAndStart() {

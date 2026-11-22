@@ -22,6 +22,14 @@ enum class RecordingStartStage {
     /** The microphone was refused. Re-asking on every rotation would nag. */
     MIC_DENIED,
 
+    /**
+     * The device-audio screen-lock warning is up. Consent and permissions are
+     * already settled, so a re-created screen shows the warning again and
+     * nothing before it: no second notification prompt, model toast or
+     * calendar prefill.
+     */
+    AWAITING_DEVICE_AUDIO_WARNING,
+
     /** The device-audio consent dialog is up; its result starts the session. */
     AWAITING_PROJECTION,
 
@@ -44,6 +52,9 @@ enum class RecordingStartStage {
 
         /** Keep showing the refusal instead of prompting again. */
         SHOW_MIC_DENIED,
+
+        /** Show the device-audio warning again; everything before it is done. */
+        SHOW_DEVICE_AUDIO_WARNING,
 
         /** The session this screen belonged to is over; never start another. */
         CLOSE
@@ -68,6 +79,10 @@ enum class RecordingStartStage {
         ): Resume = when {
             serviceActive -> Resume.ATTACH
             stage == IDLE -> Resume.START_FLOW
+            // A microphone revoked in Settings since (which also ends the
+            // process) has to be asked for again before anything records.
+            stage == AWAITING_DEVICE_AUDIO_WARNING ->
+                if (micGranted) Resume.SHOW_DEVICE_AUDIO_WARNING else Resume.START_FLOW
             stage == AWAITING_PERMISSION || stage == AWAITING_PROJECTION ->
                 Resume.WAIT_FOR_RESULT
             // Granted in Settings since: start the normal way.

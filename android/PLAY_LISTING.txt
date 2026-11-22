@@ -3,9 +3,9 @@ Recap — full description for the Play listing (max 4000 chars)
 
 Your meetings never have to leave your phone.
 
-Recap records, transcribes, and summarizes meetings entirely on your
-device. No account, no cloud, no subscription — your conversations stay
-yours.
+Recap records, transcribes, and summarizes meetings on your device by
+default. No account, no subscription, and your meetings go to no cloud
+service unless you turn one on — your conversations stay yours.
 
 PAY ONCE, OWN IT
 Meeting AI assistants typically cost $100–200 every year, forever, and

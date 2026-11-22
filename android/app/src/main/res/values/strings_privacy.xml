@@ -27,7 +27,7 @@
 
     <!-- Shown under the Photos heading of a meeting, where photo text reading
          (PhotoOcr, Google ML Kit) is offered and runs. -->
-    <string name="privacy_ocr_disclosure">Text in photos is read on this phone, so you can search it and use it in summaries. Google\'s ML Kit, which reads it, sends Google diagnostic data about the device, the app and its performance. Your photos and their text are not sent.</string>
+    <string name="privacy_ocr_disclosure">Text in photos is read on this phone, so you can search it and use it in summaries. Google\'s ML Kit, which reads it, sends Google diagnostic data about the device, the app and its performance. ML Kit does not send your photos or their text.</string>
 
     <!-- TODO(owner): set the date this privacy policy takes effect, and keep
          it in step with docs/privacy-policy.md. -->

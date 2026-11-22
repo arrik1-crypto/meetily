@@ -1,8 +1,9 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Current release: 3.15.0-beta1
-(versionCode 110), targetSdk 36 (Android 16).
+App ID: **com.recap.mobile** (permanent). Next release: 3.15.0-beta1
+(versionCode 110), targetSdk 36 (Android 16). The build still reads
+3.14.0-beta5 (versionCode 109) until the bump in section 11 lands.
 
 Before the first submission, work through the **owner checklist in
 section 11**: the Play Console declarations, placeholders, legal reviews

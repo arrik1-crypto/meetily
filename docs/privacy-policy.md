@@ -68,10 +68,11 @@ speech model use that instead. This engine keeps no recording.
 Text in photos you attach, such as a whiteboard, is read on the phone with
 Google's ML Kit text recognition, so you can search it and use it in
 summaries. The photos and their text are not sent anywhere for this. ML Kit
-does send Google diagnostic information: details of the device and the app
-(such as phone model, Android version and app version) and performance
-measurements, which may include identifiers used for those diagnostics. ML Kit
-starts with the app, so this can happen even if you never attach a photo.
+does send Google diagnostic and usage-analytics information: details of the
+device and the app (such as phone model, Android version and app version) and
+performance measurements, which may include identifiers used for those
+diagnostics. ML Kit starts with the app, so this can happen even if you never
+attach a photo.
 Google describes it in its
 [ML Kit data disclosure](https://developers.google.com/ml-kit/android-data-disclosure).
 
@@ -132,13 +133,15 @@ never shares your content on its own.
 ## No analytics, ads or accounts
 
 Recap has no sign-in, shows no ads, and contains no analytics or tracking of
-its own. The developer does not receive, sell or share your data; the
-developer sees only reports or messages you choose to send.
+its own. The developer does not receive or sell your data, and nothing is
+shared beyond the ML Kit diagnostics described above; the developer sees only
+reports or messages you choose to send.
 
 ## Permissions
 
-- **Microphone:** to record meetings and voice profiles, only after you start
-  a recording, with a notification showing while it runs.
+- **Microphone:** to record meetings (with a notification showing while a
+  recording runs) and voice profiles (a 15-second capture on screen in
+  Settings), only when you start one.
 - **Screen capture:** only if you choose to record audio from other apps, such
   as a webinar. Android asks each time, and only the audio is captured, never
   the screen.
@@ -181,8 +184,10 @@ model files are only accepted over https.
 
 ## Children
 
-Recap is not directed at children under 13. It does not collect personal
-information from anyone: what it creates stays on the phone unless you send it
+Recap is not directed at children under 13. Apart from the ML Kit
+diagnostics described under Reading text in photos, which include
+per-installation identifiers and go to Google, Recap collects no personal
+information from anyone: what you create stays on the phone unless you send it
 somewhere.
 
 ## Recording other people
