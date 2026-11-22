@@ -559,6 +559,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (m.audioFile == ours.audioFile && m.audioFile != merged.audioFile) {
             m.audioFile = merged.audioFile
             if (live) applyTabState()
+            // The audio removed elsewhere (Storage, multi-select): the
+            // language chip offers re-transcription only with audio to run.
+            if (live && !transcriptChanged) renderMeta(m)
         }
         if (m.starred == ours.starred && m.starred != merged.starred) {
             m.starred = merged.starred
@@ -2787,6 +2790,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             current.audioFile = null
             persist(current)
             applyTabState()
+            // The language chip offers "Re-transcribe as…" only while there
+            // is audio to run it on (LanguagePicker.bindChip).
+            renderMeta(current)
             renderTranscript(current)
             val app = applicationContext
             val id = current.id
@@ -2850,7 +2856,10 @@ class MeetingDetailActivity : AppCompatActivity() {
                 true
             }
             R.id.replace_action_find -> {
-                replace.open()
+                // Starts from what Find in meeting is finding, when it is open.
+                // An applied replace re-renders the transcript, and the bar
+                // recounts from there (renderTranscript).
+                replace.open(find = findBar.query)
                 true
             }
             R.id.replace_action_undo -> {

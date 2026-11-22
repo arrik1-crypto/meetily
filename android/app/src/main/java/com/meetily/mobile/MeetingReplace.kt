@@ -97,8 +97,10 @@ class MeetingReplace(
     /**
      * The find & replace dialog. With [word], it opens to fix that word:
      * found as typed, and the replacement field holding it to be corrected.
+     * With [find] alone (what the open Find in meeting bar is finding), it
+     * opens with that in Find and the replacement still to type.
      */
-    fun open(word: String? = null) {
+    fun open(word: String? = null, find: String? = null) {
         val m = host.liveMeeting() ?: return
         if (busy(m)) {
             Toast.makeText(activity, R.string.replace_busy, Toast.LENGTH_LONG).show()
@@ -121,10 +123,14 @@ class MeetingReplace(
         val staleNote = view.findViewById<View>(R.id.replace_stale_note)
         ViewCompat.setAccessibilityHeading(view.findViewById(R.id.replace_areas_label), true)
 
+        val searched = find?.trim()?.takeIf { it.isNotEmpty() }
         if (word != null) {
             findInput.setText(word)
             withInput.setText(word)
             withInput.selectAll()
+            withInput.requestFocus()
+        } else if (searched != null) {
+            findInput.setText(searched)
             withInput.requestFocus()
         } else {
             findInput.requestFocus()

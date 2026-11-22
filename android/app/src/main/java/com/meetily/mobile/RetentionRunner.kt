@@ -13,6 +13,7 @@ import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.MeetingAssets
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.OpenMeetings
 import com.meetily.mobile.data.Retention
 import com.meetily.mobile.data.SafeFiles
 import com.meetily.mobile.data.SpeakerSuggestions
@@ -130,10 +131,12 @@ object RetentionRunner {
     /**
      * Meetings something is working on or has queued: the recording (or one
      * a crash left marked, not yet recovered), a running import, accuracy
-     * check or summary, and every queued or interrupted job.
+     * check or summary, every queued or interrupted job, and every meeting
+     * open on a meeting screen (OpenMeetings), whose edits are still to be
+     * saved over the stored copy however old that copy is.
      */
     private fun busyIds(context: Context, store: MeetingStore): Set<String> {
-        val ids = HashSet<String>()
+        val ids = HashSet<String>(OpenMeetings.ids())
         store.activeId()?.let { ids.add(it) }
         if (ImportService.isRunning) ImportService.currentMeetingId?.let { ids.add(it) }
         if (SummaryService.isRunning) ids.add(SummaryService.currentMeetingId)
@@ -160,6 +163,8 @@ object RetentionRunner {
         var bytes = 0L
         for (candidate in approved.selected) {
             if (candidate.id !in still) continue
+            // Opened since the plan above was made.
+            if (OpenMeetings.isOpen(candidate.id)) continue
             when (rule.mode) {
                 Retention.Mode.AUDIO -> {
                     val freed = AudioRemoval.remove(context, store, candidate.id)

@@ -70,6 +70,6 @@
         android:layout_height="48dp"
         android:background="?attr/selectableItemBackgroundBorderless"
         android:contentDescription="@string/moment_find_close"
-        android:src="@drawable/moment_ic_close"
+        android:src="@drawable/ic_close"
         app:tint="?attr/colorOnSurfaceVariant" />
 </LinearLayout>

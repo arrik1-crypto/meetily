@@ -8,9 +8,10 @@ package com.meetily.mobile.data
  *
  * This decides WHICH meetings a rule reaches. It errs towards keeping: a
  * starred meeting, one with a job running, queued or waiting for review, one
- * with a reminder still to come, one changed in the last week, and one whose
- * age cannot be told are never touched, and the audio rule never takes a
- * recording that was not transcribed. Pure, so the selection is unit-tested.
+ * open on a meeting screen, one with a reminder still to come, one changed
+ * in the last week, and one whose age cannot be told are never touched, and
+ * the audio rule never takes a recording that was not transcribed. Pure, so
+ * the selection is unit-tested.
  */
 object Retention {
 
@@ -75,7 +76,8 @@ object Retention {
      * The meetings [rule] reaches at [nowMs], oldest first. [protectedIds]
      * are meetings something is working on or waiting with: the recording,
      * a running import, accuracy check or summary, a queued or interrupted
-     * job, a staged accuracy check not yet reviewed.
+     * job, a staged accuracy check not yet reviewed, a meeting open on a
+     * meeting screen (OpenMeetings).
      */
     fun select(
         rule: Rule,
