@@ -240,7 +240,7 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_settings)
         EdgeToEdge.setUp(this) {
             root(bottom = false)
-            list(R.id.edge_scroll)
+            list(R.id.edgeScroll)
         }
 
         settings = AppSettings(this)

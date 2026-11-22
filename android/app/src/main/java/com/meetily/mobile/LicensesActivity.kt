@@ -26,7 +26,7 @@ class LicensesActivity : AppCompatActivity() {
         setContentView(R.layout.activity_licenses)
         EdgeToEdge.setUp(this) {
             root(bottom = false)
-            list(R.id.edge_scroll)
+            list(R.id.edgeScroll)
         }
         findViewById<MaterialToolbar>(R.id.licensesToolbar).setNavigationOnClickListener {
             finish()

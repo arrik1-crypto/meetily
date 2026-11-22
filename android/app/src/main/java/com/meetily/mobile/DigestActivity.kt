@@ -37,7 +37,7 @@ class DigestActivity : AppCompatActivity() {
         setContentView(R.layout.activity_digest)
         EdgeToEdge.setUp(this) {
             root(bottom = false)
-            list(R.id.edge_scroll)
+            list(R.id.edgeScroll)
         }
 
         val toolbar = findViewById<MaterialToolbar>(R.id.digestToolbar)

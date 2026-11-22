@@ -163,9 +163,9 @@ object EdgeToEdge {
      * to the right side for RTL) and kept in a tag from then on.
      */
     private fun basePadding(view: View): Edges {
-        (view.getTag(R.id.edge_base_padding) as? Edges)?.let { return it }
+        (view.getTag(R.id.edgeBasePadding) as? Edges)?.let { return it }
         val base = Edges(view.paddingLeft, view.paddingTop, view.paddingRight, view.paddingBottom)
-        view.setTag(R.id.edge_base_padding, base)
+        view.setTag(R.id.edgeBasePadding, base)
         return base
     }
 

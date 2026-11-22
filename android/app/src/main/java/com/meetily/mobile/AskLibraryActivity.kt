@@ -42,7 +42,7 @@ class AskLibraryActivity : AppCompatActivity() {
         setContentView(R.layout.activity_ask)
         EdgeToEdge.setUp(this) {
             root(bottom = false)
-            bar(R.id.edge_bottom_bar)
+            bar(R.id.edgeBottomBar)
         }
 
         store = MeetingStore(this)

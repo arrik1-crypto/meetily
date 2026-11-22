@@ -60,11 +60,15 @@
              the bars are transparent and the layouts take the insets, so the
              theme no longer sets statusBarColor or navigationBarColor (both
              deprecated from API 35, and no opt-out from targetSdk 36). These
-             two keep the bar icons dark on the pale day surface and light at
-             night in windows EdgeToEdge does not reach: the launch preview
-             and bottom sheets. -->
+             two set the bar icons in the one window EdgeToEdge does not
+             reach, the launch preview (bottom sheets set their own in
+             ThemeOverlay.Nocturne.BottomSheetDialog). Its status bar sits on
+             colorPrimaryDark (set just after these), so those icons follow
+             the edition. Its navigation bar is the platform's black one below API 35,
+             so its icons stay light until it turns transparent over the
+             surface (bools.xml). -->
         <item name="android:windowLightStatusBar">@bool/light_system_bars</item>
-        <item name="android:windowLightNavigationBar">@bool/light_system_bars</item>
+        <item name="android:windowLightNavigationBar">@bool/light_nav_icons_preview</item>
         <!-- The launch preview still paints its status bar from the theme,
              which falls back to colorPrimaryDark, and Material 3 points that
              at colorPrimary: a solid accent band above the pale surface. -->
@@ -136,9 +140,11 @@
          Widget.Material3.BottomSheet) when the dialog window's navigation bar
          is not opaque. With no colour in the app theme the window would get
          the platform's opaque black bar instead: under a pale sheet, and with
-         the dark day-edition icons on it. -->
+         the dark day-edition icons on it. The sheet then shows through the
+         bar, so its icons follow the edition, not the launch preview's. -->
     <style name="ThemeOverlay.Nocturne.BottomSheetDialog" parent="ThemeOverlay.Material3.BottomSheetDialog">
         <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:windowLightNavigationBar">@bool/light_system_bars</item>
     </style>
 
     <style name="ShapeAppearance.Nocturne.Dialog" parent="ShapeAppearance.Material3.Corner.ExtraLarge">

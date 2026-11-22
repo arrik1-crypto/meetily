@@ -58,7 +58,7 @@ class FollowUpsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_followups)
         EdgeToEdge.setUp(this) {
             root(bottom = false)
-            list(R.id.edge_scroll)
+            list(R.id.edgeScroll)
         }
         store = MeetingStore(this)
         list = findViewById(R.id.followUpList)

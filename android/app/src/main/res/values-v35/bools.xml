@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- From API 35 the launch preview's navigation bar is transparent over
+         the surface, so its icons follow the edition like the status bar's
+         (light_system_bars resolves to the night value in values-night). -->
+    <bool name="light_nav_icons_preview">@bool/light_system_bars</bool>
+</resources>

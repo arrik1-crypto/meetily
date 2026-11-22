@@ -44,7 +44,7 @@ class CalendarDiagnosticsActivity : AppCompatActivity() {
         setContentView(R.layout.activity_calendar_diag)
         EdgeToEdge.setUp(this) {
             root(bottom = false)
-            list(R.id.edge_scroll)
+            list(R.id.edgeScroll)
         }
         findViewById<MaterialToolbar>(R.id.calDiagToolbar).setNavigationOnClickListener {
             finish()

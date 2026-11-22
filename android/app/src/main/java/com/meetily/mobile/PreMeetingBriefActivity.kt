@@ -49,7 +49,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         setContentView(R.layout.activity_pre_brief)
         EdgeToEdge.setUp(this) {
             root(bottom = false)
-            list(R.id.edge_scroll)
+            list(R.id.edgeScroll)
         }
         store = MeetingStore(this)
         settings = AppSettings(this)
