@@ -1,5 +1,7 @@
 package com.meetily.mobile
 
+import androidx.annotation.StringRes
+
 /**
  * Device-audio capture and the lock screen.
  *
@@ -28,6 +30,24 @@ object DeviceAudioLock {
     /** Whether to explain the lock behaviour before asking for consent. */
     fun shouldWarnBeforeConsent(sdkInt: Int, dismissed: Boolean): Boolean =
         stopsOnLock(sdkInt) && !dismissed
+
+    /**
+     * The status line once Android has ended the capture. A locked screen is
+     * named as a cause only where locking can end the projection; below
+     * Android 15 the causes are the share being stopped or another app
+     * starting one, and blaming the lock would send the user after the wrong
+     * thing next time.
+     */
+    @StringRes
+    fun endedStatusRes(sdkInt: Int): Int =
+        if (stopsOnLock(sdkInt)) R.string.status_device_audio_ended
+        else R.string.devaudio_status_ended_pre35
+
+    /** The longer account of the same, for the notification and the screen. */
+    @StringRes
+    fun endedDetailRes(sdkInt: Int): Int =
+        if (stopsOnLock(sdkInt)) R.string.devaudio_notif_ended_detail
+        else R.string.devaudio_notif_ended_detail_pre35
 
     /** What the ongoing recording notification says, in one line. */
     enum class NotificationLine {

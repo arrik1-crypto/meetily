@@ -281,6 +281,9 @@ class RecordingService : Service() {
         silentSinceMs = 0L
         micWarned = false
         deviceAudioEnded = false
+        // The notification line reads it (an ERROR is not "recording device
+        // audio"), so a previous session's must not carry over.
+        status = Status.STARTING
         audioWriter = null
         audioFileName = null
         // The title has to arrive on THIS Intent rather than be pushed
@@ -1446,7 +1449,10 @@ class RecordingService : Service() {
         // Whatever the dead AudioRecord still hands back must not reach the
         // recording after this point.
         whisperRecorder?.pause()
-        setStatus(Status.PAUSED, getString(R.string.status_device_audio_ended))
+        setStatus(
+            Status.PAUSED,
+            getString(DeviceAudioLock.endedStatusRes(Build.VERSION.SDK_INT))
+        )
     }
 
     /**
@@ -1549,7 +1555,11 @@ class RecordingService : Service() {
         DeviceAudioLock.notificationLine(
             paused = paused,
             micWarned = micWarned,
-            deviceAudio = deviceAudioMode,
+            // A capture that never opened (no consent data, getMediaProjection
+            // or the AudioRecord failing) ends in ERROR with the mode still
+            // set; "Recording device audio" over it would claim a capture
+            // that is not there.
+            deviceAudio = deviceAudioMode && status != Status.ERROR,
             deviceAudioEnded = deviceAudioEnded,
             sdkInt = Build.VERSION.SDK_INT
         )
@@ -1609,7 +1619,8 @@ class RecordingService : Service() {
                 NotificationCompat.Builder(this, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_mic)
                     // The lock screen is where an ended device-audio capture
-                    // is first seen, since locking is what ended it.
+                    // is first seen, since from Android 15 locking is what
+                    // usually ended it.
                     .setContentTitle(
                         getString(
                             if (ended) R.string.devaudio_notif_ended_public
@@ -1636,7 +1647,9 @@ class RecordingService : Service() {
                 builder.setContentText(getString(R.string.devaudio_notif_ended))
                 builder.setStyle(
                     NotificationCompat.BigTextStyle()
-                        .bigText(getString(R.string.devaudio_notif_ended_detail))
+                        .bigText(
+                            getString(DeviceAudioLock.endedDetailRes(Build.VERSION.SDK_INT))
+                        )
                 )
                 builder.setUsesChronometer(false)
             }

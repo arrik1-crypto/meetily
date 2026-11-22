@@ -70,6 +70,19 @@ class DeviceAudioLockTest {
     }
 
     @Test
+    fun theLockIsBlamedOnlyWhereLockingEndsTheCapture() {
+        // Below Android 15 the projection survives a locked screen, so
+        // naming it as the cause would point the user at the wrong thing.
+        assertEquals(R.string.devaudio_status_ended_pre35, DeviceAudioLock.endedStatusRes(29))
+        assertEquals(R.string.devaudio_status_ended_pre35, DeviceAudioLock.endedStatusRes(34))
+        assertEquals(R.string.status_device_audio_ended, DeviceAudioLock.endedStatusRes(35))
+        assertEquals(
+            R.string.devaudio_notif_ended_detail_pre35, DeviceAudioLock.endedDetailRes(34)
+        )
+        assertEquals(R.string.devaudio_notif_ended_detail, DeviceAudioLock.endedDetailRes(35))
+    }
+
+    @Test
     fun aUserPauseOnDeviceAudioIsStillAPause() {
         // Until Android ends it, a paused device-audio session can resume.
         assertEquals(NotificationLine.PAUSED, line(paused = true, deviceAudio = true))

@@ -568,7 +568,16 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
      * Finish stays, so what was captured can be saved.
      */
     private fun applyDeviceAudioEndedUi() {
-        if (service?.deviceAudioEnded == true) pauseButton.isEnabled = false
+        if (service?.deviceAudioEnded != true) return
+        pauseButton.isEnabled = false
+        // applyPausedUi labelled it "Resume", which TalkBack would still
+        // announce for an action that no longer exists.
+        pauseButton.contentDescription = getString(R.string.devaudio_notif_ended)
+        // In audio-only capture (the default) this panel is the screen's main
+        // text, and "Recording audio." under a status line saying device
+        // audio stopped left the user to guess which one was true.
+        findViewById<TextView>(R.id.audioOnlyNote)
+            .setText(DeviceAudioLock.endedDetailRes(Build.VERSION.SDK_INT))
     }
 
     override fun onFinished(meetingId: String) {

@@ -16,6 +16,11 @@
     <string name="devaudio_notif_live">Recording device audio — keep the screen unlocked</string>
     <string name="devaudio_notif_ended">Device audio stopped — tap Finish to save</string>
     <string name="devaudio_notif_ended_detail">Android stopped device-audio capture. It does this when the screen locks or times out, or when screen sharing is stopped. What was recorded up to then is kept: tap Finish to save it, then start a new recording to carry on.</string>
+    <!-- Android 10-14: a locked screen leaves the projection running, so the
+         causes left are the share being stopped or another app starting one.
+         The Android 15+ status line is status_device_audio_ended. -->
+    <string name="devaudio_status_ended_pre35">Device audio stopped — screen sharing ended. Tap Finish to keep what was recorded.</string>
+    <string name="devaudio_notif_ended_detail_pre35">Android stopped device-audio capture. It does this when screen sharing is stopped, or when another app starts sharing or recording the screen. What was recorded up to then is kept: tap Finish to save it, then start a new recording to carry on.</string>
     <!-- Lock-screen stand-in: says what happened without the meeting title. -->
     <string name="devaudio_notif_ended_public">Device audio stopped</string>
 </resources>
