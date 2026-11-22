@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Import's model sheet: the spoken language for this one file. Filled in
+     and labelled by ImportActivity.languageRow. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/languageImportRow"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="8dp"
+    android:background="?attr/selectableItemBackground"
+    android:gravity="center_vertical"
+    android:minHeight="48dp"
+    android:paddingVertical="12dp"
+    android:textAppearance="?attr/textAppearanceBodyLarge"
+    android:textColor="?attr/colorPrimary" />

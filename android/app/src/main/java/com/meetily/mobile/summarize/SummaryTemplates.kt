@@ -80,13 +80,28 @@ object SummaryTemplates {
      * The template as actually sent to the model: instructions + depth +
      * shared rules — unless the template is [SummaryTemplate.verbatim], in
      * which case its own text is used untouched.
+     *
+     * [languageClause] (OutputLanguage.clause, "" for none) follows the
+     * rules' last sentence. A verbatim template gets it too, on a line of
+     * its own after its text: which language to write in is no part of the
+     * format and length contract those templates protect, and small models
+     * left without it tend to write in English whatever was spoken.
      */
-    fun effective(template: SummaryTemplate, depth: String): SummaryTemplate {
-        if (template.verbatim) return template
+    fun effective(
+        template: SummaryTemplate,
+        depth: String,
+        languageClause: String = ""
+    ): SummaryTemplate {
+        if (template.verbatim) {
+            if (languageClause.isBlank()) return template
+            return template.copy(
+                llmInstructions = template.llmInstructions + "\n\n" + languageClause.trim()
+            )
+        }
         val rules = if (template.omitEmptySections) OUTPUT_RULES_PROSE else OUTPUT_RULES
         return template.copy(
             llmInstructions = template.llmInstructions + " " +
-                depthInstructions(depth) + " " + rules
+                depthInstructions(depth) + " " + rules + languageClause
         )
     }
 

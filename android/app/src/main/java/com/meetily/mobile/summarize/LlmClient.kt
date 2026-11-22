@@ -29,6 +29,7 @@ object LlmClient {
     ): String {
         // Length is governed by the template's depth instructions (see
         // SummaryTemplates.effective), so no "be concise" here to fight it.
+        // The output language travels in the template too, after its rules.
         val systemPrompt = "You are a meeting assistant. " + template.llmInstructions +
             " Be factual; incorporate the user's own notes and highlighted " +
             "moments where relevant." + ActionItems.LLM_INSTRUCTIONS
@@ -92,14 +93,17 @@ object LlmClient {
         model: String,
         localOnly: Boolean,
         transcript: String,
-        notes: String
+        notes: String,
+        /** OutputLanguage.clause for a title; "" leaves the prompt as it was. */
+        languageClause: String = ""
     ): String {
         val messages = JSONArray()
             .put(
                 JSONObject().put("role", "system").put(
                     "content",
                     "Generate a concise 3-6 word title for this meeting. " +
-                        "Return ONLY the title text: no quotes, no trailing punctuation."
+                        "Return ONLY the title text: no quotes, no trailing punctuation." +
+                        languageClause
                 )
             )
             .put(
@@ -452,7 +456,9 @@ object LlmClient {
         summary: String,
         attendees: List<String>,
         history: List<Pair<String, String>>,
-        question: String
+        question: String,
+        /** OutputLanguage.clause for an answer; "" leaves the prompt as it was. */
+        languageClause: String = ""
     ): String {
         // On-device the whole transcript is the map-reduce payload (cached per
         // transcript, so follow-up questions skip the condensing), and the
@@ -465,7 +471,7 @@ object LlmClient {
             append(
                 "You answer questions about one specific meeting, using ONLY the meeting " +
                     "content below. If the answer is not in the meeting, say so briefly. " +
-                    "Be concise.\n\n"
+                    "Be concise." + languageClause + "\n\n"
             )
             if (attendees.isNotEmpty()) {
                 append("Attendees: ").append(attendees.joinToString(", ")).append("\n\n")
@@ -537,7 +543,9 @@ object LlmClient {
         model: String,
         localOnly: Boolean,
         notes: String,
-        transcript: String
+        transcript: String,
+        /** OutputLanguage.clause for notes; "" leaves the prompt as it was. */
+        languageClause: String = ""
     ): String {
         val systemPrompt =
             "You polish a user's rough meeting notes into complete notes, using the " +
@@ -549,7 +557,7 @@ object LlmClient {
                 "user's points, add a short indented sub-bullet. Keep Markdown " +
                 "formatting; preserve checklist lines (- [ ] / - [x]) as checklists. " +
                 "Never invent content found in neither the notes nor the transcript. " +
-                "Reply with ONLY the enhanced notes."
+                "Reply with ONLY the enhanced notes." + languageClause
         // Only the transcript is condensable: the user's notes are what is
         // being enhanced, and must reach the final pass verbatim.
         val body = transcriptFor(transcript, NETWORK_TRANSCRIPT_CHARS)

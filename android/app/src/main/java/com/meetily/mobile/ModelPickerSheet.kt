@@ -46,7 +46,8 @@ object ModelPickerSheet {
      * [entriesProvider] is re-queried after every delete so the sheet
      * refreshes in place. [onPick] dismisses the sheet; delete callbacks
      * keep it open. [onDismissed] fires exactly once when the sheet goes
-     * away without a pick (cancel, back, outside tap).
+     * away without a pick (cancel, back, outside tap). [header], when given,
+     * sits above the cards and scrolls with them (Import's spoken language).
      */
     fun show(
         context: Context,
@@ -55,7 +56,8 @@ object ModelPickerSheet {
         onPick: (String) -> Unit,
         onDelete: ((Entry) -> Unit)? = null,
         onDeleteAll: (() -> Unit)? = null,
-        onDismissed: (() -> Unit)? = null
+        onDismissed: (() -> Unit)? = null,
+        header: View? = null
     ) {
         val sheet = BottomSheetDialog(context)
         val content = LayoutInflater.from(context)
@@ -64,6 +66,7 @@ object ModelPickerSheet {
         content.findViewById<TextView>(R.id.modelPickerTitle).text = title
         val list = content.findViewById<LinearLayout>(R.id.modelPickerList)
         val deleteAll = content.findViewById<TextView>(R.id.modelPickerDeleteAll)
+        if (header != null) (list.parent as? LinearLayout)?.addView(header, 0)
         var picked = false
 
         fun render() {

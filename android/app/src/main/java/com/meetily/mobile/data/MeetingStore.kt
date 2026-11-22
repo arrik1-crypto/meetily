@@ -202,6 +202,11 @@ class MeetingStore(context: Context) {
             onDisk.segments.addAll(meeting.segments)
             onDisk.audioFile = meeting.audioFile
             onDisk.transcriptModel = meeting.transcriptModel
+            // The pass's language travels with its words. Kept when this
+            // pass has none (auto-detect never ran: no speech reached the
+            // model), rather than wiping one an earlier pass recorded.
+            meeting.language?.let { onDisk.language = it }
+            onDisk.translated = meeting.translated
             // Highlights tapped while an audio-only recording had no lines to
             // star land on the lines this pass just produced.
             HighlightMarks.apply(onDisk.segments, onDisk.highlightMarksMs)
@@ -242,6 +247,13 @@ class MeetingStore(context: Context) {
             onDisk.segments.addAll(snapshot.segments)
             onDisk.audioFile = snapshot.audioFile
             onDisk.transcriptModel = snapshot.transcriptModel
+            // Live transcription learns the language with its first chunk;
+            // a capture-only session never does, and the pass that later
+            // transcribes the audio records its own.
+            if (snapshot.language != null) {
+                onDisk.language = snapshot.language
+                onDisk.translated = snapshot.translated
+            }
             onDisk.highlightMarksMs.clear()
             onDisk.highlightMarksMs.addAll(snapshot.highlightMarksMs)
             if (withTitle) onDisk.title = snapshot.title

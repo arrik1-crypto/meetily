@@ -729,7 +729,8 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     JobGate.requestCheck(
                         this, job.meetingId, job.payload, false,
-                        required = true, firstTranscript = job.firstTranscript
+                        required = true, firstTranscript = job.firstTranscript,
+                        language = job.language
                     )
                 }
             }

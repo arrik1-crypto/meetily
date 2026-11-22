@@ -24,6 +24,17 @@ object TranscriptionModels {
         NemoModels.byKeyOrNull(key)?.englishOnly
             ?: WhisperModels.byKey(key).englishOnly
 
+    /**
+     * Whether [key] honours a pinned spoken language: multilingual Whisper
+     * models and Nemotron 3.5. Parakeet detects the language on its own and
+     * takes no hint; English-only models only ever transcribe English.
+     */
+    fun acceptsLanguage(key: String): Boolean {
+        val nemo = NemoModels.byKeyOrNull(key)
+        if (nemo != null) return nemo.languagePrompt && !nemo.englishOnly
+        return !WhisperModels.byKey(key).englishOnly
+    }
+
     /** Estimated memory needs of [key]; null for a key neither family has. */
     fun fitNeedOrNull(key: String): DeviceFit.Need? =
         NemoModels.byKeyOrNull(key)?.fitNeed

@@ -335,6 +335,37 @@
                             android:textAppearance="?attr/textAppearanceBodySmall"
                             android:textColor="?attr/colorOnSurfaceVariant" />
 
+                        <!-- Spoken language: Whisper and Nemotron 3.5, so
+                             above the Whisper-only options below. -->
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:importantForAccessibility="no"
+                            android:text="@string/language_spoken_title"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/languageSpokenButton"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="4dp"
+                            android:insetBottom="6dp"
+                            android:insetTop="6dp"
+                            android:textColor="?attr/colorOnSurface"
+                            app:cornerRadius="22dp"
+                            app:strokeColor="?attr/colorOutline" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/language_spoken_desc"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/translateSwitch"
                             android:layout_width="match_parent"
@@ -954,6 +985,37 @@
                                 android:textSize="15sp" />
                         </com.google.android.material.textfield.TextInputLayout>
                         </LinearLayout>
+
+                        <!-- Output language for both engines; see
+                             summarize.OutputLanguage. -->
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:importantForAccessibility="no"
+                            android:text="@string/language_summary_title"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/languageSummaryButton"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="48dp"
+                            android:layout_marginTop="4dp"
+                            android:insetBottom="6dp"
+                            android:insetTop="6dp"
+                            android:textColor="?attr/colorOnSurface"
+                            app:cornerRadius="22dp"
+                            app:strokeColor="?attr/colorOutline" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/language_summary_desc"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

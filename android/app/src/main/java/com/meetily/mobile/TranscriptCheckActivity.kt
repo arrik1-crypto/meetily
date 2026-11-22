@@ -387,6 +387,13 @@ class TranscriptCheckActivity : AppCompatActivity() {
                 onDisk.segments.clear()
                 onDisk.segments.addAll(built.segments)
                 if (built.modelKey != null) onDisk.transcriptModel = built.modelKey
+                // The language goes with a wholesale swap only, like the
+                // model: a pass re-run as another language is accepted whole,
+                // and a mix of spans keeps what the meeting had.
+                if (wholesale) {
+                    pending.language?.let { onDisk.language = it }
+                    onDisk.translated = pending.translated
+                }
                 val hadSummary = onDisk.summary.isNotBlank()
                 if (hadSummary) onDisk.summaryStale = true
                 // Delete the draft ONLY once the merge is durable. The result

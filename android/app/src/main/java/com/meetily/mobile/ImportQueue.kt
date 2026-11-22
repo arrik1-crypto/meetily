@@ -41,6 +41,8 @@ object ImportQueue {
         sourceName: String,
         modelKey: String,
         cancelled: () -> Boolean = { false },
+        /** Spoken language chosen for this file; see JobQueue.Job.language. */
+        language: String = "",
         onResult: (Result) -> Unit
     ) {
         val app = context.applicationContext
@@ -87,7 +89,8 @@ object ImportQueue {
                             payload = modelKey,
                             queuedAtMs = System.currentTimeMillis(),
                             stagedFile = staged.name,
-                            sourceName = sourceName
+                            sourceName = sourceName,
+                            language = language
                         )
                     )
                     Result.QUEUED

@@ -21,7 +21,14 @@ object TranscriptDraft {
         val modelKey: String,
         /** False while the pass is still running or if it died mid-file. */
         val complete: Boolean,
-        val segments: List<TranscriptSegment>
+        val segments: List<TranscriptSegment>,
+        /**
+         * The language the pass ran in (detected or pinned), and whether it
+         * translated; applied to the meeting with the words when the whole
+         * draft is accepted. Null and false in drafts written before this.
+         */
+        val language: String? = null,
+        val translated: Boolean = false
     )
 
     private fun dir(context: Context): File =
@@ -43,7 +50,9 @@ object TranscriptDraft {
         meetingId: String,
         modelKey: String,
         segments: List<TranscriptSegment>,
-        complete: Boolean
+        complete: Boolean,
+        language: String? = null,
+        translated: Boolean = false
     ) {
         // A check still running on a meeting the user has deleted must not
         // write its draft back: deleteAll just removed it, and a stray draft
@@ -53,6 +62,8 @@ object TranscriptDraft {
         obj.put("meetingId", meetingId)
         obj.put("model", modelKey)
         obj.put("complete", complete)
+        if (!language.isNullOrBlank()) obj.put("language", language)
+        if (translated) obj.put("translated", true)
         val arr = JSONArray()
         for (segment in segments) arr.put(Meeting.segmentToJson(segment))
         obj.put("segments", arr)
@@ -92,7 +103,9 @@ object TranscriptDraft {
                 meetingId = obj.optString("meetingId", meetingId),
                 modelKey = obj.optString("model", ""),
                 complete = obj.optBoolean("complete", false),
-                segments = segments
+                segments = segments,
+                language = MeetingLanguage.normalize(obj.optString("language", "")),
+                translated = obj.optBoolean("translated", false)
             )
         } catch (_: Exception) {
             null

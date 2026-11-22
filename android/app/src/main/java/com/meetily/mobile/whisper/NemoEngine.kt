@@ -87,11 +87,18 @@ class NemoEngine private constructor(
         private const val SAMPLE_RATE = 16_000
 
         /**
-         * Loads [model] from its downloaded directory. Null when the native
+         * Loads [model] from its downloaded directory, told to decode
+         * [language] where it takes a language prompt. Null when the native
          * runtime is unavailable or the model files don't load — callers
          * treat that exactly like a missing whisper model.
          */
-        fun create(context: Context, model: NemoModel, nThreads: Int): NemoEngine? {
+        fun create(
+            context: Context,
+            model: NemoModel,
+            nThreads: Int,
+            /** Pinned spoken language, or null for auto; see NemoModel.languageOptionFor. */
+            language: String? = null
+        ): NemoEngine? {
             if (!NemoModels.isDownloaded(context, model)) return null
             val dir = NemoModels.dir(context, model)
             val transducerEncoder = File(dir, "encoder.int8.onnx").absolutePath
@@ -125,7 +132,7 @@ class NemoEngine private constructor(
                             enableEndpoint = false
                         )
                     )
-                    NemoEngine(null, recognizer, model.languageOption, work)
+                    NemoEngine(null, recognizer, model.languageOptionFor(language), work)
                 } else {
                     val recognizer = OfflineRecognizer(
                         config = OfflineRecognizerConfig(

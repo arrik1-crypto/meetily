@@ -158,13 +158,15 @@ object JobGate {
         /** The user asked for this by hand; never trimmed from the queue. */
         required: Boolean = false,
         /** The recording's only transcript; see [JobQueue.Job.firstTranscript]. */
-        firstTranscript: Boolean = false
+        firstTranscript: Boolean = false,
+        /** Spoken language for this run; see [JobQueue.Job.language]. */
+        language: String = ""
     ) {
         val app = context.applicationContext
         val job = JobQueue.Job(
             JobQueue.KIND_CHECK, meetingId, modelKey, System.currentTimeMillis(),
             chargingOnly = whenCharging, firstTranscript = firstTranscript,
-            required = required
+            required = required, language = language
         )
         if (whenCharging && !Power.isCharging(app)) {
             queue(app, job)
@@ -188,10 +190,14 @@ object JobGate {
         sourceName: String,
         modelKey: String,
         cancelled: () -> Boolean = { false },
+        /** Spoken language for this file; see [JobQueue.Job.language]. */
+        language: String = "",
         onQueued: (ImportQueue.Result) -> Unit
     ): Boolean {
         if (canStartBatch()) return false
-        ImportQueue.stageAndQueue(context, uri, sourceName, modelKey, cancelled, onQueued)
+        ImportQueue.stageAndQueue(
+            context, uri, sourceName, modelKey, cancelled, language, onQueued
+        )
         return true
     }
 
@@ -209,6 +215,9 @@ object JobGate {
                 // second time; the service deletes it if the run never gets
                 // that far.
                 .putExtra(ImportService.EXTRA_ADOPT_FILE, job.stagedFile)
+            if (job.language.isNotBlank()) {
+                intent.putExtra(ImportService.EXTRA_LANGUAGE, job.language)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {
@@ -267,6 +276,9 @@ object JobGate {
                 .putExtra(ImportService.EXTRA_CHARGING_ONLY, job.chargingOnly)
                 .putExtra(ImportService.EXTRA_FIRST_TRANSCRIPT, job.firstTranscript)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            if (job.language.isNotBlank()) {
+                intent.putExtra(ImportService.EXTRA_LANGUAGE, job.language)
+            }
             pendingStartAt = android.os.SystemClock.elapsedRealtime()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

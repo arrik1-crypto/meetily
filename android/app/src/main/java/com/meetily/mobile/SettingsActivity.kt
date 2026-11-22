@@ -342,6 +342,7 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked =
             settings.autoCheckTranscript
         setUpAutoWork()
+        setUpLanguages()
         findViewById<android.widget.EditText>(R.id.vocabInput).setText(settings.customVocab)
         findViewById<android.widget.EditText>(R.id.userNameInput).setText(settings.userName)
         findViewById<com.google.android.material.button.MaterialButtonToggleGroup>(
@@ -449,6 +450,52 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
             finish()
         }
+    }
+
+    /**
+     * Spoken language (Transcription) and summary language (Summaries).
+     * Saved the moment one is picked, like the text-size toggle: a choice
+     * made in a dialog has no view state for persistAll to read back.
+     */
+    private fun setUpLanguages() {
+        val spoken = findViewById<MaterialButton>(R.id.languageSpokenButton)
+        val summary = findViewById<MaterialButton>(R.id.languageSummaryButton)
+        fun render() {
+            val spokenName = LanguagePicker.spokenLabel(this, settings.spokenLanguage)
+            spoken.text = spokenName
+            spoken.contentDescription = getString(R.string.language_spoken_button_desc, spokenName)
+            val summaryName = LanguagePicker.summaryLabel(this, settings.summaryLanguage)
+            summary.text = summaryName
+            summary.contentDescription =
+                getString(R.string.language_summary_button_desc, summaryName)
+        }
+        render()
+        spoken.setOnClickListener {
+            LanguagePicker.show(
+                this,
+                getString(R.string.language_spoken_title),
+                getString(R.string.language_auto),
+                com.meetily.mobile.data.MeetingLanguage.AUTO,
+                settings.spokenLanguage
+            ) { value ->
+                settings.spokenLanguage = value
+                render()
+            }
+        }
+        A11y.labelClick(spoken, getString(R.string.language_change_spoken))
+        summary.setOnClickListener {
+            LanguagePicker.show(
+                this,
+                getString(R.string.language_summary_title),
+                getString(R.string.language_same_as_meeting),
+                com.meetily.mobile.summarize.OutputLanguage.SAME,
+                settings.summaryLanguage
+            ) { value ->
+                settings.summaryLanguage = value
+                render()
+            }
+        }
+        A11y.labelClick(summary, getString(R.string.language_change_summary))
     }
 
     /**

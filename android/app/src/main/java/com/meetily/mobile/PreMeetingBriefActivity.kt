@@ -133,7 +133,9 @@ class PreMeetingBriefActivity : AppCompatActivity() {
             // No saved summary: fall back to quick extractive key points.
             try {
                 ExtractiveSummarizer.summarize(
-                    last.transcriptText(), last.notes, last.highlightedTexts(), false
+                    last.transcriptText(), last.notes, last.highlightedTexts(), false,
+                    com.meetily.mobile.data.MeetingLanguage
+                        .englishHeuristics(last.transcriptLanguage())
                 )
             } catch (_: Exception) {
                 ""

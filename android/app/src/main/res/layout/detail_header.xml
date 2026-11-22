@@ -48,6 +48,19 @@
                 android:textAppearance="?attr/textAppearanceBodyMedium"
                 android:textColor="?attr/colorOnSurfaceVariant" />
 
+            <!-- Spoken language, and Re-transcribe as on tap. Pill and
+                 touch target are set in code: LanguagePicker.bindChip. -->
+            <TextView
+                android:id="@+id/detailLanguageChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="2dp"
+                android:gravity="center_vertical"
+                android:maxLines="1"
+                android:textColor="?attr/colorOnSurfaceVariant"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
             <EditText
                 android:id="@+id/detailAttendees"
                 android:layout_width="match_parent"

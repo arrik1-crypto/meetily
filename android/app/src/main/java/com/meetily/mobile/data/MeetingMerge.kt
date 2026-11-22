@@ -158,7 +158,11 @@ object MeetingMerge {
             } else {
                 pick(base.summaryModel, ours.summaryModel, disk.summaryModel)
             },
-            followsEvent = pick(base.followsEvent, ours.followsEvent, disk.followsEvent)
+            followsEvent = pick(base.followsEvent, ours.followsEvent, disk.followsEvent),
+            // Written by the transcription pass that made the words, and
+            // by the screen only through a re-transcription it started.
+            language = pick(base.language, ours.language, disk.language),
+            translated = pick(base.translated, ours.translated, disk.translated)
         )
     }
 }

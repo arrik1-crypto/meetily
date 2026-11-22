@@ -282,6 +282,25 @@ class AppSettings(context: Context) {
         set(value) = prefs.edit().putBoolean("whisper_translate", value).apply()
 
     /**
+     * Spoken language for Whisper and Nemotron 3.5: "auto" (the default) or
+     * a code from MeetingLanguage.CHOICES. Parakeet takes no language hint
+     * and English-only models ignore it. Read when a run starts; one import
+     * or re-transcription can override it.
+     */
+    var spokenLanguage: String
+        get() = prefs.getString("spoken_language", MeetingLanguage.AUTO) ?: MeetingLanguage.AUTO
+        set(value) = prefs.edit().putString("spoken_language", value).apply()
+
+    /**
+     * Language for AI summaries, answers, enhanced notes and titles:
+     * "same" (the meeting's own language, when known) or a language code.
+     * See summarize.OutputLanguage.
+     */
+    var summaryLanguage: String
+        get() = prefs.getString("summary_language", "same") ?: "same"
+        set(value) = prefs.edit().putString("summary_language", value).apply()
+
+    /**
      * Skip chunks with no speech in them before they reach the on-device
      * recogniser (Whisper, Parakeet or Nemotron), using the bundled Silero
      * speech detector (see whisper/SpeechGate). On by default; off is the

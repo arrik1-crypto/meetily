@@ -59,7 +59,21 @@ object ActionItems {
         "nothing to report",
         "n/a",
         "na",
-        "not applicable"
+        "not applicable",
+        // The same placeholder from a model asked to write in another
+        // language (OutputLanguage): "none" in the commonest ones.
+        "keine",
+        "aucune",
+        "aucun",
+        "ninguna",
+        "ninguno",
+        "nessuna",
+        "nessuno",
+        "geen",
+        "ingen",
+        "nenhuma",
+        "nenhum",
+        "brak"
     )
 
     /** True when [text] is a not-found placeholder rather than a real task. */
@@ -232,8 +246,22 @@ object ActionItems {
         .joinToString("\n")
         .trim()
 
-    /** Offline fallback: action-flavored segments become items, speaker tag = owner. */
-    fun fromMeetingContent(segments: List<TranscriptSegment>, notes: String): List<ActionItem> {
+    /**
+     * Offline fallback: action-flavored segments become items, speaker tag = owner.
+     *
+     * The action phrases are English, so with [englishHeuristics] false (a
+     * meeting known to be in another language; see
+     * MeetingLanguage.englishHeuristics) this finds nothing rather than
+     * turning false matches into to-dos: German "will" is "wants". The
+     * notes are skipped as well, since they are written in the meeting's
+     * language too as a rule.
+     */
+    fun fromMeetingContent(
+        segments: List<TranscriptSegment>,
+        notes: String,
+        englishHeuristics: Boolean = true
+    ): List<ActionItem> {
+        if (!englishHeuristics) return emptyList()
         val items = mutableListOf<ActionItem>()
         for (segment in segments) {
             val text = segment.text.trim()

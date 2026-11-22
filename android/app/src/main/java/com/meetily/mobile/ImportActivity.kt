@@ -9,6 +9,7 @@ import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.OpenableColumns
+import android.view.View
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -50,6 +51,12 @@ class ImportActivity : AppCompatActivity() {
 
     /** The notification-permission dialog is up; its result is still due. */
     private var awaitingPermission = false
+
+    /**
+     * Spoken language chosen for this file in the model sheet ("auto" or a
+     * code); null leaves it to Settings. See ImportService.EXTRA_LANGUAGE.
+     */
+    private var importLanguage: String? = null
 
     /** Which progress updates are read out; see ProgressAnnouncer. */
     private val progressAnnouncer = ProgressAnnouncer()
@@ -135,6 +142,7 @@ class ImportActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        importLanguage = savedInstanceState?.getString(STATE_LANGUAGE)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_import)
         EdgeToEdge.setUp(this) { root() }
@@ -227,6 +235,7 @@ class ImportActivity : AppCompatActivity() {
         outState.putBoolean(STATE_STARTED, started && !queueing)
         outState.putBoolean(STATE_QUEUEING, queueing)
         outState.putBoolean(STATE_AWAITING_PERMISSION, awaitingPermission)
+        outState.putString(STATE_LANGUAGE, importLanguage)
     }
 
     /** Copying into the queue; nothing was handed to the service. */
@@ -352,8 +361,50 @@ class ImportActivity : AppCompatActivity() {
                 }
             },
             onPick = { key -> startImport(uri, name, key) },
-            onDismissed = { finish() } // no pick, nothing to import
+            onDismissed = { finish() }, // no pick, nothing to import
+            // Only when one of the models can be told the language at all.
+            header = if (downloaded.any {
+                    com.meetily.mobile.whisper.TranscriptionModels.acceptsLanguage(it)
+                }
+            ) {
+                languageRow(settings)
+            } else {
+                null
+            }
         )
+    }
+
+    /**
+     * "Spoken language: Auto-detect" above the model cards: this file's
+     * language, defaulting to the Settings value. Parakeet and English-only
+     * models ignore it, as the Settings description says.
+     */
+    private fun languageRow(settings: AppSettings): View {
+        // A throwaway parent so the row keeps its margin; the sheet adds it.
+        val row = layoutInflater.inflate(
+            R.layout.language_import_row, android.widget.LinearLayout(this), false
+        ) as TextView
+        fun render() {
+            row.text = getString(
+                R.string.language_import_row,
+                LanguagePicker.spokenLabel(this, importLanguage ?: settings.spokenLanguage)
+            )
+        }
+        render()
+        row.setOnClickListener {
+            LanguagePicker.show(
+                this,
+                getString(R.string.language_spoken_title),
+                getString(R.string.language_auto),
+                com.meetily.mobile.data.MeetingLanguage.AUTO,
+                importLanguage ?: settings.spokenLanguage
+            ) { value ->
+                importLanguage = value
+                render()
+            }
+        }
+        A11y.labelClick(row, getString(R.string.language_change_spoken))
+        return row
     }
 
     /**
@@ -367,7 +418,8 @@ class ImportActivity : AppCompatActivity() {
         if (abandoned) return
         started = true
         val queued = JobGate.requestImport(
-            this, uri, name, modelKey, cancelled = { abandoned }
+            this, uri, name, modelKey, cancelled = { abandoned },
+            language = importLanguage.orEmpty()
         ) { result ->
             queueing = false
             when (result) {
@@ -404,6 +456,7 @@ class ImportActivity : AppCompatActivity() {
             .putExtra(ImportService.EXTRA_NAME, name)
             .putExtra(ImportService.EXTRA_MODEL, modelKey)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        importLanguage?.let { start.putExtra(ImportService.EXTRA_LANGUAGE, it) }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(start)
         } else {
@@ -483,6 +536,7 @@ class ImportActivity : AppCompatActivity() {
         const val STATE_STARTED = "import_started"
         const val STATE_QUEUEING = "import_queueing"
         const val STATE_AWAITING_PERMISSION = "import_awaiting_permission"
+        const val STATE_LANGUAGE = "import_language"
     }
 
     override fun onDestroy() {

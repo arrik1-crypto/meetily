@@ -76,6 +76,12 @@ class ImportService : Service() {
     /** Per-run model override (see ImportActivity's picker); null = default. */
     private var modelKey: String? = null
 
+    /**
+     * Per-run spoken language ("de", or "auto"); null uses Settings. See
+     * [EXTRA_LANGUAGE].
+     */
+    private var language: String? = null
+
     /** Set when this run is a second pass over an existing meeting's audio. */
     private var recheckMeetingId: String? = null
 
@@ -191,6 +197,7 @@ class ImportService : Service() {
                 sourceName = intent.getStringExtra(EXTRA_NAME).orEmpty()
                     .ifBlank { getString(R.string.import_title) }
                 modelKey = intent.getStringExtra(EXTRA_MODEL)
+                language = intent.getStringExtra(EXTRA_LANGUAGE)?.takeIf { it.isNotBlank() }
                 createChannel()
                 startForegroundCompat(buildNotification(0))
                 // Whisper or NeMo is about to load. An idle on-device LLM from
@@ -213,7 +220,8 @@ class ImportService : Service() {
                     com.meetily.mobile.data.JobQueue.markRunning(
                         this, com.meetily.mobile.data.JobQueue.KIND_CHECK,
                         recheckMeetingId!!, modelKey.orEmpty(),
-                        firstTranscript = firstTranscript
+                        firstTranscript = firstTranscript,
+                        language = language.orEmpty()
                     )
                 }
                 // A queued import left the queue when it was drained; until
@@ -221,7 +229,7 @@ class ImportService : Service() {
                 // only thing that knows it exists.
                 adoptFile?.let {
                     com.meetily.mobile.data.JobQueue.markImportRunning(
-                        this, it, sourceName, modelKey.orEmpty()
+                        this, it, sourceName, modelKey.orEmpty(), language.orEmpty()
                     )
                 }
                 runImport(uri)
@@ -300,6 +308,7 @@ class ImportService : Service() {
                     // stages it in a draft the meeting never receives.
                     firstTranscript = firstTranscript,
                     adoptFile = adoptFile,
+                    language = language,
                     onMeetingCreated = { id ->
                         currentMeetingId = id
                         adoptFile?.let {
@@ -484,7 +493,8 @@ class ImportService : Service() {
                 System.currentTimeMillis(),
                 chargingOnly = true,
                 firstTranscript = firstTranscript,
-                required = firstTranscript
+                required = firstTranscript,
+                language = language.orEmpty()
             )
         )
         ChargingJobService.schedule(this)
@@ -768,6 +778,11 @@ class ImportService : Service() {
         const val EXTRA_CHARGING_ONLY = "charging_only"
         /** This check is the meeting's first transcript; see JobQueue.Job. */
         const val EXTRA_FIRST_TRANSCRIPT = "first_transcript"
+        /**
+         * Spoken language for this run: a code from MeetingLanguage.CHOICES,
+         * or "auto" to detect even when Settings pins one. Absent: Settings.
+         */
+        const val EXTRA_LANGUAGE = "spoken_language"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45
