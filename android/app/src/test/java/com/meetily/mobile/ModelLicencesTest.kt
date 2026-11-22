@@ -231,6 +231,7 @@ class ModelLicencesTest {
             "titanet-large-en" to "NeMo TitaNet large / small",
             "titanet-en" to "NeMo TitaNet large / small",
             "campplus-zh-en" to "3D-Speaker CAM++ (English + Chinese)",
+            "campplus-zh-en-v2" to "3D-Speaker CAM++ (English + Chinese)",
             "qwen2.5-0.5b" to "Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct",
             "qwen2.5-1.5b" to "Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct",
             "qwen35-2b" to "Qwen 3.5 2B, Qwen 3.5 4B",

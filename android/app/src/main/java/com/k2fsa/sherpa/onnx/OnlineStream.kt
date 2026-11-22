@@ -1,8 +1,12 @@
-// Vendored from k2-fsa/sherpa-onnx (tag v1.13.4), Apache License 2.0.
-// https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.4/sherpa-onnx/kotlin-api/
+// Vendored from k2-fsa/sherpa-onnx (tag v2.0.3), Apache License 2.0.
+// https://github.com/k2-fsa/sherpa-onnx/blob/v2.0.3/sherpa-onnx/kotlin-api/
 package com.k2fsa.sherpa.onnx
 
 class OnlineStream(var ptr: Long = 0) {
+    init {
+        require(ptr != 0L) { "Failed to create native OnlineStream" }
+    }
+
     fun acceptWaveform(samples: FloatArray, sampleRate: Int) =
         acceptWaveform(ptr, samples, sampleRate)
 

@@ -39,6 +39,7 @@ class RecapApp : Application() {
         Thread {
             dropRemovedLiteRtModels()
             reselectWithdrawnLlmModel()
+            runCatching { com.meetily.mobile.whisper.DiarizationModels.retireLegacySelection(this) }
             // A force-stop cancels the daily clean-up job with every other.
             runCatching { RetentionJobService.ensureScheduled(this) }
         }.start()

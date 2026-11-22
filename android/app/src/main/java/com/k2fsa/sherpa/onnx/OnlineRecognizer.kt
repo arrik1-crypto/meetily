@@ -1,5 +1,5 @@
-// Vendored from k2-fsa/sherpa-onnx (tag v1.13.4), Apache License 2.0.
-// https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.4/sherpa-onnx/kotlin-api/
+// Vendored from k2-fsa/sherpa-onnx (tag v2.0.3), Apache License 2.0.
+// https://github.com/k2-fsa/sherpa-onnx/blob/v2.0.3/sherpa-onnx/kotlin-api/
 package com.k2fsa.sherpa.onnx
 
 import android.content.res.AssetManager
@@ -101,6 +101,9 @@ class OnlineRecognizer(
             newFromAsset(assetManager, config)
         } else {
             newFromFile(config)
+        }
+        require(ptr != 0L) {
+            "Invalid OnlineRecognizerConfig: failed to create native OnlineRecognizer"
         }
     }
 

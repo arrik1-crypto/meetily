@@ -1,8 +1,9 @@
-// Vendored from k2-fsa/sherpa-onnx (tag v1.13.4), Apache License 2.0.
-// https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.4/sherpa-onnx/kotlin-api/
+// Vendored from k2-fsa/sherpa-onnx (tag v2.0.3), Apache License 2.0.
+// https://github.com/k2-fsa/sherpa-onnx/blob/v2.0.3/sherpa-onnx/kotlin-api/
 package com.k2fsa.sherpa.onnx
 
 import android.content.res.AssetManager
+import android.util.Log
 
 class SpeakerEmbeddingExtractor(
     assetManager: AssetManager? = null,
@@ -15,6 +16,9 @@ class SpeakerEmbeddingExtractor(
             newFromAsset(assetManager, config)
         } else {
             newFromFile(config)
+        }
+        require(ptr != 0L) {
+            "Invalid SpeakerEmbeddingExtractorConfig: failed to create native SpeakerEmbeddingExtractor"
         }
     }
 
@@ -67,6 +71,7 @@ class SpeakerEmbeddingManager(val dim: Int) {
 
     init {
         ptr = create(dim)
+        require(ptr != 0L) { "Failed to create native SpeakerEmbeddingManager" }
     }
 
     protected fun finalize() {
@@ -110,6 +115,49 @@ class SpeakerEmbeddingManager(val dim: Int) {
     companion object {
         init {
             System.loadLibrary("sherpa-onnx-jni")
+        }
+    }
+}
+
+// Please download the model file from
+// https://github.com/k2-fsa/sherpa-onnx/releases/tag/speaker-recongition-models
+// and put it inside the assets directory.
+//
+// Please don't put it in a subdirectory of assets
+private val modelName = "3dspeaker_speech_eres2net_base_sv_zh-cn_3dspeaker_16k.onnx"
+
+object SpeakerRecognition {
+    var _extractor: SpeakerEmbeddingExtractor? = null
+    var _manager: SpeakerEmbeddingManager? = null
+
+    val extractor: SpeakerEmbeddingExtractor
+        get() {
+            return _extractor!!
+        }
+
+    val manager: SpeakerEmbeddingManager
+        get() {
+            return _manager!!
+        }
+
+    fun initExtractor(assetManager: AssetManager? = null) {
+        synchronized(this) {
+            if (_extractor != null) {
+                return
+            }
+            Log.i("sherpa-onnx", "Initializing speaker embedding extractor")
+
+            _extractor = SpeakerEmbeddingExtractor(
+                assetManager = assetManager,
+                config = SpeakerEmbeddingExtractorConfig(
+                    model = modelName,
+                    numThreads = 2,
+                    debug = false,
+                    provider = "cpu",
+                )
+            )
+
+            _manager = SpeakerEmbeddingManager(dim = _extractor!!.dim())
         }
     }
 }

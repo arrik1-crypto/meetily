@@ -63,8 +63,12 @@ sherpa-onnx ships as prebuilt `.so` files that are **not** in the repo:
 bash android/scripts/fetch_sherpa_libs.sh
 ```
 
-Downloads the v1.13.4 Android release and installs `arm64-v8a` and `x86_64`
-into `app/src/main/jniLibs/`. Run once; it no-ops if they are present.
+Downloads the v2.0.3 Android release, checks it against the SHA-256 pinned in
+the script, and installs `arm64-v8a` and `x86_64` into
+`app/src/main/jniLibs/`. Run once; it no-ops while `jniLibs/sherpa-onnx.stamp`
+records the pinned version, and replaces libraries from any other version.
+`python3 android/scripts/check_sherpa_jni.py` then checks them against the
+vendored Kotlin API (CI runs both).
 
 ## 4. Build
 

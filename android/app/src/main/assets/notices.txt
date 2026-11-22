@@ -34,7 +34,7 @@ Model use restrictions
 PART ONE - SOFTWARE INCLUDED IN THIS APP
 ================================================================================
 
-sherpa-onnx v1.13.4
+sherpa-onnx v2.0.3
     Apache License 2.0
     Copyright (c) 2023 Xiaomi Corporation
     https://github.com/k2-fsa/sherpa-onnx
@@ -42,7 +42,7 @@ sherpa-onnx v1.13.4
     API vendored under com.k2fsa.sherpa.onnx. Runs Parakeet, Nemotron and the
     speaker-embedding models.
 
-ONNX Runtime
+ONNX Runtime 1.28.2
     MIT License
     Copyright (c) Microsoft Corporation
     https://github.com/microsoft/onnxruntime
