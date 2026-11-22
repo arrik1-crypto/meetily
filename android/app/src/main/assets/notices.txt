@@ -68,6 +68,8 @@ ggml
 Arm KleidiAI v1.32.0
     Apache License 2.0
     Copyright (c) 2024-2026 Arm Limited and/or its affiliates
+    Copyright (c) 2026 Fujitsu Limited
+    Copyright (c) 2026 Meta Platforms, Inc. and affiliates
     https://github.com/ARM-software/kleidiai
     Optimised matrix-multiplication kernels, compiled into both native
     libraries on arm64 phones and used by ggml when the processor supports

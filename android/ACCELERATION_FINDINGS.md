@@ -42,18 +42,50 @@ Baseline, verified in this repo:
   ggml's flags, reads `getauxval(AT_HWCAP/AT_HWCAP2)` once, and only calls
   a kernel whose features the CPU has, so the armv8-a baseline cannot
   SIGILL because of it; on a Cortex-A53/A73 no kernel qualifies and
-  everything stays on ggml's path. This is the runtime-dispatched
-  dotprod/i8mm/SVE/SME route for Q4_0, Q4_K, Q6_K and Q8_0 weight matmuls
-  that the line above says ggml's own kernels lack, without a third CPU
-  tier. Weights it takes are repacked into a `CPU_KLEIDIAI` buffer
-  (anonymous memory, as `CPU_REPACK` already was on the v82 build), and
-  whisper.cpp offers its weights to it too. `GGML_LLAMAFILE` keeps its
-  default. Not measured: no device numbers, and APK growth is unknown
-  until the first CI build. llama.cpp's warnings, errors and load-time
-  buffer lines now reach logcat under the tag `meetily_ggml` (they went to
-  stderr, which an app discards), so a phone shows whether it engaged:
-  `load_tensors: CPU_KLEIDIAI model buffer size = ...` and
-  `kleidiai: primary q4_k kernel feature ...`.
+  everything stays on ggml's path. It is a runtime-dispatched
+  dotprod/i8mm/SME route for Q4_0, Q8_0 and Q6_K weight matmuls (Q4_K
+  only on SME2 CPUs), without a third CPU tier. Its SVE kernels need
+  256-bit vectors, and phone cores have 128-bit SVE2, so they never
+  qualify on a phone. That makes it a smaller fix for the gap in the line
+  above than it sounds: on every phone without SME2, the Q4_K bulk of the
+  catalogue's Q4_K_M models stays where it was (`CPU_REPACK` on the v82
+  build, the plain mmap'd CPU buffer on the baseline), and only their
+  Q6_K tensors move.
+  - **What it costs (2026-11 review, read from v1.0.0's
+    `ggml-cpu/kleidiai/kleidiai.cpp`):** on any phone with dotprod (the
+    whole v82 tier, and baseline-tier phones that have it), KleidiAI takes
+    every Q6_K matmul weight: the output head and about half the
+    `ffn_down`/`attn_v` tensors. It dequantises Q6_K (and Q8_0) and
+    requantises it to int8 with one scale per row, which is lossy: the v82
+    build ran these through `CPU_REPACK`'s exact Q6_K kernels before. Those
+    tensors also grow 8/6.5625 = 1.22x, as anonymous memory in a
+    `CPU_KLEIDIAI` buffer: about +270 MB for Llama 3.1 8B (1.5B Q6_K
+    parameters), up to about 9% of the file for the catalogue's models
+    (Gemma 3 1B, whose tied 262k-token output head is Q6_K). DeviceFit's
+    10% weight slack (`llmWorkingSetMb`) has to absorb that; it was not
+    raised for it. Q4_0 weights (none in the catalogue) keep per-block
+    scales and are not affected this way.
+  - whisper.cpp offers its weights to the same buffer types, but the
+    shipped Whisper models are F16, q5_0 and q5_1. KleidiAI has no q5
+    kernels and runs F16 only on SME2, so on other phones transcription
+    stays on ggml's own kernels.
+  - `GGML_LLAMAFILE` keeps its default. Not measured: no device numbers,
+    and APK growth is unknown until the first CI build. llama.cpp's
+    warnings, errors and load-time buffer lines now reach logcat under the
+    tag `meetily_ggml` (they went to stderr, which an app discards), so a
+    phone shows whether it engaged: `load_tensors: CPU_KLEIDIAI model
+    buffer size = ...`, and once per process `kleidiai: primary q8 kernel
+    feature DOTPROD` (or `I8MM`). The q4_k line names a kernel only on SME2
+    phones; everywhere else it reads `kleidiai: no compatible q4_k kernels
+    found for CPU features mask ...`, which is expected, not a failure.
+  - **Device check before keeping it on:** on one dotprod phone, summarise
+    the same meeting with the same Q4_K_M model (a 7–8B one shows the
+    memory cost best) in this build and in one configured with
+    `-DGGML_CPU_KLEIDIAI=OFF`. Compare the summaries, the Ask answers, peak
+    PSS (`dumpsys meminfo` during generation), first-token latency and
+    tokens/s. If quality or memory is worse, set `GGML_CPU_KLEIDIAI` OFF in
+    the arm64 branch of `CMakeLists.txt` too, until SME2 phones are
+    targeted: without SME2 there is no Q4_K speed-up to trade against it.
 - **Exports (2026-11, 3.16.0-beta1):** both JNI libraries, and their
   `_v82` builds, are now linked with `app/src/main/cpp/jni_exports.map`,
   which exports only `Java_*` (plus `JNI_OnLoad*`/`JNI_OnUnload*`, not
@@ -213,11 +245,14 @@ a multi-minute job on a phone.
 1. **Attack prefill on the CPU path.** Confirm we are actually getting the
    Armv9 i8mm/SVE kernels (`GGML_CPU_ALL_VARIANTS`, correct `-march`) — a
    missed path costs multiples on prefill GEMMs for free, with no correctness
-   risk. (Batch 3 took the KleidiAI route to them instead; see the baseline
-   notes above. Confirming it on a phone is still open.) Then reduce the work itself: bigger map chunks amortise better, and
-   our system prompt is identical on every map call, so prompt-prefix KV
-   caching is nearly free. That is likely to beat a GPU speedup we cannot
-   ship.
+   risk. (Batch 3 enabled KleidiAI instead, which reaches i8mm only for
+   Q4_0, Q8_0 and Q6_K weights; for the Q4_K bulk of the catalogue's
+   Q4_K_M models it does nothing on a phone without SME2, so this is still
+   open for them. See the baseline notes above, including what KleidiAI
+   costs on Q6_K.) Then reduce the work itself: bigger map chunks amortise
+   better, and our system prompt is identical on every map call, so
+   prompt-prefix KV caching is nearly free. That is likely to beat a GPU
+   speedup we cannot ship.
 2. **One free experiment on the sherpa side:** try `provider = "xnnpack"`
    instead of `"cpu"`. sherpa-onnx falls back to CPU with a log line if the
    EP is absent, so it cannot break anything. Note that NNAPI is a dead end

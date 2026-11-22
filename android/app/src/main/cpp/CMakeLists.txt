@@ -122,13 +122,37 @@ endif()
 # kernel qualifies and every matmul stays on ggml's own path, so the
 # baseline library cannot SIGILL because of it.
 #
-# Weight kernels exist for Q4_0, Q4_K, Q6_K and Q8_0; the shipped Q4_K_M
-# GGUFs are mostly Q4_K and Q6_K. Weights KleidiAI takes are repacked into a
-# "CPU_KLEIDIAI" buffer at load (anonymous memory, as CPU_REPACK already
-# is), which llama.cpp names in its "model buffer size" log line; llama_jni.c
-# forwards that line to logcat. whisper.cpp offers its weights to the same
-# extra buffer types, so transcription can take these kernels too wherever
-# its weight types match. GGML_LLAMAFILE keeps llama.cpp's default.
+# What it takes at v1.0.0 (ggml-cpu/kleidiai/kernels.cpp and kleidiai.cpp):
+# weight kernels for Q4_0 and Q8_0 (the Q8_0 ones also serve Q6_K) with
+# dotprod, i8mm or SME/SME2, and for Q4_K only with SME2+FP16. Its SVE
+# kernels need 256-bit vectors; phone cores have 128-bit SVE2. So on phones
+# without SME2 the Q4_K bulk of the shipped Q4_K_M GGUFs stays where it was
+# (CPU_REPACK on :native-v82, the plain mmap'd CPU buffer on the baseline).
+#
+# What it does take from them, on any phone with dotprod (all of
+# :native-v82, and baseline-tier phones that have it), is every Q6_K
+# matmul weight: the output head and about half the ffn_down/attn_v
+# tensors. It dequantises Q6_K (and Q8_0) and requantises it to int8 with
+# one scale per row. That is lossy, where CPU_REPACK on :native-v82 ran
+# exact Q6_K kernels, and those tensors grow 8/6.5625 = 1.22x, as
+# anonymous memory in a "CPU_KLEIDIAI" buffer (about +270 MB for Llama 3.1
+# 8B, up to about 9% of the file for the catalogue's models; DeviceFit's
+# 10% weight slack has to absorb it). Neither the precision nor the memory
+# cost has been measured: ACCELERATION_FINDINGS.md has the device check
+# (same meeting and model, this build against -DGGML_CPU_KLEIDIAI=OFF). If
+# either is worse, set GGML_CPU_KLEIDIAI OFF in the arm64 branch below too,
+# until SME2 phones are targeted; without SME2 there is no Q4_K speed-up to
+# trade against it.
+#
+# llama.cpp names the buffer in its "model buffer size" log line, and
+# KleidiAI logs its kernel choice once per process ("kleidiai: primary q8
+# kernel feature DOTPROD" or "I8MM"; q4_k names a kernel only on SME2
+# phones and otherwise reads "no compatible q4_k kernels found");
+# llama_jni.c forwards both to logcat. whisper.cpp offers its weights to
+# the same extra buffer types, but the shipped Whisper models are F16,
+# q5_0 and q5_1. KleidiAI has nothing for q5_0/q5_1, and runs F16 matmuls
+# only on SME2 (without repacking), so on other phones transcription stays
+# on ggml's own kernels. GGML_LLAMAFILE keeps llama.cpp's default.
 if (ANDROID_ABI STREQUAL "arm64-v8a")
     set(GGML_CPU_KLEIDIAI ON CACHE BOOL "" FORCE)
 else()

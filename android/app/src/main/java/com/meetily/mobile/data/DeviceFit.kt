@@ -194,6 +194,13 @@ object DeviceFit {
      * every weight is read for every token and so ends up resident even
      * though it is memory-mapped; 10% on top for dequantisation scratch and
      * allocator slack; and [LLM_RUNTIME_MB].
+     *
+     * On phones with dotprod, the arm64 engine's KleidiAI kernels also
+     * requantise a Q4_K_M file's Q6_K tensors to int8 at load, held in
+     * anonymous memory at 1.22x their size. The extra is up to about 9% of
+     * the file for the catalogue's models (+270 MB for Llama 3.1 8B), comes
+     * out of the same 10%, and has not been measured; see
+     * ACCELERATION_FINDINGS.md.
      */
     fun llmWorkingSetMb(sizeMb: Int): Int = sizeMb + sizeMb / 10 + LLM_RUNTIME_MB
 
