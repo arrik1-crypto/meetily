@@ -64,10 +64,10 @@ DEVICE REQUIREMENTS (estimates)
 RAM, minimum / comfortable:
 • Transcription: Whisper Tiny 1/2 GB; Base, Small Q 2 GB; Small, Large
   v3 Turbo, Parakeet 3/4 GB; Nemotron 3.5 3/6 GB
-• AI summaries: Qwen 2.5 0.5B 2/3 GB; Gemma 3 1B 3/4 GB; Qwen 2.5 1.5B
-  4/6 GB; Llama 3.2 3B, Gemma 3 4B, MedGemma 4B 6/8 GB; Gemma 4 E2B
-  8/10 GB; Mistral 7B, Llama 3.1 8B, Gemma 4 E4B 12/16 GB; Qwen 3.5 9B
-  16/18 GB
+• AI summaries: Qwen 2.5 0.5B 2/3 GB; Gemma 3 1B 3/4 GB; Qwen 2.5 1.5B,
+  Qwen 3.5 2B 4/6 GB; Llama 3.2 3B, Gemma 3 4B, MedGemma 4B 6/8 GB;
+  Gemma 4 E2B, Qwen 3.5 4B 8/10 GB; Gemma 4 E2B QAT 8/12 GB; Mistral 7B,
+  Llama 3.1 8B, Gemma 4 E4B (also QAT) 12/16 GB; Qwen 3.5 9B 16/18 GB
 • Speaker detection: 1–2 GB
 Recap suggests models that suit your phone and shows each one's fit
 before you download it.
@@ -85,4 +85,4 @@ location — always record with consent.
 
 Recap is open source.
 ----------------------------------------------------------------
-(char count 3,928, counting line breaks — under the 4,000 limit)
+(char count 3,990, counting line breaks — under the 4,000 limit)

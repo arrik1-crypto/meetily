@@ -15,8 +15,20 @@ Baseline, verified in this repo:
 - `llama_jni.c` never sets `mparams.n_gpu_layers`.
 - sherpa-onnx runs `provider = "cpu"` (`NemoEngine.kt`, `SherpaEmbedder.kt`).
 - The only acceleration in the app today is CPU-side: arm64 NEON, 2–6
-  threads, quantized weights, and the q8_0 KV cache + flash attention added
-  in v2.9.0-beta3.
+  threads, quantized weights, the q8_0 KV cache + flash attention added
+  in v2.9.0-beta3, and, since Batch 3, Arm KleidiAI's runtime-dispatched
+  kernels for some weight types (below).
+- **Less work rather than faster kernels (2026-11, Batch 3; neither
+  measured on a phone):** the Silero speech gate (`SpeechGate.kt`,
+  `SileroVad.kt`) drops chunks that pass the loudness check but hold no
+  speech before any recogniser sees them, which saves Whisper, Parakeet
+  and Nemotron passes over steady noise and typing, at an estimated
+  minute or so per hour of audio for the detector itself. And the small
+  LLMs (files up to `DeviceFit.SMALL_LLM_MAX_MB`) get an 8K window where
+  the phone holds it comfortably, with map sections scaled to the window
+  (`PromptShaping.mapChunkChars`), so a long meeting takes about half as
+  many condensing passes; each pass's prompt is longer, so the net time
+  saved is unmeasured.
 - **Correction (2026-09):** this file used to say "NEON/dotprod". The build
   never produced dotprod. `GGML_NATIVE` is off and nothing set
   `GGML_CPU_ARM_ARCH` or `GGML_CPU_ALL_VARIANTS`, so ggml compiled for plain
@@ -288,10 +300,16 @@ a multi-minute job on a phone.
    Q4_0, Q8_0 and Q6_K weights; for the Q4_K bulk of the catalogue's
    Q4_K_M models it does nothing, since its only Q4_K kernel is an SME2 one
    and those are kept off, so this is still open for them. See the baseline
-   notes above, including what KleidiAI costs on Q6_K.) Then reduce the work itself: bigger map chunks amortise
-   better, and our system prompt is identical on every map call, so
-   prompt-prefix KV caching is nearly free. That is likely to beat a GPU
-   speedup we cannot ship.
+   notes above, including what KleidiAI costs on Q6_K.) Then reduce the
+   work itself: bigger map chunks amortise better (Batch 3 doubled them for
+   the small models that get an 8K window), and our system prompt is
+   identical on every map call, so prompt-prefix KV caching is nearly free.
+   (`llama_jni.c` reuses the longest prefix a prompt shares with the
+   previous one, except on hybrid models such as Qwen 3.5, whose cache
+   refuses a partial drop, and on a Gemma model given the small
+   sliding-window cache once the reused part has slid out of it; both then
+   re-read the whole prompt.) That is likely to beat a GPU speedup we
+   cannot ship.
 2. **One free experiment on the sherpa side:** try `provider = "xnnpack"`
    instead of `"cpu"`. sherpa-onnx falls back to CPU with a log line if the
    EP is absent, so it cannot break anything. Note that NNAPI is a dead end
