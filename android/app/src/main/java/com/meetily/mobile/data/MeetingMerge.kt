@@ -94,8 +94,9 @@ object MeetingMerge {
      *   back in, exactly as [foldLateSegments] does. Otherwise the stored
      *   transcript is taken as it is.
      * - The summary. The screen never writes one, so a new summary on disk
-     *   takes its action items and stale flag with it: a tick made on the
-     *   old list must not bring back items the new summary dropped.
+     *   takes its action items, stale flag, template and model with it: a
+     *   tick made on the old list must not bring back items the new summary
+     *   dropped.
      */
     fun mergeScreenEdits(
         base: Meeting,
@@ -145,6 +146,17 @@ object MeetingMerge {
                 disk.summaryStale
             } else {
                 pick(base.summaryStale, ours.summaryStale, disk.summaryStale)
+            },
+            // Which template and model wrote the summary travel with it.
+            summaryTemplate = if (newSummary) {
+                disk.summaryTemplate
+            } else {
+                pick(base.summaryTemplate, ours.summaryTemplate, disk.summaryTemplate)
+            },
+            summaryModel = if (newSummary) {
+                disk.summaryModel
+            } else {
+                pick(base.summaryModel, ours.summaryModel, disk.summaryModel)
             },
             followsEvent = pick(base.followsEvent, ours.followsEvent, disk.followsEvent)
         )

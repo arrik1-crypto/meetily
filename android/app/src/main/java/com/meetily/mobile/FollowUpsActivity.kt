@@ -15,6 +15,7 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.export.TaskExport
 import com.meetily.mobile.reminders.Reminders
+import com.meetily.mobile.summarize.AiDisclaimers
 import java.text.DateFormat
 import java.util.Date
 
@@ -70,6 +71,17 @@ class FollowUpsActivity : AppCompatActivity() {
             if (item.itemId == R.id.action_export_tasks) {
                 showExportChoices()
                 true
+            } else if (item.itemId == R.id.aisafety_action_report_tasks) {
+                // The items were extracted by the summary run that wrote them.
+                AiReport.show(
+                    this,
+                    AiReport.Subject(
+                        label = getString(R.string.aisafety_report_action),
+                        surface = "follow_ups",
+                        text = TaskExport.text(openItems())
+                    )
+                )
+                true
             } else {
                 false
             }
@@ -96,6 +108,20 @@ class FollowUpsActivity : AppCompatActivity() {
         }
         return out
     }
+
+    /**
+     * The fixed notices of the summaries the open items came from: the
+     * items are written by the same run, so a clinical plan's drugs and
+     * doses carry the clinical notice wherever they are shared.
+     */
+    private fun openItemNotices(): List<String> = AiDisclaimers.texts(
+        this,
+        AiDisclaimers.union(
+            shown.filter { meeting ->
+                meeting.actionItems.any { !it.done && (meeting.id to it.task) !in completedHere }
+            }
+        )
+    )
 
     private fun showExportChoices() {
         if (openItems().isEmpty()) {
@@ -131,7 +157,10 @@ class FollowUpsActivity : AppCompatActivity() {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, getString(R.string.followups_title))
-            putExtra(Intent.EXTRA_TEXT, TaskExport.text(openItems()))
+            putExtra(
+                Intent.EXTRA_TEXT,
+                AiDisclaimers.appendTo(TaskExport.text(openItems()), openItemNotices())
+            )
         }
         startActivity(
             Intent.createChooser(send, getString(R.string.export_actions_text))
@@ -165,10 +194,11 @@ class FollowUpsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Titles, dates and action items only — never transcripts.
+        // Titles, dates, action items and what decides the summary's
+        // notice (openItemNotices) — never transcripts.
         loader.execute {
             val loaded = try {
-                store.listPartial(MeetingStore.ACTION_FIELDS)
+                store.listPartial(MeetingStore.ACTION_FIELDS + MeetingStore.NOTICE_FIELDS)
             } catch (_: Throwable) {
                 return@execute
             }

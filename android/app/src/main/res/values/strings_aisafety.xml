@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fixed notices on clinical and legal outputs (summarize/AiDisclaimers).
+         Never generated: these are shown beside the summary and added to
+         every share, copy and export of it. -->
+    <string name="aisafety_disclaimer_clinical">AI-generated draft for review by a qualified clinician. It may contain errors or omissions, and it is not a medical record, a diagnosis or medical advice. Check it against the recording before relying on it.</string>
+    <string name="aisafety_disclaimer_legal">AI-generated draft for review by a qualified lawyer. It may contain errors or omissions, and it is not legal advice. Check it against the recording before relying on it.</string>
+
+    <!-- Report AI output (AiReport) -->
+    <string name="aisafety_report_action">Report AI output</string>
+    <string name="aisafety_report_short">Report</string>
+    <string name="aisafety_report_answer_desc">Report this AI-generated answer</string>
+    <string name="aisafety_report_title">Report AI output</string>
+    <string name="aisafety_report_intro">Tell the developer about a problem with this AI-generated text. Recap prepares an email for you to review in your email app. Nothing is sent unless you send it.</string>
+    <string name="aisafety_report_reason_label">What is wrong with it?</string>
+    <string name="aisafety_reason_offensive">Offensive or harmful</string>
+    <string name="aisafety_reason_inaccurate">Inaccurate or misleading</string>
+    <string name="aisafety_reason_privacy">Privacy concern</string>
+    <string name="aisafety_reason_other">Something else</string>
+    <string name="aisafety_report_comment_hint">Comment (optional)</string>
+    <string name="aisafety_report_include_text">Include the generated text</string>
+    <string name="aisafety_report_include_note">Off by default, because meetings are private. Without it the email carries only your reason and comment, the app version, the AI model and the summary style.</string>
+    <string name="aisafety_report_send">Write email</string>
+    <string name="aisafety_report_subject">Recap AI output report: %1$s</string>
+    <string name="aisafety_report_no_email">No email app found. The report was copied to the clipboard: paste it into a message to %1$s.</string>
+    <string name="aisafety_report_copy_failed">No email app found, and the report could not be copied. Please write to %1$s.</string>
+    <string name="aisafety_report_clip_label">Recap AI output report</string>
+    <string name="aisafety_report_pick_title">What do you want to report?</string>
+    <string name="aisafety_subject_summary">Summary and action items</string>
+    <string name="aisafety_subject_notes">Enhanced notes</string>
+    <string name="aisafety_subject_title">Meeting title</string>
+    <string name="aisafety_subject_chapters">Topic chapters</string>
+    <string name="aisafety_subject_answer">Answer: %1$s</string>
+    <string name="aisafety_nothing_to_report">There is no AI-generated text on this screen to report yet.</string>
+</resources>

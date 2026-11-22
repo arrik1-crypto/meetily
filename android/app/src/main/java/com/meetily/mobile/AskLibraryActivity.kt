@@ -13,6 +13,7 @@ import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.search.LibrarySearch
+import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.LlmClient
 import java.text.DateFormat
 import java.util.Date
@@ -74,6 +75,7 @@ class AskLibraryActivity : AppCompatActivity() {
         answerView.visibility = View.GONE
         sourcesHeader.visibility = View.GONE
         sourcesList.removeAllViews()
+        reportButton?.visibility = View.GONE
         sendButton.isEnabled = false
 
         val useLlm = settings.useLlm && settings.llmConfigured
@@ -81,11 +83,13 @@ class AskLibraryActivity : AppCompatActivity() {
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
         val localOnly = settings.localOnlyLlm
+        val modelKey = AiReport.currentModelKey(this)
 
         Thread {
             val hits = LibrarySearch.search(store.list(), question)
             var answer: String? = null
             var llmFailed = false
+            val notices = AiDisclaimers.texts(this, AiDisclaimers.union(hits.map { it.meeting }))
             if (useLlm && hits.isNotEmpty()) {
                 try {
                     val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
@@ -122,8 +126,50 @@ class AskLibraryActivity : AppCompatActivity() {
                 sendButton.isEnabled = true
                 progress.visibility = View.GONE
                 renderResult(hits, answer, llmFailed)
+                renderReport(question, answer, modelKey, notices)
             }
         }.start()
+    }
+
+    private var reportButton: com.google.android.material.button.MaterialButton? = null
+
+    /** Notices of the summaries the answer on screen was built from. */
+    private var answerNotices: List<String> = emptyList()
+
+    /**
+     * The answer's notices and "Report AI output". The notices go with any
+     * result, because the matching moments listed below may quote a
+     * clinical or legal summary too. The report button only goes with a
+     * written answer: the other states are fixed app text.
+     */
+    private fun renderReport(
+        question: String,
+        answer: String?,
+        modelKey: String,
+        notices: List<String>
+    ) {
+        answerNotices = notices
+        if (notices.isNotEmpty()) {
+            answerView.text = AiDisclaimers.appendTo(answerView.text.toString(), notices)
+        }
+        val button = reportButton ?: AiReport.addButton(answerView) {}.also {
+            reportButton = it
+            DisclaimerViews.copyWithNotices(answerView) { answerNotices }
+        }
+        button.visibility = if (answer == null) View.GONE else View.VISIBLE
+        if (answer != null) {
+            button.setOnClickListener {
+                AiReport.show(
+                    this,
+                    AiReport.Subject(
+                        label = getString(R.string.aisafety_report_action),
+                        surface = "library_answer",
+                        text = "Q: $question\nA: $answer",
+                        modelKey = modelKey
+                    )
+                )
+            }
+        }
     }
 
     private fun renderResult(

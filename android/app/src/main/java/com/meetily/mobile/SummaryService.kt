@@ -20,6 +20,7 @@ import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.SpeakerSuggestions
 import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.summarize.ActionItems
+import com.meetily.mobile.summarize.AiProvenance
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
 import com.meetily.mobile.summarize.SummaryTemplates
@@ -306,6 +307,11 @@ class SummaryService : Service() {
                 return@Thread
             }
             val useLlm = settings.useLlm && settings.llmConfigured
+            // Recorded with the summary: its fixed disclaimer and any AI
+            // output report go by what wrote it, not by later settings.
+            val modelUsed = AiProvenance.modelKey(
+                useLlm, LocalLlm.isSelected(), settings.localLlmModel, settings.llmModel
+            )
             val rawTranscript = meeting.transcriptText()
             val speakerTranscript = meeting.transcriptTextWithSpeakers()
             val notes = meeting.notes + photoTextBlock(meeting)
@@ -398,6 +404,9 @@ class SummaryService : Service() {
             val droppedReminders = mutableListOf<String>()
             val saved = store.mutate(meetingId) { target ->
                 target.summary = result
+                target.summaryTemplate = template.key
+                // A failed generation saved its extractive fallback.
+                target.summaryModel = if (generationFailed) AiProvenance.EXTRACTIVE else modelUsed
                 /*
                  * Carry the user's state across a regeneration.
                  *

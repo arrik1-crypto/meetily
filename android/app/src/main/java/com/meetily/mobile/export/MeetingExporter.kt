@@ -7,6 +7,7 @@ import android.text.StaticLayout
 import android.text.TextPaint
 import com.meetily.mobile.data.ElapsedTime
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.summarize.AiDisclaimers
 import java.io.OutputStream
 import java.text.DateFormat
 import java.util.Date
@@ -24,7 +25,12 @@ object MeetingExporter {
         return "$safeTitle.$extension"
     }
 
-    fun markdown(meeting: Meeting): String {
+    /**
+     * [notices] are the summary's fixed disclaimers (AiDisclaimers), written
+     * directly under the Summary heading, ahead of the summary itself. One
+     * the summary already carries word for word is not repeated.
+     */
+    fun markdown(meeting: Meeting, notices: List<String> = emptyList()): String {
         val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(meeting.createdAtMs))
         return buildString {
@@ -34,7 +40,11 @@ object MeetingExporter {
                 append("**Attendees:** ").append(meeting.attendeesText()).append("\n\n")
             }
             if (meeting.summary.isNotBlank()) {
-                append("## Summary\n\n").append(meeting.summary).append("\n\n")
+                append("## Summary\n\n")
+                for (notice in newNotices(meeting.summary, notices)) {
+                    append("> ").append(notice).append("\n\n")
+                }
+                append(meeting.summary).append("\n\n")
             }
             if (meeting.actionItems.isNotEmpty()) {
                 append("## Action items\n\n")
@@ -71,7 +81,8 @@ object MeetingExporter {
         }
     }
 
-    fun writePdf(meeting: Meeting, out: OutputStream) {
+    /** [notices] as in [markdown]. */
+    fun writePdf(meeting: Meeting, out: OutputStream, notices: List<String> = emptyList()) {
         val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(meeting.createdAtMs))
         val doc = PdfDocument()
@@ -88,6 +99,9 @@ object MeetingExporter {
 
             if (meeting.summary.isNotBlank()) {
                 writer.block("Summary", 13f, bold = true, spacingAfter = 4f)
+                for (notice in newNotices(meeting.summary, notices)) {
+                    writer.block(notice, 9.5f, bold = true, spacingAfter = 8f)
+                }
                 writer.block(meeting.summary, 10.5f, bold = false, spacingAfter = 14f)
             }
             if (meeting.actionItems.isNotEmpty()) {
@@ -123,6 +137,10 @@ object MeetingExporter {
             doc.close()
         }
     }
+
+    /** The [notices] [summary] does not already carry, each once. */
+    private fun newNotices(summary: String, notices: List<String>): List<String> =
+        notices.filter { it.isNotBlank() && !AiDisclaimers.carries(summary, it) }.distinct()
 
     /** A4 pages (595x842 pt), simple top-down text flow with pagination. */
     private class PdfWriter(private val doc: PdfDocument) {

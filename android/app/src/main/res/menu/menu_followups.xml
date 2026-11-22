@@ -6,4 +6,8 @@
         android:icon="@drawable/ic_share"
         android:title="@string/export_actions_title"
         app:showAsAction="always" />
+    <item
+        android:id="@+id/aisafety_action_report_tasks"
+        android:title="@string/aisafety_report_action"
+        app:showAsAction="never" />
 </menu>

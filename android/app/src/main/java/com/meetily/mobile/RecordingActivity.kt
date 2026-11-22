@@ -727,13 +727,27 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             return
         }
         catchUpRunning = true
+        // After the text's scroll container: the scroll view holds one child.
+        val scroll = body.parent as View
+        val report = AiReport.addButton(scroll) {}
+        report.visibility = View.GONE
+        // A long result would otherwise take all the height the sheet has
+        // and squeeze the button to nothing. Weighted at height 0, the
+        // scroll view gives up the overflow and the button keeps its size.
+        (scroll.layoutParams as? android.widget.LinearLayout.LayoutParams)?.let { lp ->
+            lp.height = 0
+            lp.weight = 1f
+            scroll.layoutParams = lp
+        }
         Thread {
+            var modelKey = AiReport.currentModelKey(this)
             val result = try {
                 com.meetily.mobile.summarize.LlmClient.catchUp(
                     settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
                     settings.localOnlyLlm, transcript
                 )
             } catch (_: Exception) {
+                modelKey = com.meetily.mobile.summarize.AiProvenance.EXTRACTIVE
                 extractiveCatchUp(transcript)
             }
             runOnUiThread {
@@ -741,6 +755,18 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 if (isFinishing || isDestroyed || !sheet.isShowing) return@runOnUiThread
                 progress.visibility = View.GONE
                 body.text = result
+                report.visibility = View.VISIBLE
+                report.setOnClickListener {
+                    AiReport.show(
+                        this,
+                        AiReport.Subject(
+                            label = getString(R.string.aisafety_report_action),
+                            surface = "live_catch_up",
+                            text = result,
+                            modelKey = modelKey
+                        )
+                    )
+                }
             }
         }.apply {
             name = "catch-up"
