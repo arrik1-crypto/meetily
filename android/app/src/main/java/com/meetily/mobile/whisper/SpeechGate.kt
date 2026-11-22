@@ -10,10 +10,12 @@ import kotlin.math.min
  * drop a chunk whose loudest 100 ms frame is below an RMS floor. That cheap
  * check stays first. A chunk that passes it is then scored by Silero VAD
  * (one speech probability per 512-sample window at 16 kHz, see [SileroVad])
- * and goes to the recogniser only if it holds speech. Steady noise, typing
- * and most music are loud enough for the RMS check but are not speech, and
- * each such chunk would otherwise cost a recogniser pass, or for Whisper a
- * share of a 30-second encoder window, and could come back as invented text.
+ * and goes to the recogniser only if it holds speech. Steady noise and typing
+ * are loud enough for the RMS check but are not speech, and each such chunk
+ * would otherwise cost a recogniser pass, or for Whisper a share of a
+ * 30-second encoder window, and could come back as invented text. Music is
+ * not counted on: on a host build, synthetic tone chords scored as speech
+ * and were kept.
  *
  * The defaults lean towards keeping:
  *  - a window is speech at a probability of [THRESHOLD] or more, and speech
@@ -45,6 +47,19 @@ object SpeechGate {
 
     /** Samples per Silero window at 16 kHz (n_window in the bundled model). */
     const val WINDOW = 512
+
+    /**
+     * The known-speech clip [selfTestPassed] scores: 16 kHz mono 16-bit
+     * little-endian PCM, [PROBE_WINDOWS] whole windows (1.536 s) of
+     * whisper.cpp b5907's samples/jfk.wav from 5.8 s. SileroAssetTest pins
+     * its size and hash.
+     */
+    const val PROBE_ASSET = "vad_probe.pcm"
+    const val PROBE_WINDOWS = 48
+    const val PROBE_BYTES = PROBE_WINDOWS * WINDOW * 2L
+
+    /** Windows of digital silence scored after the probe. */
+    const val QUIET_WINDOWS = 16
 
     const val THRESHOLD = 0.5f
 
@@ -117,6 +132,38 @@ object SpeechGate {
             if (!(p >= 0f && p <= 1f)) return false
         }
         return true
+    }
+
+    /**
+     * The probe asset as samples, or null when it is not [PROBE_BYTES] long.
+     */
+    fun probeSamples(bytes: ByteArray): FloatArray? {
+        if (bytes.size.toLong() != PROBE_BYTES) return null
+        return FloatArray(bytes.size / 2) { i ->
+            val lo = bytes[2 * i].toInt() and 0xff
+            val hi = bytes[2 * i + 1].toInt()
+            ((hi shl 8) or lo) / 32768f
+        }
+    }
+
+    /**
+     * The positive control run once per process before the gate is trusted.
+     * [usable] only catches answers that are not probabilities at all; a
+     * detector that runs but scores wrongly, such as an arm64 kernel that
+     * miscomputes the graph, or a compute that stops part-way, which at b5907
+     * still reports success and leaves zero or stale probabilities, would
+     * otherwise skip every chunk and empty the transcript. So the detector
+     * must find speech in at least half of the known-speech probe's windows
+     * ([speech], scored from a fresh state) and none in digital silence
+     * ([quiet], scored after it from a fresh state). On a host build with
+     * the bundled model the probe scores 48 of 48 windows at 0.5 or more and
+     * silence stays below 0.01. Failing this, the gate is off and every
+     * chunk is transcribed, as without it.
+     */
+    fun selfTestPassed(speech: FloatArray?, quiet: FloatArray?): Boolean {
+        if (!usable(speech, PROBE_WINDOWS) || !usable(quiet, QUIET_WINDOWS)) return false
+        val voiced = speech!!.count { it >= THRESHOLD }
+        return voiced * 2 >= PROBE_WINDOWS && quiet!!.all { it < NEG_THRESHOLD }
     }
 }
 

@@ -141,7 +141,10 @@ whisper.cpp {WHISPER_VER}
     MIT License
     Copyright (c) 2023-2026 The ggml authors
     https://github.com/ggml-org/whisper.cpp
-    Compiled into the native library libmeetily_whisper.so.
+    Compiled into the native library libmeetily_whisper.so. The speech
+    detector's self-test clip vad_probe.pcm, included in the app, is 1.5
+    seconds of the project's samples/jfk.wav (President John F. Kennedy's
+    inaugural address, 1961).
 
 llama.cpp {LLAMA_VER}
     MIT License
@@ -173,7 +176,7 @@ Silero VAD {SILERO_VER}
     Included in the app as the speech-detection model ggml-silero-v6.2.0.bin,
     in the ggml form the whisper.cpp project publishes at
     https://huggingface.co/ggml-org/whisper-vad. Run on the phone through
-    whisper.cpp to skip silence, music and noise before transcription.
+    whisper.cpp to skip silence and noise before transcription.
 
 AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric)
     Apache License 2.0

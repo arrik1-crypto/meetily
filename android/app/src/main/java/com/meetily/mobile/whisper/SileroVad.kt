@@ -14,8 +14,9 @@ import java.io.FileOutputStream
  * It needs only that library, loaded through [WhisperBridge.load] for the
  * CPU build the phone supports, not a Whisper model, so it gates Parakeet
  * and Nemotron as well. Every failure (copying the model, loading the
- * library, creating the context) makes [open] return null and is logged
- * once per process; the caller then transcribes as it would without a gate.
+ * library, creating the context, or the once-per-process self-test, see
+ * [SpeechGate.selfTestPassed]) makes [open] return null and is logged once
+ * per process; the caller then transcribes as it would without a gate.
  *
  * One handle per run. [probabilities] and [release] are serialised, so a
  * release from another thread waits for a call in flight instead of freeing
@@ -74,6 +75,16 @@ class SileroVad private constructor(
         private val copyLock = Any()
         private val logged = HashSet<String>()
 
+        private const val UNTESTED = 0
+        private const val PASSED = 1
+        private const val FAILED = 2
+
+        /**
+         * The self-test's result for this process: the library, the CPU
+         * build and the model do not change while it runs, so it runs once.
+         */
+        @Volatile private var selfTest = UNTESTED
+
         /**
          * Opens the bundled model, or returns null. Call off the main thread:
          * the first call copies the model out of the APK, because
@@ -84,6 +95,8 @@ class SileroVad private constructor(
                 logOnce("opened on the main thread")
                 return null
             }
+            // Already logged when it failed; nothing to copy or load again.
+            if (selfTest == FAILED) return null
             val file = modelFile(context) ?: return null
             if (!WhisperBridge.load()) {
                 logOnce("speech library unavailable")
@@ -104,7 +117,47 @@ class SileroVad private constructor(
                 logOnce("model did not load")
                 return null
             }
+            if (!passesSelfTest(context, handle)) {
+                try {
+                    WhisperBridge.vadFree(handle)
+                } catch (_: Throwable) {
+                }
+                com.meetily.mobile.diag.NativeWork.end(work)
+                logOnce("self-test failed")
+                return null
+            }
             return SileroVad(handle, work)
+        }
+
+        /**
+         * Scores the bundled known-speech probe and then digital silence,
+         * each from a fresh state, and checks them with
+         * [SpeechGate.selfTestPassed]. The gate's first call on [handle]
+         * also starts from a fresh state, so nothing carries over. Run once
+         * per process, inside the NativeWork tag of the first open.
+         */
+        private fun passesSelfTest(context: Context, handle: Long): Boolean {
+            when (selfTest) {
+                PASSED -> return true
+                FAILED -> return false
+            }
+            val passed = try {
+                val bytes = context.assets.open(SpeechGate.PROBE_ASSET).use { it.readBytes() }
+                val probe = SpeechGate.probeSamples(bytes)
+                if (probe == null) {
+                    false
+                } else {
+                    val speech = WhisperBridge.vadDetect(handle, probe, true)
+                    val quiet = WhisperBridge.vadDetect(
+                        handle, FloatArray(SpeechGate.QUIET_WINDOWS * SpeechGate.WINDOW), true
+                    )
+                    SpeechGate.selfTestPassed(speech, quiet)
+                }
+            } catch (_: Throwable) {
+                false
+            }
+            selfTest = if (passed) PASSED else FAILED
+            return passed
         }
 
         /**

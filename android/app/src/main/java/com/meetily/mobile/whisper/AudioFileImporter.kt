@@ -351,6 +351,10 @@ class AudioFileImporter(
         // RMS check is transcribed, exactly as before.
         var vad: SileroVad? = null
         var speech: SpeechGateRun? = null
+        // A skipped chunk reaches no batch and no engine call, the two places
+        // that refresh the progress line, so a long stretch with no speech
+        // refreshes it from here, at most this often.
+        var lastSkipReportAt = 0L
 
         /** One cut chunk, waiting to be sent to Whisper as part of a batch. */
         class Part(val audio: FloatArray, val startSample: Long, val clusterId: Int?)
@@ -517,7 +521,14 @@ class AudioFileImporter(
             // No speech in it: no embedding, no engine call, no segment. A
             // kept chunk goes on unchanged at the same start sample, so its
             // timestamps and word timings match a run with the gate off.
-            if (speech?.keep(audio, startSample) == false) return
+            if (speech?.keep(audio, startSample) == false) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastSkipReportAt >= SKIP_REPORT_INTERVAL_MS) {
+                    lastSkipReportAt = now
+                    reportProgress()
+                }
+                return
+            }
             val clusterId = clusterFor(audio)
             val engine = nemoEngine
             if (engine == null) {
@@ -787,6 +798,9 @@ class AudioFileImporter(
 
         /** Least time between mid-run transcript saves. */
         private const val PERSIST_INTERVAL_MS = 30_000L
+
+        /** Least time between progress refreshes from chunks the gate skips. */
+        private const val SKIP_REPORT_INTERVAL_MS = 2_000L
 
         /**
          * One Whisper encoder window, less a margin. Whisper's analysis

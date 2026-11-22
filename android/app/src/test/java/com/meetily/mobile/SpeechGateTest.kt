@@ -121,6 +121,87 @@ class SpeechGateTest {
         assertFalse(SpeechGate.usable(floatArrayOf(-0.1f, 0.5f, 1f), 3))
     }
 
+    // ---- self-test -----------------------------------------------------
+
+    private val probeWindows = SpeechGate.PROBE_WINDOWS
+    private val quietWindows = SpeechGate.QUIET_WINDOWS
+
+    @Test
+    fun aDetectorThatHearsTheProbeAndNotSilencePasses() {
+        // What the host build of the bundled model returns.
+        assertTrue(
+            SpeechGate.selfTestPassed(
+                FloatArray(probeWindows) { 0.99f }, FloatArray(quietWindows) { 0.009f }
+            )
+        )
+        // Half the probe is enough; the first windows of a fresh state are low.
+        assertTrue(
+            SpeechGate.selfTestPassed(
+                probs(0.1f to probeWindows / 2, 0.9f to probeWindows / 2),
+                FloatArray(quietWindows)
+            )
+        )
+    }
+
+    @Test
+    fun plausibleButWrongAnswersFailTheSelfTest() {
+        // All zeros: usable, but the gate would skip every chunk.
+        assertFalse(
+            SpeechGate.selfTestPassed(FloatArray(probeWindows), FloatArray(quietWindows))
+        )
+        // Fewer than half the probe's windows heard.
+        assertFalse(
+            SpeechGate.selfTestPassed(
+                probs(0.1f to probeWindows / 2 + 1, 0.9f to probeWindows / 2 - 1),
+                FloatArray(quietWindows)
+            )
+        )
+        // Everything is speech, silence included.
+        assertFalse(
+            SpeechGate.selfTestPassed(
+                FloatArray(probeWindows) { 0.6f }, FloatArray(quietWindows) { 0.6f }
+            )
+        )
+        // A compute that stopped part-way leaves the probe's scores behind.
+        assertFalse(
+            SpeechGate.selfTestPassed(
+                FloatArray(probeWindows) { 0.99f },
+                probs(0.99f to 1, 0f to quietWindows - 1)
+            )
+        )
+    }
+
+    @Test
+    fun unusableAnswersFailTheSelfTest() {
+        val quiet = FloatArray(quietWindows)
+        val speech = FloatArray(probeWindows) { 0.99f }
+        assertFalse(SpeechGate.selfTestPassed(null, quiet))
+        assertFalse(SpeechGate.selfTestPassed(speech, null))
+        assertFalse(SpeechGate.selfTestPassed(speech.copyOf(probeWindows - 1), quiet))
+        assertFalse(SpeechGate.selfTestPassed(speech, quiet.copyOf(quietWindows + 1)))
+        assertFalse(
+            SpeechGate.selfTestPassed(speech.copyOf().also { it[0] = Float.NaN }, quiet)
+        )
+    }
+
+    @Test
+    fun theProbeIsSigned16BitLittleEndian() {
+        assertEquals(null, SpeechGate.probeSamples(ByteArray(4)))
+        assertEquals(null, SpeechGate.probeSamples(ByteArray(SpeechGate.PROBE_BYTES.toInt() - 2)))
+        val bytes = ByteArray(SpeechGate.PROBE_BYTES.toInt())
+        bytes[0] = 0x00; bytes[1] = 0x80.toByte() // -32768
+        bytes[2] = 0xff.toByte(); bytes[3] = 0x7f // 32767
+        bytes[4] = 0x01; bytes[5] = 0x00 // 1
+        bytes[6] = 0xff.toByte(); bytes[7] = 0xff.toByte() // -1
+        val samples = SpeechGate.probeSamples(bytes)!!
+        assertEquals(probeWindows * WINDOW, samples.size)
+        assertEquals(-1f, samples[0], 0f)
+        assertEquals(32767f / 32768f, samples[1], 0f)
+        assertEquals(1f / 32768f, samples[2], 0f)
+        assertEquals(-1f / 32768f, samples[3], 0f)
+        assertEquals(0f, samples[4], 0f)
+    }
+
     // ---- one run -------------------------------------------------------
 
     /**
