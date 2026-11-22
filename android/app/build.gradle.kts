@@ -24,13 +24,17 @@ val hasReleaseKeystore = releaseStoreFilePath != null &&
 
 android {
     namespace = "com.meetily.mobile"
-    compileSdk = 35
+    compileSdk = 36
     ndkVersion = "27.0.12077973"
 
     defaultConfig {
         applicationId = "com.recap.mobile"
         minSdk = 26
-        targetSdk = 35
+        // Android 16 at 36: edge-to-edge can no longer be opted out of,
+        // predictive back is on (back goes only through
+        // OnBackPressedDispatcher here), and screenOrientation is ignored on
+        // displays 600dp and wider (see RecordingStartStage).
+        targetSdk = 36
         versionCode = 109
         versionName = "3.14.0-beta5"
 
@@ -139,7 +143,9 @@ android {
 }
 
 dependencies {
-    implementation("androidx.core:core-ktx:1.13.1")
+    // 1.17 is the newest core built against compileSdk 36 (1.18 moved to
+    // 36.1, which needs AGP 8.13). It needs Kotlin Gradle Plugin 2.0+.
+    implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.appcompat:appcompat:1.7.0")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")

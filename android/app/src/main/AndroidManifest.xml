@@ -103,8 +103,12 @@
             android:exported="false" />
 
         <!-- Import an audio file (share sheet or in-app picker) and
-             transcribe it offline. Portrait-locked so a rotation can't
-             recreate the activity mid-import. -->
+             transcribe it offline. Portrait on phones only: from
+             targetSdk 36, Android 16 ignores screenOrientation on displays
+             600dp and wider, so a rotation there re-creates the activity,
+             and ImportActivity restores its state for that (see onCreate).
+             RecordingActivity's lock is likewise ignored there; it keeps its
+             start state across re-creation (RecordingStartStage). -->
         <activity
             android:name=".ImportActivity"
             android:exported="true"

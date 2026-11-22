@@ -170,10 +170,12 @@ class ImportActivity : AppCompatActivity() {
         // A re-created Activity still carries its original intent, so reading
         // the uri again would start the SAME file a second time — JobGate
         // would find an import running, stage another copy and queue it, and
-        // the user would end up with the meeting twice. Portrait is pinned so
-        // rotation is not a trigger, but scheduled dark-theme switching at
-        // sunset is, along with font or display-size changes, locale changes
-        // and a process-death restore during a long import.
+        // the user would end up with the meeting twice. Portrait is pinned on
+        // phones, but from targetSdk 36 Android 16 ignores that on displays
+        // 600dp and wider, so rotating a tablet or an unfolded foldable is a
+        // trigger there. So are scheduled dark-theme switching at sunset,
+        // font or display-size changes, locale changes and a process-death
+        // restore during a long import.
         //
         // That holds only once the file was handed on. Re-created BEFORE
         // that — permission dialog, probe or model picker still pending —
@@ -199,6 +201,12 @@ class ImportActivity : AppCompatActivity() {
                 bound = true
                 startedRun = true
                 started = true
+            } else if (savedInstanceState != null) {
+                // Re-created after the run this screen was showing ended,
+                // while no instance was observing. Nothing failed: its result
+                // went to the completion notification and the meeting list,
+                // so "couldn't read that file" would be wrong here.
+                finish()
             } else {
                 Toast.makeText(this, R.string.import_no_audio, Toast.LENGTH_LONG).show()
                 finish()
