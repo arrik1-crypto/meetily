@@ -146,11 +146,16 @@ object LlmClient {
     ): List<Pair<Int, String>> {
         // A labeled line is sent as "$i [$speaker]: ", so charge the label
         // too; the +8 in chapterWindows only covers the bare "$i: ".
+        // On-device the window is held to a 4K model's (speakerCharBudget),
+        // because the reply that answers it is not any longer on an 8K one.
         val windows = chapterWindows(
             lines.map { (text, speaker) ->
                 text.length + (if (speaker.isNullOrBlank()) 0 else speaker.length + 3)
             },
-            windowBudget(speakerSystemPrompt(attendees).length)
+            windowBudget(
+                speakerSystemPrompt(attendees).length,
+                if (LocalLlm.isSelected()) speakerCharBudget(LocalLlm.charBudget()) else null
+            )
         )
         val collected = mutableListOf<Pair<Int, String>>()
         for ((index, range) in windows.withIndex()) {
@@ -251,10 +256,43 @@ object LlmClient {
      * fifth to trimming, and those lines were never attributed or chaptered.
      * Map-reduce is off for these calls, so the window itself has to fit —
      * with a margin, because a transcript tokenizes worse than the estimate.
+     * On-device the budget is the selected model's on this phone (8K small
+     * models get chapter windows about twice as long; speaker windows stay
+     * at the 4K size, see [speakerCharBudget]); an endpoint's never moves.
      */
     private fun windowBudget(fixedChars: Int): Int =
-        if (LocalLlm.isSelected()) {
-            ((LocalLlm.CHAR_BUDGET - fixedChars - 200) * 85 / 100).coerceAtLeast(2_000)
+        windowBudget(fixedChars, if (LocalLlm.isSelected()) LocalLlm.charBudget() else null)
+
+    /**
+     * The on-device prompt budget a speaker window may use, given the
+     * selected model's [localCharBudget]: that budget, but never more than
+     * a [SPEAKER_WINDOW_TOKENS] window's.
+     *
+     * A speaker reply is one JSON object per attributed line, about 15
+     * tokens each, and every on-device reply is capped at the same 700
+     * tokens whatever the window: about 45 attributions per window. That
+     * cap was already reached at 4K (see [parseJsonArray]'s cut-off array).
+     * A window twice as long would hold twice the lines with no more room
+     * to answer them, so a meeting would get half as many attributions,
+     * the rest of each window silently skipped. Chapters answer with 2-8
+     * entries, so they keep the wider window. A model whose window is
+     * smaller than 4K still gets its own, smaller budget.
+     * Pure; unit-tested.
+     */
+    fun speakerCharBudget(localCharBudget: Int): Int =
+        minOf(localCharBudget, PromptShaping.charBudget(SPEAKER_WINDOW_TOKENS))
+
+    /** The window, in tokens, the on-device speaker windows are sized for. */
+    private const val SPEAKER_WINDOW_TOKENS = 4096
+
+    /**
+     * [windowBudget] given the on-device prompt budget [localCharBudget], or
+     * null for a network endpoint, which always gets [CHAPTER_WINDOW_CHARS].
+     * Pure; unit-tested.
+     */
+    fun windowBudget(fixedChars: Int, localCharBudget: Int?): Int =
+        if (localCharBudget != null) {
+            ((localCharBudget - fixedChars - 200) * 85 / 100).coerceAtLeast(2_000)
         } else {
             CHAPTER_WINDOW_CHARS
         }
@@ -644,13 +682,30 @@ object LlmClient {
         fixedChars: Int,
         networkTotal: Int,
         networkFloor: Int
+    ): Int = perBlockChars(
+        blocks, fixedChars, networkTotal, networkFloor,
+        if (LocalLlm.isSelected()) LocalLlm.charBudget() else null
+    )
+
+    /**
+     * [perBlockChars] given the on-device prompt budget [localCharBudget]
+     * (the selected model's on this phone), or null for a network endpoint,
+     * whose share depends only on [networkTotal] and [networkFloor].
+     * Pure; unit-tested.
+     */
+    fun perBlockChars(
+        blocks: List<Pair<String, String>>,
+        fixedChars: Int,
+        networkTotal: Int,
+        networkFloor: Int,
+        localCharBudget: Int?
     ): Int {
         val count = blocks.size.coerceAtLeast(1)
-        if (!LocalLlm.isSelected()) {
+        if (localCharBudget == null) {
             return (networkTotal / count).coerceAtLeast(networkFloor)
         }
         val labels = blocks.sumOf { it.first.length + 20 }
-        return ((LocalLlm.CHAR_BUDGET * 85 / 100 - fixedChars - labels) / count)
+        return ((localCharBudget * 85 / 100 - fixedChars - labels) / count)
             .coerceAtLeast(300)
     }
 

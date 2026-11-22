@@ -2,7 +2,10 @@ package com.meetily.mobile.llm
 
 import android.content.Context
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.DeviceFit
+import com.meetily.mobile.data.DeviceProbe
 import org.json.JSONArray
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * The embedded on-device chat engine. Keeps one model loaded (lazily, per
@@ -13,8 +16,6 @@ import org.json.JSONArray
  */
 object LocalLlm {
 
-    /** Fits phone memory and keeps prompt decode times sane. */
-    const val N_CTX = 4096
     private const val MAX_REPLY_TOKENS = 700
 
     /**
@@ -32,15 +33,50 @@ object LocalLlm {
 
 
     /**
-     * Prompt budget in characters, leaving room for the reply and template
-     * overhead. Derived from [N_CTX] via the shared shaping rules rather than
-     * computed here, so a second runtime with a different window cannot end
-     * up using llama.cpp's number.
+     * The context window of the loaded model, in tokens, as llama.cpp
+     * created it: the plan's request after the native clamp to the model's
+     * trained window. 0 while nothing is loaded. Every budget inside [chat]
+     * is derived from this one figure, through the shared shaping rules.
+     * Guarded by [lock].
      */
-    val CHAR_BUDGET = PromptShaping.charBudget(N_CTX)
+    private var loadedCtx = 0
 
-    /** Above this, middle-trimming loses too much: condense per-section instead. */
-    val MAP_REDUCE_THRESHOLD = PromptShaping.mapReduceThreshold(N_CTX)
+    /**
+     * The window each model was trained on (n_ctx_train), by key, for the
+     * models loaded in this process. [plan] clamps to it, so a window
+     * planned before the next load is the one llama_jni.c will create.
+     * Until a model has been loaded once its entry is missing and the plan
+     * is unclamped, which only matters for a model trained on less than the
+     * window it is set up for (none in the catalogue). Written under
+     * [lock], read without it.
+     */
+    private val trainedCtx = ConcurrentHashMap<String, Int>()
+
+    /**
+     * The window, in tokens, the selected model has or will have on this
+     * phone: [DeviceFit.llmPlan] for it, clamped to its trained window once
+     * that is known.
+     *
+     * For prompts built BEFORE [chat] (LlmClient's speaker, chapter and
+     * multi-meeting windows), which have to fit in one pass. Inside [chat]
+     * the loaded model's real window is used instead. Network endpoints
+     * never come here: their budgets do not depend on the phone.
+     */
+    fun contextTokens(): Int {
+        val context = appContext ?: return DeviceFit.LLM_BASE_CONTEXT
+        val model = LocalLlmModels.byKey(AppSettings(context).localLlmModel)
+        return plan(context, model).contextTokens
+    }
+
+    /**
+     * Prompt budget in characters for one-pass prompts on the selected
+     * model: [PromptShaping.charBudget] of [contextTokens].
+     */
+    fun charBudget(): Int = PromptShaping.charBudget(contextTokens())
+
+    /** [DeviceFit.llmPlan] for [model] on this phone. */
+    private fun plan(context: Context, model: LocalLlmModel): DeviceFit.LlmPlan =
+        DeviceFit.llmPlan(model.fitNeed, DeviceProbe.device(context), trainedCtx[model.key])
 
     /**
      * Progress during long generations: (section, totalSections) while
@@ -195,7 +231,7 @@ object LocalLlm {
             val at = if (payload.isNullOrEmpty()) -1
             else pairs.indexOfFirst { it.second.contains(payload) }
             if (allowMapReduce && payload != null && at >= 0 &&
-                needsMapReduce(pairs.sumOf { it.second.length })
+                needsMapReduce(pairs.sumOf { it.second.length }, loadedCtx)
             ) {
                 condenseCached(model.key, payload)?.let { condensed ->
                     pairs = pairs.toMutableList().also {
@@ -308,8 +344,10 @@ object LocalLlm {
     ): List<Pair<String, String>> {
         // Matches the native clamp: n_ctx - max_tokens - 8, with a little
         // more held back so we land under it rather than exactly on it.
-        val limit = N_CTX - replyTokens - 64
-        var chars = PromptShaping.charBudget(N_CTX, replyTokens)
+        // loadedCtx is the window llama.cpp really created, so this agrees
+        // with that clamp even when the model's trained window cut ours.
+        val limit = loadedCtx - replyTokens - 64
+        var chars = PromptShaping.charBudget(loadedCtx, replyTokens)
         var shaped = budgetMessages(pairs, chars)
         repeat(4) {
             val counted = try {
@@ -329,7 +367,13 @@ object LocalLlm {
         return shaped
     }
 
-    fun needsMapReduce(length: Int): Boolean = length > MAP_REDUCE_THRESHOLD
+    /**
+     * True when [length] characters of prompt are too long for one pass in
+     * [contextTokens] of window: middle-trimming would lose too much, so
+     * the payload is condensed per section instead.
+     */
+    fun needsMapReduce(length: Int, contextTokens: Int): Boolean =
+        length > PromptShaping.mapReduceThreshold(contextTokens)
 
     /**
      * Condensed notes by (model, payload hash), most recent last. Section
@@ -344,9 +388,12 @@ object LocalLlm {
     }
     private const val CONDENSED_CACHE_ENTRIES = 3
 
-    /** [condense] through [condensedCache]; caller holds [lock]. */
+    /**
+     * [condense] through [condensedCache]; caller holds [lock]. Keyed by the
+     * window as well as the model, since the window sets the section size.
+     */
     private fun condenseCached(modelKey: String, payload: String): String? {
-        val key = cacheKey(modelKey, payload)
+        val key = cacheKey("$modelKey@$loadedCtx", payload)
         condensedCache[key]?.let { return it }
         val condensed = condense(payload) ?: return null
         // A pass with a failed section is not worth keeping: the next run
@@ -372,14 +419,15 @@ object LocalLlm {
      */
     private fun condense(content: String): String? = PromptShaping.condense(
         content = content,
-        charBudget = CHAR_BUDGET,
+        charBudget = PromptShaping.charBudget(loadedCtx),
+        chunkChars = PromptShaping.mapChunkChars(loadedCtx),
         generate = { messages, replyTokens ->
             applyThreadBudget()
             // Measured, like the final pass. A section chunk is 8k characters
-            // against the same estimate, so it overflows for the same reason
-            // — and an overflowing section came back as "(section notes
-            // unavailable)", which reads like the model failing rather than
-            // the prompt never having fitted.
+            // per 4K of window against the same estimate, so it overflows
+            // for the same reason — and an overflowing section came back as
+            // "(section notes unavailable)", which reads like the model
+            // failing rather than the prompt never having fitted.
             LlamaBridge.generate(
                 ptr, pack(fitToContext(messages, replyTokens)), replyTokens
             )?.trim().orEmpty()
@@ -438,6 +486,7 @@ object LocalLlm {
             LlamaBridge.freeModel(ptr)
             ptr = 0L
             loadedKey = null
+            loadedCtx = 0
         }
         endWorkLocked()
         releasePending = false
@@ -455,11 +504,17 @@ object LocalLlm {
             LlamaBridge.freeModel(ptr)
             ptr = 0L
             loadedKey = null
+            loadedCtx = 0
         }
         endWorkLocked()
         // Shared budget: a summary must not out-thread a live recording,
         // and must leave the UI thread a core to run on.
         val threads = currentThreadBudget()
+        // The window and the sliding-window cache for this model on this
+        // phone. A small model gets 8K only where it still fits comfortably
+        // with the larger KV cache; where it is tight, a sliding-window
+        // model's (Gemma's) local layers get the small cache: llama_jni.c.
+        val plan = plan(context, model)
         // Tagged before the load, not after: mapping a multi-gigabyte GGUF
         // is exactly where a memory kill or native crash lands, and the
         // exit record should say which model it was. Ends at freeLocked.
@@ -468,7 +523,8 @@ object LocalLlm {
         )
         val loaded = try {
             LlamaBridge.initModel(
-                LocalLlmModels.fileFor(context, model).absolutePath, N_CTX, threads
+                LocalLlmModels.fileFor(context, model).absolutePath,
+                plan.contextTokens, threads, !plan.ramTight
             )
         } catch (t: Throwable) {
             endWorkLocked()
@@ -480,6 +536,20 @@ object LocalLlm {
         }
         ptr = loaded
         loadedKey = model.key
+        // The window llama.cpp really created: the request after the clamp
+        // to the model's trained window (and its own rounding to 256).
+        val actual = try {
+            LlamaBridge.contextSize(loaded)
+        } catch (_: Throwable) {
+            0
+        }
+        loadedCtx = if (actual > 0) actual else plan.contextTokens
+        val trained = try {
+            LlamaBridge.trainedContext(loaded)
+        } catch (_: Throwable) {
+            0
+        }
+        if (trained > 0) trainedCtx[model.key] = trained
     }
 
     private fun toPairs(messages: JSONArray): List<Pair<String, String>> {

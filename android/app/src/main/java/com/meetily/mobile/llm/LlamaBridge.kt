@@ -20,7 +20,33 @@ object LlamaBridge {
         }
     }
 
-    external fun initModel(modelPath: String, nCtx: Int, nThreads: Int): Long
+    /**
+     * Loads [modelPath] with a context of [nCtx] tokens, clamped to the
+     * window the model was trained on; [contextSize] says what it got.
+     *
+     * [fullSwaCache] false gives a sliding-window model (Gemma) the small
+     * cache for its sliding-window layers, sized to the window plus one
+     * batch instead of [nCtx]. Those layers then hold a fraction of the
+     * memory and answer the same, but prompt reuse between calls works only
+     * while that cache still holds what the next prompt needs (see
+     * generateBytes in llama_jni.c). Ignored by models without
+     * sliding-window attention.
+     */
+    external fun initModel(modelPath: String, nCtx: Int, nThreads: Int, fullSwaCache: Boolean): Long
+
+    /**
+     * The context window, in tokens, [initModel] actually created: the
+     * request after the clamp to the trained window and llama.cpp's own
+     * rounding up to a multiple of 256. 0 for a null handle.
+     */
+    external fun contextSize(ptr: Long): Int
+
+    /**
+     * The context window the loaded model was trained on (llama.cpp's
+     * n_ctx_train), or 0 when its file does not say or the handle is null.
+     * The clamp [initModel] applies to it is DeviceFit.clampToTrainedContext.
+     */
+    external fun trainedContext(ptr: Long): Int
 
     external fun freeModel(ptr: Long)
 

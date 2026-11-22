@@ -18,9 +18,12 @@
  * nothing an app process sees. Forward warnings and errors, and from INFO
  * only the load-time lines that say where the model went and what it costs:
  * "<buffer> model/KV/compute buffer size = N MiB" (the buffer name says
- * CPU_KLEIDIAI or CPU_REPACK when those took the weights) and KleidiAI's
- * "kleidiai: ..." kernel choice. Shape only: nothing forwarded carries
- * prompt or reply text, like every other log line in this file.
+ * CPU_KLEIDIAI or CPU_REPACK when those took the weights), KleidiAI's
+ * "kleidiai: ..." kernel choice, and the KV cache's cell counts
+ * ("llama_kv_cache: size = ...", and llama_kv_cache_iswa's "creating ...
+ * KV cache, size = N cells", which shows whether a sliding-window model got
+ * the small cache). Shape only: nothing forwarded carries prompt or reply
+ * text, like every other log line in this file.
  */
 static void forward_engine_log(enum ggml_log_level level, const char *text, void *user_data) {
     (void) user_data;
@@ -35,7 +38,9 @@ static void forward_engine_log(enum ggml_log_level level, const char *text, void
             break;
         case GGML_LOG_LEVEL_INFO:
             if (strstr(text, " buffer size = ") == NULL &&
-                strncmp(text, "kleidiai:", 9) != 0) {
+                strncmp(text, "kleidiai:", 9) != 0 &&
+                strncmp(text, "llama_kv_cache: size = ", 23) != 0 &&
+                strstr(text, " KV cache, size = ") == NULL) {
                 return;
             }
             prio = ANDROID_LOG_INFO;
@@ -119,7 +124,35 @@ typedef struct {
      */
     llama_token *cached;
     int32_t n_cached;
+    /*
+     * llama_model_n_swa(model): the sliding-window size, or 0 for a model
+     * without sliding-window attention. Read by the prefix-reuse check.
+     */
+    int32_t n_swa;
 } local_llm;
+
+/*
+ * The context to create: what Kotlin asked for (DeviceFit.llmPlan), never
+ * more than the model was trained on. llama.cpp itself only warns of a
+ * "possible training context overflow" past n_ctx_train, and positions the
+ * model never saw in training can degrade its answers. It also rounds n_ctx
+ * UP to a multiple of 256 (llama-context.cpp), so a clamped value is
+ * rounded down first, or that rounding could carry it past the trained
+ * window again. LlamaBridge.contextSize reports the result.
+ *
+ * DeviceFit.clampToTrainedContext is the same rule in Kotlin, and must stay
+ * the same: Kotlin applies it itself once it knows the trained window
+ * (LlamaBridge.trainedContext), and this is the safety net for the first
+ * load, before it does.
+ */
+static uint32_t context_for_model(int32_t requested, int32_t n_ctx_train) {
+    uint32_t n = requested > 0 ? (uint32_t) requested : 4096;
+    if (n_ctx_train > 0 && n > (uint32_t) n_ctx_train) {
+        n = (uint32_t) n_ctx_train;
+        if (n >= 256) n -= n % 256;
+    }
+    return n;
+}
 
 static void forget_cache(local_llm *llm) {
     free(llm->cached);
@@ -129,7 +162,8 @@ static void forget_cache(local_llm *llm) {
 
 JNIEXPORT jlong JNICALL
 Java_com_meetily_mobile_llm_LlamaBridge_initModel(
-        JNIEnv *env, jobject thiz, jstring model_path, jint n_ctx, jint n_threads) {
+        JNIEnv *env, jobject thiz, jstring model_path, jint n_ctx, jint n_threads,
+        jboolean full_swa_cache) {
     (void) thiz;
     const char *path = (*env)->GetStringUTFChars(env, model_path, NULL);
     if (path == NULL) return 0;
@@ -146,9 +180,24 @@ Java_com_meetily_mobile_llm_LlamaBridge_initModel(
         return 0;
     }
 
+    const int32_t n_ctx_train = llama_model_n_ctx_train(model);
+    const int32_t n_swa = llama_model_n_swa(model);
+
     struct llama_context_params cparams = llama_context_default_params();
-    cparams.n_ctx = (uint32_t) (n_ctx > 0 ? n_ctx : 4096);
+    cparams.n_ctx = context_for_model(n_ctx, n_ctx_train);
     cparams.n_batch = 512;
+    /*
+     * Sliding-window models (Gemma 3 and 4: most layers attend only to the
+     * last n_swa tokens) keep a full-size cache for those layers by default
+     * (swa_full = true). On a phone where the model is tight, Kotlin asks
+     * for the small one instead: with swa_full false llama.cpp sizes those
+     * layers' cache to GGML_PAD(min(n_ctx, n_swa + n_ubatch), 256) cells
+     * (llama-kv-cache-iswa.cpp), 1024 for a 512-token window rather than
+     * n_ctx. Answers are unchanged; what it costs is prefix reuse, which
+     * the check in generateBytes handles. n_seq_max stays at its default 1,
+     * the case llama.h's swa_full note does not warn about.
+     */
+    cparams.swa_full = (full_swa_cache || n_swa <= 0) ? true : false;
     cparams.n_threads = n_threads > 0 ? n_threads : 4;
     cparams.n_threads_batch = n_threads > 0 ? n_threads : 4;
     cparams.abort_callback = llama_should_abort;
@@ -196,8 +245,40 @@ Java_com_meetily_mobile_llm_LlamaBridge_initModel(
     llm->smpl = smpl;
     llm->cached = NULL;
     llm->n_cached = 0;
-    LOGI("local model loaded (n_ctx=%u)", cparams.n_ctx);
+    llm->n_swa = n_swa;
+    LOGI("local model loaded (n_ctx=%u, requested %d, trained %d; n_swa=%d, %s SWA cache)",
+         llama_n_ctx(ctx), (int) n_ctx, (int) n_ctx_train, (int) n_swa,
+         n_swa <= 0 ? "no" : (cparams.swa_full ? "full" : "small"));
     return (jlong) (intptr_t) llm;
+}
+
+/*
+ * The context the model was really created with: initModel's request after
+ * context_for_model and llama.cpp's rounding. Kotlin budgets every prompt
+ * against this rather than against what it asked for.
+ */
+JNIEXPORT jint JNICALL
+Java_com_meetily_mobile_llm_LlamaBridge_contextSize(JNIEnv *env, jobject thiz, jlong ptr) {
+    (void) env;
+    (void) thiz;
+    if (ptr == 0) return 0;
+    local_llm *llm = (local_llm *) (intptr_t) ptr;
+    return (jint) llama_n_ctx(llm->ctx);
+}
+
+/*
+ * The context window the loaded model was trained on (its GGUF
+ * <arch>.context_length), or 0 when the file does not say. Kotlin keeps it
+ * per model so the window it plans before the next load is already clamped.
+ */
+JNIEXPORT jint JNICALL
+Java_com_meetily_mobile_llm_LlamaBridge_trainedContext(JNIEnv *env, jobject thiz, jlong ptr) {
+    (void) env;
+    (void) thiz;
+    if (ptr == 0) return 0;
+    local_llm *llm = (local_llm *) (intptr_t) ptr;
+    const int32_t n = llama_model_n_ctx_train(llm->model);
+    return (jint) (n > 0 ? n : 0);
 }
 
 JNIEXPORT void JNICALL
@@ -531,6 +612,42 @@ static size_t utf8_complete_len(const char *buf, size_t len) {
     return len;
 }
 
+/*
+ * True when, after llama_memory_seq_rm has dropped every position from
+ * n_reuse on, the cache still holds everything the tokens decoded from
+ * n_reuse onward will attend to, so the prefix can be reused.
+ *
+ * pos_min and pos_max are llama_memory_seq_pos_min/max of sequence 0. The
+ * memory API guarantees every position between them is present (-1 for
+ * both when the sequence is empty). For a sliding-window model llama.cpp's
+ * iSWA cache reports its sliding-window part here, and its other layers'
+ * cache never drops anything (it is n_ctx cells, and prompt plus reply
+ * never exceed n_ctx), so the window is the only thing to check:
+ *  - pos_max must be n_reuse - 1: the cache holds the prefix up to its end.
+ *  - pos_min 0 means the whole prefix is there, which is always the case
+ *    for a model without sliding-window attention, and for one with the
+ *    full-size cache (swa_full), whose prompts never fill it.
+ *  - With the small cache (swa_full false) the oldest cells have been
+ *    reused once a prompt outgrew it, and pos_min is above 0. The token at
+ *    position p only attends to positions above p - n_swa (also covered
+ *    for llama.cpp's chunked and symmetric windows), so the prefix is still
+ *    usable while pos_min <= n_reuse - n_swa, one position stricter than
+ *    the test llama-server makes before reusing a sliding-window cache.
+ *    The cache keeps about its last n_swa + n_ubatch positions, so an Ask
+ *    follow-up (the previous prompt again, then its answer and the new
+ *    question) passes while that answer was shorter than about n_ubatch
+ *    (512) tokens. Otherwise the tokens before the window are gone, a
+ *    partial reuse would decode past a hole, and this returns false:
+ *    generateBytes then clears the cache and reads the whole prompt again.
+ *    Slower, never wrong.
+ */
+static bool prefix_still_cached(llama_pos pos_min, llama_pos pos_max,
+                                int32_t n_reuse, int32_t n_swa) {
+    if (n_reuse <= 0 || pos_min < 0 || pos_max != n_reuse - 1) return false;
+    if (pos_min == 0) return true;
+    return n_swa > 0 && pos_min <= n_reuse - n_swa;
+}
+
 JNIEXPORT jbyteArray JNICALL
 Java_com_meetily_mobile_llm_LlamaBridge_generateBytes(
         JNIEnv *env, jobject thiz, jlong ptr, jstring packed, jint max_tokens) {
@@ -578,9 +695,8 @@ Java_com_meetily_mobile_llm_LlamaBridge_generateBytes(
      *
      * Falls back to a full clear when the cache cannot drop a partial
      * sequence (recurrent and hybrid models refuse, and say so by returning
-     * false), and when a sliding-window cache has already evicted the start
-     * of the prefix (its lowest position is then above 0), since those
-     * tokens would otherwise be silently missing from attention.
+     * false), and when what is left after the drop is not exactly what the
+     * new tokens will attend to: see prefix_still_cached.
      */
     llama_memory_t mem = llama_get_memory(llm->ctx);
     int32_t n_reuse = 0;
@@ -592,8 +708,9 @@ Java_com_meetily_mobile_llm_LlamaBridge_generateBytes(
     forget_cache(llm);
     if (n_reuse > 0 &&
         (!llama_memory_seq_rm(mem, 0, n_reuse, -1) ||
-         llama_memory_seq_pos_min(mem, 0) > 0 ||
-         llama_memory_seq_pos_max(mem, 0) != n_reuse - 1)) {
+         !prefix_still_cached(llama_memory_seq_pos_min(mem, 0),
+                              llama_memory_seq_pos_max(mem, 0),
+                              n_reuse, llm->n_swa))) {
         n_reuse = 0;
     }
     if (n_reuse == 0) {
