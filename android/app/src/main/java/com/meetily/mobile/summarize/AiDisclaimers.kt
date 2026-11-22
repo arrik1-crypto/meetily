@@ -68,26 +68,59 @@ object AiDisclaimers {
 
     /**
      * Best effort for summaries saved before the template was recorded: the
-     * SOAP section headings, or the draft sentence the clinical and legal
-     * prompts ask the model to include. A false positive costs one extra
-     * line of caution; a miss leaves a legacy summary as it always was.
+     * section headings each clinical and legal template asks for, or the
+     * draft sentence the SOAP and legal consultation prompts ask the model
+     * to include. A false positive costs one extra line of caution; a miss
+     * leaves a legacy summary as it always was.
      */
     fun guessFromText(summary: String): Set<Category> {
         val out = LinkedHashSet<Category>()
         val lower = summary.lowercase()
-        val soapHeadings = SOAP_HEADINGS.count { it.containsMatchIn(lower) }
-        if (soapHeadings >= 3 || "not a medical record" in lower) out.add(Category.CLINICAL)
-        if ("not legal advice" in lower) out.add(Category.LEGAL)
+        if (count(SOAP_HEADINGS, lower) >= 3 ||
+            count(PATIENT_RECAP_HEADINGS, lower) >= 2 ||
+            "not a medical record" in lower
+        ) {
+            out.add(Category.CLINICAL)
+        }
+        if (count(MATTER_HEADINGS, lower) >= 3 ||
+            count(LEGAL_CONSULT_HEADINGS, lower) >= 2 ||
+            "not legal advice" in lower
+        ) {
+            out.add(Category.LEGAL)
+        }
         return out
     }
 
+    private fun count(headings: List<Regex>, lower: String): Int =
+        headings.count { it.containsMatchIn(lower) }
+
     /**
-     * A SOAP section name opening a line, after any heading, bullet, bold or
+     * Section names opening a line, after any heading, bullet, bold or
      * numbering marks ("## Subjective", "**Objective**", "3. Assessment").
+     * Each name is a regex over lowercased text.
      */
-    private val SOAP_HEADINGS = listOf("subjective", "objective", "assessment", "plan").map {
+    private fun headings(vararg names: String): List<Regex> = names.map {
         Regex("(?m)^[\\s#*_\\-•\\d.)]*$it\\b")
     }
+
+    /** The soap template's four sections. */
+    private val SOAP_HEADINGS = headings("subjective", "objective", "assessment", "plan")
+
+    /** The patient_recap template's most distinctive sections. */
+    private val PATIENT_RECAP_HEADINGS =
+        headings("medications?", "tests?\\s+ordered", "warning\\s+signs?")
+
+    /** The matter template's sections. */
+    private val MATTER_HEADINGS =
+        headings("parties", "chronology", "evidence", "arguments", "strategy")
+
+    /**
+     * The legal_consult template's sections. "Advice" and "options" count
+     * once between them: both open ordinary bullets in any meeting's notes.
+     */
+    private val LEGAL_CONSULT_HEADINGS = headings(
+        "legal\\s+issues?", "(?:advice|options)", "information\\s+still\\s+needed"
+    )
 
     /**
      * The notices a summary needs, in a stable order (clinical first). None

@@ -610,8 +610,17 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         }
         catchUpRunning = true
         // After the text's scroll container: the scroll view holds one child.
-        val report = AiReport.addButton(body.parent as View) {}
+        val scroll = body.parent as View
+        val report = AiReport.addButton(scroll) {}
         report.visibility = View.GONE
+        // A long result would otherwise take all the height the sheet has
+        // and squeeze the button to nothing. Weighted at height 0, the
+        // scroll view gives up the overflow and the button keeps its size.
+        (scroll.layoutParams as? android.widget.LinearLayout.LayoutParams)?.let { lp ->
+            lp.height = 0
+            lp.weight = 1f
+            scroll.layoutParams = lp
+        }
         Thread {
             var modelKey = AiReport.currentModelKey(this)
             val result = try {

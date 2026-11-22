@@ -267,13 +267,15 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                 label to content
             }
             val modelKey = AiReport.currentModelKey(this)
-            var generated = false
+            // The model's own words, for a report: the notices appended
+            // below are the app's fixed text, not its output.
+            var rawBrief: String? = null
             val result = try {
                 val brief = LlmClient.preBrief(
                     settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
                     settings.localOnlyLlm, series, blocks
                 )
-                generated = true
+                rawBrief = brief
                 // Built from these summaries, so it carries their notices.
                 AiDisclaimers.appendTo(
                     brief, AiDisclaimers.texts(this, AiDisclaimers.union(fresh.take(4)))
@@ -287,7 +289,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                 button.isEnabled = true
                 output.visibility = View.VISIBLE
                 output.text = result
-                showBriefReport(if (generated) result else null, modelKey)
+                showBriefReport(rawBrief, modelKey)
             }
         }.apply {
             name = "pre-brief"

@@ -94,6 +94,48 @@ class AiSafetyTest {
     }
 
     @Test
+    fun legacyPatientRecapsAreRecognisedFromTheirHeadings() {
+        val recap = "## What was discussed\nYour knee pain.\n\n## Medication changes\n" +
+            "- Start ibuprofen 400 mg.\n\n## Tests ordered\n- X-ray of the left knee.\n\n" +
+            "## Warning signs to watch for\n- Swelling or fever."
+        assertEquals(setOf(Category.CLINICAL), AiDisclaimers.categories(recap, null, null))
+        // One matching section is not enough.
+        assertTrue(
+            AiDisclaimers.categories(
+                "## Overview\nBudget review.\n## Medications budget\nFlat.", null, null
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun legacyMatterNotesAreRecognisedFromTheirHeadings() {
+        val matter = "**Parties and roles**\n- Acme, claimant\n\n**Chronology**\n" +
+            "- 3 March: contract signed\n\n**Evidence and documents**\n- The contract\n\n" +
+            "**Strategy decisions**\n- File in April"
+        assertEquals(setOf(Category.LEGAL), AiDisclaimers.categories(matter, null, null))
+        assertTrue(
+            AiDisclaimers.categories(
+                "## Strategy\nGrow in Q3.\n## Evidence\nSales are up.", null, null
+            ).isEmpty()
+        )
+    }
+
+    @Test
+    fun legacyLegalConsultationsAreRecognisedFromTheirHeadings() {
+        val consult = "## Client's situation\nA tenant.\n\n## Legal issues identified\n" +
+            "- Whether the lease ended.\n\n## Advice and options discussed\n" +
+            "- Negotiate first.\n\n## Information still needed\n- The lease itself."
+        assertEquals(setOf(Category.LEGAL), AiDisclaimers.categories(consult, null, null))
+        // Advice and options open ordinary bullets too; together they count once.
+        assertTrue(
+            AiDisclaimers.categories(
+                "## Venue\n- Options: the hall or the park.\n- Advice from finance: the hall.",
+                null, null
+            ).isEmpty()
+        )
+    }
+
+    @Test
     fun unionCoversEveryMeetingOnce() {
         val a = Meeting(id = "a", title = "A", createdAtMs = 1L, summary = "s").apply {
             summaryTemplate = "soap"

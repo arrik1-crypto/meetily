@@ -98,6 +98,9 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var summaryNoticeView: TextView
     private lateinit var reportSummaryButton: MaterialButton
 
+    /** The title a model wrote on this screen (maybeAutoTitle), while it stands. */
+    private var modelTitle: String? = null
+
     // --- Summary generation (owned by SummaryService) -----------------------
 
     private var summaryService: SummaryService? = null
@@ -912,9 +915,16 @@ class MeetingDetailActivity : AppCompatActivity() {
                 )
             )
         }
-        subjects.add(
-            AiReport.Subject(getString(R.string.aisafety_subject_title), "meeting_title", m.title)
-        )
+        // A typed or default title is not AI output. Offered beside other
+        // generated text, since an earlier run's model may have written it,
+        // and alone only when a model wrote it on this screen.
+        if (subjects.isNotEmpty() || (modelTitle != null && m.title == modelTitle)) {
+            subjects.add(
+                AiReport.Subject(
+                    getString(R.string.aisafety_subject_title), "meeting_title", m.title
+                )
+            )
+        }
         AiReport.choose(this, subjects)
     }
 
@@ -1199,6 +1209,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                             if (isFinishing || isDestroyed) return@runOnUiThread
                             if (m.title != startedFrom) return@runOnUiThread
                             m.title = generated
+                            modelTitle = generated
                             titleView.text = generated
                             persist(m)
                         }
@@ -1667,10 +1678,16 @@ class MeetingDetailActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.no_action_items, Toast.LENGTH_SHORT).show()
             return
         }
+        // The items come from the same summary run, so a clinical plan's
+        // drugs and doses leave with the summary's notice.
+        val text = AiDisclaimers.appendTo(
+            com.meetily.mobile.export.TaskExport.text(items),
+            AiDisclaimers.texts(this, AiDisclaimers.categories(m))
+        )
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, getString(R.string.actions_share_subject, m.title))
-            putExtra(Intent.EXTRA_TEXT, com.meetily.mobile.export.TaskExport.text(items))
+            putExtra(Intent.EXTRA_TEXT, text)
         }
         startActivity(Intent.createChooser(send, getString(R.string.export_actions_text)))
     }
