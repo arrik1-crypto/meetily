@@ -70,6 +70,14 @@ jobs:
           ./gradlew --no-daemon -PuncompressedNativeLibs bundleRelease
           ./gradlew --no-daemon assembleRelease
 
+      # Same check as build-android.yml, on the Play bundle too: the JNI
+      # libraries must export their Java_ entry points and nothing else.
+      - name: Check native library exports
+        run: |
+          python3 android/scripts/check_jni_exports.py \
+            android/app/build/outputs/bundle/release/*.aab \
+            android/app/build/outputs/apk/release/*.apk
+
       - name: Upload signed bundle + APK
         uses: actions/upload-artifact@v4
         with:
