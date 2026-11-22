@@ -50,7 +50,16 @@ object DeviceFit {
         val comfortableRamGb: Int,
         val englishOnly: Boolean,
         /** Slow on a [CpuTier.BASELINE] phone; never suggested there. */
-        val slowOnBaseline: Boolean
+        val slowOnBaseline: Boolean,
+        /**
+         * LLMs only: the most context, in tokens, the catalogue sets the
+         * model up for. [llmPlan] decides how much of it a given phone gets.
+         * [workingSetMb] and the RAM figures above are costed at
+         * [LLM_BASE_CONTEXT], the window every phone can fall back to;
+         * [classify] costs a phone's verdict at the window it really gets.
+         * Unused for other kinds.
+         */
+        val contextTokens: Int = LLM_BASE_CONTEXT
     )
 
     /** What is known about the phone. */
@@ -157,15 +166,74 @@ object DeviceFit {
     // --- Memory needs (estimates) --------------------------------------------
 
     /**
-     * Engine overhead of an on-device LLM on top of its weights, MB: the KV
-     * cache at LocalLlm.N_CTX (4096 tokens, q8_0 keys and values with flash
-     * attention in llama_jni.c, f16 for both if that is rejected), roughly
-     * 60 MB for Qwen 2.5 1.5B and 290 MB for the 7-8B models (115 MB and
-     * 540 MB at f16), plus llama.cpp's compute buffers for a 512-token batch
-     * and the engine itself. An estimate for the q8_0 cache the engine
-     * normally gets.
+     * Engine overhead of an on-device LLM on top of its weights, MB, at
+     * [LLM_BASE_CONTEXT]: the KV cache at 4096 tokens (q8_0 keys and values
+     * with flash attention in llama_jni.c, f16 for both if that is
+     * rejected), roughly 60 MB for Qwen 2.5 1.5B and 290 MB for the 7-8B
+     * models (115 MB and 540 MB at f16), plus llama.cpp's compute buffers
+     * for a 512-token batch and the engine itself. An estimate for the q8_0
+     * cache the engine normally gets. [llmRuntimeMb] adds to it for a
+     * larger window.
      */
     const val LLM_RUNTIME_MB = 500
+
+    /**
+     * Context, in tokens, every on-device LLM gets, and the window
+     * [LLM_RUNTIME_MB] and each [Need]'s RAM figures are costed at. A phone
+     * that cannot hold a model's larger window comfortably runs it at this.
+     */
+    const val LLM_BASE_CONTEXT = 4096
+
+    /** The larger window small models are set up for; see [defaultLlmContextTokens]. */
+    const val LLM_LARGE_CONTEXT = 8192
+
+    /**
+     * The largest GGUF file, MB, counted as a small model: about 2B
+     * parameters at Q4_K_M. Its KV cache is small enough (about 60 MB at
+     * 4096 tokens for Qwen 2.5 1.5B) that doubling the window costs far less
+     * than the weights, where a 3B model's (about 250 MB for Llama 3.2 3B)
+     * would not.
+     */
+    const val SMALL_LLM_MAX_MB = 1536
+
+    /**
+     * A model above [SMALL_LLM_MAX_MB] keeps [LLM_BASE_CONTEXT] on a phone
+     * with less RAM than this, GB, whatever its catalogue entry asks for.
+     */
+    const val LARGE_LLM_WIDE_CONTEXT_MIN_RAM_GB = 8
+
+    /**
+     * The window a catalogue entry is set up for when it does not say:
+     * [LLM_LARGE_CONTEXT] for a small model, [LLM_BASE_CONTEXT] for 3B and
+     * larger.
+     */
+    fun defaultLlmContextTokens(sizeMb: Int): Int =
+        if (sizeMb <= SMALL_LLM_MAX_MB) LLM_LARGE_CONTEXT else LLM_BASE_CONTEXT
+
+    /**
+     * Engine overhead at [contextTokens], MB: [LLM_RUNTIME_MB], plus an
+     * eighth of the file for every 4096 tokens beyond [LLM_BASE_CONTEXT].
+     *
+     * The KV cache grows linearly with the window, and its size follows the
+     * architecture rather than the file. Worked from the models' layer and
+     * head counts, the q8_0 cache for 4096 tokens is 5-7% of the file for
+     * the small models (27 MB for Qwen 2.5 0.5B, 58 MB for Gemma 3 1B,
+     * 62 MB for Qwen 2.5 1.5B), about 2% for Qwen 3.5 2B (27 MB: 6 of its
+     * 24 layers have full attention and a KV cache, 2 KV heads of 256; the
+     * other layers keep a recurrent state that does not grow with the
+     * window) and about 12% for Llama 3.2 3B and Gemma 3 4B. An eighth is
+     * above every catalogue model and leaves room for the larger attention
+     * mask. A window at or below the base costs the base figure: the
+     * compute buffers do not shrink with it.
+     *
+     * Still an estimate, and low if the engine has to fall back to an f16
+     * cache. It does not count the small sliding-window cache a tight phone
+     * gives Gemma ([LlmPlan.ramTight]); such a phone runs the base window.
+     */
+    fun llmRuntimeMb(sizeMb: Int, contextTokens: Int = LLM_BASE_CONTEXT): Int {
+        val extra = (contextTokens - LLM_BASE_CONTEXT).coerceAtLeast(0)
+        return LLM_RUNTIME_MB + (sizeMb.toLong() * extra / (8L * LLM_BASE_CONTEXT)).toInt()
+    }
 
     /**
      * Engine overhead of a transcription model, MB: whisper.cpp's encoder
@@ -193,9 +261,35 @@ object DeviceFit {
      * Estimated working set of a GGUF chat model, MB: its whole file, since
      * every weight is read for every token and so ends up resident even
      * though it is memory-mapped; 10% on top for dequantisation scratch and
-     * allocator slack; and [LLM_RUNTIME_MB].
+     * allocator slack; and the engine overhead at [contextTokens]
+     * ([llmRuntimeMb]: [LLM_RUNTIME_MB] at the base window a [Need] is
+     * costed at, more for the larger window [classify] costs a phone at).
+     *
+     * On phones with dotprod, the arm64 engine's KleidiAI kernels also
+     * requantise a Q4_K_M file's Q6_K matmul weights to int8 at load, held
+     * in anonymous memory at 1.22x their size: up to about 9% of the file
+     * for the catalogue's models (+270 MB for Llama 3.1 8B), out of the same
+     * 10%. Loading also takes a temporary int8 copy of each of those weights
+     * in turn, rows x cols bytes, the largest being the output head: 501 MiB
+     * for Llama 3.1 8B, 640 MiB for Gemma 3 4B. That comes before the KV
+     * cache and compute buffers exist, so it competes with [LLM_RUNTIME_MB]
+     * and the 10% for room instead of adding to them: well inside them for
+     * Llama 3.1 8B, about their size for Gemma 3 4B. The Q4_0 weights of the
+     * opt-in Gemma 4 QAT files are packed for KleidiAI straight from the
+     * file's blocks, at about their own size and with no temporary copy, so
+     * they move into anonymous memory without growing; those files' other
+     * tensor types were not read. None of this has been measured; see
+     * ACCELERATION_FINDINGS.md.
+     *
+     * Not covered: KleidiAI's SME/SME2 kernels. On an SME phone they hold a
+     * second packed copy of every Q6_K and Q8_0 weight (about 2.44x their
+     * Q6_K size, +1.8 GB for Llama 3.1 8B) and move the Q4_K weights into
+     * anonymous memory too. The engine keeps them off (MEETILY_KLEIDIAI_SME
+     * in CMakeLists.txt); they need a bigger allowance here before they are
+     * turned on.
      */
-    fun llmWorkingSetMb(sizeMb: Int): Int = sizeMb + sizeMb / 10 + LLM_RUNTIME_MB
+    fun llmWorkingSetMb(sizeMb: Int, contextTokens: Int = LLM_BASE_CONTEXT): Int =
+        sizeMb + sizeMb / 10 + llmRuntimeMb(sizeMb, contextTokens)
 
     /**
      * Estimated working set of a transcription model, MB: the weights, about
@@ -251,24 +345,132 @@ object DeviceFit {
         )
     }
 
-    fun llmNeed(key: String, sizeMb: Int, documentedRamGb: Int?, slowOnBaseline: Boolean): Need {
+    /**
+     * An on-device LLM. Its figures are costed at [LLM_BASE_CONTEXT];
+     * [contextTokens] is the larger window it is set up for, which
+     * [llmPlan] grants only where that too fits comfortably.
+     */
+    fun llmNeed(
+        key: String,
+        sizeMb: Int,
+        documentedRamGb: Int?,
+        slowOnBaseline: Boolean,
+        contextTokens: Int = LLM_BASE_CONTEXT
+    ): Need {
         val workingSet = llmWorkingSetMb(sizeMb)
         val min = minRamGb(workingSet, documentedRamGb)
         return Need(
             key, Kind.LLM, sizeMb, workingSet, min,
-            comfortableRamGb(workingSet, min), englishOnly = false, slowOnBaseline = slowOnBaseline
+            comfortableRamGb(workingSet, min), englishOnly = false, slowOnBaseline = slowOnBaseline,
+            contextTokens = contextTokens
         )
+    }
+
+    // --- On-device LLM context -----------------------------------------------
+
+    /** What the on-device engine loads an LLM with on one phone. */
+    data class LlmPlan(
+        /** The window to ask llama.cpp for, tokens; it may still clamp it to the trained one. */
+        val contextTokens: Int,
+        /**
+         * The model does not fit comfortably here (or the RAM is unknown).
+         * The engine then gives a sliding-window model such as Gemma the
+         * small cache for its sliding-window layers (llama.cpp's swa_full
+         * off), at the cost of some prompt reuse between Ask follow-ups.
+         */
+        val ramTight: Boolean
+    )
+
+    /**
+     * The window [need] gets on [device]: its own [Need.contextTokens],
+     * capped at [LLM_BASE_CONTEXT] unless the phone holds the model
+     * comfortably at the larger window too ([llmWorkingSetMb] at that
+     * window within [COMFORT_SHARE]), and always for a model above
+     * [SMALL_LLM_MAX_MB] on a phone under [LARGE_LLM_WIDE_CONTEXT_MIN_RAM_GB].
+     * Unknown RAM gets the base window. Then [clampToTrainedContext], when
+     * [trainedContext] (the model's n_ctx_train, once a load has reported
+     * it) is known; llama_jni.c applies the same clamp whether or not it is.
+     *
+     * The larger window is only ever granted where the model is comfortable
+     * at it, so it never changes a verdict: a model is [Level.FITS] at the
+     * window it gets wherever it is [Level.FITS] at the base one, and
+     * [LlmPlan.ramTight] is exactly "not [Level.FITS]" (or RAM unknown).
+     */
+    fun llmPlan(need: Need, device: Device?, trainedContext: Int? = null): LlmPlan {
+        val ram = device?.ramGb ?: 0
+        val wanted = if (ram <= 0) {
+            minOf(need.contextTokens, LLM_BASE_CONTEXT)
+        } else {
+            minOf(need.contextTokens, llmContextCap(need, ram))
+        }
+        val window = clampToTrainedContext(wanted, trainedContext)
+        return LlmPlan(window, ramTight = ram <= 0 || ram < llmRamAt(need, window).second)
+    }
+
+    /** The most context [need] may have on a phone with [ramGb] of RAM; see [llmPlan]. */
+    fun llmContextCap(need: Need, ramGb: Int): Int {
+        if (need.contextTokens <= LLM_BASE_CONTEXT) return LLM_BASE_CONTEXT
+        if (need.sizeMb > SMALL_LLM_MAX_MB && ramGb < LARGE_LLM_WIDE_CONTEXT_MIN_RAM_GB) {
+            return LLM_BASE_CONTEXT
+        }
+        val wide = llmRamAt(need, need.contextTokens).second
+        return if (ramGb >= wide) need.contextTokens else LLM_BASE_CONTEXT
+    }
+
+    /**
+     * [requested] tokens of context for a model trained on [trainedContext]
+     * (null or 0: not known): never more than the trained window, rounded
+     * down to a multiple of 256 when it cuts, because llama.cpp rounds n_ctx
+     * UP to one and would otherwise carry it past the trained window again.
+     * A request of 0 or less means [LLM_BASE_CONTEXT].
+     *
+     * The rule context_for_model in llama_jni.c applies at every load; the
+     * two must stay the same. Pure; unit-tested.
+     */
+    fun clampToTrainedContext(requested: Int, trainedContext: Int?): Int {
+        val window = if (requested > 0) requested else LLM_BASE_CONTEXT
+        val trained = trainedContext ?: 0
+        if (trained <= 0 || window <= trained) return window
+        return if (trained >= 256) trained - trained % 256 else trained
+    }
+
+    /**
+     * (minimum, comfortable) GB of RAM for the LLM [need] at [contextTokens]
+     * of window. At or below [LLM_BASE_CONTEXT] these are its own
+     * [Need.minRamGb] and [Need.comfortableRamGb], since the compute buffers
+     * do not shrink with the window. Above it, the same rules applied to
+     * [llmWorkingSetMb] at that window, never below the base figures, so a
+     * requirement the catalogue documents still holds.
+     */
+    private fun llmRamAt(need: Need, contextTokens: Int): Pair<Int, Int> {
+        if (contextTokens <= LLM_BASE_CONTEXT) return need.minRamGb to need.comfortableRamGb
+        val workingSet = llmWorkingSetMb(need.sizeMb, contextTokens)
+        val min = maxOf(minRamGb(workingSet), need.minRamGb)
+        return min to comfortableRamGb(workingSet, min)
     }
 
     // --- Verdicts ------------------------------------------------------------
 
-    /** How [need] fits [device]; null when the phone's RAM is unknown. */
+    /**
+     * How [need] fits [device]; null when the phone's RAM is unknown.
+     *
+     * An LLM is costed at the window the engine will run it with on this
+     * phone ([llmPlan]), KV cache and buffers included. Since the larger
+     * window is only granted where it fits comfortably, that is the base
+     * window's verdict on every phone: the badges and first-run suggestions
+     * are the ones the 4096-token figures always gave.
+     */
     fun classify(need: Need, device: Device): Verdict? {
         val ram = device.ramGb
         if (ram <= 0) return null
+        val (min, comfortable) = if (need.kind == Kind.LLM) {
+            llmRamAt(need, llmPlan(need, device).contextTokens)
+        } else {
+            need.minRamGb to need.comfortableRamGb
+        }
         val level = when {
-            ram < need.minRamGb -> Level.TOO_BIG
-            ram < need.comfortableRamGb -> Level.TIGHT
+            ram < min -> Level.TOO_BIG
+            ram < comfortable -> Level.TIGHT
             else -> Level.FITS
         }
         return Verdict(level, need, ram, need.slowOnBaseline && device.tier == CpuTier.BASELINE)
@@ -290,14 +492,17 @@ object DeviceFit {
      * what WhisperModels calls the practical sweet spot on phones; base and
      * tiny step down for memory or processor. English-only models are
      * suggested only for an English locale, where they are the more accurate
-     * of a same-sized pair, and a multilingual one everywhere else.
+     * of a same-sized pair, and a multilingual one everywhere else. NeMo
+     * models, Parakeet Ultra included, are chosen by hand only.
      */
     private val TRANSCRIPTION_ENGLISH = listOf("small.en-q5_1", "base.en", "tiny.en")
     private val TRANSCRIPTION_MULTILINGUAL = listOf("small-q5_1", "base", "tiny")
 
     /**
      * Summary models a first run may suggest, best first: the one the
-     * catalogue labels "recommended", then the two it calls fast.
+     * catalogue labels "recommended", then the two it calls fast. The opt-in
+     * entries (Qwen 3.5 2B and 4B, Gemma 4 QAT) stay off this list until
+     * they have been checked for summary quality and speed on a phone.
      */
     private val LLM_ORDER = listOf("qwen2.5-1.5b", "gemma3-1b", "qwen2.5-0.5b")
 

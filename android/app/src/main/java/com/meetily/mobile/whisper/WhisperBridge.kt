@@ -95,6 +95,23 @@ object WhisperBridge {
      */
     external fun lastLanguage(ptr: Long): String?
 
+    // Silero VAD through whisper.cpp's whisper_vad_* API, for the speech
+    // gate (SileroVad, SpeechGate). Independent of any Whisper context: it
+    // needs this library, not a Whisper model.
+
+    /** A VAD context for the model file at [modelPath], or 0 on failure. */
+    external fun vadInit(modelPath: String, nThreads: Int): Long
+
+    /**
+     * One speech probability (0 to 1) per 512-sample window of [samples],
+     * 16 kHz mono, or null on failure. [reset] starts from a fresh model
+     * state; false carries on from the previous call on [handle].
+     */
+    external fun vadDetect(handle: Long, samples: FloatArray, reset: Boolean): FloatArray?
+
+    /** Frees what [vadInit] returned; 0 is ignored. */
+    external fun vadFree(handle: Long)
+
     /**
      * Encoder frames for one live chunk of [samples] 16 kHz samples, or 0
      * for the full window.

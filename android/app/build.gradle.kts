@@ -43,6 +43,16 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DCMAKE_BUILD_TYPE=Release")
+                // CI: a pre-fetched, MD5-checked KleidiAI tree (see the workflows).
+                // Without the property, ggml downloads it itself (URL + MD5 pinned).
+                (project.findProperty("kleidiaiSourceDir") as String?)?.let {
+                    arguments += "-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI=$it"
+                }
+                // Only the two JNI libraries, as :native-v82 already does.
+                // The fetched projects define targets this app never links
+                // (whisper.cpp's `parakeet` library, llama.cpp's vendor
+                // libraries); naming ours keeps them out of the build.
+                targets += listOf("meetily_whisper", "meetily_llama")
             }
         }
     }

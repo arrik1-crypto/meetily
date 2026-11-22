@@ -336,6 +336,7 @@ class SettingsActivity : AppCompatActivity() {
             savedInstanceState?.getBoolean(KEY_SYSTEM_ENGINE_OK, false) ?: false
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
+        findViewById<MaterialSwitch>(R.id.vadSwitch).isChecked = settings.vadSpeechGate
         findViewById<MaterialSwitch>(R.id.liveTranscriptionSwitch).isChecked =
             settings.liveTranscription
         findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked =
@@ -634,6 +635,7 @@ class SettingsActivity : AppCompatActivity() {
         settings.diarizationEnabled = diarizeSwitch.isChecked
         settings.whisperTranslate =
             findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
+        settings.vadSpeechGate = findViewById<MaterialSwitch>(R.id.vadSwitch).isChecked
         settings.liveTranscription =
             findViewById<MaterialSwitch>(R.id.liveTranscriptionSwitch).isChecked
         settings.autoCheckTranscript =
@@ -1117,22 +1119,7 @@ class SettingsActivity : AppCompatActivity() {
                         meta = pendingMeta(
                             ModelDownloadService.KIND_WHISPER,
                             key,
-                            getString(
-                                R.string.model_card_meta,
-                                com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key),
-                                getString(
-                                    if (com.meetily.mobile.whisper.TranscriptionModels
-                                            .englishOnly(key)
-                                    ) R.string.model_lang_en else R.string.model_lang_multi
-                                ),
-                                if (com.meetily.mobile.whisper.TranscriptionModels
-                                        .isNemo(key)
-                                ) {
-                                    "NVIDIA"
-                                } else {
-                                    "Whisper"
-                                }
-                            )
+                            com.meetily.mobile.whisper.TranscriptionModels.metaLine(this, key)
                         ),
                         downloaded = com.meetily.mobile.whisper.TranscriptionModels
                             .isDownloaded(this, key),

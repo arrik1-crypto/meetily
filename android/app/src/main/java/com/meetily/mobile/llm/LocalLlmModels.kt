@@ -28,7 +28,16 @@ data class LocalLlmModel(
      * can only raise [minRamGb] above what the formula estimates, so the
      * label and the picker's fit badge never disagree.
      */
-    val documentedRamGb: Int? = null
+    val documentedRamGb: Int? = null,
+    /**
+     * The most context, in tokens, this model is run with: 8192 for a small
+     * model (a file up to DeviceFit.SMALL_LLM_MAX_MB, about 2B parameters),
+     * 4096 for 3B and larger. A phone gets the larger window only where it
+     * holds the model comfortably with the bigger KV cache
+     * ([DeviceFit.llmPlan]); llama_jni.c then clamps it to the window the
+     * model was trained on.
+     */
+    val contextTokens: Int = DeviceFit.defaultLlmContextTokens(sizeMb)
 ) {
     /** [url] with [revision] pinned in, when set. */
     val downloadUrl: String
@@ -41,7 +50,10 @@ data class LocalLlmModel(
      * (CpuFeatures): the two the catalogue calls fast are the ones below it.
      */
     val fitNeed: DeviceFit.Need
-        get() = DeviceFit.llmNeed(key, sizeMb, documentedRamGb, slowOnBaseline = sizeMb >= 1000)
+        get() = DeviceFit.llmNeed(
+            key, sizeMb, documentedRamGb, slowOnBaseline = sizeMb >= 1000,
+            contextTokens = contextTokens
+        )
 
     /** Smallest phone, in GB of RAM, this is expected to run on (an estimate). */
     val minRamGb: Int get() = fitNeed.minRamGb
@@ -101,6 +113,30 @@ object LocalLlmModels {
             3110,
             documentedRamGb = 8
         ),
+        // Google's own quantisation-aware-trained Q4_0 builds, opt-in next to
+        // the unsloth files (which stay as they are). Text model only: the
+        // repo's mmproj file is the vision tower, which nothing here loads.
+        // Like the unsloth files, the GGUF asks for BOS (add_bos_token) and
+        // its Gemma 4 template emits bos_token, so the prompt takes the same
+        // path and ends up with one BOS: llama_jni.c adds it at tokenisation
+        // only when the rendered prompt does not already start with it. Its
+        // EOS is <eos> where unsloth's is <turn|>; llama.cpp ends generation
+        // on both for Gemma 4. Unmeasured on phones against the unsloth
+        // files, so neither is suggested over the other. Like them, they are
+        // above DeviceFit.SMALL_LLM_MAX_MB and so set up for the 4K window
+        // (contextTokens' default), far inside the window they were trained
+        // on (131,072 tokens for E2B). On arm64 phones with dotprod their
+        // Q4_0 bulk is the one catalogue bulk KleidiAI's dotprod/i8mm
+        // kernels take (see CMakeLists.txt).
+        LocalLlmModel(
+            "gemma4-e2b-qat",
+            "Gemma 4 E2B QAT (Google's Q4_0 · 8 GB+ RAM)",
+            "gemma-4-E2B_q4_0-it.gguf",
+            "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf/resolve/main/" +
+                "gemma-4-E2B_q4_0-it.gguf",
+            3350,
+            documentedRamGb = 8
+        ),
         LocalLlmModel(
             "gemma4-e4b",
             "Gemma 4 E4B (excellent · 12 GB+ RAM)",
@@ -108,6 +144,15 @@ object LocalLlmModels {
             "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/" +
                 "gemma-4-E4B-it-Q4_K_M.gguf",
             4980,
+            documentedRamGb = 12
+        ),
+        LocalLlmModel(
+            "gemma4-e4b-qat",
+            "Gemma 4 E4B QAT (Google's Q4_0 · 12 GB+ RAM)",
+            "gemma-4-E4B_q4_0-it.gguf",
+            "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/" +
+                "gemma-4-E4B_q4_0-it.gguf",
+            5155,
             documentedRamGb = 12
         ),
         LocalLlmModel(
@@ -127,6 +172,35 @@ object LocalLlmModels {
                 "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
             4920,
             documentedRamGb = 12
+        ),
+        // The smaller Qwen 3.5 sizes, opt-in next to the 9B and from the same
+        // quantiser. Same architecture (qwen35) and template family: the
+        // template's thinking switch is turned off at render time
+        // (chat_render.cpp), and any think block that still appears is
+        // stripped (PromptShaping). Text GGUFs only; the repos' mmproj files
+        // are the vision tower. Not yet checked for summary quality or speed
+        // on a phone, so the suggested default stays Qwen 2.5 1.5B. The 2B
+        // file is under DeviceFit.SMALL_LLM_MAX_MB, so like the other small
+        // models it is set up for the 8K window (contextTokens' default);
+        // the 4B keeps 4K. Both are trained on 262,144 tokens, so
+        // llama_jni.c's clamp to the trained window never applies.
+        LocalLlmModel(
+            "qwen35-2b",
+            "Qwen 3.5 2B (newer, small · 4 GB+ RAM)",
+            "Qwen_Qwen3.5-2B-Q4_K_M.gguf",
+            "https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF/resolve/main/" +
+                "Qwen_Qwen3.5-2B-Q4_K_M.gguf",
+            1396,
+            documentedRamGb = 4
+        ),
+        LocalLlmModel(
+            "qwen35-4b",
+            "Qwen 3.5 4B (newer, mid-size · 8 GB+ RAM)",
+            "Qwen_Qwen3.5-4B-Q4_K_M.gguf",
+            "https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF/resolve/main/" +
+                "Qwen_Qwen3.5-4B-Q4_K_M.gguf",
+            3013,
+            documentedRamGb = 8
         ),
         LocalLlmModel(
             "qwen3.5-9b",

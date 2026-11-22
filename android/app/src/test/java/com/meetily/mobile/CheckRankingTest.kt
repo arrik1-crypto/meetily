@@ -54,6 +54,37 @@ class CheckRankingTest {
     }
 
     @Test
+    fun japaneseTextAvoidsParakeetUltraLikeV3() {
+        // Ultra keeps v3's 25 European languages, so it is European-only too.
+        assertTrue(TranscriptionModels.europeanOnly("parakeet-ultra"))
+        assertTrue(TranscriptionModels.europeanOnly("parakeet-tdt-v3"))
+        assertFalse(TranscriptionModels.europeanOnly("nemotron-3.5"))
+        val ranked = TranscriptionModels.rankForCheck(
+            listOf("large-v3-turbo-q5_0", "parakeet-tdt-v3", "parakeet-ultra", "nemotron-3.5"),
+            "large-v3-turbo-q5_0",
+            transcriptSample = "今日は会議です。来週の予定について話しましょう。"
+        )
+        assertEquals("nemotron-3.5", ranked.first())
+        assertFalse("parakeet-ultra" in ranked)
+        assertFalse("parakeet-tdt-v3" in ranked)
+    }
+
+    @Test
+    fun parakeetUltraRanksWithV3NotAboveIt() {
+        assertEquals(
+            TranscriptionModels.qualityRank("parakeet-tdt-v3"),
+            TranscriptionModels.qualityRank("parakeet-ultra")
+        )
+        // A German meeting from Whisper: both multilingual Parakeets stay in,
+        // v2 (English-only) drops out.
+        val ranked = TranscriptionModels.rankForCheck(
+            listOf("small-q5_1", "parakeet-tdt-v2", "parakeet-tdt-v3", "parakeet-ultra"),
+            "small-q5_1"
+        )
+        assertEquals(setOf("parakeet-tdt-v3", "parakeet-ultra"), ranked.toSet())
+    }
+
+    @Test
     fun unknownOriginPrefersMultilingualOnATie() {
         val ranked = TranscriptionModels.rankForCheck(
             listOf("parakeet-tdt-v2", "parakeet-tdt-v3"), null

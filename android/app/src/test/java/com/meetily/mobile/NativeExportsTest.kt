@@ -188,6 +188,8 @@ class NativeExportsTest {
         }
         val internals = listOf(
             "meetily_render_chat",
+            "meetily_vad_init",
+            "whisper_vad_init_from_file_with_params",
             "ggml_init",
             "llama_backend_init",
             "whisper_full",

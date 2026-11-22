@@ -1,6 +1,7 @@
 package com.meetily.mobile
 
 import com.meetily.mobile.llm.LocalLlm
+import com.meetily.mobile.llm.PromptShaping
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -90,7 +91,15 @@ class LocalLlmBudgetTest {
 
     @Test
     fun mapReduceThresholdSitsAboveTheBudget() {
-        assertTrue(!LocalLlm.needsMapReduce(LocalLlm.CHAR_BUDGET))
-        assertTrue(LocalLlm.needsMapReduce(LocalLlm.MAP_REDUCE_THRESHOLD + 1))
+        for (window in listOf(4096, 8192)) {
+            assertTrue(!LocalLlm.needsMapReduce(PromptShaping.charBudget(window), window))
+            assertTrue(
+                LocalLlm.needsMapReduce(PromptShaping.mapReduceThreshold(window) + 1, window)
+            )
+        }
+        // A meeting that needs map-reduce in 4K can be one pass in 8K.
+        val length = PromptShaping.mapReduceThreshold(4096) + 1
+        assertTrue(LocalLlm.needsMapReduce(length, 4096))
+        assertTrue(!LocalLlm.needsMapReduce(length, 8192))
     }
 }

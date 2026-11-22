@@ -24,7 +24,12 @@ object PromptShaping {
     /** Conservative chars-per-token for English prose with punctuation. */
     private const val CHARS_PER_TOKEN = 3
 
+    /** Characters per map-reduce section for a 4096-token window; see [mapChunkChars]. */
     const val MAP_CHUNK_CHARS = 8_000
+
+    /** The window [MAP_CHUNK_CHARS] was sized for, in tokens. */
+    private const val MAP_CHUNK_BASE_TOKENS = 4096
+
     const val MAP_MAX_CHUNKS = 12
     const val MAP_REPLY_TOKENS = 220
 
@@ -49,6 +54,32 @@ object PromptShaping {
 
     /** Above this, middle-trimming loses too much: condense per-section instead. */
     fun mapReduceThreshold(contextTokens: Int): Int = charBudget(contextTokens) * 3 / 2
+
+    /**
+     * Characters per map-reduce section for a model with [contextTokens] of
+     * window: [MAP_CHUNK_CHARS] at 4096 tokens, in proportion above or
+     * below it. A section then takes the same share of any window, so a
+     * transcript that tokenises badly overflows an 8K window no more than it
+     * did a 4K one, and an 8K model reads a meeting in half as many passes.
+     * Its reply does not scale: it stays at [MAP_REPLY_TOKENS] and
+     * [MAP_PROMPT]'s eight bullets, so an 8K model writes half as many notes
+     * per hour of meeting (fewer generated tokens, a shorter run), and the
+     * final pass reads fewer decisions and owners per minute. If that shows
+     * on long meetings, scale the section reply with the window in
+     * [condense] rather than shrinking the window back.
+     * Never more than the `charBudget - 600` that [condense] trims a section
+     * to, so it does not cut a section it has just made. The 1,000-character
+     * floor gives way to that cap on a window under about 1,354 tokens (a
+     * model trained that short, through DeviceFit.clampToTrainedContext):
+     * the floor applied after the cap would make every section longer than
+     * condense lets it be.
+     */
+    fun mapChunkChars(contextTokens: Int): Int {
+        val cap = (charBudget(contextTokens) - 600).coerceAtLeast(400)
+        return (MAP_CHUNK_CHARS.toLong() * contextTokens / MAP_CHUNK_BASE_TOKENS)
+            .coerceIn(minOf(1_000, cap).toLong(), cap.toLong())
+            .toInt()
+    }
 
     /**
      * A smaller character budget, given that [chars] tokenized to [counted]
@@ -189,6 +220,8 @@ object PromptShaping {
      * [generate] takes (messages, maxReplyTokens) and returns the reply; it
      * may throw, and a thrown section is recorded as unavailable rather than
      * abandoning the whole transcript. [onSection] reports 1-based progress.
+     * [chunkChars] is the section size, [mapChunkChars] of the same window
+     * as [charBudget].
      */
     fun condense(
         content: String,
@@ -202,9 +235,10 @@ object PromptShaping {
          * returns instantly, and without this the loop would race through
          * every remaining chunk writing "(section notes unavailable)".
          */
-        shouldStop: () -> Boolean = { false }
+        shouldStop: () -> Boolean = { false },
+        chunkChars: Int = MAP_CHUNK_CHARS
     ): String? {
-        val chunks = splitIntoChunks(content, MAP_CHUNK_CHARS, MAP_MAX_CHUNKS)
+        val chunks = splitIntoChunks(content, chunkChars, MAP_MAX_CHUNKS)
         if (chunks.size < 2) return null
         val notes = StringBuilder(
             "[Ordered notes condensed from the full transcript of a long meeting]\n"

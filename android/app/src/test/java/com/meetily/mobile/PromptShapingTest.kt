@@ -22,12 +22,13 @@ class PromptShapingTest {
     @Test
     fun bothRuntimesGetTheSameShapingForTheSameWindow() {
         // The whole reason the logic moved: llama.cpp's facade must be a
-        // pass-through, not a second implementation that can drift.
-        assertEquals(PromptShaping.charBudget(LocalLlm.N_CTX), LocalLlm.CHAR_BUDGET)
-        assertEquals(
-            PromptShaping.mapReduceThreshold(LocalLlm.N_CTX),
-            LocalLlm.MAP_REDUCE_THRESHOLD
-        )
+        // pass-through, not a second implementation that can drift. The
+        // window is now the loaded model's, so check it at both sizes.
+        for (window in listOf(4096, 8192)) {
+            val threshold = PromptShaping.mapReduceThreshold(window)
+            assertFalse("$window", LocalLlm.needsMapReduce(threshold, window))
+            assertTrue("$window", LocalLlm.needsMapReduce(threshold + 1, window))
+        }
     }
 
     @Test

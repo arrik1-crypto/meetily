@@ -78,6 +78,13 @@ data class NemoModel(
      */
     val legacy: Boolean = false,
     /**
+     * Who trained the weights: the source the model cards end with
+     * ("632 MB · Multilingual · NVIDIA"), matching the credit in
+     * ModelLicences and notices.txt. Never the converter, since every entry
+     * here is a sherpa-onnx export.
+     */
+    val publisher: String = "NVIDIA",
+    /**
      * Pinned Hugging Face commit of [repo], when known; null keeps following
      * `main`. One revision covers all [files]: they ship together.
      * See android/scripts/model_hashes.py.
@@ -133,6 +140,20 @@ object NemoModels {
         NemoFile("tokens.txt", 1)
     )
 
+    /**
+     * Parakeet Ultra's parts, in MiB as the progress code counts them, read
+     * off the published repo: encoder 652,282,345 bytes, decoder 11,845,274,
+     * joiner 6,355,277 and tokens.txt 93,939. The names are v3's, and so is
+     * the vocabulary (tokens.txt is byte-identical), because Moondream
+     * post-trained v3 without changing its graph.
+     */
+    private val PARAKEET_ULTRA_INT8 = listOf(
+        NemoFile("encoder.int8.onnx", 622),
+        NemoFile("decoder.int8.onnx", 11),
+        NemoFile("joiner.int8.onnx", 6),
+        NemoFile("tokens.txt", 1)
+    )
+
     val ALL: List<NemoModel> = listOf(
         NemoModel(
             key = "parakeet-tdt-v2",
@@ -149,6 +170,29 @@ object NemoModels {
             files = TRANSDUCER_INT8,
             streaming = false,
             englishOnly = false
+        ),
+        // Opt-in alongside v3, which stays as it is: Moondream's post-training
+        // of the same 0.6B TDT graph over the same 25 languages, so it loads
+        // through the same offline transducer path with the same options.
+        // sherpa-onnx's own FLEURS runs put it ahead of v3 in English,
+        // German, French and Spanish, but nobody has compared the two on
+        // phone-recorded meetings, so nothing suggests it over v3.
+        //
+        // This Hugging Face upload (last commit 2026-11-07) predates
+        // sherpa-onnx #4179 (merged 2026-11-12), which keeps the encoder's
+        // depthwise and subsampling convolutions in float32 and recovers
+        // about two WER points of the int8 loss in English. With no revision
+        // pinned, a re-upload under the same names is what new downloads
+        // get; an install that already has the files keeps them, since their
+        // .ok sidecars mark them complete.
+        NemoModel(
+            key = "parakeet-ultra",
+            displayName = "Parakeet Ultra 0.6B (25 languages, Moondream)",
+            repo = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-ultra-int8",
+            files = PARAKEET_ULTRA_INT8,
+            streaming = false,
+            englishOnly = false,
+            publisher = "Moondream"
         ),
         // Supersedes nemotron-en: same 600M cache-aware FastConformer-RNNT,
         // plus language-ID prompt conditioning over 40 language-locales. It

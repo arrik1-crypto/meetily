@@ -4,6 +4,8 @@
 #include <string.h>
 #include <android/log.h>
 #include "whisper.h"
+#include "kleidiai_env.h"
+#include "vad_guard.h"
 
 #define TAG "meetily_whisper"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -18,7 +20,11 @@
  * second window over the trailing silence every chunk carries).
  *
  * Both are addressed below. This counter exists so the result can be
- * measured instead of assumed: it should read 1 per call.
+ * measured instead of assumed: it should read 1 per call. Since whisper.cpp
+ * b5907 the callback also runs before the language auto-detect encode,
+ * which earlier tags did not report, so a call that asks for auto-detection
+ * (the first of a file) reads 2: that extra pass was always there, and is
+ * now visible.
  */
 static int g_encoder_passes = 0;
 
@@ -54,7 +60,12 @@ static bool count_encoder_pass(struct whisper_context *ctx,
     (void) ctx;
     (void) state;
     g_encoder_passes++;
-    return !should_abort(user_data); /* false skips the encode */
+    /*
+     * false stops whisper_full before this encode: in the decode loop it
+     * ends the loop, and before language auto-detect (b5907 onwards) it
+     * returns -3, so a Stop during detection no longer waits for it.
+     */
+    return !should_abort(user_data);
 }
 
 /*
@@ -82,6 +93,7 @@ Java_com_meetily_mobile_whisper_WhisperBridge_initContext(
     (void) thiz;
     const char *path = (*env)->GetStringUTFChars(env, model_path, NULL);
     if (path == NULL) return 0;
+    meetily_kleidiai_env();
     struct whisper_context_params cparams = whisper_context_default_params();
     struct whisper_context *ctx = whisper_init_from_file_with_params(path, cparams);
     (*env)->ReleaseStringUTFChars(env, model_path, path);
@@ -467,4 +479,111 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWordsBytes(
     jbyteArray out = to_java_bytes(env, buf, len);
     free(buf);
     return out;
+}
+
+/*
+ * Silero VAD through whisper.cpp's whisper_vad_* API: the speech gate in
+ * front of every on-device recogniser (SpeechGate.kt, SileroVad.kt).
+ *
+ * It needs no whisper_context, so it serves Parakeet and Nemotron too,
+ * where no Whisper model is loaded. The handle is the whisper_vad_context
+ * itself, and one thread uses a handle at a time; each caller owns its own.
+ * None of these functions leaves a Java exception pending: a failure
+ * returns 0 or NULL, and the Kotlin side then transcribes every chunk
+ * exactly as it would without the gate. Nor does a C++ exception from
+ * whisper.cpp get through: the calls that can throw go through
+ * vad_guard.cpp.
+ */
+JNIEXPORT jlong JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_vadInit(
+        JNIEnv *env, jobject thiz, jstring model_path, jint n_threads) {
+    (void) thiz;
+    if (model_path == NULL) return 0;
+    const char *path = (*env)->GetStringUTFChars(env, model_path, NULL);
+    if (path == NULL) {
+        (*env)->ExceptionClear(env);
+        return 0;
+    }
+    /*
+     * Before the load, as in initContext: the VAD model load is what first
+     * asks this library's ggml for its CPU buffer types on a Parakeet or
+     * Nemotron run, where no Whisper model is ever loaded, and KleidiAI
+     * reads GGML_KLEIDIAI_SME only then, once per process.
+     */
+    meetily_kleidiai_env();
+    /*
+     * Each 512-sample window is a graph of a few small ops, so waking a
+     * thread pool per window costs more than it saves: one thread unless
+     * the caller asks for more.
+     */
+    struct whisper_vad_context *vctx =
+            meetily_vad_init(path, n_threads > 0 ? (int) n_threads : 1);
+    (*env)->ReleaseStringUTFChars(env, model_path, path);
+    if (vctx == NULL) {
+        LOGE("failed to load the VAD model");
+        return 0;
+    }
+    LOGI("VAD model loaded");
+    return (jlong) (intptr_t) vctx;
+}
+
+/*
+ * One speech probability per 512-sample window of [samples] (16 kHz mono
+ * float), in order, or NULL on failure. whisper.cpp zero-pads a last window
+ * that is not whole; the Kotlin side passes whole windows only, so the
+ * window grid carries on across calls.
+ *
+ * reset=true starts from a fresh LSTM state (whisper_vad_detect_speech);
+ * false continues the state the previous call on this handle left
+ * (whisper_vad_detect_speech_no_reset), for audio that follows on directly.
+ *
+ * At b5907 a graph compute that fails part-way stops the loop but still
+ * returns true, leaving the remaining probabilities from an earlier call or
+ * zero. On the CPU backend with no abort callback a compute does not fail
+ * once its graph is allocated, and a failed allocation does return false.
+ */
+JNIEXPORT jfloatArray JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_vadDetect(
+        JNIEnv *env, jobject thiz, jlong handle, jfloatArray samples, jboolean reset) {
+    (void) thiz;
+    struct whisper_vad_context *vctx = (struct whisper_vad_context *) (intptr_t) handle;
+    if (vctx == NULL || samples == NULL) return NULL;
+    jsize n_samples = (*env)->GetArrayLength(env, samples);
+    if (n_samples <= 0) return NULL;
+    jfloat *pcm = (*env)->GetFloatArrayElements(env, samples, NULL);
+    if (pcm == NULL) {
+        (*env)->ExceptionClear(env);
+        return NULL;
+    }
+    bool ok = meetily_vad_detect(vctx, pcm, (int) n_samples, reset ? true : false);
+    (*env)->ReleaseFloatArrayElements(env, samples, pcm, JNI_ABORT);
+    if (!ok) {
+        LOGE("VAD detection failed");
+        return NULL;
+    }
+    int n_probs = whisper_vad_n_probs(vctx);
+    const float *probs = whisper_vad_probs(vctx);
+    if (n_probs <= 0 || probs == NULL) return NULL;
+    jfloatArray out = (*env)->NewFloatArray(env, (jsize) n_probs);
+    if (out == NULL) {
+        (*env)->ExceptionClear(env);
+        return NULL;
+    }
+    (*env)->SetFloatArrayRegion(env, out, 0, (jsize) n_probs, (const jfloat *) probs);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        (*env)->DeleteLocalRef(env, out);
+        return NULL;
+    }
+    return out;
+}
+
+JNIEXPORT void JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_vadFree(
+        JNIEnv *env, jobject thiz, jlong handle) {
+    (void) env;
+    (void) thiz;
+    if (handle != 0) {
+        whisper_vad_free((struct whisper_vad_context *) (intptr_t) handle);
+    }
 }

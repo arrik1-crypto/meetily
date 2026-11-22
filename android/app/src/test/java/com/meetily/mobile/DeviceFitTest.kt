@@ -89,7 +89,9 @@ class DeviceFitTest {
             "qwen2.5-0.5b" to 2, "gemma3-1b" to 3, "qwen2.5-1.5b" to 4,
             "llama3.2-3b" to 6, "gemma3-4b" to 6, "medgemma-4b" to 6,
             "gemma4-e2b" to 8, "gemma4-e4b" to 12, "mistral-7b" to 12,
-            "llama3.1-8b" to 12, "qwen3.5-9b" to 16
+            "llama3.1-8b" to 12, "qwen3.5-9b" to 16,
+            "gemma4-e2b-qat" to 8, "gemma4-e4b-qat" to 12,
+            "qwen35-2b" to 4, "qwen35-4b" to 8
         )
         assertEquals(LocalLlmModels.ALL.map { it.key }.toSet(), expected.keys)
         for (model in LocalLlmModels.ALL) {
@@ -118,12 +120,234 @@ class DeviceFitTest {
         assertEquals(12, DeviceFit.minRamGb(DeviceFit.llmWorkingSetMb(5680), 8))
     }
 
+    // --- LLM context window ----------------------------------------------------
+
+    @Test
+    fun theOverheadGrowsWithTheWindowAndNotBelowTheBase() {
+        // At 4096 tokens the formula is the one every Need is costed at,
+        // unchanged, so no catalogue figure moves.
+        assertEquals(1732, DeviceFit.llmWorkingSetMb(1120))
+        assertEquals(DeviceFit.llmWorkingSetMb(1120), DeviceFit.llmWorkingSetMb(1120, 4096))
+        assertEquals(DeviceFit.LLM_RUNTIME_MB, DeviceFit.llmRuntimeMb(1120, 4096))
+        // An eighth of the file per extra 4096 tokens: Qwen 2.5 1.5B at 8K
+        // is costed 140 MB more (its q8_0 cache grows by about 62 MB).
+        assertEquals(1872, DeviceFit.llmWorkingSetMb(1120, 8192))
+        assertEquals(500 + 615, DeviceFit.llmRuntimeMb(4920, 8192))
+        assertEquals(500 + 420, DeviceFit.llmRuntimeMb(1120, 16384))
+        // A smaller window does not shrink the compute buffers.
+        assertEquals(DeviceFit.LLM_RUNTIME_MB, DeviceFit.llmRuntimeMb(1120, 2048))
+    }
+
+    @Test
+    fun smallModelsAreSetUpForTheLargerWindow() {
+        assertEquals(8192, DeviceFit.defaultLlmContextTokens(DeviceFit.SMALL_LLM_MAX_MB))
+        assertEquals(4096, DeviceFit.defaultLlmContextTokens(DeviceFit.SMALL_LLM_MAX_MB + 1))
+        // Qwen 3.5 2B (1396 MB) is under SMALL_LLM_MAX_MB too; Qwen 3.5 4B
+        // and both Gemma 4 QAT files are not.
+        val wide = setOf("qwen2.5-0.5b", "qwen2.5-1.5b", "gemma3-1b", "qwen35-2b")
+        for (model in LocalLlmModels.ALL) {
+            val expected = if (model.key in wide) 8192 else 4096
+            assertEquals(model.key, expected, model.contextTokens)
+            assertEquals(model.key, model.contextTokens, model.fitNeed.contextTokens)
+        }
+    }
+
+    private fun plan(key: String, gb: Int): DeviceFit.LlmPlan =
+        DeviceFit.llmPlan(need(key)!!, device(gb))
+
+    @Test
+    fun theWindowEachModelGetsAcrossPhoneSizes() {
+        // (RAM GB, window, RAM-tight): 8K only where the model is still
+        // comfortable with the larger cache, 4K and tight below that.
+        val table = mapOf(
+            "qwen2.5-0.5b" to listOf(
+                Triple(2, 4096, true), Triple(3, 8192, false), Triple(16, 8192, false)
+            ),
+            "gemma3-1b" to listOf(
+                Triple(3, 4096, true), Triple(4, 8192, false), Triple(8, 8192, false)
+            ),
+            "qwen2.5-1.5b" to listOf(
+                Triple(3, 4096, true), Triple(4, 4096, true), Triple(6, 8192, false),
+                Triple(12, 8192, false)
+            ),
+            // 3B and larger stay at 4K everywhere; tight below their comfort.
+            "llama3.2-3b" to listOf(Triple(6, 4096, true), Triple(8, 4096, false)),
+            "gemma3-4b" to listOf(Triple(6, 4096, true), Triple(8, 4096, false)),
+            "gemma4-e2b" to listOf(
+                Triple(6, 4096, true), Triple(8, 4096, true), Triple(12, 4096, false)
+            ),
+            "gemma4-e4b" to listOf(Triple(12, 4096, true), Triple(16, 4096, false)),
+            "qwen3.5-9b" to listOf(Triple(16, 4096, true), Triple(24, 4096, false)),
+            // The opt-in entries. Qwen 3.5 2B is a small model: 8K from
+            // 6 GB (2209 MB at 8K, within 40%), where it is comfortable at
+            // 4K too.
+            "qwen35-2b" to listOf(
+                Triple(3, 4096, true), Triple(4, 4096, true), Triple(6, 8192, false),
+                Triple(12, 8192, false)
+            ),
+            "qwen35-4b" to listOf(Triple(8, 4096, true), Triple(10, 4096, false)),
+            "gemma4-e2b-qat" to listOf(
+                Triple(8, 4096, true), Triple(10, 4096, true), Triple(12, 4096, false)
+            ),
+            "gemma4-e4b-qat" to listOf(Triple(12, 4096, true), Triple(16, 4096, false))
+        )
+        for ((key, rows) in table) {
+            for ((gb, window, tight) in rows) {
+                val p = plan(key, gb)
+                assertEquals("$key $gb GB window", window, p.contextTokens)
+                assertEquals("$key $gb GB tight", tight, p.ramTight)
+            }
+        }
+    }
+
+    @Test
+    fun unknownRamGetsTheBaseWindowAndTheSmallCache() {
+        val unknown = DeviceFit.Device(0L, null, CpuTier.DOTPROD, null, "en")
+        val p = DeviceFit.llmPlan(need("qwen2.5-1.5b")!!, unknown)
+        assertEquals(4096, p.contextTokens)
+        assertTrue(p.ramTight)
+        assertEquals(p, DeviceFit.llmPlan(need("qwen2.5-1.5b")!!, null))
+    }
+
+    @Test
+    fun aLargeModelAskingForMoreIsHeldTo4kUnder8Gb() {
+        // No catalogue entry does this today; the rule holds if one does.
+        val big = DeviceFit.llmNeed("big", 2020, null, slowOnBaseline = true, contextTokens = 8192)
+        assertEquals(4096, DeviceFit.llmPlan(big, device(6)).contextTokens)
+        // From 8 GB it is the comfort check that decides: 2974 MB at 8K
+        // is within 40% of 8 GB.
+        assertEquals(8192, DeviceFit.llmPlan(big, device(8)).contextTokens)
+        assertEquals(8192, DeviceFit.llmPlan(big, device(16)).contextTokens)
+    }
+
+    @Test
+    fun theWindowIsNeverMoreThanTheModelIsSetUpFor() {
+        val short = DeviceFit.llmNeed("short", 800, null, slowOnBaseline = false, contextTokens = 2048)
+        for (gb in listOf(2, 4, 8, 16)) {
+            assertEquals(2048, DeviceFit.llmPlan(short, device(gb)).contextTokens)
+        }
+        // A larger request is costed at its own size: 16K needs 6 GB here
+        // where the base window is comfortable from 4 GB.
+        val long = DeviceFit.llmNeed("long", 1000, null, slowOnBaseline = false, contextTokens = 16384)
+        assertEquals(4096, DeviceFit.llmPlan(long, device(4)).contextTokens)
+        assertEquals(16384, DeviceFit.llmPlan(long, device(6)).contextTokens)
+    }
+
+    /** The verdict from a Need's own figures, all costed at 4096 tokens. */
+    private fun baseLevel(n: DeviceFit.Need, gb: Int): Level = when {
+        gb < n.minRamGb -> Level.TOO_BIG
+        gb < n.comfortableRamGb -> Level.TIGHT
+        else -> Level.FITS
+    }
+
+    @Test
+    fun theLargerWindowNeverChangesAVerdict() {
+        // classify costs each phone at the window it gets. A window is
+        // granted only where the model is comfortable at it, so that is
+        // the 4K verdict everywhere (badges and first-run suggestions do
+        // not move), and "RAM-tight" is exactly "not FITS".
+        for (model in LocalLlmModels.ALL) {
+            for (gb in listOf(1, 2, 3, 4, 6, 8, 10, 12, 16, 18, 24, 32)) {
+                val verdict = DeviceFit.classify(model.fitNeed, device(gb))!!
+                val p = DeviceFit.llmPlan(model.fitNeed, device(gb))
+                assertEquals("${model.key} $gb", baseLevel(model.fitNeed, gb), verdict.level)
+                if (p.contextTokens > DeviceFit.LLM_BASE_CONTEXT) {
+                    assertEquals("${model.key} $gb", Level.FITS, verdict.level)
+                    val atWindow = DeviceFit.llmWorkingSetMb(model.sizeMb, p.contextTokens)
+                    assertTrue("${model.key} $gb", atWindow <= gb * 1024 * 0.40)
+                }
+                assertEquals("${model.key} $gb", verdict.level != Level.FITS, p.ramTight)
+            }
+        }
+    }
+
+    @Test
+    fun aPhoneIsCostedAtTheWindowItGets() {
+        // A 1.5 GB model set up for 8K. Costed at 8K everywhere it would
+        // need a 6 GB phone even to run...
+        val m = DeviceFit.llmNeed("m", 1500, null, slowOnBaseline = false, contextTokens = 8192)
+        assertEquals(2337, DeviceFit.llmWorkingSetMb(1500, 8192))
+        assertEquals(6, DeviceFit.minRamGb(DeviceFit.llmWorkingSetMb(1500, 8192)))
+        // ...but a 4 GB phone runs it at 4K, where it is tight, not too big.
+        assertEquals(4, m.minRamGb)
+        assertEquals(4096, DeviceFit.llmPlan(m, device(4)).contextTokens)
+        assertEquals(Level.TIGHT, DeviceFit.classify(m, device(4))!!.level)
+        assertTrue(DeviceFit.llmPlan(m, device(4)).ramTight)
+        // 6 GB holds it comfortably at 8K (2337 MB within 40% of 6 GB), so
+        // it gets 8K and fits there.
+        assertEquals(8192, DeviceFit.llmPlan(m, device(6)).contextTokens)
+        assertEquals(Level.FITS, DeviceFit.classify(m, device(6))!!.level)
+        assertFalse(DeviceFit.llmPlan(m, device(6)).ramTight)
+    }
+
+    @Test
+    fun theTrainedWindowClampsTheRequest() {
+        // The rule llama_jni.c's context_for_model applies; the same table
+        // was run against the C function on the host.
+        val cases = listOf(
+            Triple(8192, 32768, 8192), Triple(8192, 131072, 8192), Triple(8192, 8192, 8192),
+            Triple(8192, 4096, 4096), Triple(8192, 4000, 3840), Triple(4096, 2048, 2048),
+            Triple(8192, 200, 200), Triple(8192, 0, 8192), Triple(0, 0, 4096),
+            Triple(-5, 32768, 4096), Triple(4096, -1, 4096), Triple(300, 0, 300)
+        )
+        for ((requested, trained, want) in cases) {
+            assertEquals(
+                "$requested/$trained", want, DeviceFit.clampToTrainedContext(requested, trained)
+            )
+        }
+        assertEquals(8192, DeviceFit.clampToTrainedContext(8192, null))
+        // Never above the trained window, even after llama.cpp rounds UP to 256.
+        for (trained in listOf(1000, 3000, 4000, 6000, 7999, 8191)) {
+            val n = DeviceFit.clampToTrainedContext(8192, trained)
+            assertTrue("$trained", n <= trained)
+            assertEquals("$trained", 0, n % 256)
+        }
+    }
+
+    @Test
+    fun theDecisionTableAcrossRamModelSizeAndTrainedWindow() {
+        // (model, RAM GB, n_ctx_train or null before the first load) -> window.
+        val rows = listOf(
+            // Small model, comfortable at 8K: the trained window can only cut it.
+            Triple("qwen2.5-1.5b", 8, null) to 8192,
+            Triple("qwen2.5-1.5b", 8, 32768) to 8192,
+            Triple("qwen2.5-1.5b", 8, 6000) to 5888,
+            Triple("qwen2.5-1.5b", 8, 4096) to 4096,
+            // Small model on a phone too tight for 8K: 4K, or less if trained on less.
+            Triple("qwen2.5-1.5b", 4, 32768) to 4096,
+            Triple("qwen2.5-1.5b", 4, 2048) to 2048,
+            Triple("gemma3-1b", 3, 32768) to 4096,
+            Triple("gemma3-1b", 4, 32768) to 8192,
+            Triple("qwen2.5-0.5b", 3, 32768) to 8192,
+            // Qwen 3.5 2B is trained on 262,144 tokens, so the clamp never cuts it.
+            Triple("qwen35-2b", 6, 262144) to 8192,
+            Triple("qwen35-2b", 4, 262144) to 4096,
+            // 3B and larger: 4K on every phone, under 8 GB or not.
+            Triple("llama3.2-3b", 6, 131072) to 4096,
+            Triple("gemma3-4b", 12, 131072) to 4096,
+            Triple("gemma3-4b", 12, 2048) to 2048,
+            Triple("llama3.1-8b", 16, 131072) to 4096,
+            Triple("qwen35-4b", 16, 262144) to 4096,
+            Triple("gemma4-e2b-qat", 12, 131072) to 4096
+        )
+        for ((input, want) in rows) {
+            val (key, gb, trained) = input
+            val p = DeviceFit.llmPlan(need(key)!!, device(gb), trained)
+            assertEquals("$key $gb GB trained $trained", want, p.contextTokens)
+        }
+        // A trained window below the base never makes a tight phone roomy:
+        // the compute buffers do not shrink with the window.
+        assertTrue(DeviceFit.llmPlan(need("qwen2.5-1.5b")!!, device(4), 2048).ramTight)
+        assertFalse(DeviceFit.llmPlan(need("gemma3-4b")!!, device(12), 2048).ramTight)
+    }
+
     @Test
     fun transcriptionRequirements() {
         val expected = mapOf(
             "tiny.en" to (1 to 2), "base.en" to (2 to 2), "small.en-q5_1" to (2 to 2),
             "small.en" to (3 to 4), "large-v3-turbo-q5_0" to (3 to 4),
-            "parakeet-tdt-v2" to (3 to 4), "nemotron-3.5" to (3 to 6)
+            "parakeet-tdt-v2" to (3 to 4), "nemotron-3.5" to (3 to 6),
+            "parakeet-ultra" to (3 to 4)
         )
         for ((key, pair) in expected) {
             val n = TranscriptionModels.fitNeedOrNull(key)!!
@@ -179,6 +403,40 @@ class DeviceFitTest {
         assertEquals(listOf(x, x, x, t, f, f), row("gemma4-e2b"))
         assertEquals(listOf(x, x, x, x, t, f), row("gemma4-e4b"))
         assertEquals(listOf(x, x, x, x, x, t), row("qwen3.5-9b"))
+        // The opt-in entries.
+        assertEquals(listOf(t, f, f, f, f, f), row("parakeet-ultra"))
+        assertEquals(listOf(x, t, f, f, f, f), row("qwen35-2b"))
+        assertEquals(listOf(x, x, x, t, f, f), row("qwen35-4b"))
+        assertEquals(listOf(x, x, x, t, f, f), row("gemma4-e2b-qat"))
+        assertEquals(listOf(x, x, x, x, t, f), row("gemma4-e4b-qat"))
+    }
+
+    @Test
+    fun optInModelsAreNeverSuggested() {
+        // Nothing about them has been measured on a phone, so the first-run
+        // suggestions, and their order, are exactly what they were.
+        val optIn = setOf(
+            "parakeet-ultra", "gemma4-e2b-qat", "gemma4-e4b-qat", "qwen35-2b", "qwen35-4b"
+        )
+        assertEquals(
+            listOf("qwen2.5-1.5b", "gemma3-1b", "qwen2.5-0.5b"), DeviceFit.llmCandidates()
+        )
+        assertEquals(
+            listOf("small.en-q5_1", "base.en", "tiny.en"), DeviceFit.transcriptionCandidates("en")
+        )
+        assertEquals(listOf("small-q5_1", "base", "tiny"), DeviceFit.transcriptionCandidates("de"))
+        for (gb in listOf(1, 2, 3, 4, 6, 8, 10, 12, 16, 18, 24, 32)) {
+            for (tier in CpuTier.values()) {
+                for (language in listOf("en", "de", "ja")) {
+                    val rec = recommend(gb, tier, language)
+                    assertFalse("$gb $tier $language", rec.transcription?.need?.key in optIn)
+                    assertFalse("$gb $tier $language", rec.llm?.need?.key in optIn)
+                }
+            }
+        }
+        // The fallback default for an unknown key is still Qwen 2.5 1.5B.
+        assertEquals("qwen2.5-1.5b", LocalLlmModels.ALL.first().key)
+        assertEquals("qwen2.5-1.5b", LocalLlmModels.byKey("no-such-model").key)
     }
 
     @Test

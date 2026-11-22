@@ -11,7 +11,9 @@ enum class NativeJob(val label: String) {
     TRANSCRIBE("transcribe"),
     SUMMARISE("summarise"),
     DIARISE("diarise"),
-    OCR("ocr")
+    OCR("ocr"),
+    /** The Silero speech gate in front of the recognisers (SileroVad). */
+    VAD("vad")
 }
 
 /**

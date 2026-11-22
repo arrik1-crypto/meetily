@@ -14,6 +14,9 @@ plugins {
 // blindly: CpuFeatures.loadEngineLibrary checks /proc/cpuinfo first and
 // falls back to the baseline pair.
 //
+// The Arm KleidiAI kernels are the exception: ggml picks those at run time,
+// so they are on in both builds (see CMakeLists.txt).
+//
 // arm64 only: x86_64 is emulators, where the baseline is fine.
 android {
     namespace = "com.meetily.mobile.nativev82"
@@ -32,6 +35,11 @@ android {
                     "-DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16",
                     "-DMEETILY_LIB_SUFFIX=_v82"
                 )
+                // CI: a pre-fetched, MD5-checked KleidiAI tree (see the workflows).
+                // Without the property, ggml downloads it itself (URL + MD5 pinned).
+                (project.findProperty("kleidiaiSourceDir") as String?)?.let {
+                    arguments += "-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI=$it"
+                }
                 // Only the two JNI libraries; nothing else in the tree
                 // needs building twice.
                 targets += listOf("meetily_whisper_v82", "meetily_llama_v82")

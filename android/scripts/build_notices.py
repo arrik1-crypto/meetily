@@ -6,9 +6,9 @@ than retyped: Apache-2.0 §4(a) conditions binary redistribution on shipping a
 copy of the License, and MIT on reproducing its notice exactly. Retyping is
 how those stop being verbatim.
 
-Run this after bumping a native pin in app/src/main/cpp/CMakeLists.txt or the
-sherpa-onnx version in scripts/fetch_sherpa_libs.sh, then commit the result.
-Needs network access.
+Run this after bumping a native pin in app/src/main/cpp/CMakeLists.txt, the
+sherpa-onnx version in scripts/fetch_sherpa_libs.sh or the bundled Silero VAD
+model (SILERO_VER below), then commit the result. Needs network access.
 
     python3 android/scripts/build_notices.py
 
@@ -44,8 +44,13 @@ OUT = HERE.parent / "app" / "src" / "main" / "assets" / "notices.txt"
 # Keep these in step with app/src/main/cpp/CMakeLists.txt and
 # scripts/fetch_sherpa_libs.sh.
 SHERPA_VER = "v1.13.4"
-WHISPER_VER = "v1.8.6"
-LLAMA_VER = "b10089"
+WHISPER_VER = "b5907"
+LLAMA_VER = "v1.0.0"
+# Pinned by ggml at LLAMA_VER (ggml/src/ggml-cpu/CMakeLists.txt), not by us.
+KLEIDIAI_VER = "v1.32.0"
+# The Silero VAD release whose weights app/src/main/assets/ggml-silero-v6.2.0.bin
+# carries (whisper.cpp's ggml conversion; SileroAssetTest pins its bytes).
+SILERO_VER = "v6.2"
 
 # ScanCode keeps plain-text copies of licences that are only published as web
 # pages. Each file opens with YAML front matter, stripped before use.
@@ -59,6 +64,7 @@ SOURCES = {
     "mit_ggml": f"https://raw.githubusercontent.com/ggml-org/whisper.cpp/{WHISPER_VER}/LICENSE",
     "mit_ort": "https://raw.githubusercontent.com/microsoft/onnxruntime/main/LICENSE",
     "mit_openai": "https://raw.githubusercontent.com/openai/whisper/main/LICENSE",
+    "mit_silero": f"https://raw.githubusercontent.com/snakers4/silero-vad/{SILERO_VER}/LICENSE",
     "llama3_2": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_2/LICENSE",
     "llama3_1": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_1/LICENSE",
     "gemma": SCANCODE + "gemma-tou-2025-03-24.LICENSE",
@@ -90,9 +96,11 @@ licences, and where they came from.
 
 Recap's own source is available under the MIT License.
 
-Models are not shipped inside the app. They are downloaded from the sources
-listed in part two only when you choose to install them. A model's licence is
-set by its publisher and can change; the linked page is authoritative.
+Apart from the small Silero speech detector and ML Kit's text-recognition
+model, both listed in part one, models are not shipped inside the app. They
+are downloaded from the sources listed in part two only when you choose to
+install them. A model's licence is set by its publisher and can change; the
+linked page is authoritative.
 
 
 Built with Llama
@@ -105,9 +113,9 @@ Built with Llama
 
 Model use restrictions
 
-    The licences of the Llama, Gemma and MedGemma models restrict what the
-    models may be used for, and require those restrictions to be passed on
-    to you. They are part of Recap's Terms of Use (Settings > Terms of use),
+    The licences of the Llama, Gemma 3 and MedGemma models restrict what
+    the models may be used for, and require those restrictions to be passed
+    on to you. They are part of Recap's Terms of Use (Settings > Terms of use),
     and Recap asks you to accept them once, before the first download of a
     model under each licence.
 
@@ -134,7 +142,10 @@ whisper.cpp {WHISPER_VER}
     MIT License
     Copyright (c) 2023-2026 The ggml authors
     https://github.com/ggml-org/whisper.cpp
-    Compiled into the native library libmeetily_whisper.so.
+    Compiled into the native library libmeetily_whisper.so. The speech
+    detector's self-test clip vad_probe.pcm, included in the app, is 1.5
+    seconds of the project's samples/jfk.wav (President John F. Kennedy's
+    inaugural address, 1961).
 
 llama.cpp {LLAMA_VER}
     MIT License
@@ -148,6 +159,25 @@ ggml
     https://github.com/ggml-org/ggml
     The tensor library underneath whisper.cpp and llama.cpp; built as part of
     both.
+
+Arm KleidiAI {KLEIDIAI_VER}
+    Apache License 2.0
+    Copyright (c) 2024-2026 Arm Limited and/or its affiliates
+    Copyright (c) 2026 Fujitsu Limited
+    Copyright (c) 2026 Meta Platforms, Inc. and affiliates
+    https://github.com/ARM-software/kleidiai
+    Optimised matrix-multiplication kernels, compiled into both native
+    libraries on arm64 phones and used by ggml when the processor supports
+    them.
+
+Silero VAD {SILERO_VER}
+    MIT License
+    Copyright (c) 2020-present Silero Team
+    https://github.com/snakers4/silero-vad
+    Included in the app as the speech-detection model ggml-silero-v6.2.0.bin,
+    in the ggml form the whisper.cpp project publishes at
+    https://huggingface.co/ggml-org/whisper-vad. Run on the phone through
+    whisper.cpp to skip silence and noise before transcription.
 
 AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric)
     Apache License 2.0
@@ -208,6 +238,16 @@ Parakeet TDT 0.6B v3 (25 languages)
     downloaded from that conversion:
     https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
 
+Parakeet Ultra 0.6B (25 languages)
+    Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+    Trained by Moondream as a post-training of NVIDIA's Parakeet TDT 0.6B v3
+    https://huggingface.co/moondream/parakeet-ultra
+    https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+    Converted to ONNX and quantised to int8 by the sherpa-onnx project, and
+    downloaded from that conversion:
+    https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-ultra-int8
+    Neither NVIDIA nor Moondream endorses Recap.
+
 Nemotron 3.5 ASR Streaming 0.6B (40 language-locales)
     Licence: see model page
     NVIDIA Corporation
@@ -260,8 +300,17 @@ Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct
     https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF
     https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF
 
+Qwen 3.5 2B, Qwen 3.5 4B
+    Licence: Apache License 2.0
+    Alibaba Cloud (Qwen team)
+    https://huggingface.co/Qwen/Qwen3.5-2B
+    https://huggingface.co/Qwen/Qwen3.5-4B
+    GGUF conversions downloaded from:
+    https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF
+    https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF
+
 Qwen 3.5 9B
-    Licence: see model page
+    Licence: Apache License 2.0
     Alibaba Cloud (Qwen team)
     https://huggingface.co/Qwen/Qwen3.5-9B
     GGUF conversion downloaded from:
@@ -298,12 +347,17 @@ Gemma 3 1B Instruct, Gemma 3 4B Instruct
     https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF
 
 Gemma 4 E2B Instruct, Gemma 4 E4B Instruct
-    Licence: see model page
+    Licence: Apache License 2.0
     Google LLC
+    https://ai.google.dev/gemma/docs/gemma_4_license
     https://ai.google.dev/gemma/docs/core/model_card_4
     GGUF conversions downloaded from:
     https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF
     https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF
+    Quantisation-aware-trained Q4_0 builds downloaded from Google's own
+    repositories:
+    https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf
+    https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf
 
 MedGemma 4B
     Licence: Health AI Developer Foundations Terms of Use (copy in part
@@ -498,8 +552,10 @@ def main() -> int:
         texts["mit_ort"],
         rule("MIT License - OpenAI Whisper models"),
         texts["mit_openai"],
+        rule("MIT License - Silero VAD"),
+        texts["mit_silero"],
         rule(
-            "Apache License 2.0 - sherpa-onnx, AndroidX, Material Components, Kotlin"
+            "Apache License 2.0 - sherpa-onnx, Arm KleidiAI, AndroidX, Material Components, Kotlin"
         ).rstrip("\n") + "\n",
         texts["apache"],
         rule("Creative Commons Attribution 4.0 International (CC BY 4.0)"),

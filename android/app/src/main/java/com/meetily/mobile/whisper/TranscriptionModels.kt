@@ -72,7 +72,10 @@ object TranscriptionModels {
         // on FLEURS rather than the Open ASR Leaderboard, so the published
         // numbers do not compare. Ranking it higher would assert that.
         "nemotron-en", "nemotron-3.5" -> 5
-        "parakeet-tdt-v2", "parakeet-tdt-v3" -> 6
+        // Ultra is v3's graph post-trained further. Its published gains come
+        // from benchmark sets, not from meetings recorded on a phone through
+        // this int8 export, so it ranks with v3 rather than above it.
+        "parakeet-tdt-v2", "parakeet-tdt-v3", "parakeet-ultra" -> 6
         "large-v3-turbo-q5_0" -> 7
         else -> 3
     }
@@ -104,8 +107,8 @@ object TranscriptionModels {
      * Whisper was "checked" by English-only Parakeet v2: minutes of CPU for a
      * draft nobody can use. Now, when the source is multilingual (or its
      * text is not in a European script), English-only models drop out, and
-     * so does Parakeet v3 (25 European languages) for Japanese, Chinese,
-     * Korean and the like — each only while something better suited is
+     * so do Parakeet v3 and Ultra (25 European languages) for Japanese,
+     * Chinese, Korean and the like — each only while something better suited is
      * installed. Remaining ties go to the multilingual model.
      */
     internal fun rankForCheck(
@@ -137,8 +140,13 @@ object TranscriptionModels {
     /** Tie-break: a multilingual model before an English-only one. */
     private fun rankTieLanguage(key: String): Int = if (englishOnly(key)) 1 else 0
 
-    /** Models whose languages are all written in European scripts. */
-    private fun europeanOnly(key: String): Boolean = key == "parakeet-tdt-v3"
+    private val EUROPEAN_ONLY = setOf("parakeet-tdt-v3", "parakeet-ultra")
+
+    /**
+     * Models whose languages are all written in European scripts: Parakeet
+     * v3's 25, which Parakeet Ultra keeps.
+     */
+    internal fun europeanOnly(key: String): Boolean = key in EUROPEAN_ONLY
 
     /**
      * True when [text]'s letters are mostly Latin, Cyrillic or Greek; false
@@ -175,8 +183,15 @@ object TranscriptionModels {
                     com.meetily.mobile.R.string.model_lang_multi
                 }
             ),
-            if (isNemo(key)) "NVIDIA" else "Whisper"
+            publisher(key)
         )
+
+    /**
+     * The source the model cards name: who trained a NeMo model's weights
+     * (NVIDIA, or Moondream for Parakeet Ultra), else "Whisper".
+     */
+    fun publisher(key: String): String =
+        NemoModels.byKeyOrNull(key)?.publisher ?: "Whisper"
 
     /**
      * [metaLine] plus what this model would cost for [audioMs] of audio on
