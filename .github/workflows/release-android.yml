@@ -78,6 +78,10 @@ jobs:
             android/app/build/outputs/bundle/release/*.aab \
             android/app/build/outputs/apk/release/*.apk
 
+      # The symbols go along too: the bundle carries them for Play, but the
+      # sideload APK does not, and with only Java_ entry points exported a
+      # native crash in an exit report from that APK is pc + BuildId per
+      # frame (see build-android.yml).
       - name: Upload signed bundle + APK
         uses: actions/upload-artifact@v4
         with:
@@ -85,6 +89,7 @@ jobs:
           path: |
             android/app/build/outputs/bundle/release/*.aab
             android/app/build/outputs/apk/release/*.apk
+            android/app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip
           if-no-files-found: error
           retention-days: 30
 

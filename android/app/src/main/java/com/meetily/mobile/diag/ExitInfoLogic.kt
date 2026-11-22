@@ -1,5 +1,6 @@
 package com.meetily.mobile.diag
 
+import com.meetily.mobile.data.DeviceFit
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -223,12 +224,14 @@ object ExitInfoLogic {
     fun newestTimestamp(exits: List<Exit>, consumedTs: Long): Long =
         maxOf(consumedTs, exits.maxOfOrNull { it.timestampMs } ?: consumedTs)
 
-    /** Total RAM rounded up to whole GiB; phones report a little under the label. */
-    fun ramGb(totalBytes: Long): Int {
-        if (totalBytes <= 0L) return 0
-        val gib = 1L shl 30
-        return ((totalBytes + gib - 1) / gib).toInt().coerceAtMost(9_999)
-    }
+    /**
+     * The phone's RAM size in GB, from totalMem: the size it was sold as,
+     * which is the figure the model pickers' fit badges and the first-run
+     * setup judge every model against (DeviceFit.ramClassGb). A report of a
+     * memory kill after "Use anyway" on a tight model then names the same
+     * RAM size the warning did. 0 when unknown.
+     */
+    fun ramGb(totalBytes: Long): Int = DeviceFit.ramClassGb(totalBytes).coerceAtMost(9_999)
 
     /** Model key reduced to characters that cannot carry anything but a name. */
     fun sanitiseKey(key: String): String {

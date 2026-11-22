@@ -276,6 +276,23 @@ class ExitInfoLogicTest {
         assertEquals(0, ExitInfoLogic.ramGb(0))
     }
 
+    @Test
+    fun ramIsTheSizeTheFitBadgesUse() {
+        val gib = 1L shl 30
+        // Whole-GiB rounding would say 5 and 14 here; the pickers say 6 and
+        // 16, and a report must name the RAM size their warning named.
+        assertEquals(6, ExitInfoLogic.ramGb((4.6 * gib).toLong()))
+        assertEquals(16, ExitInfoLogic.ramGb((13.5 * gib).toLong()))
+        for (tenths in 5..400 step 3) {
+            val total = tenths * gib / 10
+            assertEquals(
+                "at $tenths tenths of a GiB",
+                com.meetily.mobile.data.DeviceFit.ramClassGb(total),
+                ExitInfoLogic.ramGb(total)
+            )
+        }
+    }
+
     // --- Report text ----------------------------------------------------
 
     @Test
