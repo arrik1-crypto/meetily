@@ -18,6 +18,10 @@ import java.util.TimeZone
  * through their own share sheet (or ignore). Play's Android Vitals still
  * receives the OS-level crash signal because the previous (system) handler
  * is always chained.
+ *
+ * Deaths this handler never sees (native crashes, ANRs, memory kills) reach
+ * the same folder and the same prompt through ExitInfoCapture, which reads
+ * Android's own record of them on the next start.
  */
 object CrashLog {
 
@@ -28,6 +32,19 @@ object CrashLog {
 
     /** Max characters offered into the share sheet. */
     private const val SHARE_CAP = 100_000
+
+    /**
+     * Ends the name of a report built from Android's exit records (see
+     * ExitInfoCapture) rather than from this process's own handler.
+     */
+    private const val EXIT_SUFFIX = "-exit"
+    private const val REPORT_EXT = ".txt"
+
+    /**
+     * Serialises writes and pruning: the exit-record scan writes from a
+     * worker thread while the crash handler can fire on any other.
+     */
+    private val lock = Any()
 
     fun install(app: Application) {
         val previous = Thread.getDefaultUncaughtExceptionHandler()
@@ -43,20 +60,70 @@ object CrashLog {
     }
 
     private fun write(context: Context, thread: Thread, e: Throwable) {
-        val dir = File(context.filesDir, DIR).apply { mkdirs() }
-        // Keep the newest few; this write becomes the newest.
-        dir.listFiles()
-            ?.sortedByDescending { it.name }
-            ?.drop(KEEP - 1)
-            ?.forEach { it.delete() }
         val trace = StringWriter().also { e.printStackTrace(PrintWriter(it)) }
-        File(dir, "crash-${System.currentTimeMillis()}.txt").writeText(
-            render(
-                deviceInfo(context),
-                "Thread: ${thread.name}",
-                trace.toString()
+        synchronized(lock) {
+            val dir = File(context.filesDir, DIR).apply { mkdirs() }
+            prune(dir)
+            File(dir, "crash-${System.currentTimeMillis()}$REPORT_EXT").writeText(
+                render(
+                    deviceInfo(context),
+                    "Thread: ${thread.name}",
+                    trace.toString()
+                )
             )
-        )
+        }
+    }
+
+    /** Name (without extension) for a new exit-record report. */
+    fun newExitReportBase(): String = "crash-${System.currentTimeMillis()}$EXIT_SUFFIX"
+
+    /**
+     * Writes a report built from Android's exit records, plus files it
+     * refers to by name (a raw tombstone). Named by the time it is written,
+     * not the time of the exit, so it sorts after every report already
+     * shown: [pendingCrash] offers the newest one.
+     */
+    fun saveExitReport(
+        context: Context,
+        base: String,
+        headline: String,
+        body: String,
+        attachments: Map<String, ByteArray>
+    ) {
+        synchronized(lock) {
+            val dir = File(context.filesDir, DIR).apply { mkdirs() }
+            prune(dir)
+            for ((name, bytes) in attachments) {
+                File(dir, name).writeBytes(bytes)
+            }
+            File(dir, base + REPORT_EXT).writeText(render(deviceInfo(context), headline, body))
+        }
+    }
+
+    /** True for a report made from Android's exit records. */
+    fun isExitReport(file: File): Boolean = file.name.endsWith(EXIT_SUFFIX + REPORT_EXT)
+
+    /** Report files only, oldest first (names sort by time). Internal for tests. */
+    internal fun reports(dir: File): List<File> =
+        dir.listFiles()
+            ?.filter { it.isFile && it.name.startsWith("crash-") && it.name.endsWith(REPORT_EXT) }
+            ?.sortedBy { it.name }
+            .orEmpty()
+
+    /**
+     * Keeps the newest few reports, and the files beside them, so the write
+     * that follows makes it [KEEP]. A file belongs to the report whose name
+     * it starts with up to the first dot (`crash-1-exit.tombstone1.pb` to
+     * `crash-1-exit.txt`); anything else in the folder goes. Internal for
+     * tests.
+     */
+    internal fun prune(dir: File) {
+        val kept = reports(dir).takeLast(KEEP - 1)
+            .map { it.name.substringBefore('.') }
+            .toSet()
+        dir.listFiles()?.forEach { file ->
+            if (file.name.substringBefore('.') !in kept) file.delete()
+        }
     }
 
     /** Pure formatting; unit-tested. */
@@ -95,11 +162,7 @@ object CrashLog {
 
     /** The newest crash the user hasn't been asked about yet. */
     fun pendingCrash(context: Context): File? {
-        val newest = File(context.filesDir, DIR)
-            .listFiles()
-            ?.filter { it.isFile && it.name.startsWith("crash-") }
-            ?.maxByOrNull { it.name }
-            ?: return null
+        val newest = reports(File(context.filesDir, DIR)).lastOrNull() ?: return null
         val consumed = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString(PREF_CONSUMED, "")
         return if (newest.name == consumed) null else newest
@@ -124,10 +187,7 @@ object CrashLog {
         append("--- Environment ---\n")
         append(deviceInfo(context))
         append('\n')
-        val latest = File(context.filesDir, DIR)
-            .listFiles()
-            ?.filter { it.isFile && it.name.startsWith("crash-") }
-            ?.maxByOrNull { it.name }
+        val latest = reports(File(context.filesDir, DIR)).lastOrNull()
         if (latest != null) {
             append("\n--- Most recent crash (${latest.name}) ---\n")
             append(shareText(latest))

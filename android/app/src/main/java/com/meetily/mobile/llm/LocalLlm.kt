@@ -54,6 +54,9 @@ object LocalLlm {
     private var ptr = 0L
     private var loadedKey: String? = null
 
+    /** NativeWork tag for the loaded model, from load to free. Guarded by [lock]. */
+    private var workToken = 0
+
     /**
      * Guards the native handle. A ReentrantLock rather than a monitor so
      * [release] can DECLINE to wait: it is called from the main thread on
@@ -439,7 +442,14 @@ object LocalLlm {
             ptr = 0L
             loadedKey = null
         }
+        endWorkLocked()
         releasePending = false
+    }
+
+    /** Caller must hold [lock]. */
+    private fun endWorkLocked() {
+        com.meetily.mobile.diag.NativeWork.end(workToken)
+        workToken = 0
     }
 
     private fun ensureLoaded(context: Context, model: LocalLlmModel) {
@@ -449,13 +459,26 @@ object LocalLlm {
             ptr = 0L
             loadedKey = null
         }
+        endWorkLocked()
         // Shared budget: a summary must not out-thread a live recording,
         // and must leave the UI thread a core to run on.
         val threads = currentThreadBudget()
-        val loaded = LlamaBridge.initModel(
-            LocalLlmModels.fileFor(context, model).absolutePath, N_CTX, threads
+        // Tagged before the load, not after: mapping a multi-gigabyte GGUF
+        // is exactly where a memory kill or native crash lands, and the
+        // exit record should say which model it was. Ends at freeLocked.
+        workToken = com.meetily.mobile.diag.NativeWork.begin(
+            com.meetily.mobile.diag.NativeJob.SUMMARISE, model.key
         )
+        val loaded = try {
+            LlamaBridge.initModel(
+                LocalLlmModels.fileFor(context, model).absolutePath, N_CTX, threads
+            )
+        } catch (t: Throwable) {
+            endWorkLocked()
+            throw t
+        }
         if (loaded == 0L) {
+            endWorkLocked()
             throw IllegalStateException("Could not load the on-device model")
         }
         ptr = loaded

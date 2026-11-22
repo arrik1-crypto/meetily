@@ -47,6 +47,19 @@ object PhotoOcr {
     private val main = Handler(Looper.getMainLooper())
 
     /**
+     * Photos queued or being read, and the NativeWork tag that spans them.
+     * One tag per run rather than per photo: a backfill reads a meeting's
+     * photos back to back, and the summary call is one the system may
+     * throttle.
+     */
+    private val workLock = Any()
+    private var inFlight = 0
+    private var workToken = 0
+
+    /** The recognizer's tag in the process state summary; not a file. */
+    private const val WORK_KEY = "mlkit-latin"
+
+    /**
      * Extracts text from [file]. [onResult] gets the recognised text, an
      * empty string when recognition worked but found no text, or null when
      * the image could not be read or recognition failed — which is worth
@@ -55,6 +68,13 @@ object PhotoOcr {
      */
     @Suppress("UNUSED_PARAMETER")
     fun extract(context: Context, file: File, onResult: (String?) -> Unit) {
+        synchronized(workLock) {
+            if (inFlight++ == 0) {
+                workToken = com.meetily.mobile.diag.NativeWork.begin(
+                    com.meetily.mobile.diag.NativeJob.OCR, WORK_KEY
+                )
+            }
+        }
         worker.execute {
             val text = try {
                 val bitmap = PhotoStore.decodeSampled(file, MAX_SIDE_PX)
@@ -67,6 +87,13 @@ object PhotoOcr {
                 }
             } catch (_: Exception) {
                 null
+            } finally {
+                synchronized(workLock) {
+                    if (--inFlight == 0) {
+                        com.meetily.mobile.diag.NativeWork.end(workToken)
+                        workToken = 0
+                    }
+                }
             }
             main.post { onResult(text) }
         }

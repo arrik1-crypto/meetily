@@ -9,7 +9,9 @@ import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
  * null and recording proceeds without diarization.
  */
 class SherpaEmbedder private constructor(
-    private val extractor: SpeakerEmbeddingExtractor
+    private val extractor: SpeakerEmbeddingExtractor,
+    /** NativeWork tag for the loaded model; ended in [release]. */
+    private val workToken: Int = 0
 ) {
     private val lock = Any()
 
@@ -48,25 +50,38 @@ class SherpaEmbedder private constructor(
             extractor.release()
         } catch (_: Throwable) {
         }
+        com.meetily.mobile.diag.NativeWork.end(workToken)
     }
 
     companion object {
         private const val SAMPLE_RATE = 16_000
 
-        fun create(modelPath: String): SherpaEmbedder? = try {
-            SherpaEmbedder(
-                SpeakerEmbeddingExtractor(
-                    config = SpeakerEmbeddingExtractorConfig(
-                        model = modelPath,
-                        numThreads = 2,
-                        debug = false,
-                        provider = "cpu"
-                    )
-                )
+        /**
+         * [modelKey] is the catalogue key (DiarizationModel.key), only for
+         * the NativeWork tag that says which model a native crash or memory
+         * kill happened in; never a path.
+         */
+        fun create(modelPath: String, modelKey: String = ""): SherpaEmbedder? {
+            val work = com.meetily.mobile.diag.NativeWork.begin(
+                com.meetily.mobile.diag.NativeJob.DIARISE, modelKey
             )
-        } catch (_: Throwable) {
-            // Covers UnsatisfiedLinkError (jniLibs absent) and bad models.
-            null
+            return try {
+                SherpaEmbedder(
+                    SpeakerEmbeddingExtractor(
+                        config = SpeakerEmbeddingExtractorConfig(
+                            model = modelPath,
+                            numThreads = 2,
+                            debug = false,
+                            provider = "cpu"
+                        )
+                    ),
+                    work
+                )
+            } catch (_: Throwable) {
+                // Covers UnsatisfiedLinkError (jniLibs absent) and bad models.
+                com.meetily.mobile.diag.NativeWork.end(work)
+                null
+            }
         }
     }
 }
