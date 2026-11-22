@@ -43,7 +43,9 @@ import com.meetily.mobile.data.PhotoOcr
 import com.meetily.mobile.data.PhotoStore
 import com.meetily.mobile.data.QaEntry
 import com.meetily.mobile.data.TranscriptSplitter
+import com.meetily.mobile.export.DocxExport
 import com.meetily.mobile.export.MeetingExporter
+import com.meetily.mobile.export.SubtitleExport
 import com.meetily.mobile.notes.NotesMarkdown
 import com.meetily.mobile.notes.NotesRenderer
 import com.meetily.mobile.reminders.Reminders
@@ -706,6 +708,18 @@ class MeetingDetailActivity : AppCompatActivity() {
     private val exportIcs =
         registerForActivityResult(ActivityResultContracts.CreateDocument("text/calendar")) { uri ->
             uri?.let { target -> whenLoaded { writeActionItemsIcs(target) } }
+        }
+    private val exportDocx =
+        registerForActivityResult(ActivityResultContracts.CreateDocument(DocxExport.MIME_TYPE)) { uri ->
+            uri?.let { target -> whenLoaded { writeDocx(target) } }
+        }
+    private val exportSrt =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("application/x-subrip")) { uri ->
+            uri?.let { target -> whenLoaded { writeSubtitles(target, vtt = false) } }
+        }
+    private val exportVtt =
+        registerForActivityResult(ActivityResultContracts.CreateDocument("text/vtt")) { uri ->
+            uri?.let { target -> whenLoaded { writeSubtitles(target, vtt = true) } }
         }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -2098,31 +2112,43 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun showExportDialog() {
         val m = meeting ?: return
-        val options = arrayOf(
-            getString(R.string.export_markdown),
-            getString(R.string.export_pdf),
-            getString(R.string.export_actions_ics),
-            getString(R.string.export_actions_text)
-        )
+        // Each entry's label and what it does, in the order shown. Subtitles
+        // need lines with a time in the recording; without any, one entry
+        // says so and explains instead.
+        val entries = ArrayList<Pair<String, () -> Unit>>()
+        entries.add(getString(R.string.export_markdown) to {
+            exportMd.launch(MeetingExporter.suggestedFileName(m, "md"))
+        })
+        entries.add(getString(R.string.export_pdf) to {
+            exportPdf.launch(MeetingExporter.suggestedFileName(m, "pdf"))
+        })
+        entries.add(getString(R.string.export_docx) to {
+            exportDocx.launch(MeetingExporter.suggestedFileName(m, "docx"))
+        })
+        if (SubtitleExport.hasTimedLines(m.segments)) {
+            entries.add(getString(R.string.export_srt) to {
+                exportSrt.launch(MeetingExporter.suggestedFileName(m, "srt"))
+            })
+            entries.add(getString(R.string.export_vtt) to {
+                exportVtt.launch(MeetingExporter.suggestedFileName(m, "vtt"))
+            })
+        } else {
+            entries.add(getString(R.string.export_subtitles_unavailable) to { explainNoSubtitles() })
+        }
+        entries.add(getString(R.string.export_actions_ics) to {
+            if (openActionItems(m).isEmpty()) {
+                Toast.makeText(this, R.string.no_action_items, Toast.LENGTH_SHORT).show()
+            } else {
+                exportIcs.launch(MeetingExporter.suggestedFileName(m, "ics"))
+            }
+        })
+        entries.add(getString(R.string.export_actions_text) to { shareActionItemsText(m) })
         AlertDialog.Builder(this)
             .setTitle(R.string.export)
-            .setItems(options) { _, which ->
+            .setItems(entries.map { it.first }.toTypedArray()) { _, which ->
                 saveEdits()
                 try {
-                    when (which) {
-                        0 -> exportMd.launch(MeetingExporter.suggestedFileName(m, "md"))
-                        1 -> exportPdf.launch(MeetingExporter.suggestedFileName(m, "pdf"))
-                        2 -> {
-                            if (openActionItems(m).isEmpty()) {
-                                Toast.makeText(
-                                    this, R.string.no_action_items, Toast.LENGTH_SHORT
-                                ).show()
-                            } else {
-                                exportIcs.launch(MeetingExporter.suggestedFileName(m, "ics"))
-                            }
-                        }
-                        else -> shareActionItemsText(m)
-                    }
+                    entries[which].second()
                 } catch (e: Exception) {
                     Toast.makeText(
                         this, getString(R.string.export_failed, e.message ?: "no file picker"),
@@ -2157,8 +2183,10 @@ class MeetingDetailActivity : AppCompatActivity() {
      * Writes an export on a worker and reports on the main thread. The
      * destination is a document provider — possibly Drive, uploading as it
      * is written — so the write can take as long as the network does.
+     * [doneMessage] replaces the plain "Exported" when the export has more
+     * to say.
      */
-    private fun runExport(write: () -> Unit) {
+    private fun runExport(doneMessage: String? = null, write: () -> Unit) {
         Thread {
             val failure = try {
                 write()
@@ -2168,7 +2196,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
-                if (failure == null) {
+                if (failure == null && doneMessage != null) {
+                    Toast.makeText(this, doneMessage, Toast.LENGTH_LONG).show()
+                } else if (failure == null) {
                     Toast.makeText(this, R.string.export_done, Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(
@@ -2216,6 +2246,51 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             } ?: throw RuntimeException("could not open destination")
         }
+    }
+
+    /** Word, with the summary's fixed notices as in the Markdown and PDF exports. */
+    private fun writeDocx(uri: Uri) {
+        val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
+        val notices = summaryNotices()
+        runExport {
+            contentResolver.openOutputStream(uri)?.use { out ->
+                DocxExport.write(m, out, notices)
+            } ?: throw RuntimeException("could not open destination")
+        }
+    }
+
+    /**
+     * SubRip or WebVTT from the lines that have a time in the recording.
+     * Lines without one cannot be placed and are left out, and the toast
+     * says how many.
+     */
+    private fun writeSubtitles(uri: Uri, vtt: Boolean) {
+        val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
+        if (!SubtitleExport.hasTimedLines(m.segments)) {
+            explainNoSubtitles()
+            return
+        }
+        val leftOut = SubtitleExport.untimedLines(m.segments)
+        val done = if (leftOut > 0) {
+            resources.getQuantityString(R.plurals.export_subtitles_left_out, leftOut, leftOut)
+        } else {
+            null
+        }
+        runExport(done) {
+            val cues = SubtitleExport.cues(m.segments)
+            val text = if (vtt) SubtitleExport.vtt(cues) else SubtitleExport.srt(cues)
+            contentResolver.openOutputStream(uri)?.use { out ->
+                out.write(text.toByteArray(Charsets.UTF_8))
+            } ?: throw RuntimeException("could not open destination")
+        }
+    }
+
+    private fun explainNoSubtitles() {
+        AlertDialog.Builder(this)
+            .setTitle(R.string.export_subtitles_untimed_title)
+            .setMessage(R.string.export_subtitles_untimed_message)
+            .setPositiveButton(android.R.string.ok, null)
+            .show()
     }
 
     private fun renderQaHistory(m: Meeting) {

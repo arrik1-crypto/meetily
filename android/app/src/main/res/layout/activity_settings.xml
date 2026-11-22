@@ -1148,6 +1148,59 @@
                             app:strokeColor="?attr/colorOutline" />
                     </LinearLayout>
 
+                    <!-- Export library as Markdown into a picked folder
+                         (LibraryExportRunner). Progress, Stop and the final
+                         count show here while Settings is open. -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="18dp"
+                        android:text="@string/export_library_desc"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/exportLibraryButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:layout_marginTop="8dp"
+                        android:insetBottom="6dp"
+                        android:insetTop="6dp"
+                        android:text="@string/export_library_button"
+                        android:textColor="?attr/colorOnSurface"
+                        app:cornerRadius="22dp"
+                        app:strokeColor="?attr/colorOutline" />
+
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/exportLibraryProgress"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"
+                        app:trackCornerRadius="2dp" />
+
+                    <TextView
+                        android:id="@+id/exportLibraryStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/exportLibraryCancel"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:insetBottom="6dp"
+                        android:insetTop="6dp"
+                        android:text="@string/export_library_cancel"
+                        android:visibility="gone" />
+
                     <!-- Storage use and automatic clean-up: StorageActivity,
                          and the rule chooser it shares (RetentionUi). The
                          rule takes effect from its own confirmation, not
