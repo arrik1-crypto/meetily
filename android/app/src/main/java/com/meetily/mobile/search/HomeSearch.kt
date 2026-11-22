@@ -34,7 +34,12 @@ object HomeSearch {
             item.owner?.let { line(out, it) }
         }
         // Blank entries only record that OCR ran on a photo and found nothing.
-        for (text in meeting.photoTexts.values) line(out, text)
+        // OCR puts a line break wherever the text wrapped on the whiteboard
+        // or slide, not where the meaning breaks, so each photo's text is
+        // flattened to one line: "roadmap milestone" still finds a heading
+        // that wrapped between those words. Other fields keep their breaks,
+        // which the user typed.
+        for (text in meeting.photoTexts.values) line(out, text.replace('\n', ' '))
         for (attachment in meeting.attachmentsList) line(out, attachment.name)
         // Appended segment by segment rather than through
         // transcriptTextWithSpeakers(), which would build the whole

@@ -58,6 +58,8 @@ class HomeSearchTest {
         assertTrue(matches(rich(), "roadmap"))
         assertTrue(matches(rich(), "milestone kappa"))
         assertTrue(matches(rich(), "whiteboard"))
+        // Across a line the OCR wrapped.
+        assertTrue(matches(rich(), "roadmap milestone"))
     }
 
     @Test
