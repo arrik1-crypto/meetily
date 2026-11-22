@@ -38,7 +38,8 @@ All of this is kept in Recap's private storage, which other apps cannot read:
   names, and the name and time of an earlier event you link it to.
 - Downloaded transcription and AI models.
 - Settings, including an AI endpoint address and API key if you enter them.
-- Reports of the last three crashes.
+- Reports of the last three crashes or unexpected closes, with Android's record
+  of a native crash where there was one.
 
 ## Backups
 
@@ -107,9 +108,15 @@ about your meetings is sent.
 
 ## Crash and bug reports
 
-If Recap crashes, a report is saved on the phone: the app version, Android
+If Recap crashes, or Android closes it because it stopped responding or ran
+short of memory, a report is saved on the phone: the app version, Android
 version, phone model and the technical error, which can include fragments of
-what the app was working on. Recap never sends it. On the next launch you can
+what the app was working on. When Android recorded the close (Android 11 and
+later), the report also notes which kind of on-device work and which model
+were running, how much memory Recap was using and how much memory the phone
+has; for a crash in Recap's on-device engines, Android's full crash record is
+kept with it on the phone, and only a summary of the error and where it
+happened goes into the report. Recap never sends it. On the next launch you can
 share it through your own share sheet, to whoever you choose, or decline.
 Separately, if your phone shares usage and diagnostics with Google, Android may
 report crashes and freezes of any app, Recap included, to Google Play, which

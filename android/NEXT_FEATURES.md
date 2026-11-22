@@ -36,7 +36,9 @@ meetings.
 
 **Design**:
 - `ImportService`: a started foreground service (`dataSync` type — needs
-  `FOREGROUND_SERVICE_DATA_SYNC` permission + manifest declaration) that owns
+  `FOREGROUND_SERVICE_DATA_SYNC` permission + manifest declaration; since
+  3.16.0-beta1 it also declares `mediaProcessing` and starts as that on
+  Android 15+, see `ImportFgsType`) that owns
   the `AudioFileImporter` run: progress notification with percent + cancel
   action, same incremental saves.
 - `ImportActivity` becomes a thin bound observer, mirroring exactly the

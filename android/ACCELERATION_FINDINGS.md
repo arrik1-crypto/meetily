@@ -31,6 +31,23 @@ Baseline, verified in this repo:
   shared libraries and the variant MODULE libraries packaged. Not
   attempted without a device to verify on. The speed-up has not been
   measured.
+- **Exports (2026-11, 3.16.0-beta1):** both JNI libraries, and their
+  `_v82` builds, are now linked with `app/src/main/cpp/jni_exports.map`,
+  which exports only `Java_*` (plus `JNI_OnLoad*`/`JNI_OnUnload*`, not
+  defined today). Before, in the published 3.15.0-beta1 arm64 APK,
+  `libmeetily_llama.so` exported 9,465 symbols and
+  `libmeetily_whisper.so` 3,654 (all of ggml, whisper, llama,
+  llama-common and the static libc++). That meant 11,849 and 3,515
+  relocations against the libraries' own symbols resolved by name at
+  every BIND_NOW load (12,083 and 3,721 symbolic relocations in all,
+  counting imports), about 1.43 MB and 0.44 MB of dynamic-link metadata
+  (`.dynsym`, `.dynstr`, `.gnu.hash`, `.gnu.version` and the relocation
+  tables, measured with `readelf` and `scripts/check_jni_exports.py`),
+  and nothing `--gc-sections` could drop. CPU flags are unchanged, so the
+  SIGILL tiering is unaffected. After-sizes: see the "Check native
+  library exports" step of the first CI run, which prints the previous
+  published APK beside the new build. Step 2 of the roadmap's export item,
+  merging the two libraries into one per CPU level (E27), is still open.
 
 ---
 

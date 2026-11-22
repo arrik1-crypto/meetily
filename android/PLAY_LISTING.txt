@@ -47,14 +47,30 @@ STAY ON TOP OF FOLLOW-UPS
 • Pre-meeting briefs for recurring meetings: last time's outcomes and
   open items, right from the calendar nudge
 • Weekly digest, tags, recurring-meeting grouping, full-text search
+  that includes photo text and attachment names
 
 BUILT FOR REAL WORK
 • Word-level tap-to-seek playback, speed control, skip-silence
 • Conversation insights: talk-time balance, questions, pace
 • Rich notes with checklists, photos, whiteboard OCR, file attachments
 • Share audio clips of key moments
+• Mark a moment from the notification without unlocking
 • Markdown/PDF export, encrypted backups
 • Biometric app lock and screenshot blocking
+
+DEVICE REQUIREMENTS (estimates)
+64-bit Android 8.0+ (arm64 or x86_64). Recommended: 4 GB RAM or more;
+6 GB+ for on-device AI summaries with the recommended model.
+RAM, minimum / comfortable:
+• Transcription: Whisper Tiny 1/2 GB; Base, Small Q 2 GB; Small, Large
+  v3 Turbo, Parakeet 3/4 GB; Nemotron 3.5 3/6 GB
+• AI summaries: Qwen 2.5 0.5B 2/3 GB; Gemma 3 1B 3/4 GB; Qwen 2.5 1.5B
+  4/6 GB; Llama 3.2 3B, Gemma 3 4B, MedGemma 4B 6/8 GB; Gemma 4 E2B
+  8/10 GB; Mistral 7B, Llama 3.1 8B, Gemma 4 E4B 12/16 GB; Qwen 3.5 9B
+  16/18 GB
+• Speaker detection: 1–2 GB
+Recap suggests models that suit your phone and shows each one's fit
+before you download it.
 
 PRIVACY, CONCRETELY
 Everything is stored in the app's private storage on your device. The
@@ -69,4 +85,4 @@ location — always record with consent.
 
 Recap is open source.
 ----------------------------------------------------------------
-(char count ~3,100 — under the 4,000 limit)
+(char count 3,928, counting line breaks — under the 4,000 limit)

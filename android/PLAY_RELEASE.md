@@ -1,8 +1,12 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Current release: 3.15.0-beta1
-(versionCode 110), targetSdk 36 (Android 16).
+App ID: **com.recap.mobile** (permanent). Next release: **3.16.0-beta1**
+(versionCode 111), targetSdk 36 (Android 16): Batch 2 (device-fit model
+setup, Mark moment on the notification, wider home search, exit-record
+crash reports, mediaProcessing for ImportService, JNI-only native
+exports). Until the version bump, which follows in its own commit,
+`android/app/build.gradle.kts` still reads 3.15.0-beta1 (versionCode 110).
 
 Before the first submission, work through the **owner checklist in
 section 11**: the Play Console declarations, placeholders, legal reviews
@@ -137,7 +141,12 @@ developer receives nothing from the app. "No data collected" is still not
 the right answer: the bundled Google ML Kit text-recognition SDK, which
 reads text in photos, sends Google diagnostics. The answers below match the
 code on this branch; re-check them whenever an SDK or a network path
-changes.
+changes. Re-checked for 3.16.0-beta1: no change. Of its two new
+permissions, ACCESS_NETWORK_STATE only reads whether the connection is
+metered and FOREGROUND_SERVICE_MEDIA_PROCESSING only changes the type the
+on-device transcription service runs as; the new exit-record crash
+reports stay on the phone like the others; and nothing else in it opens a
+connection.
 
 **Does your app collect or share any of the required user data types?
 → Yes**, for ML Kit's diagnostics. Every other path is either not
@@ -231,20 +240,57 @@ The console will ask about these (all have in-app justifications):
   screen → notification. (The default transcribes after the meeting; turn
   on Settings → Transcribe live first if the video should show words
   appearing. Console asks for a video link for microphone
-  foreground-service use; unlisted YouTube works.)
+  foreground-service use; unlisted YouTube works. The notification now
+  has a Mark moment action between Pause and Finish; re-recording the
+  video to show it is optional, not required by policy.)
 - **FOREGROUND_SERVICE_MEDIA_PROJECTION**: "record device audio" mode for
   webinars — user grants via the system screen-capture dialog each time;
   audio only. On Android 15+, Recap first shows a warning that capture
   stops when the screen locks, then the system screen-capture dialog; if
   Android stops the projection mid-session, the notification and recording
   screen say so and only Finish remains.
-- **FOREGROUND_SERVICE_DATA_SYNC**: file import transcription, model
-  downloads, summary generation — long-running user-initiated work.
+- **FOREGROUND_SERVICE_MEDIA_PROCESSING** (new in 3.16.0-beta1): on
+  Android 15+, transcription of saved audio (imported files, the
+  transcript of a recording captured as audio only, accuracy checks) —
+  decoding and processing the recorded audio file on the device;
+  user-initiated, with an ongoing progress notification and Cancel.
+  ImportService declares `dataSync|mediaProcessing` and starts as
+  mediaProcessing on Android 15+, dataSync below (ImportFgsType), so
+  transcription gets its own six-hour daily allowance. Suggested
+  declaration wording: "Recap transcribes audio recordings entirely on
+  the device. After a meeting is recorded, or when the user imports an
+  audio file or asks for a transcript accuracy check, a foreground
+  service decodes the recorded audio file and runs on-device speech
+  recognition over it to produce a transcript. Recordings can be hours
+  long and CPU transcription runs at two to three times real time, so the
+  work must continue while the screen is off or the user leaves the app.
+  It starts only from a user action (finishing a recording, importing a
+  file, or tapping Check transcript accuracy), shows an ongoing progress
+  notification with Cancel, and stops as soon as the file has been
+  processed." Choose the use case for processing media files
+  (transcoding or processing audio). Video (unlisted YouTube is fine), on
+  an Android 15+ device: record a short meeting with the default
+  audio-only capture, tap Finish (in the app or on the notification),
+  pull down the shade to show the "Checking <meeting>" progress
+  notification with Cancel, lock the screen and show it keeps going, then
+  show the finished transcript. Optionally also show Import audio file →
+  the import progress notification → the finished meeting.
+- **FOREGROUND_SERVICE_DATA_SYNC**: model downloads, summary generation
+  (also enhanced notes and AI speaker suggestions); file import and
+  transcription on Android 14 and lower (Android 15+ uses mediaProcessing
+  for those) — long-running user-initiated work. Keep this declaration:
+  dataSync is still declared and used.
 - **SCHEDULE_EXACT_ALARM**: user-set action-item reminders and calendar
   nudges (falls back to inexact windows when not permitted). This is an
   allowed use case (user-facing alarms/reminders).
 - **READ_CALENDAR**: optional pre-fill/nudges, read-only, declared in the
   privacy policy.
+- **ACCESS_NETWORK_STATE** (new in 3.16.0-beta1): a normal permission,
+  with no console declaration. Play lists it as "view network
+  connections". It is used only to warn before a large model download
+  over a metered connection, and to say so when the phone is offline, on
+  the first-run setup step; nothing about the network is kept or sent.
+  The privacy policy's PERMISSIONS list names it.
 
 ## 6. Store listing
 
@@ -255,7 +301,11 @@ The console will ask about these (all have in-app justifications):
   `Record, transcribe & summarize meetings on your phone. Offline, no account.`
   (75 characters; the earlier "100% on your phone. No cloud, no account."
   line was 81, and "100%" overstated it once ML Kit's diagnostics count)
-- **Full description**: see `PLAY_LISTING.txt` alongside this file.
+- **Full description**: see `PLAY_LISTING.txt` alongside this file. Its
+  DEVICE REQUIREMENTS section gives the estimated minimum / comfortable
+  RAM per model, worked out with DeviceFit's formulas (the same figures as
+  the in-app fit badges); update it when a catalogue entry or the formula
+  changes, and keep the description under 4,000 characters.
 - **App icon**: `play-icon-512.png` (512×512, delivered separately).
 - **Feature graphic**: `play-feature-1024x500.png` (1024×500).
 - **Screenshots**: at least 2 phone screenshots (take from your device:
@@ -367,14 +417,32 @@ strongest conversion line this app has.
   is the aggregate crash feed — automatic for Play installs, no SDK. The
   release build packs native symbol tables into the AAB
   (`debugSymbolLevel = SYMBOL_TABLE`), so native crashes in the
-  whisper/llama/sherpa libraries arrive symbolicated.
+  whisper/llama/sherpa libraries arrive symbolicated. The whisper/llama
+  JNI libraries export only their `Java_` entry points
+  (`app/src/main/cpp/jni_exports.map`). Vitals symbolication is
+  unaffected, because the hidden symbols stay in the symbol tables packed
+  into the AAB. But traces captured on the phone, and so the app's own
+  shared crash reports, show engine frames as build ID + offset only.
+  Keep each release's native debug symbols to symbolise those with
+  llvm-symbolizer or ndk-stack: both workflows now upload
+  `native-debug-symbols.zip` (the `meetily-android-native-symbols`
+  artifact of Build Android APK, kept 90 days; inside the
+  `meetily-android-release` artifact of the release workflow, kept 30
+  days), so archive the release one with the AAB.
 - **No third-party crash SDK on purpose**: Crashlytics/Sentry would add
   crash logs and more identifiers to what the Data safety form declares,
   which today is only ML Kit's diagnostics (section 4). Instead the app
   captures crashes to a local file and, on next launch, offers the user a
-  share-sheet report ("Recap crashed last time — share the report?"); a
-  "Report a bug" entry in Settings does the same on demand. Reports move
-  only when the user sends them, so the data-safety form is unaffected.
+  share-sheet report ("Recap crashed last time — share the report?"); on
+  Android 11 and later it also reads Android's own exit records
+  (ApplicationExitInfo) at launch, so native crashes in the
+  whisper/llama/sherpa libraries, ANRs and memory kills become the same
+  kind of local report (offered as "Recap stopped unexpectedly last
+  time"), with a decoded native backtrace (Android 12+) and the job and
+  model that were running (set with `setProcessStateSummary` around model
+  loads: job kind, model key and RAM size only). A "Report a bug" entry
+  in Settings does the same on demand. Reports move only when the user
+  sends them, so the data-safety form is unaffected.
 - **Bundled SDKs that send data to Google**: only ML Kit text recognition
   (diagnostics, as declared in section 4). AndroidX emoji2, which
   appcompat pulls in, asks Google Play services on the phone for an emoji
@@ -393,13 +461,26 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [x] Bump `versionCode` to 110 and `versionName` to `3.15.0-beta1` in
-  `android/app/build.gradle.kts` (done). Bump both again for every later
+- [ ] Bump `versionCode` to 111 and `versionName` to `3.16.0-beta1` in
+  `android/app/build.gradle.kts` (its own commit, right after the Batch 2
+  docs; 110 / 3.15.0-beta1 until then). Bump both again for every later
   upload: Play rejects a versionCode it has already seen.
 - [ ] Run CI on the branch you merge: `testReleaseUnitTest`, then
-  `assembleRelease` with `lintVital`. CI needs SDK Platform 36 and
+  `assembleRelease` with `lintVital`; both workflows then run
+  `scripts/check_jni_exports.py` on the built APKs (and on the AAB in the
+  release workflow), which fails if a JNI entry point is missing or
+  anything else is exported. CI needs SDK Platform 36 and
   Build-Tools 35.0.0; AGP downloads them when the SDK licences are
   accepted, as they are on GitHub's ubuntu runners.
+- [ ] On the first CI run with the export map, read the "Check native
+  library exports" step log: it prints exports, `.dynsym`/`.dynstr`/
+  relocation sizes and file size per library and ABI, against the
+  previously published APK. Record the after-figures in
+  `ACCELERATION_FINDINGS.md` (the Exports bullet).
+- [ ] Keep each release's native debug symbols (`native-debug-symbols.zip`
+  in the release artifact, or the AAB's BUNDLE-METADATA debug symbols):
+  crash reports users share show engine frames as build ID + offset only,
+  and only the matching symbols resolve them (section 10).
 - [ ] Check 16 KB alignment of every `.so` in the release AAB/APK,
   including the sherpa-onnx/onnxruntime prebuilts and ML Kit's bundled OCR
   library: Android Studio's APK Analyzer, or `zipalign -c -P 16 -v 4`. On
@@ -418,8 +499,9 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] **Target API 36**: the bundle must target 36 to be accepted (see
   Notes and gotchas). After the first upload, check the pre-launch report
   on tablet devices.
-- [ ] **Data safety**: file the answers in section 4. "No data collected"
-  is no longer accurate. Re-read Google's ML Kit Android data disclosure
+- [ ] **Data safety**: file the answers in section 4 (unchanged by
+  3.16.0-beta1). "No data collected" is no longer accurate. Re-read
+  Google's ML Kit Android data disclosure
   (https://developers.google.com/ml-kit/android-data-disclosure) and
   declare what it lists for the bundled text-recognition SDK: App info and
   performance → Diagnostics, and Device or other IDs, collected through a
@@ -438,8 +520,12 @@ Work through it before the first targetSdk 36 upload to any track.
   (support.google.com/googleplay/android-developer/answer/13985936). Recap
   has a Report AI output action on every screen that shows generated text
   (meeting summary, each Ask this meeting answer, the meeting ⋮ menu, Ask
-  your library, the written weekly digest, the pre-meeting brief, the live
-  Catch me up sheet, Follow-ups): an in-app dialog for a reason and an
+  your library, the weekly digest — the written one, and the offline one
+  when it quotes a summary a model wrote — the pre-meeting brief's
+  generated brief and its Last time card when that shows a summary a model
+  wrote, the live Catch me up sheet, Follow-ups). Extractive text (key
+  points worked out on the spot, or a summary recorded as extractive) is
+  not offered for report. Each opens an in-app dialog for a reason and an
   optional comment, then an email draft to `support_email`, with the
   generated text left out unless the user ticks the box. Confirm that a
   dialog followed by a user-sent email draft meets "without needing to
@@ -449,6 +535,20 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] **Foreground service declarations** (section 5). If the
   FOREGROUND_SERVICE_MEDIA_PROJECTION video shows the device-audio flow,
   consider re-recording it so it includes the new lock-screen warning.
+  Add the new mediaProcessing declaration and video (3.16.0-beta1
+  services change): Play Console → App content → Foreground service
+  permissions → FOREGROUND_SERVICE_MEDIA_PROCESSING, with the wording, use
+  case and video in section 5. Update the dataSync description so it no
+  longer gives file-import transcription as the main reason on current
+  Android (model downloads, summaries and speaker suggestions, plus
+  import and transcription on Android 14 and lower); keep the
+  declaration. Optional: re-record the microphone video to show the
+  notification's Mark moment action.
+- [ ] **New permission**: ACCESS_NETWORK_STATE (Play shows "view network
+  connections"). No declaration and no Data safety change: nothing is
+  collected or sent. The privacy policy's PERMISSIONS list already has
+  its network-state line, in both `docs/privacy-policy.md` and the in-app
+  `privacy_policy_body`.
 
 ### Placeholders and published documents
 
@@ -465,6 +565,10 @@ Work through it before the first targetSdk 36 upload to any track.
   Use (`android/app/src/main/assets/terms_of_use.txt`) at public URLs
   reachable without login, then put the privacy policy URL in Play Console
   and link the terms from the listing (section 3).
+- [ ] If the privacy policy is already published, republish it with a new
+  effective date (in both places): 3.16.0-beta1 adds the network-state
+  permission line and widens the crash-report paragraph to Android's own
+  records of native crashes, freezes and memory kills.
 - [ ] Set up a way to triage the "Recap AI output report" emails that
   arrive at the support address, and decide on a response time.
 
@@ -521,9 +625,14 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] *Decision*: keep ML Kit with the disclosure, or replace it (for
   example Tesseract, after an A/B on real whiteboard photos) to drop the
   Google diagnostics altogether.
-- [ ] *Decision*: new installs get audio-only meetings until they download
-  a transcription model. Consider shipping guided model setup at first run
-  (the roadmap's device-fit model setup) with this release.
+- [x] *Decision*: new installs got audio-only meetings until they
+  downloaded a transcription model. Guided model setup at first run (the
+  roadmap's device-fit model setup) ships in 3.16.0-beta1: the "Set up
+  on-device AI" onboarding step.
+- [ ] *Decision*: should high-RAM phones be offered a larger first-run
+  summary model? The suggestion follows the catalogue's own
+  "recommended" label (Qwen 2.5 1.5B) even on 8-16 GB phones; Gemma 3 4B
+  and the larger models stay available in Settings, with fit badges.
 - [ ] Plan for Local Network Protection: opt-in on Android 16 and to be
   enforced in a later release, it will gate LAN Ollama on private IPs.
   Test it now with
@@ -570,13 +679,19 @@ Edge-to-edge:
   `EdgeToEdge.setUp(...)` line right after `setContentView` in each
   activity, and keep `EdgeToEdge.padRoot` in RecordingActivity's keyboard
   listener. All three are in place on lb/integration.
+- [ ] Meeting detail with kept audio: the transcript ends just above the
+  player bar with no extra navigation-bar-height gap; without audio, the
+  end of the list clears the navigation bar. Check 3-button and gesture
+  navigation, and with the keyboard open in notes (the player bar sits on
+  the keyboard with no gap).
 
 Privacy and the on-device default:
 
-- [ ] Fresh install: the engine defaults to on-device. The first meeting
-  with no model records audio only, shows no "Import failed"
-  notification, and the Transcript tab shows the download hint. After
-  downloading a model, ⋮ → Check transcript accuracy transcribes it.
+- [ ] Fresh install, answering Choose later on the "Set up on-device AI"
+  step: the engine defaults to on-device. The first meeting with no model
+  records audio only, shows no "Import failed" notification, and the
+  Transcript tab shows the download hint. After downloading a model, ⋮ →
+  Check transcript accuracy transcribes it.
 - [ ] Upgrade from 3.14.0-beta5 on the system engine: the engine stays
   "system" and the one-time notice appears once.
 - [ ] Plain-http Ollama on a LAN IP and on a `.lan` hostname still work.
@@ -603,6 +718,105 @@ AI safety:
   shows, and Share, Copy, Markdown and PDF export each carry the notice
   once. Send one report with no email app installed to check the
   clipboard fallback.
+- [ ] Pre-meeting brief for a series whose last meeting has a
+  model-written summary: Report AI output shows below the Last time card
+  (outside the card), TalkBack reads it as "Report AI output in the last
+  meeting's summary", and it reports that summary; with no saved summary
+  (extractive key points) it is absent. Weekly digest without an LLM: the
+  ⋮ Report AI output appears only when one of the week's summaries was
+  written by a model (or is older and unrecorded).
+
+First-run setup and device fit (3.16.0-beta1):
+
+- [ ] Fresh install on a 4 GB, a 6 GB and a 12 GB phone, and on a
+  Cortex-A53/A73-class phone without dot-product cores. With an English
+  locale the step should suggest Small Q (English) with Gemma 3 1B on
+  4 GB, and with Qwen 2.5 1.5B on 6 GB and up; the phone without
+  dot-product cores gets Base (English) with Gemma 3 1B (4 GB and up) or
+  Qwen 2.5 0.5B (3 GB). Another locale gets the multilingual models.
+  Check that the fit badges in Settings' pickers read sensibly on each.
+- [ ] Rotate on the step (and on a tablet): the step and its suggestion
+  survive, and nothing downloads twice.
+- [ ] On mobile data, Download shows "Download over mobile data?" with the
+  size; with no connection it shows the offline dialog instead.
+- [ ] On a 4 GB phone, where Gemma 3 1B is suggested, Download both asks
+  for the Gemma Terms of Use first; declining starts nothing.
+- [ ] With less free space than the suggested downloads plus 10%, the
+  step says how much more is needed, and Download shows "Not enough free
+  space" with Free up space (Android's storage manager) and Download
+  anyway. The same dialog appears for a download from Settings.
+- [ ] Choose later leaves every setting as it was. Download both turns
+  on-device AI summaries on only once the summary model has finished
+  downloading; cancel that download from the notification and AI
+  summaries stay off.
+- [ ] In Settings, choosing a Tight or Too big model shows the fit warning
+  with "Use anyway", and going ahead works; re-picking the active model
+  does not warn.
+
+Mark moment (3.16.0-beta1):
+
+- [ ] While recording, the notification shows Pause, Mark moment and
+  Finish. Tap Mark moment in the shade: for about 3 s the line reads
+  "Marked at" and the recording's time (e.g. "Marked at 0:12:34"), and the
+  current transcript line gets a star (with the default audio-only
+  capture, the line at that moment once the transcript is made). Tapping
+  it twice never removes a star.
+- [ ] On the lock screen, both with notification content shown and with
+  "hide sensitive content": Mark moment works without unlocking, and the
+  redacted version shows only the generic line, the Mark button and the
+  "Marked at" time. Pause and Finish stay behind the lock there.
+- [ ] Mark moment is gone while paused, after Finish, and once Android has
+  ended a device-audio capture.
+
+Background transcription as mediaProcessing (Android 15+):
+
+- [ ] Finish an audio-only recording, pull down the shade ("Checking
+  <meeting>" with Cancel), lock the screen: it keeps going and the
+  transcript appears. `adb shell dumpsys activity services
+  com.recap.mobile` should list ImportService as a mediaProcessing
+  foreground service.
+- [ ] Import a long file on Android 15+ and on Android 14 or lower (which
+  stays dataSync): both finish with the screen off, and Cancel keeps the
+  partial transcript.
+- [ ] Let a queued check start from the charger (ChargingJobService: a
+  check deferred for low battery, then plug in): ImportService starts.
+- [ ] Optional: shorten the limit with `adb shell device_config put
+  activity_manager media_processing_fgs_timeout_duration 60000` and run a
+  long import: it stops at the limit, keeps the partial transcript, and
+  is not killed with ForegroundServiceDidNotStopInTimeException.
+
+Home search and lighter loads (3.16.0-beta1):
+
+- [ ] The home search bar finds a meeting by a word from a whiteboard
+  photo's text (also a heading that wrapped across two lines on the
+  board), an action item, its owner, a tag and an attached file's name. A
+  meeting imported mid-session is found too.
+- [ ] Weekly digest and Ask your library on a large library list the same
+  meetings and sources as before.
+
+Exit-record crash reports (Android 11+):
+
+- [ ] Native crash: on a debug build (`run-as` is not available on
+  release builds), `adb shell run-as com.recap.mobile kill -11 <pid>`,
+  ideally while a model loads. Relaunch: "Recap stopped unexpectedly last
+  time" appears, and the shared text holds the decoded tombstone summary
+  (Android 12+) and a "Native work" line naming the job and model.
+- [ ] ANR: block the main thread in a debug build, choose Close app,
+  relaunch: the same prompt, with the ANR trace excerpt when Android kept
+  one. If a batch job died too, its resume prompt comes only after the
+  report prompt is answered.
+- [ ] Android 17 memory limit: `adb shell am memory-limiter manual <pid>
+  30` while a model loads, then relaunch.
+- [ ] `adb shell dumpsys activity exit-info com.recap.mobile` shows what
+  Android recorded, including the process state summary set during model
+  loads. A plain Java crash still offers "Recap crashed last time".
+
+JNI-only native exports (3.16.0-beta1):
+
+- [ ] Smoke-test on a dotprod/fp16 phone (loads the `_v82` libraries) and
+  an older one (loads the baseline): live transcription, importing a
+  file, an on-device LLM summary, and Ask. An UnsatisfiedLinkError or a
+  crash at load would point to the export map.
 
 Accessibility:
 
