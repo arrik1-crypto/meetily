@@ -109,11 +109,11 @@ class StorageUsageTest {
     @Test
     fun largestMeetingsAreByAudioSizeWithoutAudiolessOnes() {
         val list = listOf(
-            StorageUsage.MeetingAudio("a", "Standup", 10),
-            StorageUsage.MeetingAudio("b", "Board", 300),
-            StorageUsage.MeetingAudio("c", "Notes only", 0),
-            StorageUsage.MeetingAudio("d", "Retro", 300),
-            StorageUsage.MeetingAudio("e", "1:1", 50)
+            StorageUsage.MeetingAudio("a", "Standup", 10, hasTranscript = true),
+            StorageUsage.MeetingAudio("b", "Board", 300, hasTranscript = true),
+            StorageUsage.MeetingAudio("c", "Notes only", 0, hasTranscript = false),
+            StorageUsage.MeetingAudio("d", "Retro", 300, hasTranscript = false),
+            StorageUsage.MeetingAudio("e", "1:1", 50, hasTranscript = true)
         )
         val top = StorageUsage.largestByAudio(list, limit = 3)
         // Equal sizes keep a stable order by id.

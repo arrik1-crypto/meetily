@@ -83,8 +83,17 @@ object StorageUsage {
     fun isModels(area: Area): Boolean = area == Area.WHISPER_MODELS ||
         area == Area.NEMO_MODELS || area == Area.SPEAKER_MODELS || area == Area.LLM_MODELS
 
-    /** One meeting's kept audio, for the largest-meetings list. */
-    data class MeetingAudio(val id: String, val title: String, val audioBytes: Long)
+    /**
+     * One meeting's kept audio, for the largest-meetings list.
+     * [hasTranscript] false is a recording not transcribed yet, which
+     * removing the audio would leave empty (AudioRemoval.confirm says so).
+     */
+    data class MeetingAudio(
+        val id: String,
+        val title: String,
+        val audioBytes: Long,
+        val hasTranscript: Boolean
+    )
 
     /**
      * The [limit] meetings whose audio takes the most room, largest first.

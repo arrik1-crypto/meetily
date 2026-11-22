@@ -21,14 +21,16 @@ class RetentionTest {
         modifiedDaysAgo: Long = ageDays,
         starred: Boolean = false,
         audioBytes: Long = 1_000L,
-        reminder: Boolean = false
+        reminder: Boolean = false,
+        transcribed: Boolean = true
     ) = Candidate(
         id = id,
         createdAtMs = now - ageDays * day,
         modifiedMs = now - modifiedDaysAgo * day,
         starred = starred,
         audioBytes = audioBytes,
-        hasFutureReminder = reminder
+        hasFutureReminder = reminder,
+        hasTranscript = transcribed
     )
 
     @Test
@@ -64,6 +66,20 @@ class RetentionTest {
     }
 
     @Test
+    fun audioRuleNeverTakesARecordingThatWasNotTranscribed() {
+        // No model was downloaded when it was recorded, or transcription
+        // failed: the audio is all the meeting holds, and no job is queued
+        // for it to protect it otherwise.
+        val list = listOf(meeting("untranscribed", 400, transcribed = false), meeting("done", 400))
+        assertEquals(listOf("done"), Retention.select(Rule(Mode.AUDIO, 30), list, emptySet(), now).map { it.id })
+        // Deleting whole meetings is about age alone, and says so before its first run.
+        assertEquals(
+            setOf("untranscribed", "done"),
+            Retention.select(Rule(Mode.MEETINGS, 30), list, emptySet(), now).map { it.id }.toSet()
+        )
+    }
+
+    @Test
     fun starredBusyRemindedAndRecentlyChangedMeetingsAreKept() {
         val list = listOf(
             meeting("starred", 300, starred = true),
@@ -81,7 +97,7 @@ class RetentionTest {
     @Test
     fun theRecentWindowIsOneWeek() {
         val justSettled = meeting("a", 300, modifiedDaysAgo = 7)
-        val stillRecent = Candidate("b", now - 300 * day, now - 7 * day + 1, false, 10, false)
+        val stillRecent = Candidate("b", now - 300 * day, now - 7 * day + 1, false, 10, false, true)
         val picked = Retention.select(Rule(Mode.AUDIO, 30), listOf(justSettled, stillRecent), emptySet(), now)
         assertEquals(listOf("a"), picked.map { it.id })
     }
@@ -90,11 +106,11 @@ class RetentionTest {
     fun unknownOrFutureDatesAreNeverTreatedAsOld() {
         val list = listOf(
             // Saved without a creation date.
-            Candidate("undated", 0L, now - 400 * day, false, 10, false),
+            Candidate("undated", 0L, now - 400 * day, false, 10, false, true),
             // File time unknown (0) or ahead of the clock.
-            Candidate("nomtime", now - 400 * day, 0L, false, 10, false),
-            Candidate("future", now - 400 * day, now + day, false, 10, false),
-            Candidate("negative", -5L, now - 400 * day, false, 10, false)
+            Candidate("nomtime", now - 400 * day, 0L, false, 10, false, true),
+            Candidate("future", now - 400 * day, now + day, false, 10, false, true),
+            Candidate("negative", -5L, now - 400 * day, false, 10, false, true)
         )
         assertTrue(Retention.select(Rule(Mode.MEETINGS, 30), list, emptySet(), now).isEmpty())
     }

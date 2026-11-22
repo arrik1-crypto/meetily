@@ -214,7 +214,10 @@ class HomeSelection(
                     recording = meeting.id == recordingId,
                     busy = (ImportService.isRunning && ImportService.currentMeetingId == meeting.id) ||
                         (SummaryService.isRunning && SummaryService.currentMeetingId == meeting.id),
-                    queued = meeting.id in waiting
+                    queued = meeting.id in waiting,
+                    // The list's copy has every transcript line (only word
+                    // timings are left out).
+                    hasTranscript = meeting.segments.isNotEmpty()
                 )
             }
             val split = BulkActions.split(action, items)
@@ -344,13 +347,20 @@ class HomeSelection(
                     val store = MeetingStore(app)
                     var tagged = 0
                     for (id in ids) {
-                        // Under the store's write lock, like starring.
-                        val saved = store.mutate(id) { meeting ->
-                            BulkActions.withTag(meeting.tags, tag)?.let {
-                                meeting.tags = it.toMutableList()
+                        // Under the store's write lock, like starring. A
+                        // meeting that already has the tag is not rewritten
+                        // (its file time is the clean-up's "changed
+                        // recently") and not counted.
+                        var changed = false
+                        val saved = store.mutateIf(id) { meeting ->
+                            val tags = BulkActions.withTag(meeting.tags, tag)
+                            if (tags != null) {
+                                meeting.tags = tags.toMutableList()
+                                changed = true
                             }
+                            changed
                         }
-                        if (saved) tagged++
+                        if (saved && changed) tagged++
                     }
                     val text = app.resources.getQuantityString(R.plurals.storage_tagged, tagged, tagged)
                     activity.runOnUiThread { finish(text) }

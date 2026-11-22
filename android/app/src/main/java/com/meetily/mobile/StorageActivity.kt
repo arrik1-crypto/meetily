@@ -269,15 +269,22 @@ class StorageActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.storage_audio_busy, Toast.LENGTH_LONG).show()
             return
         }
-        AudioRemoval.confirm(this, 1, meeting.audioBytes) {
+        val untranscribed = !meeting.hasTranscript
+        AudioRemoval.confirm(this, 1, meeting.audioBytes, untranscribed = untranscribed) {
             val app = applicationContext
             worker.execute {
                 val freed = AudioRemoval.remove(app, MeetingStore(app), meeting.id)
+                // -1 is also a meeting deleted, or its audio removed, since
+                // the scan: only a busy one is worth trying again later.
+                val message = when {
+                    freed >= 0L ->
+                        if (untranscribed) R.string.storage_audio_removed_only else R.string.storage_audio_removed
+                    AudioRemoval.isBlocked(app, meeting.id) -> R.string.storage_audio_busy
+                    else -> R.string.storage_audio_already_gone
+                }
                 runOnUiThread {
                     Toast.makeText(
-                        app,
-                        if (freed >= 0L) R.string.storage_audio_removed else R.string.storage_audio_busy,
-                        Toast.LENGTH_SHORT
+                        app, message, if (freed >= 0L) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
                     ).show()
                     if (!isFinishing && !isDestroyed) scan()
                 }

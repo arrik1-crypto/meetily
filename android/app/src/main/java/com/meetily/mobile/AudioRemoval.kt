@@ -16,10 +16,12 @@ import com.meetily.mobile.export.ClipExporter
  * waveform cache and every clip cut from it, and everything else stays —
  * transcript, summary, notes, photos, attachments.
  *
- * Shared by the meeting's menu (MeetingDetailActivity, which saves through
- * its own merge path), the Storage screen's largest recordings, the home
- * list's multi-select and the automatic clean-up rule, so the safety checks
- * and the confirmation's wording are the same everywhere.
+ * Shared by the meeting's menu (MeetingDetailActivity, whose own copy also
+ * drops the reference through its merge save), the Storage screen's largest
+ * recordings, the home list's multi-select and the automatic clean-up rule,
+ * so the safety checks and the confirmation's wording are the same
+ * everywhere. A meeting with no transcript yet is not offered by
+ * multi-select or the clean-up rule: its recording is all it holds.
  */
 object AudioRemoval {
 
@@ -62,26 +64,32 @@ object AudioRemoval {
     /**
      * Asks before removing the audio of [count] meetings, freeing [bytes],
      * and says exactly what stops working. [skipped] selected meetings the
-     * removal does not apply to are named as left out. [onConfirm] runs on
-     * the main thread.
+     * removal does not apply to are named as left out. [untranscribed] is
+     * one meeting with no transcript yet, whose recording is all it holds:
+     * the question then says so instead of promising a transcript is kept.
+     * (Multi-select and the automatic clean-up leave such meetings out.)
+     * [onConfirm] runs on the main thread.
      */
     fun confirm(
         activity: Activity,
         count: Int,
         bytes: Long,
         skipped: Int = 0,
+        untranscribed: Boolean = false,
         onConfirm: () -> Unit
     ) {
-        val title = if (count == 1 && skipped == 0) {
-            activity.getString(R.string.storage_remove_audio_title)
-        } else {
-            activity.resources.getQuantityString(
+        val size = Formatter.formatShortFileSize(activity, bytes.coerceAtLeast(0L))
+        val title = when {
+            untranscribed && count == 1 -> activity.getString(R.string.storage_remove_audio_only_title)
+            count == 1 && skipped == 0 -> activity.getString(R.string.storage_remove_audio_title)
+            else -> activity.resources.getQuantityString(
                 R.plurals.storage_remove_audio_title_many, count, count
             )
         }
         var message = activity.getString(
-            R.string.storage_remove_audio_message,
-            Formatter.formatShortFileSize(activity, bytes.coerceAtLeast(0L))
+            if (untranscribed && count == 1) R.string.storage_remove_audio_only_message
+            else R.string.storage_remove_audio_message,
+            size
         )
         if (skipped > 0) {
             message += "\n\n" + activity.resources.getQuantityString(
@@ -111,9 +119,17 @@ object AudioRemoval {
     fun remove(context: Context, store: MeetingStore, meetingId: String): Long {
         if (isBlocked(context, meetingId)) return -1L
         var name: String? = null
-        val saved = store.mutate(meetingId) { meeting ->
-            name = meeting.audioFile
-            meeting.audioFile = null
+        // Written only when there is a reference to clear, so a meeting with
+        // none keeps its file time (the clean-up's "changed recently").
+        val saved = store.mutateIf(meetingId) { meeting ->
+            val audio = meeting.audioFile
+            if (audio.isNullOrBlank()) {
+                false
+            } else {
+                name = audio
+                meeting.audioFile = null
+                true
+            }
         }
         val removed = name
         if (!saved || removed.isNullOrBlank()) return -1L

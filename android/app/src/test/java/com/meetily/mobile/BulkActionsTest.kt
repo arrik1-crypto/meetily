@@ -17,8 +17,9 @@ class BulkActionsTest {
         hasAudio: Boolean = true,
         recording: Boolean = false,
         busy: Boolean = false,
-        queued: Boolean = false
-    ) = Item(id, hasAudio, recording, busy, queued)
+        queued: Boolean = false,
+        hasTranscript: Boolean = true
+    ) = Item(id, hasAudio, recording, busy, queued, hasTranscript)
 
     @Test
     fun deleteSkipsOnlyMeetingsBeingWritten() {
@@ -46,6 +47,22 @@ class BulkActionsTest {
         )
         assertEquals(listOf("a", "b"), split.eligible)
         assertEquals(listOf("none", "rec", "job", "q"), split.skipped)
+    }
+
+    @Test
+    fun removeAudioLeavesOutRecordingsNotTranscribedYet() {
+        // Its audio is all such a meeting holds; "keep transcript" would
+        // keep nothing.
+        val split = BulkActions.split(
+            Action.REMOVE_AUDIO,
+            listOf(item("done"), item("untranscribed", hasTranscript = false))
+        )
+        assertEquals(listOf("done"), split.eligible)
+        assertEquals(listOf("untranscribed"), split.skipped)
+        // Nothing else cares: it can still be deleted, tagged and exported.
+        for (action in listOf(Action.DELETE, Action.ADD_TAG, Action.EXPORT)) {
+            assertTrue(BulkActions.eligible(action, item("untranscribed", hasTranscript = false)))
+        }
     }
 
     @Test

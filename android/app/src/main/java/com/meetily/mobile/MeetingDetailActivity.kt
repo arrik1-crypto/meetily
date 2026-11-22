@@ -2343,10 +2343,13 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     /**
      * ⋮ → Remove audio (keep transcript). Asks first and says what stops
-     * working (AudioRemoval.confirm). Then the player is freed, the audio
-     * reference goes through the normal save (persist, merged like any
-     * other edit made here), and the file, its waveform cache and its clips
-     * are deleted on the save thread, after the save already under way.
+     * working (AudioRemoval.confirm), or, with no transcript yet, that the
+     * recording is all the meeting holds. Then the player is freed and this
+     * screen's copy drops the reference through the normal save (persist,
+     * merged like any other edit made here). The stored copy drops it too,
+     * on the save thread, before the file, its waveform cache and its clips
+     * are deleted there: persist may only be queued behind a save already
+     * running, and a stored meeting must never name a deleted file.
      */
     private fun confirmRemoveAudio() {
         val m = meeting ?: return
@@ -2359,7 +2362,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.storage_audio_busy, Toast.LENGTH_LONG).show()
             return
         }
-        AudioRemoval.confirm(this, 1, AudioStore.fileFor(this, name).length()) {
+        AudioRemoval.confirm(
+            this, 1, AudioStore.fileFor(this, name).length(), untranscribed = m.segments.isEmpty()
+        ) {
             val current = meeting ?: return@confirm
             // Asked again: a job may have started while the question was up.
             if (current.audioFile != name || AudioRemoval.isBlocked(this, current.id)) {
@@ -2376,13 +2381,35 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             player = null
             if (::playerBar.isInitialized) showPlayerBar(false)
+            val untranscribed = current.segments.isEmpty()
             current.audioFile = null
             persist(current)
             applyTabState()
             renderTranscript(current)
             val app = applicationContext
-            SYNC_EXECUTOR.execute { AudioRemoval.deleteFiles(app, name) }
-            Toast.makeText(this, R.string.storage_audio_removed, Toast.LENGTH_SHORT).show()
+            val id = current.id
+            SYNC_EXECUTOR.execute {
+                // True once the stored copy no longer names the file: cleared
+                // here, or already by the screen save. A screen save queued
+                // after this one merges base = name, ours = null,
+                // stored = null, so null stays.
+                val store = MeetingStore(app)
+                val released = store.mutateIf(id) { stored ->
+                    if (stored.audioFile == name) {
+                        stored.audioFile = null
+                        true
+                    } else {
+                        false
+                    }
+                }
+                // A meeting deleted meanwhile names nothing either.
+                if (released || !store.exists(id)) AudioRemoval.deleteFiles(app, name)
+            }
+            Toast.makeText(
+                this,
+                if (untranscribed) R.string.storage_audio_removed_only else R.string.storage_audio_removed,
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
 

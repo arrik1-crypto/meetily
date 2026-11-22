@@ -9,8 +9,8 @@ package com.meetily.mobile.data
  * This decides WHICH meetings a rule reaches. It errs towards keeping: a
  * starred meeting, one with a job running, queued or waiting for review, one
  * with a reminder still to come, one changed in the last week, and one whose
- * age cannot be told are never touched. Pure, so the selection is
- * unit-tested.
+ * age cannot be told are never touched, and the audio rule never takes a
+ * recording that was not transcribed. Pure, so the selection is unit-tested.
  */
 object Retention {
 
@@ -62,7 +62,13 @@ object Retention {
         /** Bytes of kept audio on disk; 0 when none. */
         val audioBytes: Long,
         /** An action item with a reminder still to fire. */
-        val hasFutureReminder: Boolean
+        val hasFutureReminder: Boolean,
+        /**
+         * The meeting has transcript lines. One without is a recording not
+         * transcribed yet (no model was downloaded when it was made, or the
+         * transcription failed): its audio is all it holds.
+         */
+        val hasTranscript: Boolean
     )
 
     /**
@@ -88,7 +94,9 @@ object Retention {
                 !c.starred &&
                 !c.hasFutureReminder &&
                 c.id !in protectedIds &&
-                (rule.mode != Mode.AUDIO || c.audioBytes > 0L)
+                // "Remove audio, keep transcript" needs a transcript to keep:
+                // without one it would empty the meeting.
+                (rule.mode != Mode.AUDIO || (c.audioBytes > 0L && c.hasTranscript))
         }.sortedWith(compareBy<Candidate> { it.createdAtMs }.thenBy { it.id })
     }
 

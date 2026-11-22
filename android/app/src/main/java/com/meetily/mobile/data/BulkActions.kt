@@ -22,7 +22,9 @@ object BulkActions {
         /** An import, accuracy check or summary is writing it right now. */
         val busy: Boolean,
         /** A queued or interrupted job, or a staged check, still needs it. */
-        val queued: Boolean
+        val queued: Boolean,
+        /** It has transcript lines; without, its audio is all it holds. */
+        val hasTranscript: Boolean
     )
 
     /** The selection split by whether [Action] applies; both keep selection order. */
@@ -34,13 +36,16 @@ object BulkActions {
      * A meeting being written is never deleted or stripped of its audio: the
      * job's next write would put it back, with its files already gone (see
      * MainActivity.isBusy). Removing audio also waits for any job still
-     * queued for the meeting, since every such job reads the audio. The
-     * recording itself takes no tag and no export: its copy is rewritten
-     * every few seconds and is not finished.
+     * queued for the meeting, since every such job reads the audio, and
+     * needs a transcript to keep: on a meeting not transcribed yet it would
+     * delete the only record of what was said, which the meeting's own menu
+     * asks about separately. The recording itself takes no tag and no
+     * export: its copy is rewritten every few seconds and is not finished.
      */
     fun eligible(action: Action, item: Item): Boolean = when (action) {
         Action.DELETE -> !item.recording && !item.busy
-        Action.REMOVE_AUDIO -> item.hasAudio && !item.recording && !item.busy && !item.queued
+        Action.REMOVE_AUDIO ->
+            item.hasAudio && item.hasTranscript && !item.recording && !item.busy && !item.queued
         Action.ADD_TAG -> !item.recording
         Action.EXPORT -> !item.recording
     }

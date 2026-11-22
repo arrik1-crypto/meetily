@@ -75,6 +75,15 @@
         <item quantity="other">Removed the audio of %1$d meetings and freed %2$s</item>
     </plurals>
     <string name="storage_audio_busy">This meeting is being recorded or transcribed, or has a job waiting for its audio. Try again once that has finished.</string>
+    <!-- The same question for a meeting with no transcript yet (no model was
+         downloaded when it was recorded, or transcription failed): its
+         recording is all it holds. %1$s is the size freed. -->
+    <string name="storage_remove_audio_only_title">Delete this meeting\'s only recording?</string>
+    <string name="storage_remove_audio_only_message">This meeting has no transcript yet, so its recording is the only record of what was said. Removing it frees %1$s. The title, notes, photos and attachments stay.\n\nThe meeting can then never be transcribed, played or checked. To keep what was said, transcribe it first.\n\nThis can\'t be undone.</string>
+    <string name="storage_audio_removed_only">Audio removed. This meeting had no transcript.</string>
+    <!-- The Storage screen's list was out of date: the meeting was deleted,
+         or its audio removed, since it was measured. -->
+    <string name="storage_audio_already_gone">This meeting\'s audio is already gone.</string>
 
     <!-- Multi-select on the home list. -->
     <plurals name="storage_selected_count">
@@ -97,8 +106,8 @@
     <string name="storage_bulk_delete_message">Their transcripts, summaries, notes, photos, attachments and audio are removed from this phone. This can\'t be undone.</string>
     <!-- Added under a bulk confirmation when part of the selection is left out. -->
     <plurals name="storage_bulk_skipped">
-        <item quantity="one">%1$d selected meeting is left out: this doesn\'t apply to it right now (no audio, or it is being recorded or has work in progress).</item>
-        <item quantity="other">%1$d selected meetings are left out: this doesn\'t apply to them right now (no audio, or they are being recorded or have work in progress).</item>
+        <item quantity="one">%1$d selected meeting is left out: this doesn\'t apply to it right now (no audio, no transcript yet, or it is being recorded or has work in progress).</item>
+        <item quantity="other">%1$d selected meetings are left out: this doesn\'t apply to them right now (no audio, no transcript yet, or they are being recorded or have work in progress).</item>
     </plurals>
     <string name="storage_bulk_none">This doesn\'t apply to any of the selected meetings right now.</string>
     <plurals name="storage_bulk_deleted">
@@ -152,7 +161,7 @@
     <!-- %1$d is the rule's number of days. -->
     <string name="storage_retention_later_audio">After that, Recap checks once a day and removes the audio of meetings as they pass %1$d days. A quiet notification says when it has removed something.</string>
     <string name="storage_retention_later_meetings">After that, Recap checks once a day and deletes meetings as they pass %1$d days. A quiet notification says when it has deleted something. Deleted meetings can\'t be recovered.</string>
-    <string name="storage_retention_kept">Never touched: starred meetings, meetings changed in the last week, meetings with a reminder still to come, and meetings being recorded, transcribed or summarised or with a job waiting.</string>
+    <string name="storage_retention_kept">Never touched: starred meetings, meetings changed in the last week, meetings with a reminder still to come, and meetings being recorded, transcribed or summarised or with a job waiting. Removing old audio also skips recordings that have no transcript yet.</string>
     <plurals name="storage_retention_more">
         <item quantity="one">…and %1$d more</item>
         <item quantity="other">…and %1$d more</item>

@@ -191,10 +191,13 @@ object RetentionUi {
             builder.setPositiveButton(
                 if (count > 0) R.string.storage_retention_turn_on_now else R.string.storage_retention_turn_on
             ) { _, _ ->
-                RetentionRunner.setRule(activity, rule)
                 if (count > 0) {
+                    // Armed once this first run is done (applyNow), so the
+                    // daily job cannot start alongside it.
+                    RetentionRunner.setRule(activity, rule, arm = false)
                     applyNow(activity, plan, onChanged)
                 } else {
+                    RetentionRunner.setRule(activity, rule)
                     Toast.makeText(activity, R.string.storage_retention_on, Toast.LENGTH_SHORT).show()
                     onChanged()
                 }
@@ -205,7 +208,10 @@ object RetentionUi {
         builder.showSecure()
     }
 
-    /** Applies [plan] on a worker and says what it did. */
+    /**
+     * Applies [plan] on a worker and says what it did, then arms the daily
+     * run if the rule is (still) on: a first run saves its rule unarmed.
+     */
     private fun applyNow(activity: Activity, plan: RetentionRunner.Plan, onChanged: () -> Unit) {
         val app = activity.applicationContext
         Thread {
@@ -213,6 +219,8 @@ object RetentionUi {
                 RetentionRunner.apply(app, plan)
             } catch (_: Exception) {
                 RetentionRunner.Outcome(0, 0L)
+            } finally {
+                RetentionJobService.ensureScheduled(app)
             }
             val text = when {
                 outcome.count == 0 -> app.getString(R.string.storage_retention_on)

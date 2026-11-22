@@ -37,20 +37,35 @@ object RetentionRunner {
     private const val CHANNEL_ID = "storage_cleanup"
     private const val NOTIF_ID = 7_310
 
-    /** The meeting list's fields a plan reads; never transcripts. */
-    private val PLAN_FIELDS = MeetingStore.HEADER_FIELDS + setOf("starred", "audioFile", "actionItems")
+    /**
+     * The meeting list's fields a plan reads. The transcript lines are read
+     * only to tell whether there are any (the audio rule keeps a recording
+     * nothing was transcribed from); listPartial leaves out their word
+     * timings, which are most of their bytes.
+     */
+    private val PLAN_FIELDS =
+        MeetingStore.HEADER_FIELDS + setOf("starred", "audioFile", "actionItems", "segments")
 
     fun rule(context: Context): Retention.Rule =
         Retention.decode(
             context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY_RULE, null)
         )
 
-    /** Saves [rule] and arms or cancels the daily run to match. */
-    fun setRule(context: Context, rule: Retention.Rule) {
+    /**
+     * Saves [rule] and arms or cancels the daily run to match.
+     *
+     * [arm] false saves an enabled rule with the daily run cancelled, for a
+     * caller about to run it by hand: JobScheduler may start a newly armed
+     * periodic job at once, and that run would race the one the user is
+     * watching. The caller arms it once its own run is done
+     * (RetentionJobService.ensureScheduled); failing that, the next app
+     * start does.
+     */
+    fun setRule(context: Context, rule: Retention.Rule, arm: Boolean = true) {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_RULE, Retention.encode(rule))
             .apply()
-        if (rule.enabled) {
+        if (rule.enabled && arm) {
             RetentionJobService.schedule(context)
         } else {
             RetentionJobService.cancel(context)
@@ -101,7 +116,8 @@ object RetentionRunner {
                 audioBytes = meeting.audioFile?.let { AudioStore.fileFor(context, it).length() } ?: 0L,
                 hasFutureReminder = meeting.actionItems.any {
                     !it.done && (it.remindAtMs ?: 0L) > nowMs
-                }
+                },
+                hasTranscript = meeting.segments.isNotEmpty()
             )
         }
         return Plan(
@@ -172,7 +188,12 @@ object RetentionRunner {
      * The daily run. Skipped while a recording, import or summary is going
      * (tomorrow's run catches up), and stopped short of deleting more whole
      * meetings than [Retention.AUTO_MAX_MEETINGS]: that asks first instead.
+     *
+     * Holds the same lock as [apply] from plan to report, so it never plans
+     * or reports around a run the user started: it waits for that run and
+     * then sees what is left.
      */
+    @Synchronized
     @WorkerThread
     fun runAutomatic(context: Context) {
         val rule = rule(context)

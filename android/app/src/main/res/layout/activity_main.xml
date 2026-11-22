@@ -82,7 +82,7 @@
     </LinearLayout>
 
     <!-- Multi-select's contextual action bar: stands in for the header while
-         meetings are selected (MainActivity.renderSelection). The count is a
+         meetings are selected (HomeSelection.render). The count is a
          polite live region for each change. -->
     <LinearLayout
         android:id="@+id/selectionBar"

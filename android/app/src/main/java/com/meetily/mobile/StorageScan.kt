@@ -62,13 +62,20 @@ object StorageScan {
         }
     }
 
-    /** Every meeting's kept audio, with only the fields that takes read. */
+    /**
+     * Every meeting's kept audio, with only the fields that takes read. The
+     * transcript lines (without their word timings) only tell whether there
+     * are any: removing the audio of a meeting with none empties it.
+     */
     private fun meetingAudio(context: Context): List<StorageUsage.MeetingAudio> =
-        MeetingStore(context).listPartial(MeetingStore.HEADER_FIELDS + "audioFile")
+        MeetingStore(context).listPartial(MeetingStore.HEADER_FIELDS + setOf("audioFile", "segments"))
             .mapNotNull { meeting ->
                 val name = meeting.audioFile ?: return@mapNotNull null
                 StorageUsage.MeetingAudio(
-                    meeting.id, meeting.title, AudioStore.fileFor(context, name).length()
+                    meeting.id,
+                    meeting.title,
+                    AudioStore.fileFor(context, name).length(),
+                    hasTranscript = meeting.segments.isNotEmpty()
                 )
             }
 
