@@ -28,7 +28,16 @@ data class LocalLlmModel(
      * can only raise [minRamGb] above what the formula estimates, so the
      * label and the picker's fit badge never disagree.
      */
-    val documentedRamGb: Int? = null
+    val documentedRamGb: Int? = null,
+    /**
+     * The most context, in tokens, this model is run with: 8192 for a small
+     * model (a file up to DeviceFit.SMALL_LLM_MAX_MB, about 2B parameters),
+     * 4096 for 3B and larger. A phone gets the larger window only where it
+     * holds the model comfortably with the bigger KV cache
+     * ([DeviceFit.llmPlan]); llama_jni.c then clamps it to the window the
+     * model was trained on.
+     */
+    val contextTokens: Int = DeviceFit.defaultLlmContextTokens(sizeMb)
 ) {
     /** [url] with [revision] pinned in, when set. */
     val downloadUrl: String
@@ -41,7 +50,10 @@ data class LocalLlmModel(
      * (CpuFeatures): the two the catalogue calls fast are the ones below it.
      */
     val fitNeed: DeviceFit.Need
-        get() = DeviceFit.llmNeed(key, sizeMb, documentedRamGb, slowOnBaseline = sizeMb >= 1000)
+        get() = DeviceFit.llmNeed(
+            key, sizeMb, documentedRamGb, slowOnBaseline = sizeMb >= 1000,
+            contextTokens = contextTokens
+        )
 
     /** Smallest phone, in GB of RAM, this is expected to run on (an estimate). */
     val minRamGb: Int get() = fitNeed.minRamGb
