@@ -191,7 +191,9 @@ FetchContent_MakeAvailable(llama_cpp whisper_cpp)
 
 set(WHISPER_JNI meetily_whisper${MEETILY_LIB_SUFFIX})
 set(LLAMA_JNI meetily_llama${MEETILY_LIB_SUFFIX})
-add_library(${WHISPER_JNI} SHARED whisper_jni.c)
+# vad_guard.cpp: the speech gate's whisper_vad_* calls, where a C++
+# exception from whisper.cpp is caught before it can reach a JNI frame.
+add_library(${WHISPER_JNI} SHARED whisper_jni.c vad_guard.cpp)
 add_library(${LLAMA_JNI} SHARED llama_jni.c chat_render.cpp)
 
 # 16 KB page-size alignment for Android 15+ devices.

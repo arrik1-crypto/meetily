@@ -5,6 +5,7 @@
 #include <android/log.h>
 #include "whisper.h"
 #include "kleidiai_env.h"
+#include "vad_guard.h"
 
 #define TAG "meetily_whisper"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -489,7 +490,9 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWordsBytes(
  * itself, and one thread uses a handle at a time; each caller owns its own.
  * None of these functions leaves a Java exception pending: a failure
  * returns 0 or NULL, and the Kotlin side then transcribes every chunk
- * exactly as it would without the gate.
+ * exactly as it would without the gate. Nor does a C++ exception from
+ * whisper.cpp get through: the calls that can throw go through
+ * vad_guard.cpp.
  */
 JNIEXPORT jlong JNICALL
 Java_com_meetily_mobile_whisper_WhisperBridge_vadInit(
@@ -501,16 +504,20 @@ Java_com_meetily_mobile_whisper_WhisperBridge_vadInit(
         (*env)->ExceptionClear(env);
         return 0;
     }
-    struct whisper_vad_context_params vparams = whisper_vad_default_context_params();
+    /*
+     * Before the load, as in initContext: the VAD model load is what first
+     * asks this library's ggml for its CPU buffer types on a Parakeet or
+     * Nemotron run, where no Whisper model is ever loaded, and KleidiAI
+     * reads GGML_KLEIDIAI_SME only then, once per process.
+     */
+    meetily_kleidiai_env();
     /*
      * Each 512-sample window is a graph of a few small ops, so waking a
      * thread pool per window costs more than it saves: one thread unless
      * the caller asks for more.
      */
-    vparams.n_threads = n_threads > 0 ? (int) n_threads : 1;
-    vparams.use_gpu = false;
     struct whisper_vad_context *vctx =
-            whisper_vad_init_from_file_with_params(path, vparams);
+            meetily_vad_init(path, n_threads > 0 ? (int) n_threads : 1);
     (*env)->ReleaseStringUTFChars(env, model_path, path);
     if (vctx == NULL) {
         LOGE("failed to load the VAD model");
@@ -548,9 +555,7 @@ Java_com_meetily_mobile_whisper_WhisperBridge_vadDetect(
         (*env)->ExceptionClear(env);
         return NULL;
     }
-    bool ok = reset
-            ? whisper_vad_detect_speech(vctx, pcm, (int) n_samples)
-            : whisper_vad_detect_speech_no_reset(vctx, pcm, (int) n_samples);
+    bool ok = meetily_vad_detect(vctx, pcm, (int) n_samples, reset ? true : false);
     (*env)->ReleaseFloatArrayElements(env, samples, pcm, JNI_ABORT);
     if (!ok) {
         LOGE("VAD detection failed");

@@ -199,8 +199,9 @@ fun interface SpeechDetector {
  * speaker's speech windows.
  *
  * Fails open: if the detector throws or returns anything [SpeechGate.usable]
- * rejects, [onFailure] runs once and every chunk from then on is kept, which
- * is the behaviour without a gate.
+ * rejects, or the gate itself fails (an OutOfMemoryError for a 28-second
+ * chunk's windows, say), [onFailure] runs once and every chunk from then on
+ * is kept, which is the behaviour without a gate.
  */
 class SpeechGateRun(
     private val detector: SpeechDetector,
@@ -224,6 +225,16 @@ class SpeechGateRun(
      */
     fun keep(audio: FloatArray, start: Long): Boolean {
         if (failed || audio.isEmpty()) return true
+        return try {
+            decide(audio, start)
+        } catch (_: Throwable) {
+            failed = true
+            onFailure("gate failed")
+            true
+        }
+    }
+
+    private fun decide(audio: FloatArray, start: Long): Boolean {
         if (start != nextStart) {
             carryLen = 0
             historyLen = 0
