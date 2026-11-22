@@ -1117,22 +1117,7 @@ class SettingsActivity : AppCompatActivity() {
                         meta = pendingMeta(
                             ModelDownloadService.KIND_WHISPER,
                             key,
-                            getString(
-                                R.string.model_card_meta,
-                                com.meetily.mobile.whisper.TranscriptionModels.sizeMb(key),
-                                getString(
-                                    if (com.meetily.mobile.whisper.TranscriptionModels
-                                            .englishOnly(key)
-                                    ) R.string.model_lang_en else R.string.model_lang_multi
-                                ),
-                                if (com.meetily.mobile.whisper.TranscriptionModels
-                                        .isNemo(key)
-                                ) {
-                                    "NVIDIA"
-                                } else {
-                                    "Whisper"
-                                }
-                            )
+                            com.meetily.mobile.whisper.TranscriptionModels.metaLine(this, key)
                         ),
                         downloaded = com.meetily.mobile.whisper.TranscriptionModels
                             .isDownloaded(this, key),

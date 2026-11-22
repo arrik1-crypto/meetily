@@ -123,6 +123,18 @@ class NemoModelsTest {
     }
 
     @Test
+    fun modelCardsCreditWhoeverTrainedTheWeights() {
+        // The card's source is the same credit the licence list and
+        // notices.txt give: Moondream for Parakeet Ultra, NVIDIA for the
+        // rest of the NeMo family, Whisper for everything else.
+        assertEquals("Moondream", TranscriptionModels.publisher("parakeet-ultra"))
+        NemoModels.ALL.filter { it.key != "parakeet-ultra" }.forEach {
+            assertEquals(it.key, "NVIDIA", TranscriptionModels.publisher(it.key))
+        }
+        assertEquals("Whisper", TranscriptionModels.publisher("base"))
+    }
+
+    @Test
     fun multilingualStreamingModelIsNotMarkedEnglishOnly() {
         assertTrue(nemotron35!!.streaming)
         assertTrue(!nemotron35.englishOnly)

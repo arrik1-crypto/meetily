@@ -78,6 +78,13 @@ data class NemoModel(
      */
     val legacy: Boolean = false,
     /**
+     * Who trained the weights: the source the model cards end with
+     * ("632 MB · Multilingual · NVIDIA"), matching the credit in
+     * ModelLicences and notices.txt. Never the converter, since every entry
+     * here is a sherpa-onnx export.
+     */
+    val publisher: String = "NVIDIA",
+    /**
      * Pinned Hugging Face commit of [repo], when known; null keeps following
      * `main`. One revision covers all [files]: they ship together.
      * See android/scripts/model_hashes.py.
@@ -184,7 +191,8 @@ object NemoModels {
             repo = "csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-ultra-int8",
             files = PARAKEET_ULTRA_INT8,
             streaming = false,
-            englishOnly = false
+            englishOnly = false,
+            publisher = "Moondream"
         ),
         // Supersedes nemotron-en: same 600M cache-aware FastConformer-RNNT,
         // plus language-ID prompt conditioning over 40 language-locales. It

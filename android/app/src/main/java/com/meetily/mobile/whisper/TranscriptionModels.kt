@@ -183,8 +183,15 @@ object TranscriptionModels {
                     com.meetily.mobile.R.string.model_lang_multi
                 }
             ),
-            if (isNemo(key)) "NVIDIA" else "Whisper"
+            publisher(key)
         )
+
+    /**
+     * The source the model cards name: who trained a NeMo model's weights
+     * (NVIDIA, or Moondream for Parakeet Ultra), else "Whisper".
+     */
+    fun publisher(key: String): String =
+        NemoModels.byKeyOrNull(key)?.publisher ?: "Whisper"
 
     /**
      * [metaLine] plus what this model would cost for [audioMs] of audio on
