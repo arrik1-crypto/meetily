@@ -1,12 +1,11 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Next release: **3.16.0-beta1**
-(versionCode 111), targetSdk 36 (Android 16): Batch 2 (device-fit model
-setup, Mark moment on the notification, wider home search, exit-record
-crash reports, mediaProcessing for ImportService, JNI-only native
-exports). Until the version bump, which follows in its own commit,
-`android/app/build.gradle.kts` still reads 3.15.0-beta1 (versionCode 110).
+App ID: **com.recap.mobile** (permanent). Current release:
+**3.16.0-beta1** (versionCode 111), targetSdk 36 (Android 16): Batch 2
+(device-fit model setup, Mark moment on the notification, wider home
+search, exit-record crash reports, mediaProcessing for ImportService,
+JNI-only native exports).
 
 Before the first submission, work through the **owner checklist in
 section 11**: the Play Console declarations, placeholders, legal reviews
@@ -476,9 +475,8 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [ ] Bump `versionCode` to 111 and `versionName` to `3.16.0-beta1` in
-  `android/app/build.gradle.kts` (its own commit, right after the Batch 2
-  docs; 110 / 3.15.0-beta1 until then). Bump both again for every later
+- [x] Bump `versionCode` to 111 and `versionName` to `3.16.0-beta1` in
+  `android/app/build.gradle.kts` (done). Bump both again for every later
   upload: Play rejects a versionCode it has already seen.
 - [ ] Run CI on the branch you merge: `testReleaseUnitTest`, then
   `assembleRelease` with `lintVital`; both workflows then run
