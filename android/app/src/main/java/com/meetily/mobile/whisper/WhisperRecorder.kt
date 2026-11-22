@@ -188,6 +188,18 @@ class WhisperRecorder(
      */
     @Volatile private var language: String? = languageHint
 
+    /**
+     * The spoken language once known: the pin (or "en" for an English-only
+     * model) from the start, Whisper's detected one after its first chunk,
+     * null while still on auto. NeMo reports no language, so on that path
+     * it stays the pin or null.
+     */
+    val knownLanguage: String?
+        get() = com.meetily.mobile.data.MeetingLanguage.whisperRecorded(language)
+
+    /** True when this session runs Whisper's translate task (English text). */
+    val translating: Boolean get() = translate && nemoEngine == null
+
     @SuppressLint("MissingPermission") // caller checks RECORD_AUDIO
     fun start() {
         if (running) return

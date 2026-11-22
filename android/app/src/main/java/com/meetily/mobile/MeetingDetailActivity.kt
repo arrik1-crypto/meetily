@@ -392,6 +392,26 @@ class MeetingDetailActivity : AppCompatActivity() {
             com.meetily.mobile.summarize.MeetingStats.countWords(it.text)
         }
         metaView.text = getString(R.string.detail_meta, m.segments.size, wordCount)
+        LanguagePicker.bindChip(headerView.findViewById(R.id.detailLanguageChip), m) {
+            showLanguageOptions()
+        }
+    }
+
+    /** The language chip: transcribe the saved audio again as a chosen language. */
+    private fun showLanguageOptions() {
+        val m = meeting ?: return
+        if (audioFileOrNull() == null) {
+            Toast.makeText(this, R.string.no_audio_kept, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // A finished pass is waiting to be reviewed; a new one would replace it unseen.
+        if (com.meetily.mobile.data.TranscriptDraft.isPending(this, m.id)) {
+            openCheckReview(m.id)
+            return
+        }
+        LanguagePicker.retranscribe(this, m, checkAudioMs(m)) { modelKey, language ->
+            startCheck(m, modelKey, language)
+        }
     }
 
     private fun completeSync(pending: PendingSync) {
@@ -548,6 +568,13 @@ class MeetingDetailActivity : AppCompatActivity() {
             m.transcriptModel != merged.transcriptModel
         ) {
             m.transcriptModel = merged.transcriptModel
+        }
+        if (m.language == ours.language && m.translated == ours.translated &&
+            (m.language != merged.language || m.translated != merged.translated)
+        ) {
+            m.language = merged.language
+            m.translated = merged.translated
+            if (live && !transcriptChanged) renderMeta(m)
         }
         if (m.followsEvent == ours.followsEvent && m.followsEvent != merged.followsEvent) {
             m.followsEvent = merged.followsEvent
@@ -1580,7 +1607,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         )
         if (m.title != defaultTitle || m.transcriptText().isBlank()) return
 
-        val offline = ExtractiveSummarizer.titleFor(m.transcriptText())
+        val offline = ExtractiveSummarizer.titleFor(
+            m.transcriptText(),
+            com.meetily.mobile.data.MeetingLanguage.englishHeuristics(m.transcriptLanguage())
+        )
         if (offline.isNotBlank()) {
             m.title = offline
             titleView.text = offline
@@ -1593,6 +1623,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             val localOnly = settings.localOnlyLlm
             val transcript = m.transcriptTextWithSpeakers()
             val notes = m.notes
+            val languageClause = com.meetily.mobile.summarize.OutputLanguage.clauseFor(
+                com.meetily.mobile.summarize.OutputLanguage.Kind.TITLE,
+                settings.summaryLanguage, m.language, m.translated
+            )
             // The title this run is refining. A generation takes seconds to
             // minutes and the field is editable throughout, so without this
             // the result lands on top of a rename the user made meanwhile —
@@ -1600,7 +1634,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             val startedFrom = m.title
             Thread {
                 try {
-                    val generated = LlmClient.title(baseUrl, apiKey, model, localOnly, transcript, notes)
+                    val generated = LlmClient.title(
+                        baseUrl, apiKey, model, localOnly, transcript, notes, languageClause
+                    )
                     if (generated.isNotBlank()) {
                         runOnUiThread {
                             if (isFinishing || isDestroyed) return@runOnUiThread
@@ -2185,12 +2221,16 @@ class MeetingDetailActivity : AppCompatActivity() {
         val summary = m.summary
         val attendees = m.attendees.toList()
         val history = m.qa.map { it.question to it.answer }
+        val languageClause = com.meetily.mobile.summarize.OutputLanguage.clauseFor(
+            com.meetily.mobile.summarize.OutputLanguage.Kind.ANSWER,
+            settings.summaryLanguage, m.language, m.translated
+        )
 
         Thread {
             val answer = try {
                 LlmClient.ask(
                     baseUrl, apiKey, model, localOnly, transcript, notes, summary,
-                    attendees, history, question
+                    attendees, history, question, languageClause
                 )
             } catch (e: Exception) {
                 getString(R.string.ask_failed, e.message ?: "unknown error")
@@ -3793,7 +3833,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         )
     }
 
-    private fun startCheck(m: Meeting, modelKey: String) {
+    /** [language]: "auto" or a code for this pass only (the language chip); null uses Settings. */
+    private fun startCheck(m: Meeting, modelKey: String, language: String? = null) {
         val file = audioFileOrNull() ?: return
         // A second pass queued behind the one already checking this meeting
         // would overwrite that pass's draft before the user had reviewed it.
@@ -3806,7 +3847,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         // The check reads the meeting's own saved audio, so there is nothing
         // to stage — queueing it is enough when something else is running.
         if (!JobGate.canStartBatch()) {
-            JobGate.requestCheck(this, m.id, modelKey, whenCharging = false, required = true)
+            JobGate.requestCheck(
+                this, m.id, modelKey, whenCharging = false, required = true,
+                language = language.orEmpty()
+            )
             Toast.makeText(this, R.string.check_queued, Toast.LENGTH_LONG).show()
             return
         }
@@ -3817,6 +3861,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .putExtra(ImportService.EXTRA_MODEL, modelKey)
             .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, m.id)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        language?.let { start.putExtra(ImportService.EXTRA_LANGUAGE, it) }
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             startForegroundService(start)
         } else {
@@ -4227,6 +4272,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         val model = settings.llmModel
         val localOnly = settings.localOnlyLlm
         val segmentsSnapshot = m.segments.toList()
+        val englishHeuristics = com.meetily.mobile.data.MeetingLanguage
+            .englishHeuristics(m.transcriptLanguage())
         val meetingId = m.id
         val store = this.store
         Thread {
@@ -4269,7 +4316,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             }
             if (chapters.isEmpty()) {
-                chapters = TopicChapters.buildLocal(segmentsSnapshot)
+                chapters = TopicChapters.buildLocal(segmentsSnapshot, englishHeuristics)
             }
             val result = chapters
             // SAVE FIRST, on this thread, against a freshly loaded copy: the

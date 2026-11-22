@@ -5,6 +5,7 @@ import android.net.Uri
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.data.MeetingLanguage
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.TranscriptDraft
 import com.meetily.mobile.data.TranscriptSegment
@@ -80,6 +81,11 @@ class AudioFileImporter(
          * into place rather than copied again — it is the same bytes.
          */
         adoptFile: String? = null,
+        /**
+         * Spoken language for THIS run: null uses Settings, "auto" detects
+         * even when Settings pins one, a code pins it. See MeetingLanguage.
+         */
+        language: String? = null,
         /** Fires as soon as the target meeting id is known. */
         onMeetingCreated: ((String) -> Unit)? = null,
         /** [detail] is a human-readable "how far, how much longer" line. */
@@ -126,6 +132,8 @@ class AudioFileImporter(
          * where "keep the current one" deleted it.
          */
         val stageOnly = recheck && !firstTranscript
+        // Null for auto. Whisper starts from it; Nemotron 3.5 is told it.
+        val pinned = MeetingLanguage.pinFor(language, settings.spokenLanguage)
 
         // NeMo path (Parakeet/Nemotron via sherpa-onnx) or whisper.cpp.
         val nemoModel = NemoModels.byKeyOrNull(selectedKey)
@@ -136,13 +144,13 @@ class AudioFileImporter(
         var whisperWork = 0
         // var, not val: set to the detected language after the first batch
         // so "auto" is paid for once rather than on every call.
-        var language = "en"
+        var whisperLanguage = "en"
         var translate = false
         if (nemoModel != null) {
             if (!NemoModels.isRuntimeAvailable()) {
                 throw ImportException("Speech runtime unavailable on this device")
             }
-            nemoEngine = NemoEngine.create(context, nemoModel, nThreads())
+            nemoEngine = NemoEngine.create(context, nemoModel, nThreads(), pinned)
                 ?: throw ImportException("Could not load the ${nemoModel.displayName} model")
         } else {
             val model = WhisperModels.byKey(selectedKey)
@@ -162,7 +170,7 @@ class AudioFileImporter(
                 com.meetily.mobile.diag.NativeWork.end(whisperWork)
                 throw ImportException("Could not load the Whisper model")
             }
-            language = if (model.englishOnly) "en" else "auto"
+            whisperLanguage = MeetingLanguage.whisperArgument(pinned, model.englishOnly)
             translate = settings.whisperTranslate && !model.englishOnly
         }
 
@@ -238,6 +246,14 @@ class AudioFileImporter(
         // Recorded so a later accuracy check can say which model produced the
         // transcript it is comparing against, and offer a different one.
         meeting.transcriptModel = selectedKey
+        // What was spoken, as far as this run knows it yet: the pin, or for
+        // Whisper on auto nothing until the first batch has been detected.
+        meeting.language = if (nemoModel != null) {
+            MeetingLanguage.nemoRecorded(pinned, nemoModel.englishOnly, nemoModel.languagePrompt)
+        } else {
+            MeetingLanguage.whisperRecorded(whisperLanguage)
+        }
+        meeting.translated = translate
         onMeetingCreated?.invoke(meeting.id)
 
         // Set by the first persist(). The end-of-run re-anchor below must not
@@ -255,7 +271,8 @@ class AudioFileImporter(
             lastPersistAt = android.os.SystemClock.elapsedRealtime()
             if (stageOnly) {
                 TranscriptDraft.save(
-                    context, meeting.id, selectedKey, meeting.segments, complete
+                    context, meeting.id, selectedKey, meeting.segments, complete,
+                    meeting.language, meeting.translated
                 )
             } else {
                 // Not a plain save: the meeting is visible and editable in
@@ -469,7 +486,7 @@ class AudioFileImporter(
             // to wait it out at full CPU.
             val raw = WhisperBridge.abortable(contextPtr, cancelled) {
                 WhisperBridge.transcribeWords(
-                    contextPtr, buffer, language, nThreads(), translate,
+                    contextPtr, buffer, whisperLanguage, nThreads(), translate,
                     Vocab.promptFor(settings.customVocab)
                 )
             }
@@ -477,10 +494,14 @@ class AudioFileImporter(
             // once and pin the answer for the rest of the file. Whisper is
             // also better placed to judge from the first real speech than
             // from every later batch of spliced, silence-stripped audio.
-            if (language == "auto") {
+            if (whisperLanguage == MeetingLanguage.AUTO) {
                 WhisperBridge.lastLanguage(contextPtr)
-                    ?.takeIf { it.isNotBlank() && it != "auto" }
-                    ?.let { language = it }
+                    ?.takeIf { it.isNotBlank() && it != MeetingLanguage.AUTO }
+                    ?.let {
+                        whisperLanguage = it
+                        // Saved with the words from here on.
+                        meeting.language = MeetingLanguage.whisperRecorded(it)
+                    }
             }
             val (text, words) = WhisperBridge.parseWords(raw)
             if (words.isNotEmpty() && parts.size > 1) {
@@ -508,7 +529,7 @@ class AudioFileImporter(
                 // silently. Fall back to the plain path, which asks for text
                 // without timings and carries the same one-encode guarantee.
                 val plain = WhisperBridge.transcribe(
-                    contextPtr, buffer, language, nThreads(), translate,
+                    contextPtr, buffer, whisperLanguage, nThreads(), translate,
                     Vocab.promptFor(settings.customVocab)
                 )?.trim().orEmpty()
                 if (plain.isNotBlank()) {

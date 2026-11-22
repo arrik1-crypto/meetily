@@ -89,7 +89,13 @@ object JobQueue {
          * consent it was queued under has to still hold when it runs — see
          * JobGate.drain.
          */
-        val auto: Boolean = false
+        val auto: Boolean = false,
+        /**
+         * Check or import: the spoken language chosen for this one run ("de",
+         * or "auto" to detect even when Settings pins one). Blank means no
+         * choice was made and the Settings value applies when it runs.
+         */
+        val language: String = ""
     )
 
     /**
@@ -202,7 +208,10 @@ object JobQueue {
                 // Absent in older rows; false is what those jobs did.
                 firstTranscript = o.optBoolean("firstTranscript"),
                 required = o.optBoolean("required"),
-                auto = o.optBoolean("auto")
+                auto = o.optBoolean("auto"),
+                // Absent in older rows; blank is "use the setting", which
+                // is what every run did before the choice existed.
+                language = o.optString("language")
             )
         }
     } catch (_: Exception) {
@@ -225,6 +234,7 @@ object JobQueue {
                     .put("firstTranscript", job.firstTranscript)
                     .put("required", job.required)
                     .put("auto", job.auto)
+                    .put("language", job.language)
             )
         }
         prefs(context).edit().putString("jobs", array.toString()).apply()
@@ -295,13 +305,15 @@ object JobQueue {
         kind: String,
         meetingId: String,
         payload: String,
-        firstTranscript: Boolean = false
+        firstTranscript: Boolean = false,
+        /** The run's language choice, so a restart offered later keeps it. */
+        language: String = ""
     ) {
         enqueue(
             context,
             Job(
                 kind, meetingId, payload, System.currentTimeMillis(), interrupted = true,
-                firstTranscript = firstTranscript
+                firstTranscript = firstTranscript, language = language
             )
         )
     }
@@ -328,13 +340,14 @@ object JobQueue {
         context: Context,
         stagedFile: String,
         sourceName: String,
-        payload: String
+        payload: String,
+        language: String = ""
     ) {
         enqueue(
             context,
             Job(
                 KIND_IMPORT, "", payload, System.currentTimeMillis(), interrupted = true,
-                stagedFile = stagedFile, sourceName = sourceName
+                stagedFile = stagedFile, sourceName = sourceName, language = language
             )
         )
     }

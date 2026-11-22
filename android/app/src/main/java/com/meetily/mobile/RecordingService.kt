@@ -995,7 +995,8 @@ class RecordingService : Service() {
         Thread {
             val engine = nemoModel?.let {
                 com.meetily.mobile.whisper.NemoEngine.create(
-                    this, it, com.meetily.mobile.data.HeavyWork.recordingThreads()
+                    this, it, com.meetily.mobile.data.HeavyWork.recordingThreads(),
+                    com.meetily.mobile.data.MeetingLanguage.pinFor(null, settings.spokenLanguage)
                 )
             }
             val created = dModel?.let {
@@ -1094,7 +1095,19 @@ class RecordingService : Service() {
                 WhisperModels.fileFor(this, model).absolutePath
             },
             modelKey = model.key,
-            languageHint = if (englishOnly) "en" else "auto",
+            // Also what the NeMo path records as the language (see
+            // knownLanguage); NeMo itself was told its language at load.
+            languageHint = com.meetily.mobile.data.MeetingLanguage.pinFor(
+                null, settings.spokenLanguage
+            ).let { pin ->
+                if (nemoEngine != null && nemoModel != null) {
+                    com.meetily.mobile.data.MeetingLanguage.nemoRecorded(
+                        pin, nemoModel.englishOnly, nemoModel.languagePrompt
+                    ) ?: com.meetily.mobile.data.MeetingLanguage.AUTO
+                } else {
+                    com.meetily.mobile.data.MeetingLanguage.whisperArgument(pin, englishOnly)
+                }
+            },
             // Translate + vocab prompts are whisper features; NeMo models
             // transcribe in the spoken language and ignore both.
             translate = nemoEngine == null &&
@@ -1460,6 +1473,12 @@ class RecordingService : Service() {
         // lines yet — the pass that writes them stamps its own model.
         if (whisperMode && liveWhisper) {
             meeting.transcriptModel = settings.whisperModel
+            // Null until known, and after teardown: saveRecordingSnapshot
+            // then keeps what an earlier snapshot stored.
+            whisperRecorder?.let { recorder ->
+                meeting.language = recorder.knownLanguage
+                meeting.translated = recorder.translating
+            }
         }
     }
 

@@ -99,7 +99,14 @@ data class NemoModel(
      * value for these exports — not the absence of a setting.
      */
     val languageOption: String?
-        get() = if (!languagePrompt) null else if (englishOnly) "en" else "auto"
+        get() = languageOptionFor(null)
+
+    /**
+     * [languageOption] with the user's pinned language ([pinned], a Whisper
+     * code or null for auto); see MeetingLanguage.nemoOption.
+     */
+    fun languageOptionFor(pinned: String?): String? =
+        com.meetily.mobile.data.MeetingLanguage.nemoOption(languagePrompt, englishOnly, pinned)
 
     fun urlFor(file: NemoFile): String =
         ModelIntegrity.pinRevision("https://huggingface.co/$repo/resolve/main/${file.name}", revision)

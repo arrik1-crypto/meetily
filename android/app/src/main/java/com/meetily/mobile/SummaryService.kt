@@ -23,6 +23,7 @@ import com.meetily.mobile.summarize.ActionItems
 import com.meetily.mobile.summarize.AiProvenance
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
+import com.meetily.mobile.summarize.OutputLanguage
 import com.meetily.mobile.summarize.SummaryTemplates
 
 /**
@@ -200,7 +201,11 @@ class SummaryService : Service() {
                 val enhanced = LlmClient.enhanceNotes(
                     settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
                     settings.localOnlyLlm,
-                    meeting.notes, meeting.transcriptTextWithSpeakers()
+                    meeting.notes, meeting.transcriptTextWithSpeakers(),
+                    OutputLanguage.clauseFor(
+                        OutputLanguage.Kind.NOTES, settings.summaryLanguage,
+                        meeting.language, meeting.translated
+                    )
                 )
                 if (enhanced.isBlank()) throw RuntimeException("empty result")
                 // Fresh copy: the user may have edited elsewhere meanwhile.
@@ -293,10 +298,17 @@ class SummaryService : Service() {
             // shared output rules (custom templates get the rules too).
             val template = SummaryTemplates.personalised(
                 SummaryTemplates.effective(
-                    SummaryTemplates.byKey(this, templateKey), settings.summaryDepth
+                    SummaryTemplates.byKey(this, templateKey), settings.summaryDepth,
+                    OutputLanguage.clauseFor(
+                        OutputLanguage.Kind.SUMMARY, settings.summaryLanguage,
+                        meeting.language, meeting.translated
+                    )
                 ),
                 settings.userName
             )
+            // English word lists and action phrases only where they fit.
+            val englishHeuristics = com.meetily.mobile.data.MeetingLanguage
+                .englishHeuristics(meeting.transcriptLanguage())
             // An automatic summary may have waited hours for a charger. If the
             // consent it was queued under has since been withdrawn — the
             // engine switched to an endpoint, or auto-summary turned off —
@@ -346,14 +358,16 @@ class SummaryService : Service() {
                     clean
                 } else {
                     ExtractiveSummarizer.summarize(
-                        rawTranscript, notes, highlights, template.extractiveActionsOnly
+                        rawTranscript, notes, highlights, template.extractiveActionsOnly,
+                        englishHeuristics
                     )
                 }
             } catch (e: Exception) {
                 generationFailed = true
                 llmFailure = e.message ?: "unknown error"
                 val fallback = ExtractiveSummarizer.summarize(
-                    rawTranscript, notes, highlights, template.extractiveActionsOnly
+                    rawTranscript, notes, highlights, template.extractiveActionsOnly,
+                    englishHeuristics
                 )
                 getString(R.string.llm_failed_fallback, e.message ?: "unknown error") +
                     "\n\n" + fallback
@@ -394,7 +408,9 @@ class SummaryService : Service() {
                 }
             }
             val finalItems = parsedItems
-                ?: ActionItems.fromMeetingContent(meeting.segments.toList(), notes)
+                ?: ActionItems.fromMeetingContent(
+                    meeting.segments.toList(), notes, englishHeuristics
+                )
 
             // Save onto a FRESH copy, as one read-modify-write under the store
             // lock: the user may have edited the meeting (notes, tags, speaker

@@ -126,7 +126,19 @@ data class Meeting(
      * audio. Nothing was transcribed yet to star, so the first transcript
      * stars the line each mark falls in; see HighlightMarks.
      */
-    val highlightMarksMs: MutableList<Long> = mutableListOf()
+    val highlightMarksMs: MutableList<Long> = mutableListOf(),
+    /**
+     * The spoken language ("de"), as Whisper detected it or as the user
+     * pinned it for the run that made the transcript; see MeetingLanguage.
+     * Null when nobody knows: meetings from before this field, the system
+     * recognizer, and NeMo runs left on auto (NeMo reports no language).
+     */
+    var language: String? = null,
+    /**
+     * The transcript came from Whisper's translate task, so its text is
+     * English whatever [language] says. Summaries follow the text.
+     */
+    var translated: Boolean = false
 ) {
     /**
      * True for a copy read by MeetingStore's light listings, which leave out
@@ -154,6 +166,9 @@ data class Meeting(
         }
 
     fun attendeesText(): String = attendees.joinToString(", ")
+
+    /** The language the transcript text is in, when known; see MeetingLanguage. */
+    fun transcriptLanguage(): String? = MeetingLanguage.transcriptLanguage(language, translated)
 
     fun toJson(): JSONObject {
         val obj = JSONObject()
@@ -248,6 +263,12 @@ data class Meeting(
             val marksArr = JSONArray()
             for (mark in highlightMarksMs) marksArr.put(mark)
             obj.put("highlightMarks", marksArr)
+        }
+        if (!language.isNullOrBlank()) {
+            obj.put("language", language)
+        }
+        if (translated) {
+            obj.put("translated", true)
         }
         followsEvent?.let { link ->
             obj.put(
@@ -412,6 +433,11 @@ data class Meeting(
             meeting.summaryStale = obj.optBoolean("summaryStale", false)
             meeting.summaryTemplate = obj.optString("summaryTemplate", "").ifBlank { null }
             meeting.summaryModel = obj.optString("summaryModel", "").ifBlank { null }
+            // Through normalize, so a hand-edited or future value that is
+            // not a language code reads as unknown rather than reaching a
+            // prompt or the engine.
+            meeting.language = MeetingLanguage.normalize(obj.optString("language", ""))
+            meeting.translated = obj.optBoolean("translated", false)
             val marksArr = obj.optJSONArray("highlightMarks") ?: JSONArray()
             for (i in 0 until marksArr.length()) {
                 val mark = marksArr.optLong(i, -1L)

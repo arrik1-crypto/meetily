@@ -33,13 +33,18 @@ object ExtractiveSummarizer {
 
     /**
      * Offline auto-title: first few words of the highest-scoring sentence.
+     *
+     * [englishHeuristics] false (a transcript known to be in another
+     * language; see MeetingLanguage.englishHeuristics) swaps the English
+     * stopword list for [commonWords].
      */
-    fun titleFor(transcript: String): String {
+    fun titleFor(transcript: String, englishHeuristics: Boolean = true): String {
         val sentences = splitSentences(transcript)
         if (sentences.isEmpty()) return ""
+        val stopwords = if (englishHeuristics) STOPWORDS else commonWords(sentences)
         // Each sentence is tokenized once and reused for scoring.
         val scored = sentences.map { sentence ->
-            sentence to tokenize(sentence).filter { it !in STOPWORDS && it.length > 2 }
+            sentence to tokenize(sentence).filter { it !in stopwords && it.length > 2 }
         }
         val frequencies = HashMap<String, Int>()
         for ((_, tokens) in scored) {
@@ -57,11 +62,21 @@ object ExtractiveSummarizer {
         return title.replaceFirstChar { it.uppercase() }
     }
 
+    /**
+     * [englishHeuristics] false means the transcript is known to be in
+     * another language. The action phrases are English ("will", "need to",
+     * "by Friday") and in other languages match the wrong things — German
+     * "will" is "wants" — so action items are left out and said to be left
+     * out, rather than listed from false matches. Key points still come
+     * from frequency scoring, with [commonWords] standing in for the
+     * English stopword list.
+     */
     fun summarize(
         transcript: String,
         notes: String,
         highlights: List<String> = emptyList(),
-        actionsOnly: Boolean = false
+        actionsOnly: Boolean = false,
+        englishHeuristics: Boolean = true
     ): String {
         val sentences = splitSentences(transcript)
         if (sentences.isEmpty() && notes.isBlank() && highlights.isEmpty()) {
@@ -69,10 +84,16 @@ object ExtractiveSummarizer {
         }
 
         if (actionsOnly) {
-            val actionItems = sentences.filter { ACTION_PATTERN.containsMatchIn(it) }
+            val actionItems = if (englishHeuristics) {
+                sentences.filter { ACTION_PATTERN.containsMatchIn(it) }
+            } else {
+                emptyList()
+            }
             val builder = StringBuilder()
             builder.append("ACTION ITEMS (generated on-device)\n\n")
-            if (actionItems.isEmpty()) {
+            if (!englishHeuristics) {
+                builder.append(NO_ACTIONS_IN_LANGUAGE).append('\n')
+            } else if (actionItems.isEmpty()) {
                 builder.append("No action items detected in the transcript.\n")
             } else {
                 for (item in actionItems) {
@@ -91,17 +112,18 @@ object ExtractiveSummarizer {
             return builder.toString().trim()
         }
 
+        val stopwords = if (englishHeuristics) STOPWORDS else commonWords(sentences)
         val frequencies = HashMap<String, Int>()
         for (sentence in sentences) {
             for (word in tokenize(sentence)) {
-                if (word !in STOPWORDS && word.length > 2) {
+                if (word !in stopwords && word.length > 2) {
                     frequencies[word] = (frequencies[word] ?: 0) + 1
                 }
             }
         }
 
         val scored = sentences.mapIndexed { index, sentence ->
-            val tokens = tokenize(sentence).filter { it !in STOPWORDS && it.length > 2 }
+            val tokens = tokenize(sentence).filter { it !in stopwords && it.length > 2 }
             val score = if (tokens.isEmpty()) 0.0
             else tokens.sumOf { (frequencies[it] ?: 0).toDouble() } / tokens.size
             Triple(index, sentence, score)
@@ -118,7 +140,11 @@ object ExtractiveSummarizer {
             .sortedBy { it.first }
             .map { it.second }
 
-        val actionItems = sentences.filter { ACTION_PATTERN.containsMatchIn(it) }.take(10)
+        val actionItems = if (englishHeuristics) {
+            sentences.filter { ACTION_PATTERN.containsMatchIn(it) }.take(10)
+        } else {
+            emptyList()
+        }
 
         val builder = StringBuilder()
         builder.append("MEETING SUMMARY (generated on-device)\n\n")
@@ -140,11 +166,37 @@ object ExtractiveSummarizer {
             for (item in actionItems) {
                 builder.append("• ").append(item.trim()).append('\n')
             }
+        } else if (!englishHeuristics && sentences.isNotEmpty()) {
+            builder.append('\n').append(NO_ACTIONS_IN_LANGUAGE).append('\n')
         }
         if (notes.isNotBlank()) {
             builder.append("\nYour notes:\n").append(notes.trim()).append('\n')
         }
         return builder.toString().trim()
+    }
+
+    private const val NO_ACTIONS_IN_LANGUAGE = "Action items are only picked out " +
+        "automatically from English transcripts. Use an AI summary to list them."
+
+    /**
+     * A stand-in stopword list for a language without one: the words found
+     * in at least a third of the sentences (and in three or more). In any
+     * language those are mostly the articles, pronouns and particles the
+     * English list removes, and leaving them in makes the most ordinary
+     * sentences score highest. A third rather than less, so the meeting's
+     * own subject, which recurs but not in every other sentence, stays in.
+     * Pure — unit-tested.
+     */
+    internal fun commonWords(sentences: List<String>): Set<String> {
+        if (sentences.size < 4) return emptySet()
+        val documentFrequency = HashMap<String, Int>()
+        for (sentence in sentences) {
+            for (word in tokenize(sentence).toSet()) {
+                documentFrequency[word] = (documentFrequency[word] ?: 0) + 1
+            }
+        }
+        val floor = maxOf(3, sentences.size / 3)
+        return documentFrequency.filterValues { it >= floor }.keys
     }
 
     // Compiled once rather than per call (tokenize runs per sentence).
