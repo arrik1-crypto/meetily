@@ -323,6 +323,21 @@ class MeetingStore(context: Context) {
     }
 
     /**
+     * [mutate] for a change that may already be in place: [block] returns
+     * whether it changed anything, and the file is written only then. An
+     * unchanged meeting keeps its file time, which the automatic clean-up
+     * reads as "changed recently" (Retention.RECENT_MS).
+     *
+     * Returns false when the meeting is gone or the write failed, and true
+     * otherwise, whether or not anything needed writing.
+     */
+    fun mutateIf(id: String, block: (Meeting) -> Boolean): Boolean = AtomicJson.exclusive {
+        val target = load(id) ?: return@exclusive false
+        if (!block(target)) return@exclusive true
+        save(target)
+    }
+
+    /**
      * Removes the meeting file and remembers the id for the life of the
      * process, so a job still holding the meeting (a summary, an import
      * batch, a staged accuracy check) cannot write it back. Ids are random

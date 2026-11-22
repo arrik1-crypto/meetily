@@ -269,6 +269,7 @@ class SettingsActivity : AppCompatActivity() {
         // rather than in onStart because a screen recreated while away
         // restores its switches' saved state after onStart.
         if (OnDeviceAiSetup.takeJustEnabled()) showOnDeviceAiEnabled()
+        renderRetentionSummary()
     }
 
     override fun onStop() {
@@ -420,6 +421,8 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        setUpStorageSection()
+
         setUpSecuritySection()
         findViewById<View>(R.id.privacyLink).setOnClickListener {
             startActivity(Intent(this, PrivacyActivity::class.java))
@@ -449,6 +452,26 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
             finish()
         }
+    }
+
+    /**
+     * The Storage screen and the automatic clean-up rule. The rule is not a
+     * Save-button setting: choosing one shows what its first run would
+     * delete and is saved only on yes (RetentionUi).
+     */
+    private fun setUpStorageSection() {
+        findViewById<View>(R.id.settingsStorageButton).setOnClickListener {
+            startActivity(Intent(this, StorageActivity::class.java))
+        }
+        findViewById<View>(R.id.settingsRetentionButton).setOnClickListener {
+            RetentionUi.choose(this) { if (!isFinishing && !isDestroyed) renderRetentionSummary() }
+        }
+    }
+
+    /** On every resume too: the Storage screen can change the rule. */
+    private fun renderRetentionSummary() {
+        findViewById<TextView>(R.id.settingsRetentionSummary).text =
+            RetentionUi.summary(this, RetentionRunner.rule(this))
     }
 
     /**

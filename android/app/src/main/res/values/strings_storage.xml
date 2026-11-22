@@ -1,0 +1,196 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Storage and retention: the Storage screen (StorageActivity, also
+         Android's "Manage space"), "Remove audio (keep transcript)"
+         (AudioRemoval), automatic clean-up rules (RetentionUi,
+         RetentionJobService) and multi-select on the home list. -->
+
+    <!-- Storage screen. -->
+    <string name="storage_title">Storage</string>
+    <string name="storage_measuring">Measuring storage…</string>
+    <!-- %1$s is a size such as "3.2 GB": every file Recap keeps, without
+         the installed app itself (Android's app info counts that too). -->
+    <string name="storage_total">Recap\'s data takes %1$s (not counting the app itself)</string>
+    <!-- %1$s is a size. Free space as Android reports it for Recap's files. -->
+    <string name="storage_free">Free space: %1$s</string>
+    <string name="storage_scan_failed">Couldn\'t measure storage. Try again in a moment.</string>
+    <string name="storage_section_usage">Where it goes</string>
+    <string name="storage_area_audio">Meeting audio</string>
+    <string name="storage_area_photos">Photos and attachments</string>
+    <string name="storage_area_transcripts">Transcripts and meeting data</string>
+    <string name="storage_area_whisper">Whisper models</string>
+    <string name="storage_area_nemo">Parakeet and Nemotron models</string>
+    <string name="storage_area_speaker">Speaker ID models</string>
+    <string name="storage_area_llm">On-device AI models</string>
+    <string name="storage_area_caches">Caches (clips, waveforms, shared files)</string>
+    <string name="storage_area_other">Voice profiles and other data</string>
+    <!-- One usage row as a screen reader hears it: %1$s the area, %2$s its size. -->
+    <string name="storage_row_desc">%1$s: %2$s</string>
+
+    <string name="storage_section_largest">Largest recordings</string>
+    <string name="storage_largest_empty">No meeting has its audio kept.</string>
+    <string name="storage_open_meeting">Open meeting</string>
+
+    <string name="storage_section_models">Downloaded models</string>
+    <string name="storage_unused_none">Every downloaded model is in use.</string>
+    <!-- %1$d models, %2$s their total size. -->
+    <plurals name="storage_unused_summary">
+        <item quantity="one">%1$d downloaded model is not selected anywhere and takes %2$s.</item>
+        <item quantity="other">%1$d downloaded models are not selected anywhere and take %2$s.</item>
+    </plurals>
+    <string name="storage_delete_unused">Delete unused models</string>
+    <string name="storage_delete_unused_title">Delete unused models?</string>
+    <!-- %1$s the total size, %2$s one line per model (storage_model_line). -->
+    <string name="storage_delete_unused_message">These models are downloaded but not selected for transcription, speaker ID or on-device AI, and no queued job needs them. Deleting them frees %1$s. Your meetings are not affected, and you can download any of them again from Settings.\n\n%2$s</string>
+    <!-- %1$s a model name, %2$s its size. -->
+    <string name="storage_model_line">• %1$s (%2$s)</string>
+    <plurals name="storage_models_deleted">
+        <item quantity="one">Deleted %1$d model and freed %2$s</item>
+        <item quantity="other">Deleted %1$d models and freed %2$s</item>
+    </plurals>
+    <string name="storage_models_busy">A recording, import, summary or model download is running. Try again once it has finished.</string>
+
+    <string name="storage_section_cleanup">Automatic clean-up</string>
+    <string name="storage_cleanup_change">Change</string>
+    <string name="storage_cleanup_change_desc">Change automatic clean-up</string>
+
+    <!-- Settings entry. -->
+    <string name="storage_settings_button">Storage and clean-up</string>
+    <string name="storage_settings_desc">See what Recap keeps on this phone, delete models you don\'t use, and choose whether old audio or meetings are cleaned up automatically.</string>
+
+    <!-- Remove audio, keep the transcript (meeting menu, Storage screen and
+         multi-select). -->
+    <string name="storage_remove_audio">Remove audio (keep transcript)</string>
+    <string name="storage_remove_audio_title">Remove this meeting\'s audio?</string>
+    <plurals name="storage_remove_audio_title_many">
+        <item quantity="one">Remove the audio of %1$d meeting?</item>
+        <item quantity="other">Remove the audio of %1$d meetings?</item>
+    </plurals>
+    <!-- %1$s is the size freed. -->
+    <string name="storage_remove_audio_message">Frees %1$s. The transcript, summary, notes, photos and attachments stay.\n\nWhat stops working:\n• playing the recording and following along\n• sharing the audio or a clip of it\n• checking the transcript\'s accuracy\n• learning a voice from the recording\n• transcribing it again with another model\n\nThis can\'t be undone.</string>
+    <string name="storage_remove_audio_confirm">Remove audio</string>
+    <string name="storage_audio_removed">Audio removed. The transcript is kept.</string>
+    <plurals name="storage_audio_removed_many">
+        <item quantity="one">Removed the audio of %1$d meeting and freed %2$s</item>
+        <item quantity="other">Removed the audio of %1$d meetings and freed %2$s</item>
+    </plurals>
+    <string name="storage_audio_busy">This meeting is being recorded or transcribed, or has a job waiting for its audio. Try again once that has finished.</string>
+    <!-- The same question for a meeting with no transcript yet (no model was
+         downloaded when it was recorded, or transcription failed): its
+         recording is all it holds. %1$s is the size freed. -->
+    <string name="storage_remove_audio_only_title">Delete this meeting\'s only recording?</string>
+    <string name="storage_remove_audio_only_message">This meeting has no transcript yet, so its recording is the only record of what was said. Removing it frees %1$s. The title, notes, photos and attachments stay.\n\nThe meeting can then never be transcribed, played or checked. To keep what was said, transcribe it first.\n\nThis can\'t be undone.</string>
+    <string name="storage_audio_removed_only">Audio removed. This meeting had no transcript.</string>
+    <!-- The Storage screen's list was out of date: the meeting was deleted,
+         or its audio removed, since it was measured. -->
+    <string name="storage_audio_already_gone">This meeting\'s audio is already gone.</string>
+
+    <!-- Multi-select on the home list. -->
+    <plurals name="storage_selected_count">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
+    <string name="storage_select">Select</string>
+    <string name="storage_deselect">Deselect</string>
+    <string name="storage_select_all">Select all</string>
+    <string name="storage_clear_selection">Clear selection</string>
+    <string name="storage_exit_selection">Exit selection</string>
+    <string name="storage_more_actions">More actions</string>
+    <string name="storage_bulk_tag">Add tag</string>
+    <string name="storage_bulk_remove_audio">Remove audio</string>
+    <string name="storage_bulk_export">Export as zip (Markdown)</string>
+    <plurals name="storage_bulk_delete_title">
+        <item quantity="one">Delete %1$d meeting?</item>
+        <item quantity="other">Delete %1$d meetings?</item>
+    </plurals>
+    <string name="storage_bulk_delete_message">Their transcripts, summaries, notes, photos, attachments and audio are removed from this phone. This can\'t be undone.</string>
+    <!-- Added under a bulk confirmation when part of the selection is left out. -->
+    <plurals name="storage_bulk_skipped">
+        <item quantity="one">%1$d selected meeting is left out: this doesn\'t apply to it right now (no audio, no transcript yet, or it is being recorded or has work in progress).</item>
+        <item quantity="other">%1$d selected meetings are left out: this doesn\'t apply to them right now (no audio, no transcript yet, or they are being recorded or have work in progress).</item>
+    </plurals>
+    <string name="storage_bulk_none">This doesn\'t apply to any of the selected meetings right now.</string>
+    <plurals name="storage_bulk_deleted">
+        <item quantity="one">Deleted %1$d meeting</item>
+        <item quantity="other">Deleted %1$d meetings</item>
+    </plurals>
+    <plurals name="storage_tag_title">
+        <item quantity="one">Add a tag to %1$d meeting</item>
+        <item quantity="other">Add a tag to %1$d meetings</item>
+    </plurals>
+    <string name="storage_tag_hint">Tag, for example client-x</string>
+    <string name="storage_tag_add">Add tag</string>
+    <string name="storage_tag_invalid">Enter one tag, without commas.</string>
+    <plurals name="storage_tagged">
+        <item quantity="one">Tagged %1$d meeting</item>
+        <item quantity="other">Tagged %1$d meetings</item>
+    </plurals>
+    <plurals name="storage_exported">
+        <item quantity="one">Exported %1$d meeting</item>
+        <item quantity="other">Exported %1$d meetings</item>
+    </plurals>
+    <string name="storage_export_zip_name">recap-meetings.zip</string>
+
+    <!-- Automatic clean-up rules. -->
+    <string name="storage_retention_title">Automatic clean-up</string>
+    <string name="storage_retention_off">Off</string>
+    <!-- %1$d is a number of days (30 or more). -->
+    <string name="storage_retention_audio_summary">Remove the audio of meetings older than %1$d days</string>
+    <string name="storage_retention_meetings_summary">Delete meetings older than %1$d days</string>
+    <string name="storage_retention_desc">Off unless you turn it on. Starred meetings, meetings changed in the last week, meetings with a reminder still to come, and meetings with work in progress are never touched.</string>
+    <string name="storage_retention_mode_off">Off</string>
+    <string name="storage_retention_mode_audio">Remove old audio, keep transcripts</string>
+    <string name="storage_retention_mode_meetings">Delete old meetings completely</string>
+    <string name="storage_retention_days_title">Clean up meetings older than</string>
+    <plurals name="storage_retention_days">
+        <item quantity="one">%1$d day</item>
+        <item quantity="other">%1$d days</item>
+    </plurals>
+    <string name="storage_retention_checking">Checking which meetings this reaches…</string>
+    <string name="storage_retention_preview_title">Turn on automatic clean-up?</string>
+    <!-- %1$d meetings, %2$s the audio size. -->
+    <plurals name="storage_retention_now_audio">
+        <item quantity="one">Now: the audio of %1$d meeting is removed (%2$s). Its transcript, summary and notes stay.</item>
+        <item quantity="other">Now: the audio of %1$d meetings is removed (%2$s). Their transcripts, summaries and notes stay.</item>
+    </plurals>
+    <plurals name="storage_retention_now_meetings">
+        <item quantity="one">Now: %1$d meeting is deleted, with its transcript, summary, notes, photos, attachments and audio.</item>
+        <item quantity="other">Now: %1$d meetings are deleted, with their transcripts, summaries, notes, photos, attachments and audio.</item>
+    </plurals>
+    <string name="storage_retention_now_none">Now: nothing is old enough yet.</string>
+    <!-- %1$d is the rule's number of days. -->
+    <string name="storage_retention_later_audio">After that, Recap checks once a day and removes the audio of meetings as they pass %1$d days. A quiet notification says when it has removed something.</string>
+    <string name="storage_retention_later_meetings">After that, Recap checks once a day and deletes meetings as they pass %1$d days. A quiet notification says when it has deleted something. Deleted meetings can\'t be recovered.</string>
+    <string name="storage_retention_kept">Never touched: starred meetings, meetings changed in the last week, meetings with a reminder still to come, and meetings being recorded, transcribed or summarised or with a job waiting. Removing old audio also skips recordings that have no transcript yet.</string>
+    <plurals name="storage_retention_more">
+        <item quantity="one">…and %1$d more</item>
+        <item quantity="other">…and %1$d more</item>
+    </plurals>
+    <string name="storage_retention_turn_on">Turn on</string>
+    <string name="storage_retention_turn_on_now">Turn on and clean up now</string>
+    <string name="storage_retention_on">Automatic clean-up is on.</string>
+    <string name="storage_retention_off_toast">Automatic clean-up is off.</string>
+    <string name="storage_retention_review_title">Clean up old meetings now?</string>
+    <string name="storage_retention_review_confirm">Delete now</string>
+    <string name="storage_retention_review_later">Not now</string>
+    <string name="storage_retention_review_turn_off">Turn off clean-up</string>
+    <plurals name="storage_retention_done_audio">
+        <item quantity="one">Removed the audio of %1$d meeting and freed %2$s</item>
+        <item quantity="other">Removed the audio of %1$d meetings and freed %2$s</item>
+    </plurals>
+    <plurals name="storage_retention_done_meetings">
+        <item quantity="one">Deleted %1$d old meeting</item>
+        <item quantity="other">Deleted %1$d old meetings</item>
+    </plurals>
+
+    <!-- Clean-up notifications (quiet channel). -->
+    <string name="storage_notif_channel">Storage clean-up</string>
+    <!-- %1$d is the rule's number of days. -->
+    <string name="storage_notif_audio_text">Meetings older than %1$d days. Their transcripts are kept.</string>
+    <string name="storage_notif_meetings_text">Meetings older than %1$d days, as set in Settings → Storage and clean-up.</string>
+    <plurals name="storage_notif_review_title">
+        <item quantity="one">%1$d old meeting is due for clean-up</item>
+        <item quantity="other">%1$d old meetings are due for clean-up</item>
+    </plurals>
+    <string name="storage_notif_review_text">More than usual at once, so nothing was deleted. Tap to review.</string>
+</resources>
