@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The recording notification's redacted lock-screen version (RecordingService
+     buildNotification). With "hide sensitive content" on, SystemUI draws only
+     the public version's collapsed view, which never includes actions, so
+     Mark moment lives in this content view instead. It must name nothing
+     about the meeting: a generic line and the one button. RemoteViews-safe
+     views only. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:gravity="center_vertical"
+    android:orientation="horizontal">
+
+    <TextView
+        android:id="@+id/notifPublicTitle"
+        style="@style/TextAppearance.Compat.Notification.Title"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="1" />
+
+    <!-- A service PendingIntent, so the tap needs no unlock. -->
+    <Button
+        android:id="@+id/notifPublicMark"
+        style="?android:attr/borderlessButtonStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:minWidth="48dp"
+        android:minHeight="48dp"
+        android:text="@string/services_notif_mark"
+        android:textAppearance="@style/TextAppearance.Compat.Notification.Title" />
+</LinearLayout>
