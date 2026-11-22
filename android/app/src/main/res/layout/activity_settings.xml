@@ -316,6 +316,25 @@
                             app:cornerRadius="22dp"
                             app:strokeColor="?attr/colorOutline" />
 
+                        <!-- Speech gate: every on-device model, so above the
+                             Whisper-only options below. -->
+                        <com.google.android.material.materialswitch.MaterialSwitch
+                            android:id="@+id/vadSwitch"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="18dp"
+                            android:text="@string/vad_setting_title"
+                            android:textAppearance="?attr/textAppearanceTitleSmall"
+                            android:textColor="?attr/colorOnSurface" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:text="@string/vad_setting_desc"
+                            android:textAppearance="?attr/textAppearanceBodySmall"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/translateSwitch"
                             android:layout_width="match_parent"
