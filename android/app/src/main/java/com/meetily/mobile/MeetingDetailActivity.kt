@@ -831,10 +831,18 @@ class MeetingDetailActivity : AppCompatActivity() {
         tagHint.text = getString(
             when {
                 m.segments.isNotEmpty() -> R.string.tap_to_tag_hint
-                // Recorded as audio only with no model on the phone: say how
-                // to get the words, not that none were captured.
-                m.audioFile != null && com.meetily.mobile.whisper.TranscriptionModels
-                    .downloadedKeys(this).isEmpty() -> R.string.privacy_transcript_needs_model
+                // Recorded as audio only: say how to get the words, not that
+                // none were captured. With no model on the phone that starts
+                // with a download; once one is there, the manual check is the
+                // route, since nothing transcribes an earlier meeting by itself.
+                m.audioFile != null ->
+                    if (com.meetily.mobile.whisper.TranscriptionModels
+                            .downloadedKeys(this).isEmpty()
+                    ) {
+                        R.string.privacy_transcript_needs_model
+                    } else {
+                        R.string.privacy_transcript_ready
+                    }
                 else -> R.string.no_transcript
             }
         )

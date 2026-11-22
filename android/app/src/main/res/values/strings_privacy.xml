@@ -3,7 +3,11 @@
     <!-- One-time offer to installs kept on Android's speech service when the
          default engine became on-device (AppSettings.migrateEngineDefault). -->
     <string name="privacy_engine_notice_title">Transcribe on this phone?</string>
-    <string name="privacy_engine_notice_body">Recap now transcribes meetings on the phone by default. Your meetings still go through Android\'s speech service, which may send the audio to Google\'s servers and keeps no recording to re-transcribe later.\n\nSwitch to on-device transcription? It needs a one-time model download (Settings → Transcription), and you can switch back at any time.</string>
+    <string name="privacy_engine_notice_body">Recap now transcribes meetings on the phone by default. Your meetings still go through Android\'s speech service, which may send the audio to Google\'s servers and keeps no recording to re-transcribe later.\n\nSwitch to on-device transcription? It needs a one-time model download (Settings → Transcription), and you can switch back at any time. With on-device transcription the words appear after the meeting, not as you speak, unless you turn on Transcribe live in Settings.</string>
+    <!-- The same offer when "Prefer on-device transcription" is on and the
+         phone has an offline recognizer, so the speech service is not sending
+         audio anywhere (the test RecordingService.createRecognizer makes). -->
+    <string name="privacy_engine_notice_body_offline">Recap now transcribes meetings on the phone by default. Your meetings still use your phone\'s offline speech model, which keeps no recording to re-transcribe later.\n\nSwitch to on-device transcription? It needs a one-time model download (Settings → Transcription), and you can switch back at any time. With on-device transcription the words appear after the meeting, not as you speak, unless you turn on Transcribe live in Settings.</string>
     <string name="privacy_engine_notice_switch">Use on-device</string>
     <string name="privacy_engine_notice_keep">Keep current</string>
 
@@ -16,6 +20,10 @@
     <!-- A meeting recorded as audio only while no transcription model was
          downloaded (the first meeting of a fresh install, typically). -->
     <string name="privacy_transcript_needs_model">No transcript yet. The audio is saved: download a transcription model in Settings → Transcription, then choose ⋮ → Check transcript accuracy to transcribe it on this phone.</string>
+    <!-- The same meeting once a model is on the phone. A meeting recorded
+         before the download is not transcribed on its own, so the manual
+         route is still the one to name. -->
+    <string name="privacy_transcript_ready">No transcript yet. The audio is saved: choose ⋮ → Check transcript accuracy to transcribe it on this phone.</string>
 
     <!-- Shown under the Photos heading of a meeting, where photo text reading
          (PhotoOcr, Google ML Kit) is offered and runs. -->

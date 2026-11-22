@@ -63,6 +63,14 @@ class SettingsActivity : AppCompatActivity() {
 
     private var downloading = false
 
+    /**
+     * The switch to Android's speech service was already confirmed on this
+     * screen. Kept across recreation: the restored switch state runs the
+     * change listener again, and Cancel on a second dialog would undo a
+     * choice the user has already made.
+     */
+    private var systemEngineConfirmed = false
+
     private val exportBackup =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
             uri?.let { writeBackup(it, null) }
@@ -278,6 +286,8 @@ class SettingsActivity : AppCompatActivity() {
         offlineSwitch.isChecked = settings.preferOfflineRecognition
         muteSoundsSwitch.isChecked = settings.muteRecognizerSounds
         whisperSwitch.isChecked = settings.transcriptionEngine == "whisper"
+        systemEngineConfirmed =
+            savedInstanceState?.getBoolean(KEY_SYSTEM_ENGINE_OK, false) ?: false
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
         findViewById<MaterialSwitch>(R.id.liveTranscriptionSwitch).isChecked =
@@ -333,7 +343,11 @@ class SettingsActivity : AppCompatActivity() {
             if (checked && !WhisperModels.isRuntimeAvailable()) {
                 Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG).show()
             }
-            if (!checked) confirmSystemEngine()
+            if (checked) {
+                systemEngineConfirmed = false
+            } else if (!systemEngineConfirmed) {
+                confirmSystemEngine()
+            }
         }
         manageModelsButton.setOnClickListener { showModelDialog() }
         diarizeSwitch.setOnCheckedChangeListener { _, _ -> updateDiarizeSection() }
@@ -545,12 +559,19 @@ class SettingsActivity : AppCompatActivity() {
                 if (offlineRecognizer) R.string.privacy_system_engine_body_offline
                 else R.string.privacy_system_engine_body
             )
-            .setPositiveButton(R.string.privacy_system_engine_confirm, null)
+            .setPositiveButton(R.string.privacy_system_engine_confirm) { _, _ ->
+                systemEngineConfirmed = true
+            }
             .setNegativeButton(android.R.string.cancel) { _, _ ->
                 whisperSwitch.isChecked = true
             }
             .setOnCancelListener { whisperSwitch.isChecked = true }
             .show()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_SYSTEM_ENGINE_OK, systemEngineConfirmed)
     }
 
     private fun persistAll() {
@@ -1663,5 +1684,8 @@ class SettingsActivity : AppCompatActivity() {
     companion object {
         /** Voiceprint capture window; the countdown bar drains over this. */
         private const val ENROLL_MS = 15_000L
+
+        /** Saved-state key for [systemEngineConfirmed]. */
+        private const val KEY_SYSTEM_ENGINE_OK = "sys_engine_ok"
     }
 }

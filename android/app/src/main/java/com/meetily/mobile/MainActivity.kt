@@ -379,9 +379,19 @@ class MainActivity : AppCompatActivity() {
         // in progress keeps the engine it started with; both wait a launch.
         if (com.meetily.mobile.diag.CrashLog.pendingCrash(this) != null) return
         if (RecordingService.isRunning) return
+        // Only claim the audio may go to Google's servers when it may: with
+        // "Prefer on-device transcription" on and an offline recognizer on
+        // the phone, RecordingService.createRecognizer uses that instead (the
+        // same test SettingsActivity.confirmSystemEngine makes).
+        val offlineRecognizer = settings.preferOfflineRecognition &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+            android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
         AlertDialog.Builder(this)
             .setTitle(R.string.privacy_engine_notice_title)
-            .setMessage(R.string.privacy_engine_notice_body)
+            .setMessage(
+                if (offlineRecognizer) R.string.privacy_engine_notice_body_offline
+                else R.string.privacy_engine_notice_body
+            )
             .setPositiveButton(R.string.privacy_engine_notice_switch) { _, _ ->
                 settings.onDeviceEngineNoticePending = false
                 settings.transcriptionEngine = com.meetily.mobile.data.EngineDefault.ON_DEVICE

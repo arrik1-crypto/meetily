@@ -472,7 +472,7 @@
          or transcripts CAN leave: a cloud-backed system recognizer, or a
          remote summarisation endpoint. An absolute privacy claim that the
          configuration does not keep is worse than a modest true one. -->
-    <string name="tap_to_record_mixed">Tap to record — runs on this phone by default</string>
+    <string name="tap_to_record_mixed">Tap to record — some processing may leave this phone (see Settings)</string>
     <string name="orb_recording_caption">Recording — tap to return</string>
     <string name="theme_toggle">Switch theme</string>
     <string name="import_pill">Import a recording</string>
@@ -555,7 +555,7 @@
 
     <string name="onboarding_title">Welcome to Recap</string>
     <string name="onboarding_intro">A private meeting recorder that transcribes, takes notes, and summarizes — on your device.</string>
-    <string name="onboarding_points">• Record and transcribe live, even in the background\n• Tag speakers, highlight key moments, snap the whiteboard\n• Summaries and \"ask this meeting\" via a local or your own LLM\n• Offline transcription on the phone with Whisper, Parakeet or Nemotron\n• Your meetings stay on your phone unless you choose to send them</string>
+    <string name="onboarding_points">• Record, even in the background, and get the transcript on your phone after the meeting (live words optional in Settings)\n• Tag speakers, highlight key moments, snap the whiteboard\n• Summaries and \"ask this meeting\" via a local or your own LLM\n• Offline transcription on the phone with Whisper, Parakeet or Nemotron\n• Your meetings stay on your phone unless you choose to send them</string>
     <string name="onboarding_privacy">Recap transcribes on this phone by default. Download a transcription model once in Settings; until then, meetings are kept as audio to transcribe later. Your meetings leave the phone only if you share them, switch to Android\'s speech service, or connect an AI endpoint. Reading text in photos uses Google\'s ML Kit, which sends Google diagnostic data, never the photos. Details are in the privacy policy in Settings.</string>
     <string name="onboarding_start">Get started</string>
 
