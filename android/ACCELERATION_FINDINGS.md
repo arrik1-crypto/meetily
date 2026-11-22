@@ -68,7 +68,12 @@ What rules it out for now, in order of severity:
 4. **Positioning.** ML Kit contacts Google for model updates and sends usage
    metrics. Meeting *content* stays on the device, which is the promise that
    matters, but "nothing leaves your phone" is harder to defend flatly than
-   it is with llama.cpp, where we own the whole stack.
+   it is with llama.cpp, where we own the whole stack. (Update, 2026-11:
+   the app no longer makes that flat claim anyway. The ML Kit text
+   recognition it already bundles for photo OCR sends Google device, app
+   and performance diagnostics, which the privacy policy and the Data
+   safety answers in PLAY_RELEASE.md §4 now disclose. Adopting the GenAI
+   APIs would add to that, not create it.)
 
 Terms worth noting before any adoption: the ML Kit GenAI additional terms bar
 use in services likely to be accessed by under-18s, and bar developing
