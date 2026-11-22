@@ -249,7 +249,7 @@ class AudioFileImporter(
         // What was spoken, as far as this run knows it yet: the pin, or for
         // Whisper on auto nothing until the first batch has been detected.
         meeting.language = if (nemoModel != null) {
-            MeetingLanguage.nemoRecorded(pinned, nemoModel.englishOnly)
+            MeetingLanguage.nemoRecorded(pinned, nemoModel.englishOnly, nemoModel.languagePrompt)
         } else {
             MeetingLanguage.whisperRecorded(whisperLanguage)
         }

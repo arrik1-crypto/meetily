@@ -60,21 +60,38 @@ object ActionItems {
         "n/a",
         "na",
         "not applicable",
-        // The same placeholder from a model asked to write in another
-        // language (OutputLanguage): "none" in the commonest ones.
-        "keine",
-        "aucune",
-        "aucun",
-        "ninguna",
-        "ninguno",
-        "nessuna",
-        "nessuno",
+        // Languages written without spaces, where the short-phrase rule
+        // below cannot find a first word.
+        "なし",
+        "特になし",
+        "无",
+        "暂无",
+        "없음",
+        "нет"
+    )
+
+    /**
+     * "None" in English and the commonest languages a summary is written
+     * in (OutputLanguage). A model asked for German writes "Keine
+     * identifiziert", French "Aucun identifié": a short phrase that opens
+     * with one of these is the same placeholder in another language.
+     */
+    private val NONE_WORDS = setOf(
+        "none", "nothing",
+        "keine", "kein", "keiner",
+        "aucun", "aucune",
+        "ninguno", "ninguna", "nada",
+        "nessuno", "nessuna",
         "geen",
         "ingen",
-        "nenhuma",
-        "nenhum",
+        "nenhum", "nenhuma",
         "brak"
     )
+
+    /** Longest phrase [NONE_WORDS] can open and still be a placeholder. */
+    private const val MAX_NONE_PHRASE_WORDS = 3
+
+    private val SPACES = Regex("\\s+")
 
     /** True when [text] is a not-found placeholder rather than a real task. */
     fun isPlaceholderTask(text: String): Boolean {
@@ -85,7 +102,12 @@ object ActionItems {
             .trimEnd('.', '!', ',', ';', ':')
             .trim()
             .lowercase()
-        return cleaned.isEmpty() || cleaned in PLACEHOLDER_TASKS
+        if (cleaned.isEmpty() || cleaned in PLACEHOLDER_TASKS) return true
+        // Three words at most, so a real task that opens with "none of" or
+        // "keine Angst" is left alone.
+        val words = cleaned.split(SPACES)
+        return words.size <= MAX_NONE_PHRASE_WORDS &&
+            words.first().trimEnd(',', ':', ';') in NONE_WORDS
     }
 
     /**

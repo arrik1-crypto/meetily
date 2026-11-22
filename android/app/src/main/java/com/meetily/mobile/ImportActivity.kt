@@ -301,10 +301,16 @@ class ImportActivity : AppCompatActivity() {
         }
 
     private fun beginImport(uri: Uri, downloaded: List<String>) {
-        // One downloaded model: nothing to choose. Otherwise ask which model
-        // should transcribe THIS file (heavier models suit imports better
-        // than live capture, so the per-run choice matters here).
-        //
+        // Ask which model should transcribe THIS file (heavier models suit
+        // imports better than live capture, so the per-run choice matters
+        // here). One downloaded model leaves no model to choose, but the sheet
+        // still carries this file's spoken language when that model can be
+        // told one; that one model, which is the usual setup, would otherwise
+        // never show the language at all. Only a single model that takes no
+        // language starts straight away.
+        val ask = downloaded.size > 1 ||
+            com.meetily.mobile.whisper.TranscriptionModels.acceptsLanguage(downloaded.first())
+
         // Both the display name and the duration are read off a content://
         // URI that may be backed by a cloud provider, where each probe is a
         // network fetch. They used to run on the main thread inside onCreate —
@@ -314,14 +320,14 @@ class ImportActivity : AppCompatActivity() {
         // activity drew at all. Probe once, off the main thread, then show.
         Thread {
             val fileName = displayName(uri)
-            val durationMs = if (downloaded.size == 1) 0L else sourceDurationMs(uri)
+            val durationMs = if (ask) sourceDurationMs(uri) else 0L
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 fileNameView.text = fileName
-                if (downloaded.size == 1) {
-                    startImport(uri, fileName, downloaded.first())
-                } else {
+                if (ask) {
                     showModelPicker(uri, fileName, downloaded, durationMs)
+                } else {
+                    startImport(uri, fileName, downloaded.first())
                 }
             }
         }.apply {

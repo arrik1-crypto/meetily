@@ -3856,6 +3856,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         val model = settings.llmModel
         val localOnly = settings.localOnlyLlm
         val segmentsSnapshot = m.segments.toList()
+        val englishHeuristics = com.meetily.mobile.data.MeetingLanguage
+            .englishHeuristics(m.transcriptLanguage())
         val meetingId = m.id
         val store = this.store
         Thread {
@@ -3898,7 +3900,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             }
             if (chapters.isEmpty()) {
-                chapters = TopicChapters.buildLocal(segmentsSnapshot)
+                chapters = TopicChapters.buildLocal(segmentsSnapshot, englishHeuristics)
             }
             val result = chapters
             // SAVE FIRST, on this thread, against a freshly loaded copy: the

@@ -39,6 +39,61 @@ class TopicChaptersTest {
         )
     }
 
+    /** Two German sections, budget then travel, with the usual particles in both. */
+    private fun germanMeeting(): List<TranscriptSegment> = buildList {
+        listOf(
+            "Aber das Budget ist noch nicht fertig, aber die Zahlen fehlen noch.",
+            "Das Budget wurde noch nicht freigegeben, aber Anna prüft es.",
+            "Nicht alles im Budget ist klar, aber wir sind noch dran.",
+            "Aber die Kosten sind noch nicht vollständig, nicht einmal die Miete.",
+            "Noch ist das Budget nicht abgeschlossen, aber bald.",
+            "Wir müssen das Budget aber noch nicht heute beschließen."
+        ).forEachIndexed { i, text -> add(segment(i * 20L, text)) }
+        listOf(
+            "Die Reise nach Berlin ist noch nicht gebucht, aber geplant.",
+            "Aber die Reise kostet noch nicht so viel, nicht wahr?",
+            "Für die Reise brauchen wir noch Hotels, aber nicht teure.",
+            "Nicht jeder kommt mit auf die Reise, aber die meisten noch.",
+            "Die Reise beginnt noch nicht im Mai, aber im Juni.",
+            "Aber die Reise wird noch nicht bezahlt, nicht vor Juli."
+        ).forEachIndexed { i, text -> add(segment(240 + i * 20L, text)) }
+    }
+
+    private fun titleWords(chapters: List<Chapter>): List<String> =
+        chapters.flatMap { it.title.lowercase().split(" · ") }
+
+    @Test
+    fun anotherLanguagesParticlesDoNotTitleItsChapters() {
+        // The English stopword list knows nothing of German: "aber", "noch"
+        // and "nicht" are the commonest words in both sections.
+        val unguarded = TopicChapters.buildLocal(germanMeeting())
+        assertTrue(
+            "expected a particle in ${unguarded.map { it.title }}",
+            titleWords(unguarded).any { it in setOf("aber", "noch", "nicht") }
+        )
+        val chapters = TopicChapters.buildLocal(germanMeeting(), englishHeuristics = false)
+        assertEquals(2, chapters.size)
+        assertEquals(listOf(0L, 240_000L), chapters.map { it.startMs })
+        for (particle in listOf("aber", "noch", "nicht")) {
+            assertTrue(
+                "$particle in ${chapters.map { it.title }}",
+                particle !in titleWords(chapters)
+            )
+        }
+        assertTrue(chapters[0].title.contains("budget", ignoreCase = true))
+        assertTrue(chapters[1].title.contains("reise", ignoreCase = true))
+    }
+
+    @Test
+    fun englishChaptersAreUnchangedByTheDefault() {
+        val segments = (0 until 6).map { segment(it * 20L, "budget forecast and the revision pass") } +
+            (0 until 6).map { segment(240 + it * 20L, "hiring pipeline and the interview loop") }
+        assertEquals(
+            TopicChapters.buildLocal(segments),
+            TopicChapters.buildLocal(segments, englishHeuristics = true)
+        )
+    }
+
     @Test
     fun shortTranscriptsProduceNoChapters() {
         val segments = (0 until 5).map { segment(it * 10L, "quick chat line $it") }

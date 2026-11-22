@@ -164,4 +164,32 @@ class OutputLanguageTest {
         assertTrue(ActionItems.isPlaceholderTask("- aucune"))
         assertFalse(ActionItems.isPlaceholderTask("Keine Angst vor dem Budget zeigen"))
     }
+
+    @Test
+    fun actionItems_aTranslatedNoneIdentifiedIsNotATask() {
+        // "None identified" as the shared rules ask for it, in the summary's language.
+        for (text in listOf(
+            "Keine identifiziert", "Keine erkannt.", "Aucun identifié", "Aucune action",
+            "Ninguno identificado", "Nessuno identificato", "Geen geïdentificeerd",
+            "Ingen identifierade", "Nenhum identificado", "Brak", "なし"
+        )) {
+            assertTrue("expected placeholder: $text", ActionItems.isPlaceholderTask(text))
+        }
+        val (_, items) = ActionItems.splitLlmOutput(
+            "## Aufgaben\nKeine identifiziert\n\n${ActionItems.MARKER} " +
+                "[{\"task\":\"Keine identifiziert\",\"owner\":null}]"
+        )
+        assertEquals(emptyList<ActionItem>(), items)
+        // A real task that opens with the same word is longer than a placeholder.
+        assertFalse(ActionItems.isPlaceholderTask("Keine Termine im Mai mehr annehmen"))
+        assertFalse(ActionItems.isPlaceholderTask("Aucun envoi avant la réponse du juridique"))
+    }
+
+    @Test
+    fun clause_asksForAnEmptyArrayRatherThanAPlaceholder() {
+        assertTrue(
+            OutputLanguage.clause(Kind.SUMMARY, "de", "de")
+                .endsWith(" If there are no action items, the JSON array must be empty ([]).")
+        )
+    }
 }

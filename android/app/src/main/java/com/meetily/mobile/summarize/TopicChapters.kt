@@ -21,7 +21,16 @@ object TopicChapters {
     private const val MIN_SEGMENTS = 8
     private const val MIN_SECTION_SEGMENTS = 3
 
-    fun buildLocal(segments: List<TranscriptSegment>): List<Chapter> {
+    /**
+     * [englishHeuristics] false (a transcript known to be in another
+     * language; see MeetingLanguage.englishHeuristics) swaps the English
+     * stopword list for [commonWords], so titles are not built from that
+     * language's "nicht" and "aber".
+     */
+    fun buildLocal(
+        segments: List<TranscriptSegment>,
+        englishHeuristics: Boolean = true
+    ): List<Chapter> {
         if (segments.size < MIN_SEGMENTS) return emptyList()
 
         val sections = mutableListOf<MutableList<TranscriptSegment>>()
@@ -54,7 +63,13 @@ object TopicChapters {
         }
         if (merged.size < 2) return emptyList()
 
-        val counts = merged.map(::wordCounts)
+        val counts = if (englishHeuristics) {
+            merged.map { wordCounts(it, STOPWORDS) }
+        } else {
+            val raw = merged.map { wordCounts(it, emptySet()) }
+            val common = commonWords(raw, segments)
+            raw.map { section -> section.filterKeys { it !in common } }
+        }
         return merged.mapIndexed { index, section ->
             Chapter(
                 title = titleFor(index, counts),
@@ -84,16 +99,45 @@ object TopicChapters {
 
     private val NON_TOKEN = Regex("[^\\p{L}\\p{N}']+")
 
-    private fun wordCounts(section: List<TranscriptSegment>): Map<String, Int> {
+    private fun wordCounts(section: List<TranscriptSegment>, stopwords: Set<String>): Map<String, Int> {
         val counts = HashMap<String, Int>()
         for (seg in section) {
             for (raw in seg.text.split(NON_TOKEN)) {
                 val word = raw.lowercase(Locale.getDefault()).trim('\'')
-                if (word.length < 4 || word in STOPWORDS) continue
+                if (word.length < 4 || word in stopwords) continue
                 counts[word] = (counts[word] ?: 0) + 1
             }
         }
         return counts
+    }
+
+    /**
+     * A stand-in stopword list for a language without one: the words found
+     * in more than half of the [sections], and those in a third or more of
+     * all the [segments] (ExtractiveSummarizer.commonWords) that occur in
+     * more than one section.
+     *
+     * The distinctiveness score does not do this on its own. It divides by
+     * how often a word occurs elsewhere, so a function word spread evenly
+     * over two sections still scores about its own count, and the commonest
+     * words of a language have the highest counts there are. A word that
+     * stays inside one section is never dropped: in a short meeting that
+     * section's own subject can fill a third of all the lines.
+     */
+    internal fun commonWords(
+        sections: List<Map<String, Int>>,
+        segments: List<TranscriptSegment>
+    ): Set<String> {
+        val sectionFrequency = HashMap<String, Int>()
+        for (section in sections) {
+            for (word in section.keys) {
+                sectionFrequency[word] = (sectionFrequency[word] ?: 0) + 1
+            }
+        }
+        val dense = ExtractiveSummarizer.commonWords(segments.map { it.text })
+        return sectionFrequency.filter { (word, inSections) ->
+            inSections * 2 > sections.size || (inSections > 1 && word in dense)
+        }.keys
     }
 
     private val STOPWORDS = setOf(

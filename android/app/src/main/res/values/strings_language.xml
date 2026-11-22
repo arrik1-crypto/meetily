@@ -10,7 +10,7 @@
 
     <!-- Settings > Transcription. -->
     <string name="language_spoken_title">Spoken language</string>
-    <string name="language_spoken_desc">Auto-detect suits most meetings. Choose a language only when detection gets it wrong, for example when a meeting opens in a different language from the rest: a wrong choice turns the whole transcript into nonsense. Used by multilingual Whisper models and Nemotron 3.5. Parakeet v3 takes no language hint and always detects the language itself, and English-only models always transcribe English. One import or one meeting can use a different language.</string>
+    <string name="language_spoken_desc">Auto-detect suits most meetings. Choose a language only when detection gets it wrong, for example when a meeting opens in a different language from the rest: a wrong choice turns the whole transcript into nonsense. Used by multilingual Whisper models, and by Nemotron 3.5 for every language here except Indonesian and Malay, which it has no setting for. Parakeet v3 takes no language hint and always detects the language itself, and English-only models always transcribe English. One import or one meeting can use a different language.</string>
     <string name="language_spoken_button_desc">Spoken language: %1$s</string>
     <string name="language_change_spoken">Change spoken language</string>
 
@@ -32,7 +32,13 @@
     <string name="language_retranscribe_auto_title">Re-transcribe with auto-detect?</string>
     <string name="language_retranscribe_body">%1$s transcribes the saved audio again. The new transcript is shown beside the current one, and nothing is replaced until you choose to use it.\n\nOn this phone that is %2$s for this meeting.</string>
     <string name="language_transcribe_body">%1$s transcribes the saved audio. This meeting has no transcript yet, so the result becomes its transcript.\n\nOn this phone that is %2$s for this meeting.</string>
+    <!-- The same two without the time estimate, for audio whose length is not known. -->
+    <string name="language_retranscribe_body_no_estimate">%1$s transcribes the saved audio again. The new transcript is shown beside the current one, and nothing is replaced until you choose to use it.</string>
+    <string name="language_transcribe_body_no_estimate">%1$s transcribes the saved audio. This meeting has no transcript yet, so the result becomes its transcript.</string>
     <string name="language_retranscribe_go">Re-transcribe</string>
     <string name="language_choose_model">Re-transcribe with which model?</string>
     <string name="language_needs_model">Choosing the language needs a multilingual Whisper model or Nemotron 3.5: Parakeet and English-only models cannot be told which language to expect. Download one in Settings, Transcription.</string>
+    <!-- %1$s is a language name, for one Nemotron 3.5 has no setting for. -->
+    <string name="language_needs_whisper">%1$s needs a multilingual Whisper model: Nemotron 3.5 has no setting for it, and Parakeet and English-only models cannot be told which language to expect. Download one in Settings, Transcription.</string>
+    <string name="language_auto_needs_whisper">Detecting the language again needs a multilingual Whisper model: Parakeet, Nemotron and English-only models do not report the language they hear, so the meeting would keep the language it has now. Download one in Settings, Transcription.</string>
 </resources>

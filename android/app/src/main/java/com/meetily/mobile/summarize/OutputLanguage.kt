@@ -53,11 +53,14 @@ object OutputLanguage {
             // The JSON tail (ActionItems.LLM_INSTRUCTIONS) is parsed by its
             // marker and keys, so those must survive a model that takes
             // "write everything in German" too literally; the task text
-            // inside it should not stay English.
+            // inside it should not stay English. The empty-array sentence is
+            // here because a translated "None identified" placeholder is
+            // harder to recognise than the English one (ActionItems).
             Kind.SUMMARY -> " Write the summary in $name, headings and action items " +
                 "included, even though these instructions are in English. Keep names " +
                 "and quoted terms as spoken. Keep the final line's marker and its " +
-                "JSON keys exactly as specified."
+                "JSON keys exactly as specified. If there are no action items, the " +
+                "JSON array must be empty ([])."
             Kind.ANSWER -> " Answer in $name."
             Kind.NOTES -> " Write the notes in $name."
             Kind.TITLE -> " Write the title in $name."

@@ -1095,11 +1095,19 @@ class RecordingService : Service() {
                 WhisperModels.fileFor(this, model).absolutePath
             },
             modelKey = model.key,
-            // Also what the NeMo path records as the language; see knownLanguage.
-            languageHint = com.meetily.mobile.data.MeetingLanguage.whisperArgument(
-                com.meetily.mobile.data.MeetingLanguage.pinFor(null, settings.spokenLanguage),
-                englishOnly
-            ),
+            // Also what the NeMo path records as the language (see
+            // knownLanguage); NeMo itself was told its language at load.
+            languageHint = com.meetily.mobile.data.MeetingLanguage.pinFor(
+                null, settings.spokenLanguage
+            ).let { pin ->
+                if (nemoEngine != null && nemoModel != null) {
+                    com.meetily.mobile.data.MeetingLanguage.nemoRecorded(
+                        pin, nemoModel.englishOnly, nemoModel.languagePrompt
+                    ) ?: com.meetily.mobile.data.MeetingLanguage.AUTO
+                } else {
+                    com.meetily.mobile.data.MeetingLanguage.whisperArgument(pin, englishOnly)
+                }
+            },
             // Translate + vocab prompts are whisper features; NeMo models
             // transcribe in the spoken language and ignore both.
             translate = nemoEngine == null &&

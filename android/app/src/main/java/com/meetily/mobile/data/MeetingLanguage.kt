@@ -131,9 +131,19 @@ object MeetingLanguage {
      * English-only model, otherwise the pin, which is the user's own word
      * for what was spoken. NeMo reports no detected language, so an
      * unpinned run records nothing.
+     *
+     * Nothing either when Nemotron 3.5 ([languagePrompt]) was pinned to a
+     * language it has no prompt for: [nemoOption] ran it on auto, so what
+     * it decoded is not known, and recording the pin would switch summaries
+     * and the English heuristics to a language the text may not be in.
+     * Parakeet takes no hint at all, so for it the pin stays the user's word.
      */
-    fun nemoRecorded(pinned: String?, englishOnly: Boolean): String? =
-        if (englishOnly) "en" else pinned
+    fun nemoRecorded(pinned: String?, englishOnly: Boolean, languagePrompt: Boolean): String? =
+        when {
+            englishOnly -> "en"
+            languagePrompt && !nemotronSupports(pinned) -> null
+            else -> pinned
+        }
 
     /**
      * What a Whisper run records, given the language variable it ended with:

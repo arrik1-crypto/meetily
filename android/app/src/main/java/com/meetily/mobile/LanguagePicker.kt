@@ -2,13 +2,16 @@ package com.meetily.mobile
 
 import android.app.Activity
 import android.content.Context
+import android.media.MediaMetadataRetriever
 import android.view.View
 import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
+import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingLanguage
 import com.meetily.mobile.summarize.OutputLanguage
 import com.meetily.mobile.whisper.TranscriptionModels
+import java.io.File
 import java.text.Collator
 import java.util.Locale
 
@@ -125,8 +128,54 @@ object LanguagePicker {
             m.language
         ) { language ->
             if (activity.isFinishing || activity.isDestroyed) return@show
-            chooseModel(activity, m, audioMs, language, start)
+            withAudioLength(activity, m, audioMs) { length ->
+                chooseModel(activity, m, length, language, start)
+            }
         }
+    }
+
+    /**
+     * [audioMs], or when that is unknown the saved audio's own length, read
+     * off the main thread. A meeting with no transcript has no timings to
+     * measure, and quoting the one-minute floor for an hour of audio told
+     * the user a long run was a short one. 0 when neither is known.
+     */
+    private fun withAudioLength(
+        activity: Activity,
+        m: Meeting,
+        audioMs: Long,
+        then: (Long) -> Unit
+    ) {
+        val audioName = m.audioFile
+        if (audioMs > 0L || audioName.isNullOrBlank()) {
+            then(audioMs)
+            return
+        }
+        val file = AudioStore.fileFor(activity, audioName)
+        Thread {
+            val probed = durationMs(file)
+            activity.runOnUiThread {
+                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
+                then(probed)
+            }
+        }.apply {
+            name = "language-audio-length"
+            start()
+        }
+    }
+
+    /** Container-reported length of [file]; 0 when it reports none. */
+    private fun durationMs(file: File): Long = try {
+        val mmr = MediaMetadataRetriever()
+        try {
+            mmr.setDataSource(file.absolutePath)
+            mmr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
+                ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L
+        } finally {
+            mmr.release()
+        }
+    } catch (_: Throwable) {
+        0L
     }
 
     private fun chooseModel(
@@ -144,16 +193,24 @@ object LanguagePicker {
             return
         }
         val pinned = MeetingLanguage.normalize(language)
-        // A pinned language needs a model that can be told one. On auto any
-        // model will do.
+        // A pinned language needs a model that can be told that language.
+        // Auto needs one that reports what it heard: a NeMo or English-only
+        // pass records no detected language, and an accepted pass keeps the
+        // old one, so a wrong language could never be corrected that way.
         val candidates = if (pinned == null) {
-            downloaded
+            downloaded.filter { TranscriptionModels.detectsLanguage(it) }
         } else {
-            downloaded.filter { TranscriptionModels.acceptsLanguage(it) }
+            downloaded.filter { TranscriptionModels.acceptsLanguage(it, pinned) }
         }
         if (candidates.isEmpty()) {
+            val message = when {
+                pinned == null -> activity.getString(R.string.language_auto_needs_whisper)
+                !MeetingLanguage.nemotronSupports(pinned) ->
+                    activity.getString(R.string.language_needs_whisper, displayName(pinned))
+                else -> activity.getString(R.string.language_needs_model)
+            }
             AlertDialog.Builder(activity)
-                .setMessage(R.string.language_needs_model)
+                .setMessage(message)
                 .setPositiveButton(android.R.string.ok, null)
                 .show()
             return
@@ -216,14 +273,23 @@ object LanguagePicker {
         } else {
             activity.getString(R.string.language_retranscribe_title, displayName(pinned))
         }
-        val body = activity.getString(
-            // No words yet: the pass writes the transcript instead of
-            // staging a comparison (see ImportService.firstTranscript).
-            if (m.segments.isEmpty()) R.string.language_transcribe_body
-            else R.string.language_retranscribe_body,
-            TranscriptionModels.displayName(modelKey),
-            com.meetily.mobile.whisper.ModelSpeed.estimateLabel(activity, modelKey, audioMs)
-        )
+        val modelName = TranscriptionModels.displayName(modelKey)
+        // No words yet: the pass writes the transcript instead of staging a
+        // comparison (see ImportService.firstTranscript). With no known
+        // length there is no estimate, rather than the one-minute floor.
+        val body = when {
+            audioMs <= 0L -> activity.getString(
+                if (m.segments.isEmpty()) R.string.language_transcribe_body_no_estimate
+                else R.string.language_retranscribe_body_no_estimate,
+                modelName
+            )
+            else -> activity.getString(
+                if (m.segments.isEmpty()) R.string.language_transcribe_body
+                else R.string.language_retranscribe_body,
+                modelName,
+                com.meetily.mobile.whisper.ModelSpeed.estimateLabel(activity, modelKey, audioMs)
+            )
+        }
         AlertDialog.Builder(activity)
             .setTitle(title)
             .setMessage(body)

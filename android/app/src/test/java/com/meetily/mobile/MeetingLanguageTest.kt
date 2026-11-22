@@ -164,9 +164,56 @@ class MeetingLanguageTest {
 
     @Test
     fun recorded_nemoKeepsThePinOrNothing() {
-        assertNull(MeetingLanguage.nemoRecorded(null, englishOnly = false))
-        assertEquals("de", MeetingLanguage.nemoRecorded("de", englishOnly = false))
-        assertEquals("en", MeetingLanguage.nemoRecorded(null, englishOnly = true))
+        assertNull(MeetingLanguage.nemoRecorded(null, englishOnly = false, languagePrompt = true))
+        assertEquals(
+            "de", MeetingLanguage.nemoRecorded("de", englishOnly = false, languagePrompt = true)
+        )
+        assertEquals(
+            "en", MeetingLanguage.nemoRecorded(null, englishOnly = true, languagePrompt = true)
+        )
+        // Parakeet takes no hint: the pin is still the user's word for it.
+        assertEquals(
+            "de", MeetingLanguage.nemoRecorded("de", englishOnly = false, languagePrompt = false)
+        )
+    }
+
+    @Test
+    fun recorded_nemotronOnAutoForAnUnsupportedPinRecordsNothing() {
+        // Indonesian and Malay are not among Nemotron's locales, so it ran
+        // on auto and what it decoded is unknown.
+        assertNull(MeetingLanguage.nemoRecorded("id", englishOnly = false, languagePrompt = true))
+        assertNull(MeetingLanguage.nemoRecorded("ms", englishOnly = false, languagePrompt = true))
+        // Norwegian is supported (as Bokmål); the meeting keeps Whisper's code.
+        assertEquals(
+            "no", MeetingLanguage.nemoRecorded("no", englishOnly = false, languagePrompt = true)
+        )
+    }
+
+    @Test
+    fun acceptsLanguage_nemotronOnlyForItsOwnLocales() {
+        assertTrue(TranscriptionModels.acceptsLanguage("nemotron-3.5", "de"))
+        assertFalse(TranscriptionModels.acceptsLanguage("nemotron-3.5", "id"))
+        assertFalse(TranscriptionModels.acceptsLanguage("nemotron-3.5", "ms"))
+        // Whisper takes every language in the list.
+        assertTrue(TranscriptionModels.acceptsLanguage("large-v3-turbo-q5_0", "id"))
+        assertFalse(TranscriptionModels.acceptsLanguage("parakeet-tdt-v3", "de"))
+        assertFalse(TranscriptionModels.acceptsLanguage("base.en", "de"))
+        for (code in MeetingLanguage.CHOICES) {
+            assertEquals(
+                code,
+                MeetingLanguage.nemotronSupports(code),
+                TranscriptionModels.acceptsLanguage("nemotron-3.5", code)
+            )
+        }
+    }
+
+    @Test
+    fun detectsLanguage_onlyMultilingualWhisperReportsWhatItHeard() {
+        assertTrue(TranscriptionModels.detectsLanguage("large-v3-turbo-q5_0"))
+        assertTrue(TranscriptionModels.detectsLanguage("base"))
+        assertFalse(TranscriptionModels.detectsLanguage("base.en"))
+        assertFalse(TranscriptionModels.detectsLanguage("nemotron-3.5"))
+        assertFalse(TranscriptionModels.detectsLanguage("parakeet-tdt-v3"))
     }
 
     // --- English-only heuristics -------------------------------------------
