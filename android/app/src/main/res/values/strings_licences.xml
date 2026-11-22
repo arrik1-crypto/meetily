@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Model licences, the one-time licence acceptance before a download, and
+     the Terms of Use screen. Licence and policy names are their publishers'
+     proper names, so they are not translated. -->
+<resources>
+    <string name="licences_terms_of_use">Terms of use</string>
+    <string name="licences_terms_unavailable">Could not load the terms of use: %1$s</string>
+
+    <!-- Llama Community License 1.b.i requires this exact phrase. -->
+    <string name="licences_built_with_llama" translatable="false">Built with Llama</string>
+
+    <!-- Model picker card line, e.g. "Licence: Apache License 2.0". -->
+    <string name="licences_picker_label">Licence: %1$s</string>
+    <!-- Licence not confirmed from a primary source. notices.txt (the
+         Open-source licences screen) links the publisher's page for it. -->
+    <string name="licences_see_model_page">see model page (linked in Settings &gt; Open-source licences)</string>
+
+    <string name="licences_name_mit" translatable="false">MIT License</string>
+    <string name="licences_name_apache_2" translatable="false">Apache License 2.0</string>
+    <string name="licences_name_cc_by_4" translatable="false">CC BY 4.0</string>
+    <string name="licences_name_gemma" translatable="false">Gemma Terms of Use</string>
+    <string name="licences_name_hai_def" translatable="false">Health AI Developer Foundations Terms of Use</string>
+    <string name="licences_name_llama_3_2" translatable="false">Llama 3.2 Community License</string>
+    <string name="licences_name_llama_3_1" translatable="false">Llama 3.1 Community License</string>
+
+    <string name="licences_policy_gemma" translatable="false">Gemma Prohibited Use Policy</string>
+    <string name="licences_policy_hai_def" translatable="false">Health AI Developer Foundations Prohibited Use Policy</string>
+    <string name="licences_policy_llama_3_2" translatable="false">Llama 3.2 Acceptable Use Policy</string>
+    <string name="licences_policy_llama_3_1" translatable="false">Llama 3.1 Acceptable Use Policy</string>
+
+    <!-- One-time acceptance before the first download under a licence.
+         %1$s model name, %2$s licence name, %3$s use policy name,
+         %4$s licence link, %5$s policy link. -->
+    <string name="licences_accept_body">%1$s is published under the %2$s.\n\nBy downloading you agree to the %2$s, including the %3$s, and to the model use restrictions in Recap\'s Terms of Use. Do not use the model for anything they prohibit.\n\n%2$s:\n%4$s\n\n%3$s:\n%5$s\n\nRecap asks once for each licence.</string>
+    <string name="licences_accept_hai_def_note">MedGemma is not a medical device. Do not use it, or anything it writes, to diagnose or treat anyone.</string>
+    <string name="licences_accept_download">Agree and download</string>
+
+    <!-- A download reached the service without the acceptance above. -->
+    <string name="licences_download_needs_acceptance">This model\'s licence has not been accepted. Choose the model again in Settings to read and accept it.</string>
+</resources>

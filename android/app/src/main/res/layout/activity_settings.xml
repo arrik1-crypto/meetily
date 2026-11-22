@@ -1063,6 +1063,18 @@
                 android:textColor="?attr/colorPrimary" />
 
             <TextView
+                android:id="@+id/termsLink"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:background="?attr/selectableItemBackground"
+                android:gravity="center"
+                android:minHeight="48dp"
+                android:paddingVertical="10dp"
+                android:text="@string/licences_terms_of_use"
+                android:textAppearance="?attr/textAppearanceBodyMedium"
+                android:textColor="?attr/colorPrimary" />
+
+            <TextView
                 android:id="@+id/reportBugLink"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"

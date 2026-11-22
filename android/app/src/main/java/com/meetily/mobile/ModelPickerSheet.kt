@@ -24,7 +24,9 @@ object ModelPickerSheet {
         val title: String,
         val meta: String,
         val downloaded: Boolean,
-        val selected: Boolean
+        val selected: Boolean,
+        /** The model's licence line (see licences.ModelTerms.pickerLine); null hides it. */
+        val licence: CharSequence? = null
     )
 
     /**
@@ -69,6 +71,10 @@ object ModelPickerSheet {
                     as MaterialCardView
                 card.findViewById<TextView>(R.id.modelCardName).text = entry.title
                 card.findViewById<TextView>(R.id.modelCardMeta).text = entry.meta
+                card.findViewById<TextView>(R.id.modelCardLicence).apply {
+                    text = entry.licence
+                    visibility = if (entry.licence == null) View.GONE else View.VISIBLE
+                }
                 val status = card.findViewById<TextView>(R.id.modelCardStatus)
                 status.text = context.getString(
                     when {
