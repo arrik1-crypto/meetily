@@ -2,6 +2,7 @@ package com.meetily.mobile
 
 import com.meetily.mobile.data.TranscriptSegment
 import com.meetily.mobile.data.TranscriptSplitter
+import com.meetily.mobile.data.WordStamp
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -102,6 +103,79 @@ class TranscriptSplitterTest {
         val pos = base.text.indexOf("no wait")
         val (_, second) = TranscriptSplitter.split(base, next, pos)!!
         assertTrue(second.timestampMs < next.timestampMs)
+    }
+
+    private val timed = base.copy(
+        words = listOf(
+            WordStamp(0, "we"), WordStamp(200, "should"), WordStamp(500, "ship"),
+            WordStamp(700, "on"), WordStamp(900, "friday"), WordStamp(1500, "no"),
+            WordStamp(1700, "wait"), WordStamp(2000, "monday"), WordStamp(2400, "is"),
+            WordStamp(2600, "better")
+        )
+    )
+
+    @Test
+    fun wordTimingsArePartitionedAtTheSplit() {
+        val pos = timed.text.indexOf("no wait")
+        val (first, second) = TranscriptSplitter.split(timed, null, pos)!!
+        assertEquals(timed.words!!.subList(0, 5), first.words)
+        // The second part starts at its first word, and its words are now
+        // timed from there: same moments in the audio as before.
+        assertEquals(timed.audioMs!! + 1500L, second.audioMs)
+        assertEquals(
+            listOf(
+                WordStamp(0, "no"), WordStamp(200, "wait"), WordStamp(500, "monday"),
+                WordStamp(900, "is"), WordStamp(1100, "better")
+            ),
+            second.words
+        )
+        for (word in second.words!!) {
+            val original = timed.words!!.first { it.text == word.text }
+            assertEquals(timed.audioMs!! + original.ms, second.audioMs!! + word.ms)
+        }
+    }
+
+    @Test
+    fun wordTimingsFollowAnEditMadeInTheSplitDialog() {
+        val edited = "we should ship on Friday no wait Monday is better"
+        val pos = edited.indexOf("no wait")
+        val (first, second) =
+            TranscriptSplitter.split(timed, null, pos, editedText = edited)!!
+        assertEquals("Friday", first.words!![4].text)
+        assertEquals(900L, first.words!![4].ms)
+        assertEquals(WordStamp(500, "Monday"), second.words!![2])
+        assertEquals(timed.audioMs!! + 1500L, second.audioMs)
+    }
+
+    @Test
+    fun splitInsideAWordGivesEachPartItsPiece() {
+        val pos = timed.text.indexOf("day no")
+        val (first, second) = TranscriptSplitter.split(timed, null, pos)!!
+        assertEquals("we should ship on fri", first.text)
+        assertEquals(WordStamp(900, "fri"), first.words!!.last())
+        assertEquals("day", second.words!!.first().text)
+        assertEquals(timed.audioMs!! + 900L, second.audioMs)
+        assertEquals(0L, second.words!!.first().ms)
+    }
+
+    @Test
+    fun wordOffsetNeverPassesTheNextLine() {
+        // A next line whose audio starts before the word the split lands on.
+        val next = TranscriptSegment(timestampMs = 110_000L, text = "next", audioMs = 61_000L)
+        val pos = timed.text.indexOf("no wait")
+        val (_, second) = TranscriptSplitter.split(timed, next, pos)!!
+        assertTrue(second.audioMs!! < next.audioMs!!)
+        // Rebased against where the line now starts, so every word still
+        // seeks to its own moment.
+        assertEquals(timed.audioMs!! + 1500L, second.audioMs!! + second.words!!.first().ms)
+    }
+
+    @Test
+    fun noWordTimingsStayNull() {
+        val pos = base.text.indexOf("no wait")
+        val (first, second) = TranscriptSplitter.split(base, null, pos)!!
+        assertNull(first.words)
+        assertNull(second.words)
     }
 
     @Test

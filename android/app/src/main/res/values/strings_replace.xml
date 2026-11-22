@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Meeting screen: find & replace across one meeting (MeetingReplace,
+         FindReplace). -->
+    <string name="replace_menu_find">Find &amp; replace…</string>
+    <string name="replace_menu_undo">Undo last replace</string>
+    <string name="replace_line_action">Fix a word everywhere…</string>
+    <string name="replace_pick_word_title">Which word?</string>
+
+    <string name="replace_title">Find &amp; replace</string>
+    <string name="replace_find_label">Find</string>
+    <string name="replace_with_label">Replace with</string>
+    <string name="replace_with_hint">Leave empty to remove it</string>
+    <string name="replace_whole_word">Whole word only</string>
+    <string name="replace_match_case">Match case</string>
+    <string name="replace_areas_label">Replace in</string>
+    <string name="replace_apply">Replace</string>
+
+    <!-- Area check boxes, with what Replace would change in each. -->
+    <plurals name="replace_changes">
+        <item quantity="one">%d change</item>
+        <item quantity="other">%d changes</item>
+    </plurals>
+    <plurals name="replace_lines">
+        <item quantity="one">%d line</item>
+        <item quantity="other">%d lines</item>
+    </plurals>
+    <string name="replace_area_transcript">Transcript: %1$s in %2$s</string>
+    <string name="replace_area_transcript_none">Transcript: %1$s</string>
+    <string name="replace_area_notes">Notes: %1$s</string>
+    <string name="replace_area_summary">Summary: %1$s</string>
+    <string name="replace_area_actions">Action items: %1$s</string>
+
+    <!-- Status line under the areas; read out politely as it changes. -->
+    <string name="replace_preview_empty">Type what to find.</string>
+    <string name="replace_preview_same">Type what to replace it with.</string>
+    <string name="replace_preview_counting">Counting…</string>
+    <string name="replace_preview_none">No changes to make. Matches that already read as the replacement are left alone.</string>
+    <plurals name="replace_preview_total">
+        <item quantity="one">Replace makes %d change. Word timings are kept, and you can undo it.</item>
+        <item quantity="other">Replace makes %d changes. Word timings are kept, and you can undo it.</item>
+    </plurals>
+    <string name="replace_stale_note">Changing the transcript marks the summary as out of date. Replace in the summary fixes its wording, not what it paraphrased.</string>
+
+    <string name="replace_busy">Find &amp; replace is available once the summary, notes or speaker run on this meeting finishes.</string>
+    <string name="replace_nothing">Nothing was replaced. The meeting changed since the preview.</string>
+    <plurals name="replace_done">
+        <item quantity="one">Replaced %d match</item>
+        <item quantity="other">Replaced %d matches</item>
+    </plurals>
+    <string name="replace_undo">Undo</string>
+    <string name="replace_undone">Replace undone</string>
+    <plurals name="replace_undone_partly">
+        <item quantity="one">Replace undone, except %d place edited since. It stays as you left it.</item>
+        <item quantity="other">Replace undone, except %d places edited since. They stay as you left them.</item>
+    </plurals>
+    <string name="replace_undo_nothing">Nothing to undo. Everything the replace changed has been edited since.</string>
+
+    <!-- Offered after a replace that corrected a name or term. -->
+    <string name="replace_vocab_title">Add “%1$s” to custom vocabulary?</string>
+    <string name="replace_vocab_body">New recordings and imports will lean towards this spelling. Custom vocabulary is used by Whisper models only; other transcription models ignore it. You can edit the list in Settings.</string>
+    <string name="replace_vocab_add">Add</string>
+    <string name="replace_vocab_skip">Not now</string>
+    <string name="replace_vocab_added">Added “%1$s” to custom vocabulary</string>
+</resources>

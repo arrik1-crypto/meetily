@@ -32,7 +32,7 @@ data class TranscriptSegment(
     val clusterId: Int? = null,
     /** Offset into the meeting's audio file, for tap-to-play seek. */
     val audioMs: Long? = null,
-    /** Word timings for word-level tap-to-seek; dropped when text is edited. */
+    /** Word timings for word-level tap-to-seek; re-aligned when text is edited (WordRealign). */
     val words: List<WordStamp>? = null
 )
 

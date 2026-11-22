@@ -5,6 +5,8 @@ package com.meetily.mobile.data
  * separate overlapping speakers after the fact. Timestamps and audio
  * offsets for the second part are interpolated proportionally between this
  * segment and the next; without a next anchor, speech pace is estimated.
+ * Word timings are divided at the split, and then also place the second
+ * part's audio offset exactly: at its first word.
  * Pure Kotlin — unit-tested.
  */
 object TranscriptSplitter {
@@ -51,19 +53,49 @@ object TranscriptSplitter {
             segment.timestampMs + (tsSpan?.let { (it * fraction).toLong() } ?: estimate)
             ).coerceIn(segment.timestampMs, maxOf(segment.timestampMs, ceiling))
 
-        val secondAudioMs = segment.audioMs?.let { start ->
-            val span = next?.audioMs?.minus(start)?.takeIf { it > 0 }
-            start + (span?.let { (it * fraction).toLong() } ?: estimate)
+        // Word timings follow the wording into the split (re-aligned first
+        // when the dialog's text was edited), each word to the part it falls
+        // in. They used to be dropped on both halves, which cost both lines
+        // their tap-to-seek and playback follow.
+        val words = if (editedText == null || editedText == segment.text) {
+            segment.words
+        } else {
+            WordRealign.realign(segment.text, segment.words, editedText)
         }
+        val (firstWords, secondWords) = WordRealign.partition(text, words, charPos)
 
-        // Word timings can't be split reliably; drop them on both halves.
-        return segment.copy(text = first, words = null) to TranscriptSegment(
+        // The second part starts where its first word does. Its words are
+        // timed from the start of the line, and now start from its own.
+        // Kept short of the next line's audio, as the interpolation is.
+        val wordOffset = secondWords.firstOrNull()?.ms
+        val start = segment.audioMs
+        val shift = if (wordOffset == null || start == null) {
+            wordOffset
+        } else {
+            val limit = next?.audioMs?.takeIf { it > start }?.minus(1L)
+            val at = start + wordOffset
+            (if (limit != null) at.coerceIn(start, limit) else at) - start
+        }
+        val secondAudioMs = start?.let {
+            if (shift != null) {
+                it + shift
+            } else {
+                val span = next?.audioMs?.minus(it)?.takeIf { s -> s > 0 }
+                it + (span?.let { s -> (s * fraction).toLong() } ?: estimate)
+            }
+        }
+        val rebase = shift ?: 0L
+
+        return segment.copy(text = first, words = firstWords.ifEmpty { null }) to TranscriptSegment(
             timestampMs = secondTs,
             text = second,
             speaker = null,
             highlighted = false,
             clusterId = null,
-            audioMs = secondAudioMs
+            audioMs = secondAudioMs,
+            words = secondWords
+                .map { WordStamp((it.ms - rebase).coerceAtLeast(0L), it.text) }
+                .ifEmpty { null }
         )
     }
 }
