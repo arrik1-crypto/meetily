@@ -89,7 +89,9 @@ class DeviceFitTest {
             "qwen2.5-0.5b" to 2, "gemma3-1b" to 3, "qwen2.5-1.5b" to 4,
             "llama3.2-3b" to 6, "gemma3-4b" to 6, "medgemma-4b" to 6,
             "gemma4-e2b" to 8, "gemma4-e4b" to 12, "mistral-7b" to 12,
-            "llama3.1-8b" to 12, "qwen3.5-9b" to 16
+            "llama3.1-8b" to 12, "qwen3.5-9b" to 16,
+            "gemma4-e2b-qat" to 8, "gemma4-e4b-qat" to 12,
+            "qwen35-2b" to 4, "qwen35-4b" to 8
         )
         assertEquals(LocalLlmModels.ALL.map { it.key }.toSet(), expected.keys)
         for (model in LocalLlmModels.ALL) {
@@ -123,7 +125,8 @@ class DeviceFitTest {
         val expected = mapOf(
             "tiny.en" to (1 to 2), "base.en" to (2 to 2), "small.en-q5_1" to (2 to 2),
             "small.en" to (3 to 4), "large-v3-turbo-q5_0" to (3 to 4),
-            "parakeet-tdt-v2" to (3 to 4), "nemotron-3.5" to (3 to 6)
+            "parakeet-tdt-v2" to (3 to 4), "nemotron-3.5" to (3 to 6),
+            "parakeet-ultra" to (3 to 4)
         )
         for ((key, pair) in expected) {
             val n = TranscriptionModels.fitNeedOrNull(key)!!
@@ -179,6 +182,40 @@ class DeviceFitTest {
         assertEquals(listOf(x, x, x, t, f, f), row("gemma4-e2b"))
         assertEquals(listOf(x, x, x, x, t, f), row("gemma4-e4b"))
         assertEquals(listOf(x, x, x, x, x, t), row("qwen3.5-9b"))
+        // The opt-in entries.
+        assertEquals(listOf(t, f, f, f, f, f), row("parakeet-ultra"))
+        assertEquals(listOf(x, t, f, f, f, f), row("qwen35-2b"))
+        assertEquals(listOf(x, x, x, t, f, f), row("qwen35-4b"))
+        assertEquals(listOf(x, x, x, t, f, f), row("gemma4-e2b-qat"))
+        assertEquals(listOf(x, x, x, x, t, f), row("gemma4-e4b-qat"))
+    }
+
+    @Test
+    fun optInModelsAreNeverSuggested() {
+        // Nothing about them has been measured on a phone, so the first-run
+        // suggestions, and their order, are exactly what they were.
+        val optIn = setOf(
+            "parakeet-ultra", "gemma4-e2b-qat", "gemma4-e4b-qat", "qwen35-2b", "qwen35-4b"
+        )
+        assertEquals(
+            listOf("qwen2.5-1.5b", "gemma3-1b", "qwen2.5-0.5b"), DeviceFit.llmCandidates()
+        )
+        assertEquals(
+            listOf("small.en-q5_1", "base.en", "tiny.en"), DeviceFit.transcriptionCandidates("en")
+        )
+        assertEquals(listOf("small-q5_1", "base", "tiny"), DeviceFit.transcriptionCandidates("de"))
+        for (gb in listOf(1, 2, 3, 4, 6, 8, 10, 12, 16, 18, 24, 32)) {
+            for (tier in CpuTier.values()) {
+                for (language in listOf("en", "de", "ja")) {
+                    val rec = recommend(gb, tier, language)
+                    assertFalse("$gb $tier $language", rec.transcription?.need?.key in optIn)
+                    assertFalse("$gb $tier $language", rec.llm?.need?.key in optIn)
+                }
+            }
+        }
+        // The fallback default for an unknown key is still Qwen 2.5 1.5B.
+        assertEquals("qwen2.5-1.5b", LocalLlmModels.ALL.first().key)
+        assertEquals("qwen2.5-1.5b", LocalLlmModels.byKey("no-such-model").key)
     }
 
     @Test

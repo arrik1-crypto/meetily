@@ -68,12 +68,41 @@ class ModelLicencesTest {
 
     @Test
     fun permissiveLicencesAskNothing() {
-        for (key in listOf("base.en", "parakeet-tdt-v3", "resnet34-en", "qwen2.5-1.5b")) {
+        val permissive = listOf(
+            "base.en", "parakeet-tdt-v3", "parakeet-ultra", "resnet34-en", "qwen2.5-1.5b",
+            "qwen35-2b", "qwen35-4b"
+        )
+        for (key in permissive) {
             assertNull("$key should download without an acceptance", ModelLicences.familyFor(key))
         }
         // Unconfirmed licences are labelled as such rather than guessed at.
-        assertNull(ModelLicences.familyFor("gemma4-e2b"))
+        assertEquals(Licence.SEE_MODEL_PAGE, ModelLicences.forKey("mistral-7b"))
+        assertNull(ModelLicences.familyFor("mistral-7b"))
         assertNull(ModelLicences.familyFor("unknown-model"))
+    }
+
+    @Test
+    fun gemma4IsApacheAndOnlyGemma3KeepsTheGemmaTerms() {
+        // Google publishes Gemma 4 under Apache 2.0 (its licence page is the
+        // Apache text), so neither the unsloth files nor Google's QAT builds
+        // ask for the Gemma Terms. Gemma 3 and MedGemma still do.
+        for (key in listOf("gemma4-e2b", "gemma4-e2b-qat", "gemma4-e4b", "gemma4-e4b-qat")) {
+            assertEquals(key, Licence.APACHE_2, ModelLicences.forKey(key))
+            assertNull("$key should download without an acceptance", ModelLicences.familyFor(key))
+        }
+        for (key in listOf("gemma3-1b", "gemma3-4b")) {
+            assertEquals(key, TermsFamily.GEMMA, ModelLicences.familyFor(key))
+        }
+        assertEquals(TermsFamily.HAI_DEF, ModelLicences.familyFor("medgemma-4b"))
+    }
+
+    @Test
+    fun parakeetUltraCreditsMoondreamAndNvidia() {
+        assertEquals(Licence.CC_BY_4, ModelLicences.forKey("parakeet-ultra"))
+        val entry = noticesEntryText("Parakeet Ultra 0.6B (25 languages)")
+        assertTrue(entry, entry.contains("Moondream"))
+        assertTrue(entry, entry.contains("NVIDIA"))
+        assertTrue(entry, entry.contains("https://huggingface.co/moondream/parakeet-ultra"))
     }
 
     @Test
@@ -193,6 +222,7 @@ class ModelLicencesTest {
         } + mapOf(
             "parakeet-tdt-v2" to "Parakeet TDT 0.6B v2 (English)",
             "parakeet-tdt-v3" to "Parakeet TDT 0.6B v3 (25 languages)",
+            "parakeet-ultra" to "Parakeet Ultra 0.6B (25 languages)",
             "nemotron-3.5" to "Nemotron 3.5 ASR Streaming 0.6B (40 language-locales)",
             "nemotron-en" to "Nemotron Speech Streaming 0.6B (English)",
             "resnet34-en" to "WeSpeaker ResNet34 / ResNet152 / ResNet293 (VoxCeleb)",
@@ -203,6 +233,8 @@ class ModelLicencesTest {
             "campplus-zh-en" to "3D-Speaker CAM++ (English + Chinese)",
             "qwen2.5-0.5b" to "Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct",
             "qwen2.5-1.5b" to "Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct",
+            "qwen35-2b" to "Qwen 3.5 2B, Qwen 3.5 4B",
+            "qwen35-4b" to "Qwen 3.5 2B, Qwen 3.5 4B",
             "qwen3.5-9b" to "Qwen 3.5 9B",
             "llama3.2-3b" to "Llama 3.2 3B Instruct - Built with Llama",
             "llama3.1-8b" to "Llama 3.1 8B Instruct - Built with Llama",
@@ -210,6 +242,8 @@ class ModelLicencesTest {
             "gemma3-4b" to "Gemma 3 1B Instruct, Gemma 3 4B Instruct",
             "gemma4-e2b" to "Gemma 4 E2B Instruct, Gemma 4 E4B Instruct",
             "gemma4-e4b" to "Gemma 4 E2B Instruct, Gemma 4 E4B Instruct",
+            "gemma4-e2b-qat" to "Gemma 4 E2B Instruct, Gemma 4 E4B Instruct",
+            "gemma4-e4b-qat" to "Gemma 4 E2B Instruct, Gemma 4 E4B Instruct",
             "mistral-7b" to "Mistral 7B Instruct v0.3",
             "medgemma-4b" to "MedGemma 4B"
         )
@@ -227,6 +261,19 @@ class ModelLicencesTest {
     }
 
     private fun squash(text: String): String = text.split(Regex("\\s+")).joinToString(" ")
+
+    /** One part-two entry of notices.txt: its heading to the next unindented line. */
+    private fun noticesEntryText(heading: String): String {
+        val partTwo = asset("notices.txt")
+            .substringAfter("PART TWO - MODELS DOWNLOADED ON DEMAND")
+            .substringBefore("PART THREE - LICENCE TEXTS")
+            .lines()
+        val start = partTwo.indexOf(heading)
+        assertTrue("notices.txt part two has no entry \"$heading\"", start >= 0)
+        return partTwo.drop(start + 1)
+            .takeWhile { it.isBlank() || it.startsWith(" ") }
+            .joinToString("\n")
+    }
 
     /**
      * Reads a shipped asset from the source tree. Gradle runs unit tests from
