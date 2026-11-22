@@ -35,8 +35,8 @@ android {
         // OnBackPressedDispatcher here), and screenOrientation is ignored on
         // displays 600dp and wider (see RecordingStartStage).
         targetSdk = 36
-        versionCode = 109
-        versionName = "3.14.0-beta5"
+        versionCode = 110
+        versionName = "3.15.0-beta1"
 
         // No ndk.abiFilters here: AGP forbids it alongside ABI splits. The
         // splits.abi.include list below is the single source of built ABIs.
