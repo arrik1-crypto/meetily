@@ -24,7 +24,12 @@ object BulkActions {
         /** A queued or interrupted job, or a staged check, still needs it. */
         val queued: Boolean,
         /** It has transcript lines; without, its audio is all it holds. */
-        val hasTranscript: Boolean
+        val hasTranscript: Boolean,
+        /**
+         * Its transcription stopped part-way and can be continued from the
+         * audio (TranscriptResume); without the audio it never can.
+         */
+        val unfinished: Boolean = false
     )
 
     /** The selection split by whether [Action] applies; both keep selection order. */
@@ -39,13 +44,17 @@ object BulkActions {
      * queued for the meeting, since every such job reads the audio, and
      * needs a transcript to keep: on a meeting not transcribed yet it would
      * delete the only record of what was said, which the meeting's own menu
-     * asks about separately. The recording itself takes no tag and no
+     * asks about separately. An unfinished transcript is left out the same
+     * way: its audio is what the rest of it would be made from, and only
+     * the meeting's own question says that is lost. The recording itself
+     * takes no tag and no
      * export: its copy is rewritten every few seconds and is not finished.
      */
     fun eligible(action: Action, item: Item): Boolean = when (action) {
         Action.DELETE -> !item.recording && !item.busy
         Action.REMOVE_AUDIO ->
-            item.hasAudio && item.hasTranscript && !item.recording && !item.busy && !item.queued
+            item.hasAudio && item.hasTranscript && !item.unfinished &&
+                !item.recording && !item.busy && !item.queued
         Action.ADD_TAG -> !item.recording
         Action.EXPORT -> !item.recording
     }

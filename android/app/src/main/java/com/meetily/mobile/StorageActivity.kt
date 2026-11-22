@@ -270,7 +270,10 @@ class StorageActivity : AppCompatActivity() {
             return
         }
         val untranscribed = !meeting.hasTranscript
-        AudioRemoval.confirm(this, 1, meeting.audioBytes, untranscribed = untranscribed) {
+        AudioRemoval.confirm(
+            this, 1, meeting.audioBytes, untranscribed = untranscribed,
+            unfinishedAtMs = meeting.unfinishedAtMs
+        ) {
             val app = applicationContext
             worker.execute {
                 val freed = AudioRemoval.remove(app, MeetingStore(app), meeting.id)

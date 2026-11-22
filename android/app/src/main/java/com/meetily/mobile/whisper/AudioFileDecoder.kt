@@ -194,6 +194,27 @@ object AudioFileDecoder {
         }
     }
 
+    /**
+     * The MIME type of the first audio track in [uri], the one [decode]
+     * reads, or null when there is none or the file cannot be opened.
+     */
+    fun audioMime(context: Context, uri: Uri): String? {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(context, uri, null)
+            (0 until extractor.trackCount)
+                .map { extractor.getTrackFormat(it).getString(MediaFormat.KEY_MIME).orEmpty() }
+                .firstOrNull { it.startsWith("audio/") }
+        } catch (_: Exception) {
+            null
+        } finally {
+            try {
+                extractor.release()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     /** Interleaved PCM buffer → mono float [-1, 1]. */
     private fun toMonoFloat(
         buffer: java.nio.ByteBuffer,

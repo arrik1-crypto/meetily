@@ -162,7 +162,16 @@ object MeetingMerge {
             // Written by the transcription pass that made the words, and
             // by the screen only through a re-transcription it started.
             language = pick(base.language, ours.language, disk.language),
-            translated = pick(base.translated, ours.translated, disk.translated)
+            translated = pick(base.translated, ours.translated, disk.translated),
+            // Recorded with the words by the transcription pass. A screen
+            // changes it only by removing the audio, which ends it.
+            transcriptResumeMs = pick(
+                base.transcriptResumeMs, ours.transcriptResumeMs, disk.transcriptResumeMs
+            ),
+            // No screen edits these. Left out, a screen save dropped them, and
+            // the marks a stopped transcription had not reached yet were lost
+            // before the pass that continues it could place them.
+            highlightMarksMs = disk.highlightMarksMs.toMutableList()
         )
     }
 }

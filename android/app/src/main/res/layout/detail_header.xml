@@ -153,6 +153,38 @@
         android:textColor="?attr/colorPrimary"
         android:visibility="gone" />
 
+    <!-- An unfinished transcription whose audio is still here: where its
+         words stop, and the way to carry on (ContinueTranscription). Above
+         the tabs, so it is seen whichever one is open. -->
+    <LinearLayout
+        android:id="@+id/resume_card"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="12dp"
+        android:background="@drawable/bg_ai_panel"
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/resume_card_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="?attr/colorOnSurface" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/resume_card_button"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="48dp"
+            android:layout_marginTop="8dp"
+            android:insetBottom="6dp"
+            android:insetTop="6dp"
+            android:text="@string/resume_continue"
+            android:textColor="?attr/colorOnSurface" />
+    </LinearLayout>
+
     <!-- Nocturne segmented tabs: Summary | Transcript | Audio. Each tab is
          at least 48dp tall to touch, at any font scale; the track and pill
          drawables are inset by 10dp so they look as before, and the top and

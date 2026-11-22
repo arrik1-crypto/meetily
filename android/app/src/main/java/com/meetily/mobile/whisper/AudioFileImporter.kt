@@ -8,6 +8,7 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingLanguage
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.TranscriptDraft
+import com.meetily.mobile.data.TranscriptResume
 import com.meetily.mobile.data.TranscriptSegment
 import java.util.UUID
 import kotlin.math.max
@@ -18,7 +19,9 @@ import kotlin.math.sqrt
  * Imports an audio file into a Meeting: streaming decode → silence-split
  * chunks → Whisper transcription (+ optional speaker diarization), saving
  * incrementally so a cancelled or crashed import keeps its partial
- * transcript. Blocking; call from a worker thread.
+ * transcript, with where it stops so a later pass can carry on from there
+ * instead of starting over (TranscriptResume). Blocking; call from a worker
+ * thread.
  */
 class AudioFileImporter(
     private val context: Context,
@@ -36,7 +39,14 @@ class AudioFileImporter(
         val meetingId: String,
         val coveredMs: Long,
         val totalMs: Long,
-        val stoppedEarly: String?
+        val stoppedEarly: String?,
+        /** Where this pass began: 0, or where it continued a stopped one from. */
+        val startedFromMs: Long = 0L,
+        /**
+         * Where the words now stop when the pass did not finish, for a later
+         * pass to continue from (TranscriptResume); null when it finished.
+         */
+        val resumeFromMs: Long? = null
     ) {
         val truncated: Boolean
             get() = stoppedEarly != null ||
@@ -86,6 +96,13 @@ class AudioFileImporter(
          * even when Settings pins one, a code pins it. See MeetingLanguage.
          */
         language: String? = null,
+        /**
+         * Asked once a staged pass ([recheckMeetingId], not [firstTranscript])
+         * has been stopped: true keeps its partial draft, with where it
+         * stopped, for a later pass of the same model to continue
+         * (ImportService: the charger came out). Otherwise it is deleted.
+         */
+        keepPartialCheck: () -> Boolean = { false },
         /** Fires as soon as the target meeting id is known. */
         onMeetingCreated: ((String) -> Unit)? = null,
         /** [detail] is a human-readable "how far, how much longer" line. */
@@ -132,8 +149,41 @@ class AudioFileImporter(
          * where "keep the current one" deleted it.
          */
         val stageOnly = recheck && !firstTranscript
+        /*
+         * Continuing a pass that stopped part-way instead of starting over
+         * (TranscriptResume). Where it stopped is stored with its words: on
+         * the meeting for its own transcript, in the draft for a staged
+         * check. Only the model that made them carries on, in the language
+         * they were made in; anything else starts from the beginning.
+         */
+        val draft = if (stageOnly) recheckTarget?.let { TranscriptDraft.load(context, it.id) } else null
+        val continueFromMs: Long? = when {
+            recheckTarget == null -> null
+            stageOnly -> draft?.takeIf { !it.complete }?.let {
+                TranscriptResume.continueFrom(
+                    it.resumeMs, it.modelKey, selectedKey, it.language, language
+                )
+            }
+            else -> TranscriptResume.continueFrom(
+                recheckTarget.transcriptResumeMs, recheckTarget.transcriptModel,
+                selectedKey, recheckTarget.language, language
+            )
+        }
+        val storedLanguage = if (stageOnly) draft?.language else recheckTarget?.language
+        val storedTranslated =
+            if (stageOnly) draft?.translated == true else recheckTarget?.translated == true
+        // The seam: 0 for a pass from the beginning.
+        val startMs = continueFromMs ?: 0L
+        val seamSample = TranscriptResume.sampleAt(startMs, sampleRate)
         // Null for auto. Whisper starts from it; Nemotron 3.5 is told it.
-        val pinned = MeetingLanguage.pinFor(language, settings.spokenLanguage)
+        val pinned = MeetingLanguage.pinFor(
+            if (continueFromMs != null) {
+                TranscriptResume.languageFor(storedLanguage, language)
+            } else {
+                language
+            },
+            settings.spokenLanguage
+        )
 
         // NeMo path (Parakeet/Nemotron via sherpa-onnx) or whisper.cpp.
         val nemoModel = NemoModels.byKeyOrNull(selectedKey)
@@ -171,7 +221,10 @@ class AudioFileImporter(
                 throw ImportException("Could not load the Whisper model")
             }
             whisperLanguage = MeetingLanguage.whisperArgument(pinned, model.englishOnly)
-            translate = settings.whisperTranslate && !model.englishOnly
+            // A continuation translates (or not) as the words before it did.
+            val wantsTranslation =
+                if (continueFromMs != null) storedTranslated else settings.whisperTranslate
+            translate = wantsTranslation && !model.englishOnly
         }
 
         var embedder: SherpaEmbedder? = null
@@ -254,12 +307,24 @@ class AudioFileImporter(
             MeetingLanguage.whisperRecorded(whisperLanguage)
         }
         meeting.translated = translate
+        if (continueFromMs != null) {
+            // The lines before the seam are kept as they are, edits included;
+            // any after it are made again by this pass.
+            val stored = if (stageOnly) draft?.segments.orEmpty() else recheckTarget?.segments.orEmpty()
+            meeting.segments.addAll(TranscriptResume.prefix(stored, startMs, baseMs))
+        }
         onMeetingCreated?.invoke(meeting.id)
 
         // Set by the first persist(). The end-of-run re-anchor below must not
         // move timestamps that are already on disk.
         var persisted = false
         var lastPersistAt = 0L
+        // Where the words stop while this pass is unfinished, for the next
+        // one to continue from. Replaced below once the chunker it reads
+        // from exists.
+        var resumePointMs: () -> Long = { startMs }
+        // What the last save recorded as that point; null once complete.
+        var savedResumeMs: Long? = continueFromMs
 
         /**
          * Where transcribed segments land. A normal import owns its meeting
@@ -269,12 +334,17 @@ class AudioFileImporter(
         fun persist(complete: Boolean) {
             persisted = true
             lastPersistAt = android.os.SystemClock.elapsedRealtime()
+            // Saved with every batch, not only at a stop, so a pass killed
+            // with the process can be continued too.
+            val unfinishedAt = if (complete) null else resumePointMs()
+            savedResumeMs = unfinishedAt
             if (stageOnly) {
                 TranscriptDraft.save(
                     context, meeting.id, selectedKey, meeting.segments, complete,
-                    meeting.language, meeting.translated
+                    meeting.language, meeting.translated, unfinishedAt
                 )
             } else {
+                meeting.transcriptResumeMs = unfinishedAt
                 // Not a plain save: the meeting is visible and editable in
                 // the library for the whole run, so anything the user changes
                 // meanwhile has to survive the next batch.
@@ -355,8 +425,10 @@ class AudioFileImporter(
         var chunkLen = 0
         var silenceRun = 0f
         var chunkPeakRms = 0f
-        var consumedSamples = 0L
-        var chunkStartSample = 0L
+        // Absolute samples: a continuation counts from the seam, so every
+        // line it makes is already where it is in the file.
+        var consumedSamples = seamSample
+        var chunkStartSample = seamSample
         var pending = FloatArray(0) // partial frame carry-over
         // Kept so the decoder's own progress ticks can carry the last
         // "how much longer" line rather than blanking it between batches.
@@ -384,6 +456,33 @@ class AudioFileImporter(
         // (see transcribeChunk). Its clusterId is unused.
         var heldSkip: Part? = null
 
+        // Where this pass could be continued from if it stopped now
+        // (TranscriptResume): the cuts made at silence, and the chunks before
+        // them not yet done. inFlightFrom is the chunk (and any held one
+        // before it) transcribeChunk is on, flushingFrom a batch handed to
+        // Whisper, abandonedFrom the first chunk a stop left untranscribed.
+        // The first two are cleared only once their work is done, so a throw
+        // leaves them counted as unfinished.
+        val cuts = TranscriptResume.Cuts(seamSample)
+        var inFlightFrom: Long? = null
+        var flushingFrom: Long? = null
+        var abandonedFrom: Long? = null
+        fun abandon(from: Long) {
+            abandonedFrom = minOf(abandonedFrom ?: from, from)
+        }
+        resumePointMs = {
+            val frontier = TranscriptResume.frontier(
+                listOf(
+                    batch.firstOrNull()?.startSample, heldSkip?.startSample,
+                    inFlightFrom, flushingFrom, abandonedFrom
+                ),
+                if (chunkLen > 0) chunkStartSample else consumedSamples
+            )
+            TranscriptResume.msAt(cuts.pointFor(frontier), sampleRate)
+        }
+        // Lines this pass added (a continuation keeps others from before).
+        var added = 0
+
         fun clusterFor(audio: FloatArray): Int? = try {
             val c = clusterer
             val e = embedder
@@ -407,6 +506,9 @@ class AudioFileImporter(
             clusterId: Int?
         ) {
             if (text.isBlank() || isNoise(text)) return
+            // Never before the seam: those lines are the kept ones.
+            if (startSample < seamSample) return
+            added++
             meeting.segments.add(
                 TranscriptSegment(
                     timestampMs = baseMs + startSample * 1000 / sampleRate,
@@ -423,6 +525,16 @@ class AudioFileImporter(
             )
         }
 
+        /** "Continuing from 42:10", ahead of [detail] when there is one. */
+        fun continuingLine(detail: String): String {
+            val at = TranscriptResume.clock(startMs)
+            return if (detail.isBlank()) {
+                context.getString(com.meetily.mobile.R.string.resume_detail_start, at)
+            } else {
+                context.getString(com.meetily.mobile.R.string.resume_detail, at, detail)
+            }
+        }
+
         /** Progress line: how much audio is done, and how much longer. */
         fun reportProgress() {
             val doneMs = consumedSamples * 1000 / sampleRate
@@ -431,8 +543,11 @@ class AudioFileImporter(
             } else {
                 0
             }
+            // Measured over what THIS pass has done: a continuation that
+            // starts at 42 minutes has not transcribed 42 minutes in its
+            // first second.
             val left = ImportEta.remainingMinutes(
-                doneMs, totalMs, System.currentTimeMillis() - startedAtMs
+                doneMs - startMs, totalMs - startMs, System.currentTimeMillis() - startedAtMs
             )
             lastDetail = when {
                 left != null -> context.getString(
@@ -445,6 +560,7 @@ class AudioFileImporter(
                 )
                 else -> ""
             }
+            if (startMs > 0L) lastDetail = continuingLine(lastDetail)
             onProgress(percent, lastDetail)
         }
 
@@ -465,6 +581,7 @@ class AudioFileImporter(
             val parts = batch.toList()
             batch.clear()
             batchSamples = 0
+            flushingFrom = parts.first().startSample
 
             val total = parts.sumOf { it.audio.size }
             val buffer = FloatArray(maxOf(total, sampleRate * 12 / 10))
@@ -490,6 +607,9 @@ class AudioFileImporter(
                     Vocab.promptFor(settings.customVocab)
                 )
             }
+            // A stop that landed during the call cut it short: these chunks
+            // are left for the pass that continues this one.
+            if (cancelled()) abandon(parts.first().startSample)
             // "auto" costs a whole extra encoder pass per call, so pay it
             // once and pin the answer for the rest of the file. Whisper is
             // also better placed to judge from the first real speech than
@@ -536,6 +656,7 @@ class AudioFileImporter(
                     addSegment(plain, parts.first().startSample, emptyList(), parts.first().clusterId)
                 }
             }
+            flushingFrom = null
             persistProgress()
             reportProgress()
         }
@@ -575,7 +696,10 @@ class AudioFileImporter(
         fun transcribeChunk(audio: FloatArray, startSample: Long, endsQuiet: Boolean) {
             // A cut can still fire from frames already in hand when the
             // cancel lands; it must not start an embedding or engine call.
-            if (cancelled()) return
+            if (cancelled()) {
+                abandon(heldSkip?.startSample ?: startSample)
+                return
+            }
             // No speech in it: no embedding, no engine call, no segment. A
             // kept chunk goes on unchanged at the same start sample, so its
             // timestamps and word timings match a run with the gate off.
@@ -618,12 +742,22 @@ class AudioFileImporter(
             silenceRun = 0f
             chunkPeakRms = 0f
             chunkStartSample = consumedSamples
+            val end = consumedSamples
             if (peak < minSpeechRms) {
                 // The next chunk cannot follow on from a held one now.
                 heldSkip = null
+                // Nothing in it reached the gate, which starts afresh after
+                // the gap, so a pass may continue from its end.
+                cuts.quietCut(end)
                 return
             }
+            // A held chunk is always the one just before this.
+            inFlightFrom = heldSkip?.startSample ?: start
             transcribeChunk(audio, start, endsQuiet)
+            inFlightFrom = null
+            // Cut at silence with nothing of the gate's reaching past it: a
+            // pass may continue from here once everything before is done.
+            if (endsQuiet && speech?.restsAt(end) != false) cuts.quietCut(end)
         }
 
         fun onFrame(frame: FloatArray) {
@@ -652,16 +786,139 @@ class AudioFileImporter(
         // then quietly appeared once transcription finished.
         val loudness = com.meetily.mobile.data.Waveform.collector()
 
+        /**
+         * Speakers across the seam of a continuation: the voice of every line
+         * before it is embedded again, in order, ahead of everything this
+         * pass adds, so the whole recording is clustered once, together, as
+         * one uninterrupted pass would have done it, and mergePass and the
+         * voice profiles below see all of it. Decodes from the start to the
+         * last window. Returns each window's cluster, or null when stopped or
+         * failed.
+         */
+        fun clusterPrefix(windows: List<TranscriptResume.Window>): Array<Int?>? {
+            val out = arrayOfNulls<Int>(windows.size)
+            if (windows.isEmpty()) return out
+            var next = 0
+            var position = 0L
+            var from = 0L
+            var until = 0L
+            var buffer = FloatArray(0)
+            var filled = 0
+            fun open() {
+                val w = windows[next]
+                from = TranscriptResume.sampleAt(w.startMs, sampleRate)
+                until = TranscriptResume.sampleAt(w.endMs, sampleRate)
+                buffer = FloatArray((until - from).coerceAtLeast(0L).toInt())
+                filled = 0
+            }
+            fun close() {
+                out[next] = clusterFor(if (filled == buffer.size) buffer else buffer.copyOf(filled))
+                next++
+                if (next < windows.size) open()
+            }
+            open()
+            try {
+                AudioFileDecoder.decode(
+                    context,
+                    decodeUri,
+                    onPcm = { pcm ->
+                        val at = position
+                        position += pcm.size
+                        var i = 0
+                        while (next < windows.size && i < pcm.size) {
+                            val abs = at + i
+                            if (abs >= until) {
+                                close()
+                                continue
+                            }
+                            if (abs < from) {
+                                i += minOf(from - abs, (pcm.size - i).toLong()).toInt()
+                                continue
+                            }
+                            val n = minOf(until - abs, (pcm.size - i).toLong()).toInt()
+                            System.arraycopy(pcm, i, buffer, filled, n)
+                            filled += n
+                            i += n
+                            if (at + i >= until) close()
+                        }
+                    },
+                    onProgress = {},
+                    cancelled = { cancelled() || next >= windows.size }
+                )
+            } catch (_: Throwable) {
+                return null
+            }
+            if (cancelled()) return null
+            // The file ended before the last windows: they take what they got.
+            while (next < windows.size) close()
+            return out
+        }
+
         try {
             if (settings.vadSpeechGate) {
                 vad = runCatching { SileroVad.open(context) }.getOrNull()
                 speech = vad?.newRun()
             }
+            if (seamSample > 0L) {
+                val windows = if (clusterer != null) {
+                    TranscriptResume.voiceWindows(meeting.segments, startMs)
+                } else {
+                    emptyList()
+                }
+                if (windows.isNotEmpty()) {
+                    val at = if (totalMs > 0) {
+                        ((startMs * 100) / totalMs).toInt().coerceIn(0, 100)
+                    } else {
+                        0
+                    }
+                    onProgress(
+                        at,
+                        context.getString(
+                            com.meetily.mobile.R.string.resume_detail_voices,
+                            TranscriptResume.clock(startMs)
+                        )
+                    )
+                    val ids = clusterPrefix(windows)
+                    if (ids == null) {
+                        // Stopped or failed: the kept lines keep their
+                        // clusters, and nothing is clustered against them.
+                        clusterer = null
+                    } else {
+                        for ((n, w) in windows.withIndex()) {
+                            for (i in w.segments) {
+                                meeting.segments[i] = meeting.segments[i].copy(clusterId = ids[n])
+                            }
+                        }
+                    }
+                }
+                reportProgress()
+            }
+            // Where decoded audio sits in the file, counted from the seek;
+            // only a continuation reads it.
+            var position = 0L
+            // A seek lands where its timestamps say for every format but MP3,
+            // which is decoded from the top with the audio before the seam
+            // thrown away (TranscriptResume.seekable).
+            val seek = seamSample > 0L &&
+                TranscriptResume.seekable(AudioFileDecoder.audioMime(context, decodeUri))
             val durationMs = AudioFileDecoder.decode(
                 context,
                 decodeUri,
-                onPcm = { pcm ->
-                    loudness.add(pcm)
+                onPcm = { raw ->
+                    // A continuation starts at the seam, to the sample.
+                    val pcm = if (seamSample > 0L) {
+                        val chunkStart = position
+                        position += raw.size
+                        val skip = TranscriptResume.skipBefore(chunkStart, raw.size, seamSample)
+                        when {
+                            skip >= raw.size -> return@decode
+                            skip > 0 -> raw.copyOfRange(skip, raw.size)
+                            else -> raw
+                        }
+                    } else {
+                        loudness.add(raw)
+                        raw
+                    }
                     // Re-frame into fixed 100 ms windows for the RMS logic.
                     var data = pcm
                     if (pending.isNotEmpty()) {
@@ -684,16 +941,23 @@ class AudioFileImporter(
                 // position is a fair proxy for the bar. The detail line
                 // comes from the batches, which is where the time goes.
                 onProgress = { p -> onProgress(p, lastDetail) },
-                cancelled = cancelled
+                cancelled = cancelled,
+                startUs = if (seek) startMs * 1000L else 0L,
+                onStartUs = if (seek) {
+                    { us: Long -> position = us * sampleRate / 1_000_000L }
+                } else {
+                    null
+                }
             )
 
             // Cache the bars now the whole file has been through. Best
             // effort: the Audio tab still computes them itself if this did
-            // not run — a cancelled import, or audio kept outside the app.
+            // not run — a cancelled import, a continuation (which saw only
+            // the end), or audio kept outside the app.
             // decode() returns normally on a cancel, so check here: a prefix
             // would be stretched across the whole card, and on a recheck it
             // would replace a correct sidecar.
-            if (!cancelled()) {
+            if (!cancelled() && seamSample == 0L) {
                 meeting.audioFile?.let { name ->
                     runCatching {
                         com.meetily.mobile.data.Waveform.saveFrom(context, name, loudness)
@@ -770,18 +1034,47 @@ class AudioFileImporter(
                     }
                 }
             }
+            if (seamSample > 0L) {
+                // A name given to a voice before the seam carries over it.
+                val named = TranscriptResume.carryNames(meeting.segments, startMs, baseMs)
+                for (i in named.indices) {
+                    if (named[i] !== meeting.segments[i]) meeting.segments[i] = named[i]
+                }
+            }
             // A cancelled run must not leave a draft looking finished: half a
             // second pass would read as "the new model went silent here".
-            persist(complete = !cancelled())
-            // A cancelled recheck drops its draft; a cancelled FIRST pass
-            // keeps every word it managed, exactly as a plain import does.
+            // A continuation stopped before it saved anything leaves the
+            // stored words, and where they stop, exactly as they were.
+            if (seamSample == 0L || persisted || !cancelled()) {
+                persist(complete = !cancelled())
+            }
+            // A cancelled recheck drops its draft, unless it is kept to be
+            // continued; a cancelled FIRST pass keeps every word it managed,
+            // exactly as a plain import does.
             // Deleting here used to discard the whole transcription of a long
             // meeting when the run was cancelled or hit the foreground-service
             // time limit.
-            if (stageOnly && cancelled()) TranscriptDraft.delete(context, meeting.id)
+            if (stageOnly && cancelled() && !keepPartialCheck()) {
+                TranscriptDraft.delete(context, meeting.id)
+            }
+            // New words under a summary of the part that was there before:
+            // say it is out of date, as an accepted accuracy check does.
+            if (seamSample > 0L && !stageOnly && added > 0) {
+                runCatching {
+                    store.mutateIf(meeting.id) { m ->
+                        if (m.summary.isNotBlank() && !m.summaryStale) {
+                            m.summaryStale = true
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                }
+            }
             if (durationMs > 0) totalMs = durationMs
             return Result(
-                meeting.id, consumedSamples * 1000 / sampleRate, totalMs, null
+                meeting.id, consumedSamples * 1000 / sampleRate, totalMs, null,
+                startMs, savedResumeMs
             )
         } catch (e: AudioFileDecoder.UnsupportedAudioException) {
             if (stageOnly) {
@@ -805,9 +1098,11 @@ class AudioFileImporter(
                 // Never delete the recording or its audio here: unlike an
                 // import, this meeting existed before the run and the audio
                 // is irreplaceable. Keep the words reached, including any the
-                // throttled mid-run save had not written yet.
-                if (meeting.segments.isNotEmpty()) {
-                    runCatching { store.saveTranscription(meeting) }
+                // throttled mid-run save had not written yet, with where they
+                // stop for a pass to continue from. A continuation that had
+                // saved nothing leaves what is stored alone.
+                if (meeting.segments.isNotEmpty() && (seamSample == 0L || persisted)) {
+                    runCatching { persist(complete = false) }
                 }
                 throw ImportException(e.message ?: "decode failed")
             }
@@ -817,13 +1112,16 @@ class AudioFileImporter(
                 throw ImportException(e.message ?: "decode failed")
             }
             // Partial transcript exists — keep it rather than fail the whole
-            // import silently; the caller surfaces how far it got.
-            store.saveTranscription(meeting)
+            // import silently; the caller surfaces how far it got. Saved
+            // with where it stops, so the rest can be continued later.
+            persist(complete = false)
             return Result(
                 meeting.id,
                 consumedSamples * 1000 / sampleRate,
                 totalMs,
-                e.message ?: "decode failed mid-file"
+                e.message ?: "decode failed mid-file",
+                startMs,
+                savedResumeMs
             )
         } finally {
             if (contextPtr != 0L) WhisperBridge.freeContext(contextPtr)

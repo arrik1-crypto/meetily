@@ -44,8 +44,8 @@ object RetentionRunner {
      * nothing was transcribed from); listPartial leaves out their word
      * timings, which are most of their bytes.
      */
-    private val PLAN_FIELDS =
-        MeetingStore.HEADER_FIELDS + setOf("starred", "audioFile", "actionItems", "segments")
+    private val PLAN_FIELDS = MeetingStore.HEADER_FIELDS +
+        setOf("starred", "audioFile", "actionItems", "segments", "transcriptResumeMs")
 
     fun rule(context: Context): Retention.Rule =
         Retention.decode(
@@ -118,7 +118,8 @@ object RetentionRunner {
                 hasFutureReminder = meeting.actionItems.any {
                     !it.done && (it.remindAtMs ?: 0L) > nowMs
                 },
-                hasTranscript = meeting.segments.isNotEmpty()
+                hasTranscript = meeting.segments.isNotEmpty(),
+                unfinished = meeting.transcriptResumeMs != null
             )
         }
         return Plan(

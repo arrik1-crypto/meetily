@@ -68,14 +68,16 @@ object StorageScan {
      * are any: removing the audio of a meeting with none empties it.
      */
     private fun meetingAudio(context: Context): List<StorageUsage.MeetingAudio> =
-        MeetingStore(context).listPartial(MeetingStore.HEADER_FIELDS + setOf("audioFile", "segments"))
+        MeetingStore(context)
+            .listPartial(MeetingStore.HEADER_FIELDS + setOf("audioFile", "segments", "transcriptResumeMs"))
             .mapNotNull { meeting ->
                 val name = meeting.audioFile ?: return@mapNotNull null
                 StorageUsage.MeetingAudio(
                     meeting.id,
                     meeting.title,
                     AudioStore.fileFor(context, name).length(),
-                    hasTranscript = meeting.segments.isNotEmpty()
+                    hasTranscript = meeting.segments.isNotEmpty(),
+                    unfinishedAtMs = meeting.transcriptResumeMs
                 )
             }
 

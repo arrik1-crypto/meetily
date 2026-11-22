@@ -396,6 +396,11 @@ class TranscriptCheckActivity : AppCompatActivity() {
                 }
                 val hadSummary = onDisk.summary.isNotBlank()
                 if (hadSummary) onDisk.summaryStale = true
+                // The check covered the whole recording and the user chose
+                // what to keep from it: an unfinished first pass's resume
+                // point no longer describes this transcript, and continuing
+                // from it would redo lines just accepted.
+                onDisk.transcriptResumeMs = null
                 // Delete the draft ONLY once the merge is durable. The result
                 // was discarded before, so a failed write took the draft with
                 // it and reported success: the accepted words existed in

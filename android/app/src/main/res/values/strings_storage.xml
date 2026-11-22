@@ -106,8 +106,8 @@
     <string name="storage_bulk_delete_message">Their transcripts, summaries, notes, photos, attachments and audio are removed from this phone. This can\'t be undone.</string>
     <!-- Added under a bulk confirmation when part of the selection is left out. -->
     <plurals name="storage_bulk_skipped">
-        <item quantity="one">%1$d selected meeting is left out: this doesn\'t apply to it right now (no audio, no transcript yet, or it is being recorded or has work in progress).</item>
-        <item quantity="other">%1$d selected meetings are left out: this doesn\'t apply to them right now (no audio, no transcript yet, or they are being recorded or have work in progress).</item>
+        <item quantity="one">%1$d selected meeting is left out: this doesn\'t apply to it right now (no audio, no transcript yet or an unfinished one, or it is being recorded or has work in progress).</item>
+        <item quantity="other">%1$d selected meetings are left out: this doesn\'t apply to them right now (no audio, no transcript yet or an unfinished one, or they are being recorded or have work in progress).</item>
     </plurals>
     <!-- The same, under bulk Delete and Add tag: only a recording or work in progress leaves a meeting out of those. -->
     <plurals name="storage_bulk_skipped_busy">
@@ -168,7 +168,7 @@
     <string name="storage_retention_later_meetings">After that, Recap checks once a day and deletes meetings as they pass %1$d days. A quiet notification says when it has deleted something. Deleted meetings can\'t be recovered.</string>
     <!-- Added to the review of a clean-up the daily run left for the user to confirm. -->
     <string name="storage_retention_irreversible">This can\'t be undone.</string>
-    <string name="storage_retention_kept">Never touched: starred meetings, meetings changed in the last week, meetings with a reminder still to come, and meetings being recorded, transcribed or summarised or with a job waiting. Removing old audio also skips recordings that have no transcript yet.</string>
+    <string name="storage_retention_kept">Never touched: starred meetings, meetings changed in the last week, meetings with a reminder still to come, and meetings being recorded, transcribed or summarised or with a job waiting. Removing old audio also skips recordings that have no transcript yet, or whose transcription is unfinished.</string>
     <plurals name="storage_retention_more">
         <item quantity="one">…and %1$d more</item>
         <item quantity="other">…and %1$d more</item>

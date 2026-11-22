@@ -212,7 +212,8 @@ class MeetingStore(context: Context) {
 
     /**
      * Saves only what a transcription pass owns — the segments, the audio
-     * file and the model that produced them — onto whatever is on disk.
+     * file, the model and language that produced them, and where an
+     * unfinished pass stopped — onto whatever is on disk.
      *
      * An import holds one Meeting object for its whole run and writes the
      * entire thing back every batch, which for an hour of audio is many
@@ -244,7 +245,10 @@ class MeetingStore(context: Context) {
             }
             val onDisk = base?.meeting ?: load(meeting.id)
             if (onDisk == null) {
-                HighlightMarks.apply(meeting.segments, meeting.highlightMarksMs)
+                HighlightMarks.apply(
+                    meeting.segments,
+                    TranscriptResume.marksReached(meeting.highlightMarksMs, meeting.transcriptResumeMs)
+                )
                 lastTranscribed = null
                 return@exclusive save(meeting)
             }
@@ -257,9 +261,16 @@ class MeetingStore(context: Context) {
             // model), rather than wiping one an earlier pass recorded.
             meeting.language?.let { onDisk.language = it }
             onDisk.translated = meeting.translated
+            // Where the words stop, while they do: the next pass carries on
+            // from there (TranscriptResume). Null once the pass completes.
+            onDisk.transcriptResumeMs = meeting.transcriptResumeMs
             // Highlights tapped while an audio-only recording had no lines to
-            // star land on the lines this pass just produced.
-            HighlightMarks.apply(onDisk.segments, onDisk.highlightMarksMs)
+            // star land on the lines this pass just produced; a mark past
+            // where the words stop waits for the pass that reaches it.
+            HighlightMarks.apply(
+                onDisk.segments,
+                TranscriptResume.marksReached(onDisk.highlightMarksMs, onDisk.transcriptResumeMs)
+            )
             val saved = save(onDisk)
             lastTranscribed = if (saved) {
                 TranscriptionBase(

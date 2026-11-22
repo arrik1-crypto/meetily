@@ -13,6 +13,12 @@ import java.io.File
  * that is cancelled, killed, or fails halfway must leave the stored transcript
  * exactly as it was. A partial transcript is the right outcome for a NEW
  * import and the wrong one for a replacement.
+ *
+ * A partial draft survives only where a later pass can carry it on: one the
+ * charger stopped (requeued), or one left by a pass that died with the
+ * process (offered back). Never marked ready, it holds where it stopped
+ * ([Draft.resumeMs]), and a pass of the same model continues from there
+ * instead of starting over (TranscriptResume).
  */
 object TranscriptDraft {
 
@@ -28,7 +34,14 @@ object TranscriptDraft {
          * draft is accepted. Null and false in drafts written before this.
          */
         val language: String? = null,
-        val translated: Boolean = false
+        val translated: Boolean = false,
+        /**
+         * Set while [complete] is false and the pass stopped part-way
+         * (charger unplugged): the audio offset the next pass of the same
+         * model continues from, keeping the lines before it. See
+         * TranscriptResume.
+         */
+        val resumeMs: Long? = null
     )
 
     private fun dir(context: Context): File =
@@ -52,7 +65,9 @@ object TranscriptDraft {
         segments: List<TranscriptSegment>,
         complete: Boolean,
         language: String? = null,
-        translated: Boolean = false
+        translated: Boolean = false,
+        /** Where an unfinished pass stopped; see [Draft.resumeMs]. */
+        resumeMs: Long? = null
     ) {
         // A check still running on a meeting the user has deleted must not
         // write its draft back: deleteAll just removed it, and a stray draft
@@ -64,6 +79,7 @@ object TranscriptDraft {
         obj.put("complete", complete)
         if (!language.isNullOrBlank()) obj.put("language", language)
         if (translated) obj.put("translated", true)
+        if (!complete && resumeMs != null && resumeMs >= 0L) obj.put("resumeMs", resumeMs)
         val arr = JSONArray()
         for (segment in segments) arr.put(Meeting.segmentToJson(segment))
         obj.put("segments", arr)
@@ -105,7 +121,12 @@ object TranscriptDraft {
                 complete = obj.optBoolean("complete", false),
                 segments = segments,
                 language = MeetingLanguage.normalize(obj.optString("language", "")),
-                translated = obj.optBoolean("translated", false)
+                translated = obj.optBoolean("translated", false),
+                resumeMs = if (obj.has("resumeMs")) {
+                    obj.optLong("resumeMs", -1L).takeIf { it >= 0L }
+                } else {
+                    null
+                }
             )
         } catch (_: Exception) {
             null

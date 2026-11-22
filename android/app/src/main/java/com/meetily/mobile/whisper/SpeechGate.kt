@@ -289,6 +289,22 @@ class SpeechGateRun(
     fun sendsHeld(chunkStart: Long, chunkEnd: Long): Boolean =
         failed || reachesBack(chunkStart, chunkEnd)
 
+    /**
+     * True when nothing this run holds reaches [sample], absolute: speech
+     * is not going on, and the padding of the last region that ended stops
+     * short of it. A run started fresh at [sample] then decides every later
+     * chunk as this one would, but for where its 512-sample window grid
+     * falls, so the importer only offers such a point to continue a stopped
+     * transcription from (TranscriptResume). Also true once the gate has
+     * given up, when there is no state left to carry.
+     */
+    fun restsAt(sample: Long): Boolean {
+        if (failed) return true
+        if (tracker.speaking) return false
+        val last = lastClosed ?: return true
+        return last.end + SpeechGate.PAD_SAMPLES <= sample
+    }
+
     private fun decide(audio: FloatArray, start: Long): Boolean {
         if (start != nextStart) {
             carryLen = 0
