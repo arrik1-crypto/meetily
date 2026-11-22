@@ -238,6 +238,10 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_settings)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.edgeScroll)
+        }
 
         settings = AppSettings(this)
         if (!ModelDownloadService.isRunning) {

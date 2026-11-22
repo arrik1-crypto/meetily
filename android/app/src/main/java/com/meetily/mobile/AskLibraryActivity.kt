@@ -40,6 +40,10 @@ class AskLibraryActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_ask)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            bar(R.id.edgeBottomBar)
+        }
 
         store = MeetingStore(this)
         settings = AppSettings(this)

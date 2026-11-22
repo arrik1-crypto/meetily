@@ -15,6 +15,7 @@
         app:title="@string/cal_diag_title" />
 
     <ScrollView
+        android:id="@+id/edgeScroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"

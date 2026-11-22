@@ -5,4 +5,10 @@
          than a night-qualified theme, because a night <style> would replace
          the whole day theme instead of extending it. -->
     <bool name="light_system_bars">true</bool>
+    <!-- Navigation bar icons in the launch preview only. The theme sets no
+         navigationBarColor, so below API 35 that window gets the platform's
+         black bar, which needs light icons in either edition. From API 35
+         the bar is transparent over the surface (values-v35). Activities
+         set their own icons through enableEdgeToEdge. -->
+    <bool name="light_nav_icons_preview">false</bool>
 </resources>

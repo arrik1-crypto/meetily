@@ -42,6 +42,10 @@ class CalendarDiagnosticsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         ThemeManager.apply(this)
         setContentView(R.layout.activity_calendar_diag)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.edgeScroll)
+        }
         findViewById<MaterialToolbar>(R.id.calDiagToolbar).setNavigationOnClickListener {
             finish()
         }

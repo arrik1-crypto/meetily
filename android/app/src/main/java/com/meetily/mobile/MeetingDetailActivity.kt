@@ -594,6 +594,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         ThemeManager.apply(this)
         setContentView(R.layout.activity_detail)
+        EdgeToEdge.setUp(this) {
+            root(bottom = false)
+            list(R.id.detailRecycler)
+            bar(R.id.playerBar)
+        }
 
         store = MeetingStore(this)
         settings = AppSettings(this)
