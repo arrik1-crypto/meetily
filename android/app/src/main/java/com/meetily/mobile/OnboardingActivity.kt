@@ -56,6 +56,13 @@ class OnboardingActivity : AppCompatActivity() {
     private var checking = false
 
     /**
+     * Bumped when the user backs out of the setup step, so a free-space
+     * answer still being measured for an earlier tap is dropped rather than
+     * starting downloads (and finishing onboarding) from the intro.
+     */
+    private var answerGeneration = 0
+
+    /**
      * An answer is being acted on: the downloads are starting, or wait on
      * the notification question. Further taps are ignored until it is done.
      */
@@ -80,6 +87,7 @@ class OnboardingActivity : AppCompatActivity() {
 
     private val backToIntro = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
+            answerGeneration++
             showStep(STEP_INTRO, moveFocus = true)
         }
     }
@@ -390,15 +398,23 @@ class OnboardingActivity : AppCompatActivity() {
         // download buttons wait for it ("Choose later" stays usable).
         checking = true
         setChoicesEnabled(false)
+        val generation = answerGeneration
         ModelSpaceCheck.confirm(
             this,
             FirstRunSetup.sizesMb(downloads),
             onMeasured = {
                 checking = false
                 setChoicesEnabled(true)
-            }
+            },
+            stillWanted = { step == STEP_SETUP && generation == answerGeneration }
         ) {
-            if (!isFinishing && !isDestroyed) applyChoice(picks, choice)
+            // Checked again here: an answer given through the short-of-space
+            // dialog must do nothing once the user has left this step.
+            if (!isFinishing && !isDestroyed && step == STEP_SETUP &&
+                generation == answerGeneration
+            ) {
+                applyChoice(picks, choice)
+            }
         }
     }
 

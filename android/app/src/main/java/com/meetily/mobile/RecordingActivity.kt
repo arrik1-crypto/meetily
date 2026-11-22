@@ -809,17 +809,23 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 if (isFinishing || isDestroyed || !sheet.isShowing) return@runOnUiThread
                 progress.visibility = View.GONE
                 body.text = result
-                report.visibility = View.VISIBLE
-                report.setOnClickListener {
-                    AiReport.show(
-                        this,
-                        AiReport.Subject(
-                            label = getString(R.string.aisafety_report_action),
-                            surface = "live_catch_up",
-                            text = result,
-                            modelKey = modelKey
+                // The extractive fallback picks sentences from the transcript;
+                // no model wrote it, so there is nothing to report.
+                if (modelKey == com.meetily.mobile.summarize.AiProvenance.EXTRACTIVE) {
+                    report.visibility = View.GONE
+                } else {
+                    report.visibility = View.VISIBLE
+                    report.setOnClickListener {
+                        AiReport.show(
+                            this,
+                            AiReport.Subject(
+                                label = getString(R.string.aisafety_report_action),
+                                surface = "live_catch_up",
+                                text = result,
+                                modelKey = modelKey
+                            )
                         )
-                    )
+                    }
                 }
             }
         }.apply {

@@ -60,7 +60,10 @@ object ModelSpaceCheck {
      * to download anyway. Nothing runs if they cancel, or if [activity] is
      * gone by the time the answer is known. [onMeasured] runs on the main
      * thread once the measurement is in, before either, so a caller can
-     * re-enable what it disabled while waiting.
+     * re-enable what it disabled while waiting. [stillWanted] is asked
+     * right after it: when it says no (the user has left the screen the
+     * question came from), neither [onProceed] nor the short-of-space
+     * dialog follows.
      *
      * The answer is acted on only while [activity] is started. Measuring
      * (and clearing other apps' caches) can take seconds, and the user may
@@ -73,12 +76,13 @@ object ModelSpaceCheck {
         activity: Activity,
         sizesMb: List<Int>,
         onMeasured: () -> Unit = {},
+        stillWanted: () -> Boolean = { true },
         onProceed: () -> Unit
     ) {
         val required = DownloadSpace.requiredBytes(sizesMb)
         if (required <= 0L) {
             onMeasured()
-            onProceed()
+            if (stillWanted()) onProceed()
             return
         }
         val app = activity.applicationContext
@@ -89,6 +93,7 @@ object ModelSpaceCheck {
             activity.runOnUiThread {
                 whenStarted(activity) {
                     onMeasured()
+                    if (!stillWanted()) return@whenStarted
                     val short = DownloadSpace.shortfallBytes(required, room.availableBytes)
                     if (short == 0L) {
                         onProceed()

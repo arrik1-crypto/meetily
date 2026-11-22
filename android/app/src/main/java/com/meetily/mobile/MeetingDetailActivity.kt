@@ -51,6 +51,7 @@ import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.CustomTemplates
 import com.meetily.mobile.summarize.ExtractiveSummarizer
 import com.meetily.mobile.summarize.LlmClient
+import com.meetily.mobile.summarize.QuotedAiText
 import com.meetily.mobile.summarize.TopicChapters
 import com.meetily.mobile.summarize.SummaryTemplate
 import com.meetily.mobile.summarize.SummaryTemplates
@@ -867,7 +868,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         DisclaimerViews.show(
             summaryNoticeView, if (summary.isBlank()) emptyList() else summaryNotices()
         )
-        reportSummaryButton.visibility = if (summary.isBlank()) View.GONE else View.VISIBLE
+        // An extractive summary is sentences picked from the transcript, not
+        // generated text, so it is not offered for report (QuotedAiText).
+        reportSummaryButton.visibility =
+            if (meeting?.let { QuotedAiText.modelWrote(summary, it.summaryModel) } == true) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
     }
 
     /** The stored summary's fixed notices, by the template and model that wrote it. */
@@ -876,9 +884,12 @@ class MeetingDetailActivity : AppCompatActivity() {
         return AiDisclaimers.texts(this, AiDisclaimers.categories(m))
     }
 
-    /** The summary and its action items as one reportable text. */
+    /**
+     * The summary and its action items as one reportable text, or null when
+     * there is none or no model wrote it.
+     */
     private fun summarySubject(m: Meeting): AiReport.Subject? {
-        if (m.summary.isBlank()) return null
+        if (!QuotedAiText.modelWrote(m.summary, m.summaryModel)) return null
         val text = buildString {
             append(m.summary.trim())
             if (m.actionItems.isNotEmpty()) {

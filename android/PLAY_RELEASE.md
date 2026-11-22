@@ -141,12 +141,15 @@ developer receives nothing from the app. "No data collected" is still not
 the right answer: the bundled Google ML Kit text-recognition SDK, which
 reads text in photos, sends Google diagnostics. The answers below match the
 code on this branch; re-check them whenever an SDK or a network path
-changes. Re-checked for 3.16.0-beta1: no change. Of its two new
-permissions, ACCESS_NETWORK_STATE only reads whether the connection is
-metered and FOREGROUND_SERVICE_MEDIA_PROCESSING only changes the type the
-on-device transcription service runs as; the new exit-record crash
-reports stay on the phone like the others; and nothing else in it opens a
-connection.
+changes. Re-checked for 3.16.0-beta1: no change. Its one new permission,
+FOREGROUND_SERVICE_MEDIA_PROCESSING, only changes the type the on-device
+transcription service runs as. ACCESS_NETWORK_STATE was already in the
+merged manifest through ML Kit's com.google.android.datatransport, which
+attaches the connection type to its diagnostics (covered by the
+Diagnostics answer below). Recap now declares it too and reads it only to
+see whether the connection is metered or offline; the new exit-record
+crash reports stay on the phone like the others; and nothing else in it
+opens a connection.
 
 **Does your app collect or share any of the required user data types?
 → Yes**, for ML Kit's diagnostics. Every other path is either not
@@ -264,10 +267,18 @@ The console will ask about these (all have in-app justifications):
   recognition over it to produce a transcript. Recordings can be hours
   long and CPU transcription runs at two to three times real time, so the
   work must continue while the screen is off or the user leaves the app.
-  It starts only from a user action (finishing a recording, importing a
-  file, or tapping Check transcript accuracy), shows an ongoing progress
-  notification with Cancel, and stops as soon as the file has been
-  processed." Choose the use case for processing media files
+  Every run comes from something the user did: finishing a recording
+  (which transcribes it, and also runs an accuracy check if the user
+  turned that on in Settings), importing a file, or tapping Check
+  transcript accuracy. If another transcription or summary is already
+  running, the new job waits in a queue and starts when that one
+  finishes. If the user chose to wait for a charger, the job starts the
+  next time they open Recap while the phone is charging; Recap posts a
+  notification asking them to. Work cut short because the app was closed
+  resumes only if the user taps Resume. While it runs, the service shows
+  an ongoing progress notification with Cancel. It moves straight on to
+  the next queued file if one is waiting, and stops when nothing is
+  left." Choose the use case for processing media files
   (transcoding or processing audio). Video (unlisted YouTube is fine), on
   an Android 15+ device: record a short meeting with the default
   audio-only capture, tap Finish (in the app or on the notification),
@@ -285,12 +296,16 @@ The console will ask about these (all have in-app justifications):
   allowed use case (user-facing alarms/reminders).
 - **READ_CALENDAR**: optional pre-fill/nudges, read-only, declared in the
   privacy policy.
-- **ACCESS_NETWORK_STATE** (new in 3.16.0-beta1): a normal permission,
-  with no console declaration. Play lists it as "view network
-  connections". It is used only to warn before a large model download
-  over a metered connection, and to say so when the phone is offline, on
-  the first-run setup step; nothing about the network is kept or sent.
-  The privacy policy's PERMISSIONS list names it.
+- **ACCESS_NETWORK_STATE**: a normal permission, with no console
+  declaration (Play lists it as "view network connections"). It is not
+  new to Play users: ML Kit's com.google.android.datatransport already
+  declared it (the 3.15.0-beta1 APK has it), and datatransport attaches
+  the connection type to the diagnostics it sends Google, which the
+  section 4 ML Kit Diagnostics answer covers. From 3.16.0-beta1 Recap
+  declares it itself and reads it on the first-run setup step, to warn
+  before a large model download over a metered connection and to say so
+  when the phone is offline. Recap's own use keeps and sends nothing
+  about the network. The privacy policy's PERMISSIONS list names it.
 
 ## 6. Store listing
 
@@ -544,10 +559,13 @@ Work through it before the first targetSdk 36 upload to any track.
   import and transcription on Android 14 and lower); keep the
   declaration. Optional: re-record the microphone video to show the
   notification's Mark moment action.
-- [ ] **New permission**: ACCESS_NETWORK_STATE (Play shows "view network
-  connections"). No declaration and no Data safety change: nothing is
-  collected or sent. The privacy policy's PERMISSIONS list already has
-  its network-state line, in both `docs/privacy-policy.md` and the in-app
+- [ ] **Network state**: ACCESS_NETWORK_STATE (Play shows "view network
+  connections") was already in the merged manifest through ML Kit's
+  datatransport, so Play shows no new permission. Recap now also reads it
+  for the first-run metered/offline check. No declaration and no Data
+  safety change: Recap's own use collects nothing, and ML Kit's use is
+  already declared under Diagnostics. The privacy policy's PERMISSIONS
+  list already has its network-state line, in both `docs/privacy-policy.md` and the in-app
   `privacy_policy_body`.
 
 ### Placeholders and published documents
@@ -778,8 +796,21 @@ Background transcription as mediaProcessing (Android 15+):
 - [ ] Import a long file on Android 15+ and on Android 14 or lower (which
   stays dataSync): both finish with the screen off, and Cancel keeps the
   partial transcript.
-- [ ] Let a queued check start from the charger (ChargingJobService: a
-  check deferred for low battery, then plug in): ImportService starts.
+- [ ] Queued check on the charger (ChargingJobService). Turn on Settings →
+  Check the transcript → Only while charging. Off the charger, finish an
+  audio-only recording, then lock the phone or swipe the app away so it
+  is not in the foreground. The transcription is queued, not started.
+  Plug in. The charging job can take a while to be scheduled; to force
+  it, run `adb shell cmd jobscheduler run -f com.recap.mobile 7301`. On
+  Android 12+ no service starts on its own. Instead a silent "1 job is
+  ready to run" notification appears ("Now that you are charging, open
+  Recap to start it."). Tap it: MainActivity's onResume drain starts
+  ImportService, and `adb shell dumpsys activity services
+  com.recap.mobile` lists it as a mediaProcessing foreground service.
+  Unplug mid-run: the pass stops and goes back on the queue, still
+  waiting for a charger. (A low battery never queues the automatic check;
+  it skips it. Below Android 12, the same plug-in drains the queue
+  directly.)
 - [ ] Optional: shorten the limit with `adb shell device_config put
   activity_manager media_processing_fgs_timeout_duration 60000` and run a
   long import: it stops at the limit, keeps the partial transcript, and

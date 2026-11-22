@@ -1,10 +1,11 @@
 package com.meetily.mobile.summarize
 
 /**
- * Whether a saved summary shown away from its meeting counts as AI output
- * for "Report AI output": the pre-meeting brief's last-time card, and the
- * offline weekly digest, which quotes each meeting's first summary line and
- * open action items. Pure Kotlin, unit-tested.
+ * Whether a saved summary counts as AI output for "Report AI output": on
+ * the meeting screen (its summary button and the ⋮ menu), the pre-meeting
+ * brief's last-time card, and the offline weekly digest, which quotes each
+ * meeting's first summary line and open action items. Pure Kotlin,
+ * unit-tested.
  *
  * A summary counts unless its recorded model says no model wrote it
  * ([AiProvenance.EXTRACTIVE]). One saved before the model was recorded

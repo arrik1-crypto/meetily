@@ -70,10 +70,10 @@ Text in photos you attach, such as a whiteboard, is read on the phone with
 Google's ML Kit text recognition, so you can search it and use it in
 summaries. The photos and their text are not sent anywhere for this. ML Kit
 does send Google diagnostic and usage-analytics information: details of the
-device and the app (such as phone model, Android version and app version) and
-performance measurements, which may include identifiers used for those
-diagnostics. ML Kit starts with the app, so this can happen even if you never
-attach a photo.
+device, the app and the network connection (such as phone model, Android
+version, app version and connection type) and performance measurements,
+which may include identifiers used for those diagnostics. ML Kit starts with
+the app, so this can happen even if you never attach a photo.
 Google describes it in its
 [ML Kit data disclosure](https://developers.google.com/ml-kit/android-data-disclosure).
 
@@ -108,20 +108,20 @@ about your meetings is sent.
 
 ## Crash and bug reports
 
-If Recap crashes, or Android closes it because it stopped responding or ran
-short of memory, a report is saved on the phone: the app version, Android
-version, phone model and the technical error, which can include fragments of
-what the app was working on. When Android recorded the close (Android 11 and
-later), the report also notes which kind of on-device work and which model
-were running, how much memory Recap was using and how much memory the phone
-has; for a crash in Recap's on-device engines, Android's full crash record is
-kept with it on the phone, and only a summary of the error and where it
-happened goes into the report. Recap never sends it. On the next launch you can
-share it through your own share sheet, to whoever you choose, or decline.
-Separately, if your phone shares usage and diagnostics with Google, Android may
-report crashes and freezes of any app, Recap included, to Google Play, which
-shows the developer aggregated statistics. That is a setting of your phone,
-not of Recap.
+If Recap crashes, or Android closes it because it stopped responding, ran
+short of memory or used too many resources, a report is saved on the phone:
+the app version, Android version, phone model and the technical error, which
+can include fragments of what the app was working on. When Android recorded
+the close (Android 11 and later), the report also notes which kind of
+on-device work and which model were running, how much memory Recap was using
+and how much memory the phone has; for a native crash (Android 12 and later),
+Android's full crash record is kept with it on the phone, and only a summary
+of the error and where it happened goes into the report. Recap never sends it.
+On the next launch you can share it through your own share sheet, to whoever
+you choose, or decline. Separately, if your phone shares usage and diagnostics
+with Google, Android may report crashes and freezes of any app, Recap
+included, to Google Play, which shows the developer aggregated statistics.
+That is a setting of your phone, not of Recap.
 
 Report AI output, offered with summaries, answers and other generated text,
 opens a draft email to the developer in your own email app. It holds the
@@ -157,8 +157,10 @@ reports or messages you choose to send.
   reminders and meeting nudges.
 - **Internet:** model downloads, your AI endpoint if you set one up, and ML Kit
   diagnostics.
-- **Network state:** to warn before a large model download over mobile data;
-  nothing about the network is kept or sent.
+- **Network state:** Recap uses it only to warn before a large model download
+  over mobile data, and keeps and sends nothing about the network. Google's ML
+  Kit also uses it, and its diagnostics include the type of connection (see
+  Reading text in photos).
 - **Running in the background, starting after a restart, exact alarms and
   keeping the phone awake:** so recordings, transcriptions and downloads
   finish with the screen off, and reminders arrive on time.

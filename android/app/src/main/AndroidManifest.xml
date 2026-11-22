@@ -17,8 +17,10 @@
          the app silently falls back to a 10-minute window otherwise. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- Lets the first-run model setup see a metered connection (mobile
-         data) before a large download; nothing about the network is kept or
-         sent anywhere. -->
+         data) or no connection before a large download. Recap keeps and
+         sends nothing about the network. ML Kit's datatransport also
+         declares this permission and reports the connection type with its
+         diagnostics. -->
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
     <uses-feature

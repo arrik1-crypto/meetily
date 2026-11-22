@@ -143,9 +143,16 @@ object CrashLog {
     fun deviceInfo(context: Context): String {
         val (versionName, versionCode) = try {
             val info = context.packageManager.getPackageInfo(context.packageName, 0)
-            @Suppress("DEPRECATION")
-            (info.versionName ?: "?") to info.longVersionCode
-        } catch (_: Exception) {
+            // getLongVersionCode is API 28; minSdk is 26. Calling it on 8.x
+            // throws NoSuchMethodError, which the catch below must also see.
+            val code = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                info.longVersionCode
+            } else {
+                @Suppress("DEPRECATION")
+                info.versionCode.toLong()
+            }
+            (info.versionName ?: "?") to code
+        } catch (_: Throwable) {
             "?" to -1L
         }
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss 'UTC'", Locale.US)
