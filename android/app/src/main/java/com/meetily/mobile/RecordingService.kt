@@ -19,6 +19,8 @@ import android.os.SystemClock
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
+import android.view.View
+import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.ElapsedTime
@@ -375,10 +377,13 @@ class RecordingService : Service() {
      * never takes one off; the on-screen star toggles the latest line.
      */
     fun requestHighlight(markOnly: Boolean = false): HighlightResult {
-        if (capturesAudioOnly()) {
+        if (capturesAudioOnly() || whisperRecorder?.liveSuspended == true) {
             // No line will arrive during this session, so a queued highlight
             // was silently dropped. Remember where in the audio it was tapped
             // instead; the transcript made after the meeting stars that line.
+            // Live transcription that fell behind and stopped is the same
+            // case: the last line on screen can be minutes old, and the
+            // saved audio is transcribed after the meeting (liveIncomplete).
             highlightMarks.add(elapsedMs())
             scheduleSave()
             return HighlightResult.MARKED
@@ -1594,11 +1599,18 @@ class RecordingService : Service() {
      * though status never appears in it; each post is binder calls plus a
      * SystemUI re-inflate, all for an identical row.
      */
-    private fun notificationKey(): Triple<String, DeviceAudioLock.NotificationLine, String?> =
-        Triple(title, notificationLine(), markConfirmation)
+    private fun notificationKey(): NotificationKey =
+        NotificationKey(title, notificationLine(), markConfirmation, finishing)
 
-    private var postedNotificationKey:
-        Triple<String, DeviceAudioLock.NotificationLine, String?>? = null
+    /** [finishing] is there because it takes Mark off; see NotificationMark.offered. */
+    private data class NotificationKey(
+        val title: String,
+        val line: DeviceAudioLock.NotificationLine,
+        val markConfirmation: String?,
+        val finishing: Boolean
+    )
+
+    private var postedNotificationKey: NotificationKey? = null
 
     /** The one line the notification shows, which also decides its actions. */
     private fun notificationLine(): DeviceAudioLock.NotificationLine =
@@ -1660,7 +1672,7 @@ class RecordingService : Service() {
     private fun buildNotification(): Notification {
         val line = notificationLine()
         val ended = line == DeviceAudioLock.NotificationLine.DEVICE_AUDIO_ENDED
-        val markOffered = NotificationMark.offered(line)
+        val markOffered = NotificationMark.offered(line, finishing)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mic)
             .setContentTitle(title.ifBlank { getString(R.string.app_name) })
@@ -1688,23 +1700,13 @@ class RecordingService : Service() {
                     )
                     .setOngoing(true)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    // Mark alone. A lock screen showing notification content
-                    // shows the full version, Mark included, and its tap
-                    // needs no unlock. One hiding it draws this version, and
-                    // stock Android draws it collapsed, with no actions, so
-                    // this is for systems that draw them: a label naming
-                    // nothing about the meeting, and the one action harmless
-                    // in a stranger's hands. Pause and Finish stay behind
-                    // the redaction.
-                    .apply {
-                        if (markOffered) {
-                            addAction(
-                                R.drawable.ic_star,
-                                getString(R.string.services_notif_mark),
-                                markIntent
-                            )
-                        }
-                    }
+                    // A lock screen showing notification content shows the
+                    // full version, Mark included, and its tap needs no
+                    // unlock. One hiding it draws this version, collapsed,
+                    // and SystemUI never draws a collapsed view's actions,
+                    // so Mark is a button in the content view instead.
+                    .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+                    .setCustomContentView(publicContentView(ended, markOffered))
                     .build()
             )
         if (!ended) {
@@ -1774,6 +1776,28 @@ class RecordingService : Service() {
         }
         return builder.build()
     }
+
+    /**
+     * The redacted version's content: a line naming nothing about the meeting
+     * and Mark alone, the one action harmless in a stranger's hands. Pause
+     * and Finish stay behind the redaction. The line carries the mark's
+     * confirmation too, which is only the recording's clock, so a tap made
+     * on a locked phone is answered there as well.
+     */
+    private fun publicContentView(ended: Boolean, markOffered: Boolean): RemoteViews =
+        RemoteViews(packageName, R.layout.services_notif_public).apply {
+            val confirmation = markConfirmation
+            setTextViewText(
+                R.id.notifPublicTitle,
+                when {
+                    ended -> getString(R.string.devaudio_notif_ended_public)
+                    markOffered && confirmation != null -> confirmation
+                    else -> getString(R.string.notif_recording)
+                }
+            )
+            setViewVisibility(R.id.notifPublicMark, if (markOffered) View.VISIBLE else View.GONE)
+            setOnClickPendingIntent(R.id.notifPublicMark, markIntent)
+        }
 
     private fun pendingFlags(): Int {
         var flags = PendingIntent.FLAG_UPDATE_CURRENT

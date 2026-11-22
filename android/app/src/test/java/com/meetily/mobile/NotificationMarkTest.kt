@@ -19,18 +19,30 @@ class NotificationMarkTest {
         ended: Boolean = false
     ) = NotificationMark.accepts(active, finishing, paused, ended)
 
+    private fun offered(line: NotificationLine, finishing: Boolean = false) =
+        NotificationMark.offered(line, finishing)
+
     @Test
     fun offeredWhileTheSessionIsRecording() {
-        assertTrue(NotificationMark.offered(NotificationLine.RECORDING))
-        assertTrue(NotificationMark.offered(NotificationLine.DEVICE_AUDIO_LIVE))
+        assertTrue(offered(NotificationLine.RECORDING))
+        assertTrue(offered(NotificationLine.DEVICE_AUDIO_LIVE))
         // A quiet room can look like a dead microphone; the session runs on.
-        assertTrue(NotificationMark.offered(NotificationLine.MIC_NO_SIGNAL))
+        assertTrue(offered(NotificationLine.MIC_NO_SIGNAL))
     }
 
     @Test
     fun notOfferedWhenNothingIsBeingRecorded() {
-        assertFalse(NotificationMark.offered(NotificationLine.PAUSED))
-        assertFalse(NotificationMark.offered(NotificationLine.DEVICE_AUDIO_ENDED))
+        assertFalse(offered(NotificationLine.PAUSED))
+        assertFalse(offered(NotificationLine.DEVICE_AUDIO_ENDED))
+    }
+
+    @Test
+    fun notOfferedOnceFinishIsSaving() {
+        // The backlog can take up to 15 s to drain after Finish, and a tap
+        // then is refused; the button must be gone rather than do nothing.
+        for (line in NotificationLine.entries) {
+            assertFalse("$line while finishing", offered(line, finishing = true))
+        }
     }
 
     @Test
@@ -39,7 +51,7 @@ class NotificationMarkTest {
         // there whenever Mark is, so it must never be offered as a fourth.
         for (line in NotificationLine.entries) {
             val pause = line != NotificationLine.DEVICE_AUDIO_ENDED
-            val count = 1 + (if (pause) 1 else 0) + (if (NotificationMark.offered(line)) 1 else 0)
+            val count = 1 + (if (pause) 1 else 0) + (if (offered(line)) 1 else 0)
             assertTrue("$line has $count actions", count <= 3)
         }
     }

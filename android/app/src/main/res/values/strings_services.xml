@@ -4,8 +4,9 @@
          lock-screen version, so it must never name anything about the
          meeting. See NotificationMark. -->
     <string name="services_notif_mark">Mark moment</string>
-    <!-- Replaces the notification's line for a few seconds after a mark.
-         %1$s is the recording's clock, as the transcript labels it
-         (0:12:34). -->
+    <!-- Replaces the notification's line for a few seconds after a mark,
+         on the redacted lock-screen version too, so it must name nothing
+         but the time. %1$s is the recording's clock, as the transcript
+         labels it (0:12:34). -->
     <string name="services_notif_marked_at">Marked at %1$s</string>
 </resources>

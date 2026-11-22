@@ -23,15 +23,18 @@ object NotificationMark {
      * moment is being recorded, and not once Android has ended device audio,
      * when nothing more can be. MIC_NO_SIGNAL is still a running session (a
      * very quiet room can look like a dead microphone), so it keeps the
-     * action.
+     * action. Not after Finish either: the session can spend up to 15 s
+     * draining its backlog, and a tap then would be refused by [accepts]
+     * with nothing to show for it.
      */
-    fun offered(line: NotificationLine): Boolean = when (line) {
-        NotificationLine.RECORDING,
-        NotificationLine.DEVICE_AUDIO_LIVE,
-        NotificationLine.MIC_NO_SIGNAL -> true
-        NotificationLine.PAUSED,
-        NotificationLine.DEVICE_AUDIO_ENDED -> false
-    }
+    fun offered(line: NotificationLine, finishing: Boolean): Boolean = !finishing &&
+        when (line) {
+            NotificationLine.RECORDING,
+            NotificationLine.DEVICE_AUDIO_LIVE,
+            NotificationLine.MIC_NO_SIGNAL -> true
+            NotificationLine.PAUSED,
+            NotificationLine.DEVICE_AUDIO_ENDED -> false
+        }
 
     /**
      * Whether a tap that reaches the service does anything. The tap can land

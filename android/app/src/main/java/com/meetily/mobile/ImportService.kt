@@ -198,7 +198,8 @@ class ImportService : Service() {
                 // the pairing JobGate exists to prevent. Never blocks; a
                 // generation in flight frees it when it ends.
                 com.meetily.mobile.llm.LocalLlm.release()
-                // A dataSync service keeps the process alive but NOT the CPU:
+                // A foreground service (mediaProcessing on 35+, dataSync
+                // below) keeps the process alive but NOT the CPU:
                 // without this, a long import stalls or dies once the screen
                 // has been off for a while.
                 runStartedMs = System.currentTimeMillis()
