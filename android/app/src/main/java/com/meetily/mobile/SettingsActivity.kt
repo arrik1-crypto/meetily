@@ -336,6 +336,7 @@ class SettingsActivity : AppCompatActivity() {
             savedInstanceState?.getBoolean(KEY_SYSTEM_ENGINE_OK, false) ?: false
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
+        findViewById<MaterialSwitch>(R.id.vadSwitch).isChecked = settings.vadSpeechGate
         findViewById<MaterialSwitch>(R.id.liveTranscriptionSwitch).isChecked =
             settings.liveTranscription
         findViewById<MaterialSwitch>(R.id.autoCheckSwitch).isChecked =
@@ -634,6 +635,7 @@ class SettingsActivity : AppCompatActivity() {
         settings.diarizationEnabled = diarizeSwitch.isChecked
         settings.whisperTranslate =
             findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked
+        settings.vadSpeechGate = findViewById<MaterialSwitch>(R.id.vadSwitch).isChecked
         settings.liveTranscription =
             findViewById<MaterialSwitch>(R.id.liveTranscriptionSwitch).isChecked
         settings.autoCheckTranscript =

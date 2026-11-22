@@ -1110,6 +1110,11 @@ class RecordingService : Service() {
             } else null,
             speakerSupplier = { activeSpeaker },
             chunkLabeler = labeler,
+            // Opened by the recorder on its audio thread: the first open
+            // copies the bundled model to app storage.
+            openSpeechGate = if (liveWhisper && settings.vadSpeechGate) {
+                { com.meetily.mobile.whisper.SileroVad.open(applicationContext) }
+            } else null,
             transcribe = liveWhisper,
             frameSink = if (writer != null) {
                 { frame -> writer.write(frame) }

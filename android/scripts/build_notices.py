@@ -6,9 +6,9 @@ than retyped: Apache-2.0 §4(a) conditions binary redistribution on shipping a
 copy of the License, and MIT on reproducing its notice exactly. Retyping is
 how those stop being verbatim.
 
-Run this after bumping a native pin in app/src/main/cpp/CMakeLists.txt or the
-sherpa-onnx version in scripts/fetch_sherpa_libs.sh, then commit the result.
-Needs network access.
+Run this after bumping a native pin in app/src/main/cpp/CMakeLists.txt, the
+sherpa-onnx version in scripts/fetch_sherpa_libs.sh or the bundled Silero VAD
+model (SILERO_VER below), then commit the result. Needs network access.
 
     python3 android/scripts/build_notices.py
 
@@ -48,6 +48,9 @@ WHISPER_VER = "b5907"
 LLAMA_VER = "v1.0.0"
 # Pinned by ggml at LLAMA_VER (ggml/src/ggml-cpu/CMakeLists.txt), not by us.
 KLEIDIAI_VER = "v1.32.0"
+# The Silero VAD release whose weights app/src/main/assets/ggml-silero-v6.2.0.bin
+# carries (whisper.cpp's ggml conversion; SileroAssetTest pins its bytes).
+SILERO_VER = "v6.2"
 
 # ScanCode keeps plain-text copies of licences that are only published as web
 # pages. Each file opens with YAML front matter, stripped before use.
@@ -61,6 +64,7 @@ SOURCES = {
     "mit_ggml": f"https://raw.githubusercontent.com/ggml-org/whisper.cpp/{WHISPER_VER}/LICENSE",
     "mit_ort": "https://raw.githubusercontent.com/microsoft/onnxruntime/main/LICENSE",
     "mit_openai": "https://raw.githubusercontent.com/openai/whisper/main/LICENSE",
+    "mit_silero": f"https://raw.githubusercontent.com/snakers4/silero-vad/{SILERO_VER}/LICENSE",
     "llama3_2": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_2/LICENSE",
     "llama3_1": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_1/LICENSE",
     "gemma": SCANCODE + "gemma-tou-2025-03-24.LICENSE",
@@ -92,9 +96,10 @@ licences, and where they came from.
 
 Recap's own source is available under the MIT License.
 
-Models are not shipped inside the app. They are downloaded from the sources
-listed in part two only when you choose to install them. A model's licence is
-set by its publisher and can change; the linked page is authoritative.
+Apart from the small Silero speech detector listed in part one, models are
+not shipped inside the app. They are downloaded from the sources listed in
+part two only when you choose to install them. A model's licence is set by
+its publisher and can change; the linked page is authoritative.
 
 
 Built with Llama
@@ -160,6 +165,15 @@ Arm KleidiAI {KLEIDIAI_VER}
     Optimised matrix-multiplication kernels, compiled into both native
     libraries on arm64 phones and used by ggml when the processor supports
     them.
+
+Silero VAD {SILERO_VER}
+    MIT License
+    Copyright (c) 2020-present Silero Team
+    https://github.com/snakers4/silero-vad
+    Included in the app as the speech-detection model ggml-silero-v6.2.0.bin,
+    in the ggml form the whisper.cpp project publishes at
+    https://huggingface.co/ggml-org/whisper-vad. Run on the phone through
+    whisper.cpp to skip silence, music and noise before transcription.
 
 AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric)
     Apache License 2.0
@@ -510,6 +524,8 @@ def main() -> int:
         texts["mit_ort"],
         rule("MIT License - OpenAI Whisper models"),
         texts["mit_openai"],
+        rule("MIT License - Silero VAD"),
+        texts["mit_silero"],
         rule(
             "Apache License 2.0 - sherpa-onnx, Arm KleidiAI, AndroidX, Material Components, Kotlin"
         ).rstrip("\n") + "\n",

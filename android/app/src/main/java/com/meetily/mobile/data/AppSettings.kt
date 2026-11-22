@@ -281,6 +281,17 @@ class AppSettings(context: Context) {
         get() = prefs.getBoolean("whisper_translate", false)
         set(value) = prefs.edit().putBoolean("whisper_translate", value).apply()
 
+    /**
+     * Skip chunks with no speech in them before they reach the on-device
+     * recogniser (Whisper, Parakeet or Nemotron), using the bundled Silero
+     * speech detector (see whisper/SpeechGate). On by default; off is the
+     * earlier loudness-only behaviour. Read when an import, recheck or live
+     * recording starts.
+     */
+    var vadSpeechGate: Boolean
+        get() = prefs.getBoolean("vad_speech_gate", true)
+        set(value) = prefs.edit().putBoolean("vad_speech_gate", value).apply()
+
     /** Acoustic speaker detection (Whisper engine only, experimental). */
     var diarizationEnabled: Boolean
         get() = prefs.getBoolean("diarization_enabled", false)

@@ -479,3 +479,106 @@ Java_com_meetily_mobile_whisper_WhisperBridge_transcribeWordsBytes(
     free(buf);
     return out;
 }
+
+/*
+ * Silero VAD through whisper.cpp's whisper_vad_* API: the speech gate in
+ * front of every on-device recogniser (SpeechGate.kt, SileroVad.kt).
+ *
+ * It needs no whisper_context, so it serves Parakeet and Nemotron too,
+ * where no Whisper model is loaded. The handle is the whisper_vad_context
+ * itself, and one thread uses a handle at a time; each caller owns its own.
+ * None of these functions leaves a Java exception pending: a failure
+ * returns 0 or NULL, and the Kotlin side then transcribes every chunk
+ * exactly as it would without the gate.
+ */
+JNIEXPORT jlong JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_vadInit(
+        JNIEnv *env, jobject thiz, jstring model_path, jint n_threads) {
+    (void) thiz;
+    if (model_path == NULL) return 0;
+    const char *path = (*env)->GetStringUTFChars(env, model_path, NULL);
+    if (path == NULL) {
+        (*env)->ExceptionClear(env);
+        return 0;
+    }
+    struct whisper_vad_context_params vparams = whisper_vad_default_context_params();
+    /*
+     * Each 512-sample window is a graph of a few small ops, so waking a
+     * thread pool per window costs more than it saves: one thread unless
+     * the caller asks for more.
+     */
+    vparams.n_threads = n_threads > 0 ? (int) n_threads : 1;
+    vparams.use_gpu = false;
+    struct whisper_vad_context *vctx =
+            whisper_vad_init_from_file_with_params(path, vparams);
+    (*env)->ReleaseStringUTFChars(env, model_path, path);
+    if (vctx == NULL) {
+        LOGE("failed to load the VAD model");
+        return 0;
+    }
+    LOGI("VAD model loaded");
+    return (jlong) (intptr_t) vctx;
+}
+
+/*
+ * One speech probability per 512-sample window of [samples] (16 kHz mono
+ * float), in order, or NULL on failure. whisper.cpp zero-pads a last window
+ * that is not whole; the Kotlin side passes whole windows only, so the
+ * window grid carries on across calls.
+ *
+ * reset=true starts from a fresh LSTM state (whisper_vad_detect_speech);
+ * false continues the state the previous call on this handle left
+ * (whisper_vad_detect_speech_no_reset), for audio that follows on directly.
+ *
+ * At b5907 a graph compute that fails part-way stops the loop but still
+ * returns true, leaving the remaining probabilities from an earlier call or
+ * zero. On the CPU backend with no abort callback a compute does not fail
+ * once its graph is allocated, and a failed allocation does return false.
+ */
+JNIEXPORT jfloatArray JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_vadDetect(
+        JNIEnv *env, jobject thiz, jlong handle, jfloatArray samples, jboolean reset) {
+    (void) thiz;
+    struct whisper_vad_context *vctx = (struct whisper_vad_context *) (intptr_t) handle;
+    if (vctx == NULL || samples == NULL) return NULL;
+    jsize n_samples = (*env)->GetArrayLength(env, samples);
+    if (n_samples <= 0) return NULL;
+    jfloat *pcm = (*env)->GetFloatArrayElements(env, samples, NULL);
+    if (pcm == NULL) {
+        (*env)->ExceptionClear(env);
+        return NULL;
+    }
+    bool ok = reset
+            ? whisper_vad_detect_speech(vctx, pcm, (int) n_samples)
+            : whisper_vad_detect_speech_no_reset(vctx, pcm, (int) n_samples);
+    (*env)->ReleaseFloatArrayElements(env, samples, pcm, JNI_ABORT);
+    if (!ok) {
+        LOGE("VAD detection failed");
+        return NULL;
+    }
+    int n_probs = whisper_vad_n_probs(vctx);
+    const float *probs = whisper_vad_probs(vctx);
+    if (n_probs <= 0 || probs == NULL) return NULL;
+    jfloatArray out = (*env)->NewFloatArray(env, (jsize) n_probs);
+    if (out == NULL) {
+        (*env)->ExceptionClear(env);
+        return NULL;
+    }
+    (*env)->SetFloatArrayRegion(env, out, 0, (jsize) n_probs, (const jfloat *) probs);
+    if ((*env)->ExceptionCheck(env)) {
+        (*env)->ExceptionClear(env);
+        (*env)->DeleteLocalRef(env, out);
+        return NULL;
+    }
+    return out;
+}
+
+JNIEXPORT void JNICALL
+Java_com_meetily_mobile_whisper_WhisperBridge_vadFree(
+        JNIEnv *env, jobject thiz, jlong handle) {
+    (void) env;
+    (void) thiz;
+    if (handle != 0) {
+        whisper_vad_free((struct whisper_vad_context *) (intptr_t) handle);
+    }
+}

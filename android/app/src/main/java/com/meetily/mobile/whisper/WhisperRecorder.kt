@@ -17,7 +17,9 @@ import kotlin.math.sqrt
  *
  * Captures 16 kHz mono float PCM from the microphone, cuts speech chunks at
  * trailing silences (energy-based), and transcribes each chunk on a single
- * background executor so audio capture never blocks.
+ * background executor so audio capture never blocks. With a speech gate
+ * ([openSpeechGate]) a chunk with no speech in it is dropped on that
+ * executor before the recogniser sees it.
  */
 class WhisperRecorder(
     private val modelPath: String,
@@ -67,6 +69,13 @@ class WhisperRecorder(
     // Optional acoustic diarization: given the chunk's raw audio, returns a
     // speaker-cluster id. Invoked on the transcriber thread.
     private val chunkLabeler: ((FloatArray) -> Int?)? = null,
+    /**
+     * Opens the speech gate (SileroVad.open), or null for none. Invoked once
+     * on the audio thread before capture starts, and only when transcribing.
+     * A null result, or a gate that fails later, leaves every chunk that
+     * passes the RMS check going to the recogniser, as without it.
+     */
+    private val openSpeechGate: (() -> SileroVad?)? = null,
     // Optional tee of every captured (non-paused) frame, e.g. into the
     // meeting-audio writer. Called on the audio thread; must not block.
     private val frameSink: ((FloatArray) -> Unit)? = null,
@@ -113,6 +122,14 @@ class WhisperRecorder(
 
     /** NativeWork tag for [contextPtr]; published and taken back with it. */
     private var workToken = 0
+
+    /**
+     * The speech gate's detector and its state for this recording. Published
+     * and taken back under [nativeLock] like [contextPtr]; [speechRun] is
+     * only used on the transcriber thread, which sees chunks in order.
+     */
+    private var speechVad: SileroVad? = null
+    @Volatile private var speechRun: SpeechGateRun? = null
 
     /**
      * Publishing [contextPtr] after a load and taking it back in
@@ -214,6 +231,26 @@ class WhisperRecorder(
                 }
             }
             if (!running) return@Thread
+            if (transcribe && openSpeechGate != null) {
+                // Same hand-off as the context above: if teardown ran while
+                // this was opening, nobody would free it, so this thread does.
+                // A gate that is not there never stops the recording.
+                val opened = try {
+                    openSpeechGate.invoke()
+                } catch (_: Throwable) {
+                    null
+                }
+                val published = opened != null && synchronized(nativeLock) {
+                    if (gate.isClaimed || !running) {
+                        false
+                    } else {
+                        speechVad = opened
+                        speechRun = opened.newRun()
+                        true
+                    }
+                }
+                if (!published) opened?.release()
+            }
 
             val minBuffer = AudioRecord.getMinBufferSize(
                 sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT
@@ -275,12 +312,13 @@ class WhisperRecorder(
                 // buffer is refilled.
                 val audio = chunk.copyOf(chunkLen)
                 val peak = chunkPeakRms
-                val startMs = (capturedSamples - chunkLen) * 1000 / sampleRate
+                val startSample = capturedSamples - chunkLen
+                val startMs = startSample * 1000 / sampleRate
                 chunkLen = 0
                 silenceRun = 0f
                 chunkPeakRms = 0f
                 if (peak < minSpeechRms) return // never contained speech
-                submitChunk(audio, speakerSupplier(), startMs)
+                submitChunk(audio, speakerSupplier(), startMs, startSample)
             }
 
             var emptyReads = 0
@@ -354,7 +392,8 @@ class WhisperRecorder(
         }.apply { start() }
     }
 
-    private fun submitChunk(audio: FloatArray, speaker: String?, audioMs: Long) {
+    /** [startSample] is [audioMs] in samples, for the speech gate's timeline. */
+    private fun submitChunk(audio: FloatArray, speaker: String?, audioMs: Long, startSample: Long) {
         // A chunk can reach here just as teardown shuts the executor down —
         // submitting then throws RejectedExecutionException on the audio
         // thread and takes the process with it. Drop it instead.
@@ -373,6 +412,11 @@ class WhisperRecorder(
             transcriber.execute {
                 try {
                     if (abandoned) return@execute
+                    // Scored here, not on the audio thread: a 28-second chunk
+                    // is 875 windows, a few hundred ms or more of work that
+                    // capture cannot wait for. A skipped chunk gets no
+                    // speaker label and no segment.
+                    if (speechRun?.keep(audio, startSample) == false) return@execute
                     val padded = if (audio.size < sampleRate * 12 / 10) {
                         audio.copyOf(sampleRate * 12 / 10)
                     } else {
@@ -540,6 +584,16 @@ class WhisperRecorder(
         }
         if (ptr != 0L) WhisperBridge.freeContext(ptr)
         com.meetily.mobile.diag.NativeWork.end(work)
+        val vad = synchronized(nativeLock) {
+            val current = speechVad
+            speechVad = null
+            speechRun = null
+            current
+        }
+        try {
+            vad?.release()
+        } catch (_: Throwable) {
+        }
         try {
             nemoEngine?.release()
         } catch (_: Throwable) {

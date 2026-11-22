@@ -345,6 +345,13 @@ class AudioFileImporter(
         // "how much longer" line rather than blanking it between batches.
         var lastDetail = ""
 
+        // Speech gate (Silero VAD, see SpeechGate), opened at the top of the
+        // try below and freed in its finally. Null when the setting is off or
+        // the detector could not be opened: then every chunk that passes the
+        // RMS check is transcribed, exactly as before.
+        var vad: SileroVad? = null
+        var speech: SpeechGateRun? = null
+
         /** One cut chunk, waiting to be sent to Whisper as part of a batch. */
         class Part(val audio: FloatArray, val startSample: Long, val clusterId: Int?)
 
@@ -507,6 +514,10 @@ class AudioFileImporter(
             // A cut can still fire from frames already in hand when the
             // cancel lands; it must not start an embedding or engine call.
             if (cancelled()) return
+            // No speech in it: no embedding, no engine call, no segment. A
+            // kept chunk goes on unchanged at the same start sample, so its
+            // timestamps and word timings match a run with the gate off.
+            if (speech?.keep(audio, startSample) == false) return
             val clusterId = clusterFor(audio)
             val engine = nemoEngine
             if (engine == null) {
@@ -573,6 +584,10 @@ class AudioFileImporter(
         val loudness = com.meetily.mobile.data.Waveform.collector()
 
         try {
+            if (settings.vadSpeechGate) {
+                vad = runCatching { SileroVad.open(context) }.getOrNull()
+                speech = vad?.newRun()
+            }
             val durationMs = AudioFileDecoder.decode(
                 context,
                 decodeUri,
@@ -746,6 +761,7 @@ class AudioFileImporter(
             com.meetily.mobile.diag.NativeWork.end(whisperWork)
             nemoEngine?.release()
             embedder?.release()
+            vad?.release()
         }
     }
 
