@@ -320,6 +320,14 @@ class AppSettings(context: Context) {
         get() = prefs.getString("mic_device", "auto") ?: "auto"
         set(value) = prefs.edit().putString("mic_device", value).apply()
 
+    /**
+     * "Don't show this again" on the warning that a locked screen ends
+     * device-audio capture (see DeviceAudioLock).
+     */
+    var devaudioLockWarningDismissed: Boolean
+        get() = prefs.getBoolean("devaudio_lock_warning_dismissed", false)
+        set(value) = prefs.edit().putBoolean("devaudio_lock_warning_dismissed", value).apply()
+
     /** Custom vocabulary (names/jargon), comma or newline separated; biases
      *  Whisper transcription via its initial prompt (see Vocab.promptFor). */
     var customVocab: String

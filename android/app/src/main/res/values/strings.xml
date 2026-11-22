@@ -578,7 +578,7 @@
     <string name="status_listening">Listening</string>
     <string name="status_hearing_speech">Hearing speech</string>
     <string name="status_processing">Transcribing</string>
-    <string name="status_device_audio_ended">Device audio capture ended — stop and start again to resume</string>
+    <string name="status_device_audio_ended">Device audio stopped — the screen locked or sharing ended. Tap Finish to keep what was recorded.</string>
     <string name="fgs_timeout_summary">Android stopped this after its daily background time limit. Nothing was changed \u2014 start it again to finish.</string>
     <string name="summary_timeout_notif">Summary not finished</string>
     <string name="fgs_timeout_import">Android stopped this after its daily background time limit. The part that finished has been kept — start it again to continue.</string>

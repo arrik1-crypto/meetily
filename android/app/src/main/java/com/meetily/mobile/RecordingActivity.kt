@@ -496,6 +496,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             finishButton.isEnabled = false
             pauseButton.isEnabled = false
         }
+        applyDeviceAudioEndedUi()
         rebuildSpeakerChips()
         startTimer()
     }
@@ -532,15 +533,25 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             android.os.Build.VERSION.SDK_INT >= 29 &&
             whisperReadyForDeviceAudio()
         ) {
-            val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
-                as android.media.projection.MediaProjectionManager
-            try {
-                startStage = RecordingStartStage.AWAITING_PROJECTION
-                projectionConsent.launch(manager.createScreenCaptureIntent())
-            } catch (_: Exception) {
-                startStage = RecordingStartStage.STARTED
-                RecordingService.start(this, initialTitle = nudgeTitle)
-            }
+            // Android 15 QPR1+ ends the capture when the screen locks; that
+            // has to be said before the meeting, not found out after it.
+            // While the warning is up nothing has been asked of the system,
+            // so the stage reads IDLE: the warning is a plain dialog that a
+            // re-creation dismisses, and the new screen runs the start flow
+            // again and shows it afresh rather than waiting for a consent
+            // result that was never requested.
+            startStage = RecordingStartStage.IDLE
+            DeviceAudioLockDialog.showIfNeeded(
+                this, settings,
+                onContinue = { launchProjectionConsent() },
+                onMicrophone = {
+                    Toast.makeText(
+                        this, R.string.devaudio_lock_mic_chosen, Toast.LENGTH_SHORT
+                    ).show()
+                    startStage = RecordingStartStage.STARTED
+                    RecordingService.start(this, initialTitle = nudgeTitle)
+                }
+            )
         } else {
             if (deviceAudioRequested) {
                 Toast.makeText(
@@ -676,6 +687,25 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         A11y.setStatusText(statusView, text, statusSpeech.shouldAnnounce(status, text))
         if (status == RecordingService.Status.PAUSED) applyPausedUi(true)
         else if (status != RecordingService.Status.FINISHING) applyPausedUi(false)
+        applyDeviceAudioEndedUi()
+    }
+
+    /**
+     * Android ended the device-audio capture, and nothing short of a new
+     * consent brings it back: Resume would only claim to be recording again.
+     * Finish stays, so what was captured can be saved.
+     */
+    private fun applyDeviceAudioEndedUi() {
+        if (service?.deviceAudioEnded != true) return
+        pauseButton.isEnabled = false
+        // applyPausedUi labelled it "Resume", which TalkBack would still
+        // announce for an action that no longer exists.
+        pauseButton.contentDescription = getString(R.string.devaudio_notif_ended)
+        // In audio-only capture (the default) this panel is the screen's main
+        // text, and "Recording audio." under a status line saying device
+        // audio stopped left the user to guess which one was true.
+        findViewById<TextView>(R.id.audioOnlyNote)
+            .setText(DeviceAudioLock.endedDetailRes(Build.VERSION.SDK_INT))
     }
 
     override fun onFinished(meetingId: String) {
@@ -1222,6 +1252,23 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
      */
     private fun whisperReadyForDeviceAudio(): Boolean =
         settings.transcriptionEngine == "whisper"
+
+    /**
+     * The system screen-capture consent; declined or failed means microphone.
+     * Records the stage first, so a screen re-created while the consent is up
+     * waits for its result instead of asking twice (see [RecordingStartStage]).
+     */
+    private fun launchProjectionConsent() {
+        val manager = getSystemService(Context.MEDIA_PROJECTION_SERVICE)
+            as android.media.projection.MediaProjectionManager
+        try {
+            startStage = RecordingStartStage.AWAITING_PROJECTION
+            projectionConsent.launch(manager.createScreenCaptureIntent())
+        } catch (_: Exception) {
+            startStage = RecordingStartStage.STARTED
+            RecordingService.start(this, initialTitle = nudgeTitle)
+        }
+    }
 
     companion object {
         const val EXTRA_DEVICE_AUDIO = "device_audio"

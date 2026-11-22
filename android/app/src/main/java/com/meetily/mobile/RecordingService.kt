@@ -114,6 +114,15 @@ class RecordingService : Service() {
     // Device-audio capture (webinars): AudioPlaybackCapture via MediaProjection.
     private var deviceAudioMode = false
 
+    /**
+     * Android ended this session's device-audio projection: the status bar
+     * chip, another app's projection, or — from Android 15 QPR1 — simply the
+     * screen locking (see DeviceAudioLock). Only a fresh consent could bring
+     * it back, so the session stops its clock and waits for Finish.
+     */
+    var deviceAudioEnded = false
+        private set
+
     // Written on the audio thread (deviceAudioRecord), stopped on main.
     @Volatile
     private var mediaProjection: android.media.projection.MediaProjection? = null
@@ -271,6 +280,10 @@ class RecordingService : Service() {
         liveIncomplete = false
         silentSinceMs = 0L
         micWarned = false
+        deviceAudioEnded = false
+        // The notification line reads it (an ERROR is not "recording device
+        // audio"), so a previous session's must not carry over.
+        status = Status.STARTING
         audioWriter = null
         audioFileName = null
         // The title has to arrive on THIS Intent rather than be pushed
@@ -317,7 +330,9 @@ class RecordingService : Service() {
     )
 
     fun togglePause() {
-        if (!active || finishing) return
+        // Resuming a projection Android has ended would only restart the
+        // clock over a capture that records nothing.
+        if (!active || finishing || deviceAudioEnded) return
         paused = !paused
         // Silence from before the pause must not count toward the dead-mic
         // window after it, and a warning raised before it is moot.
@@ -1079,7 +1094,14 @@ class RecordingService : Service() {
                 }
             },
             onError = { message ->
-                main.post { if (active && !finishing) setStatus(Status.ERROR, message) }
+                main.post {
+                    // A dead read is how the recorder sees the projection
+                    // ending; the device-audio status already says why, and
+                    // says it better than a read error code.
+                    if (active && !finishing && !deviceAudioEnded) {
+                        setStatus(Status.ERROR, message)
+                    }
+                }
             }
         ).also { it.start() }
         if (paused) {
@@ -1416,6 +1438,31 @@ class RecordingService : Service() {
     }
 
     /**
+     * The device-audio projection ended mid-session. It cannot be resumed
+     * without a fresh consent, and a device-audio session has no other source
+     * (it records playback only, never the microphone), so the session is
+     * held the way a pause holds it — clock stopped, nothing more written —
+     * and says why, on screen and in the notification, until Finish. Moving
+     * the session over to the microphone instead would need a mid-session
+     * source swap that WhisperRecorder does not have.
+     */
+    private fun onDeviceAudioEnded() {
+        if (!active || finishing || deviceAudioEnded) return
+        deviceAudioEnded = true
+        if (!paused) {
+            accumulatedMs += SystemClock.elapsedRealtime() - lastResumeAt
+            paused = true
+        }
+        // Whatever the dead AudioRecord still hands back must not reach the
+        // recording after this point.
+        whisperRecorder?.pause()
+        setStatus(
+            Status.PAUSED,
+            getString(DeviceAudioLock.endedStatusRes(Build.VERSION.SDK_INT))
+        )
+    }
+
+    /**
      * AudioRecord fed by other apps' playback (AudioPlaybackCapture). Runs on
      * the recorder's audio thread, after the mediaProjection-typed foreground
      * start — the ordering Android 14 enforces. VoIP apps that flag their
@@ -1444,12 +1491,15 @@ class RecordingService : Service() {
                         // notification saying Listening while the transcript
                         // silently stopped growing — the user found out when
                         // they opened the finished meeting.
+                        //
+                        // Only while this is still the session's projection:
+                        // teardown stops it too, and clears the field first
+                        // thing after, so that stop is not mistaken for
+                        // Android's. Taken for one after onDestroy, it would
+                        // repost an ongoing notification nothing removes.
                         main.post {
-                            if (active && !finishing) {
-                                setStatus(
-                                    Status.ERROR,
-                                    getString(R.string.status_device_audio_ended)
-                                )
+                            if (mediaProjection === projection && meetingId == session) {
+                                onDeviceAudioEnded()
                             }
                         }
                     }
@@ -1502,10 +1552,24 @@ class RecordingService : Service() {
      * though status never appears in it; each post is binder calls plus a
      * SystemUI re-inflate, all for an identical row.
      */
-    private fun notificationKey(): Triple<String, Boolean, Boolean> =
-        Triple(title, paused, micWarned)
+    private fun notificationKey(): Pair<String, DeviceAudioLock.NotificationLine> =
+        Pair(title, notificationLine())
 
-    private var postedNotificationKey: Triple<String, Boolean, Boolean>? = null
+    private var postedNotificationKey: Pair<String, DeviceAudioLock.NotificationLine>? = null
+
+    /** The one line the notification shows, which also decides its actions. */
+    private fun notificationLine(): DeviceAudioLock.NotificationLine =
+        DeviceAudioLock.notificationLine(
+            paused = paused,
+            micWarned = micWarned,
+            // A capture that never opened (no consent data, getMediaProjection
+            // or the AudioRecord failing) ends in ERROR with the mode still
+            // set; "Recording device audio" over it would claim a capture
+            // that is not there.
+            deviceAudio = deviceAudioMode && status != Status.ERROR,
+            deviceAudioEnded = deviceAudioEnded,
+            sdkInt = Build.VERSION.SDK_INT
+        )
 
     private fun updateNotification() {
         if (!active) return
@@ -1543,6 +1607,8 @@ class RecordingService : Service() {
     }
 
     private fun buildNotification(): Notification {
+        val line = notificationLine()
+        val ended = line == DeviceAudioLock.NotificationLine.DEVICE_AUDIO_ENDED
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mic)
             .setContentTitle(title.ifBlank { getString(R.string.app_name) })
@@ -1559,35 +1625,70 @@ class RecordingService : Service() {
             .setPublicVersion(
                 NotificationCompat.Builder(this, CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_mic)
-                    .setContentTitle(getString(R.string.notif_recording))
+                    // The lock screen is where an ended device-audio capture
+                    // is first seen, since from Android 15 locking is what
+                    // usually ended it.
+                    .setContentTitle(
+                        getString(
+                            if (ended) R.string.devaudio_notif_ended_public
+                            else R.string.notif_recording
+                        )
+                    )
                     .setOngoing(true)
                     .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
                     .build()
             )
-            .addAction(
+        if (!ended) {
+            // No Resume once Android has ended device audio: nothing could
+            // be resumed. Finish is all that is left.
+            builder.addAction(
                 if (paused) R.drawable.ic_play else R.drawable.ic_pause,
                 getString(if (paused) R.string.resume else R.string.pause),
                 pauseIntent
             )
-            .addAction(R.drawable.ic_check, getString(R.string.finish_save), stopIntent)
+        }
+        builder.addAction(R.drawable.ic_check, getString(R.string.finish_save), stopIntent)
 
-        if (paused) {
-            builder.setContentText(getString(R.string.status_paused))
-            builder.setUsesChronometer(false)
-        } else if (micWarned) {
-            // Louder than the status line: by the time this matters the phone
-            // is usually face down on a table with the screen off.
-            builder.setContentText(getString(R.string.mic_no_signal))
-            builder.setStyle(
-                NotificationCompat.BigTextStyle()
-                    .bigText(getString(R.string.mic_no_signal_detail))
-            )
-            builder.setWhen(System.currentTimeMillis() - elapsedMs())
-            builder.setUsesChronometer(true)
-        } else {
-            builder.setContentText(getString(R.string.notif_recording))
-            builder.setWhen(System.currentTimeMillis() - elapsedMs())
-            builder.setUsesChronometer(true)
+        when (line) {
+            DeviceAudioLock.NotificationLine.DEVICE_AUDIO_ENDED -> {
+                builder.setContentText(getString(R.string.devaudio_notif_ended))
+                builder.setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText(
+                            getString(DeviceAudioLock.endedDetailRes(Build.VERSION.SDK_INT))
+                        )
+                )
+                builder.setUsesChronometer(false)
+            }
+            DeviceAudioLock.NotificationLine.PAUSED -> {
+                builder.setContentText(getString(R.string.status_paused))
+                builder.setUsesChronometer(false)
+            }
+            DeviceAudioLock.NotificationLine.MIC_NO_SIGNAL -> {
+                // Louder than the status line: by the time this matters the
+                // phone is usually face down on a table with the screen off.
+                builder.setContentText(getString(R.string.mic_no_signal))
+                builder.setStyle(
+                    NotificationCompat.BigTextStyle()
+                        .bigText(getString(R.string.mic_no_signal_detail))
+                )
+                builder.setWhen(System.currentTimeMillis() - elapsedMs())
+                builder.setUsesChronometer(true)
+            }
+            DeviceAudioLock.NotificationLine.DEVICE_AUDIO_LIVE,
+            DeviceAudioLock.NotificationLine.RECORDING -> {
+                builder.setContentText(
+                    getString(
+                        if (line == DeviceAudioLock.NotificationLine.DEVICE_AUDIO_LIVE) {
+                            R.string.devaudio_notif_live
+                        } else {
+                            R.string.notif_recording
+                        }
+                    )
+                )
+                builder.setWhen(System.currentTimeMillis() - elapsedMs())
+                builder.setUsesChronometer(true)
+            }
         }
         return builder.build()
     }
