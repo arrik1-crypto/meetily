@@ -83,6 +83,26 @@ add_library(${LLAMA_JNI} SHARED llama_jni.c chat_render.cpp)
 target_link_options(${WHISPER_JNI} PRIVATE "-Wl,-z,max-page-size=16384")
 target_link_options(${LLAMA_JNI} PRIVATE "-Wl,-z,max-page-size=16384")
 
+# Export only the JNI entry points (see jni_exports.map); everything else in
+# each library becomes local. This file is built twice (here and by
+# :native-v82, with MEETILY_LIB_SUFFIX), and both pairs come through here.
+#
+# --no-undefined-version is already on in the NDK toolchain; it is repeated
+# so that a future exact name in the map that matches nothing fails the link
+# rather than silently exporting nothing. The rest of what the map needs is
+# also already set by the NDK r27 toolchain file, for every target including
+# the fetched ggml/whisper/llama ones: -ffunction-sections -fdata-sections
+# when compiling and --gc-sections when linking release builds. Do not add
+# compile flags here; ggml's CPU flags decide which phones can run it.
+set(MEETILY_JNI_EXPORTS "${CMAKE_CURRENT_SOURCE_DIR}/jni_exports.map")
+foreach(jni_lib ${WHISPER_JNI} ${LLAMA_JNI})
+    target_link_options(${jni_lib} PRIVATE
+        "-Wl,--version-script=${MEETILY_JNI_EXPORTS}"
+        "-Wl,--no-undefined-version")
+    # Without this an edit to the map does not relink the library.
+    set_property(TARGET ${jni_lib} APPEND PROPERTY LINK_DEPENDS "${MEETILY_JNI_EXPORTS}")
+endforeach()
+
 target_link_libraries(${WHISPER_JNI} PRIVATE whisper log)
 # llama-common (not "common") is the target name at b10089.
 target_link_libraries(${LLAMA_JNI} PRIVATE llama llama-common log)
