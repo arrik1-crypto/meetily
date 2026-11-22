@@ -26,9 +26,9 @@ how to delete it.
 
 All of this is kept in Recap's private storage, which other apps cannot read:
 
-- Meetings: title, date, transcript with timings and speaker names, your
-  notes, summaries, action items and reminders, highlights, topics, tags and
-  attendee names.
+- Meetings: title, date, transcript with timings and speaker names, the
+  language it was spoken in (when known), your notes, summaries, action
+  items and reminders, highlights, topics, tags and attendee names.
 - Meeting audio, when kept. On-device transcription keeps it by default.
 - Photos you attach, the text read from them, and files you attach.
 - Voice profiles you save: a voiceprint (numbers describing how a person
@@ -154,7 +154,8 @@ reports or messages you choose to send.
   the screen.
 - **Calendar (optional):** read-only, as described below.
 - **Notifications:** recording, transcription and download progress,
-  reminders and meeting nudges.
+  reminders, meeting nudges, and storage clean-up notices if you turn
+  automatic clean-up on.
 - **Internet:** model downloads, your AI endpoint if you set one up, and ML Kit
   diagnostics.
 - **Network state:** Recap uses it only to warn before a large model download
@@ -163,7 +164,8 @@ reports or messages you choose to send.
   Reading text in photos).
 - **Running in the background, starting after a restart, exact alarms and
   keeping the phone awake:** so recordings, transcriptions and downloads
-  finish with the screen off, and reminders arrive on time.
+  finish with the screen off, reminders arrive on time, and automatic
+  clean-up, if you turn it on, runs once a day.
 
 Photos come from your camera app or the system picker; Recap has no camera or
 photo-library permission.
@@ -180,11 +182,19 @@ you send to an AI endpoint.
 ## Deleting your data
 
 Deleting a meeting removes its transcript, audio, photos and attached files
-from the phone. Saved voices are deleted under Settings → Voice profiles, and
-downloaded models from their lists in Settings. To remove everything, clear
-Recap's storage in Android settings or uninstall the app. Copies you exported
-or shared, and anything sent to a speech service or AI endpoint, are outside
-Recap and have to be deleted there.
+from the phone. You can also remove only a meeting's audio and keep its
+transcript, from the meeting's menu or from Settings → Data → Storage and
+clean-up. That Storage screen also deletes downloaded models you no longer
+use, and can turn on automatic clean-up: once a day, on the phone, it
+removes the audio of meetings, or the meetings themselves, once they are
+older than a number of days you choose. Automatic clean-up is off unless you
+turn it on, and leaves starred and recently changed meetings alone. Saved
+voices are deleted under Settings → Voice profiles, and downloaded models
+also from their lists in Settings. To remove everything, uninstall the app:
+Android's Manage space button for Recap opens Recap's Storage screen rather
+than clearing all of its data. Copies you exported or shared, and anything
+sent to a speech service or AI endpoint, are outside Recap and have to be
+deleted there.
 
 ## Security
 

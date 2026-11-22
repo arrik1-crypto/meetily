@@ -1,13 +1,20 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Current release:
-**3.17.0-beta1** (versionCode 112), targetSdk 36 (Android 16): Batch 3
-(llama.cpp v1.0.0 and whisper.cpp b5907 on ggml 1.0.0, Arm KleidiAI on
-arm64, control-token-safe prompts, the Silero speech gate in front of
-every on-device recogniser, an 8K window for the small on-device LLMs, and
-the opt-in Parakeet Ultra, Gemma 4 E2B/E4B QAT and Qwen 3.5 2B/4B models).
-The previous release, **3.16.0-beta1** (versionCode 111), was Batch 2
+App ID: **com.recap.mobile** (permanent). Next release:
+**3.18.0-beta1** (versionCode 113), targetSdk 36 (Android 16): Batch 4
+(meetings read off the main thread, home search that lands on the moment
+and Find in meeting, Find & replace that keeps word timings, the Storage
+screen with Remove audio, automatic clean-up and multi-select on the home
+list, and the meeting's spoken and summary language). Until the version
+bump, which the maintainer makes in a separate commit right after this
+documentation update, `android/app/build.gradle.kts` still reads
+**3.17.0-beta1** (versionCode 112), the Batch 3 release (llama.cpp v1.0.0
+and whisper.cpp b5907 on ggml 1.0.0, Arm KleidiAI on arm64,
+control-token-safe prompts, the Silero speech gate in front of every
+on-device recogniser, an 8K window for the small on-device LLMs, and the
+opt-in Parakeet Ultra, Gemma 4 E2B/E4B QAT and Qwen 3.5 2B/4B models).
+The release before it, **3.16.0-beta1** (versionCode 111), was Batch 2
 (device-fit model setup, Mark moment on the notification, wider home
 search, exit-record crash reports, mediaProcessing for ImportService,
 JNI-only native exports).
@@ -145,7 +152,21 @@ developer receives nothing from the app. "No data collected" is still not
 the right answer: the bundled Google ML Kit text-recognition SDK, which
 reads text in photos, sends Google diagnostics. The answers below match the
 code on this branch; re-check them whenever an SDK or a network path
-changes. Re-checked for 3.17.0-beta1: no change. It adds no permission
+changes. Re-checked for 3.18.0-beta1: no change. It adds no permission
+and no network path, and nothing in it sends data off the phone. The
+Storage screen measures files on the phone. Remove audio, Delete unused
+models and automatic clean-up delete files on the phone; clean-up is off
+until the user chooses a rule, and runs as a local JobScheduler job
+(persisted with RECEIVE_BOOT_COMPLETED, which the app already held).
+Multi-select's export writes one zip only to a destination the user picks
+in the system file picker, like the existing single-meeting export. Home
+search snippets, Find in meeting and Find & replace run on the phone. The
+spoken-language setting goes only to the on-device engines; the
+summary-language setting adds a short instruction naming the output
+language to the AI prompts, which reach a remote AI endpoint only if the user set one
+up, as before (the AI endpoint row covers it). The meeting JSON gains
+`language` and `translated`, which stay on the phone with the rest of the
+meeting. Re-checked for 3.17.0-beta1: no change. It adds no permission
 and no network path. The Silero speech detector is bundled in the APK and
 runs on the phone (it reads the audio being transcribed, sends nothing,
 needs no network, and stores only its own model file, copied once into
@@ -179,7 +200,7 @@ collection or a user-initiated transfer:
 | Model downloads (only when the user picks a model) | An ordinary HTTPS request to Hugging Face or GitHub (IP address, file requested, user agent); no meeting data | Not collected |
 | Crash reports | Saved on the phone; a report leaves it only if the user shares it through the share sheet | Not collected (user-initiated) |
 | Report AI output | An email draft in the user's own email app; the generated text only if the user ticks the box; sent only if the user sends it | Not collected (user-initiated) |
-| Share, export, backup | Wherever the user sends them | Not collected (user-initiated) |
+| Share, export (one meeting, or several as a zip from multi-select), backup | Wherever the user sends them | Not collected (user-initiated) |
 | Calendar | Read on the phone; event title and attendee names leave only inside a meeting the user sends to an AI endpoint | Not collected |
 
 **ML Kit, mapped to Play's data types** — owner to confirm against
@@ -244,7 +265,12 @@ parties. Text recognition collects nothing feature-specific on top.
   which EndpointGuard allows (and refuses for any public address).
 - **Do you provide a way for users to request that their data is
   deleted?** Everything Recap keeps is on the phone and is deleted in the
-  app (meetings, voice profiles, models) or by uninstalling. ML Kit's
+  app (meetings, a meeting's audio on its own, voice profiles, models, and
+  old meetings or their audio automatically if the user turns clean-up on)
+  or by uninstalling. From 3.18.0-beta1, Android's storage button for
+  Recap reads Manage space and opens Recap's Storage screen instead of
+  clearing the app's data, so uninstalling is the way to remove
+  everything at once (the privacy policy says so). ML Kit's
   diagnostics are held by Google and Recap cannot delete them, so for the
   declared data the answer is most likely **No**; owner to confirm.
 
@@ -321,6 +347,11 @@ The console will ask about these (all have in-app justifications):
   before a large model download over a metered connection and to say so
   when the phone is offline. Recap's own use keeps and sends nothing
   about the network. The privacy policy's PERMISSIONS list names it.
+- **3.18.0-beta1** adds no permission and no foreground service. The daily
+  automatic clean-up (RetentionJobService, only while a rule is on) is a
+  JobScheduler job with no network requirement, persisted across reboots
+  with RECEIVE_BOOT_COMPLETED, which the app already declared. Its quiet
+  "Storage clean-up" notifications use POST_NOTIFICATIONS like the rest.
 
 ## 6. Store listing
 
@@ -342,7 +373,13 @@ The console will ask about these (all have in-app justifications):
   for small models changes no figure: those are costed at 4K, and the
   larger window is granted only where the model still fits comfortably.
   The listing does not advertise the opt-in models or the speech
-  detector, and needs no other change for them.
+  detector, and needs no other change for them. For 3.18.0-beta1 the
+  full description gains a short FIND IT, FIX IT section (search that
+  lands on the moment, Find in meeting, Find & replace, removing old
+  audio with optional clean-up) and a line on the meeting's language,
+  and trims a few older lines to stay under 4,000 characters (3,930 now);
+  the DEVICE REQUIREMENTS figures are unchanged. It does not mention the
+  faster meeting opening or multi-select, and adds no privacy claim.
 - **App icon**: `play-icon-512.png` (512×512, delivered separately).
 - **Feature graphic**: `play-feature-1024x500.png` (1024×500).
 - **Screenshots**: at least 2 phone screenshots (take from your device:
@@ -352,6 +389,8 @@ The console will ask about these (all have in-app justifications):
   bars transparent over the app background (a translucent scrim on
   3-button navigation). Older screenshots with solid bars look nearly the
   same. The recording screen shows live words only with Transcribe live on.
+  Worth adding from 3.18.0-beta1: a home search showing match snippets,
+  and the Storage screen.
 - **Category**: Productivity. **Tags**: note-taking, transcription.
 - **Contact email**: required — the support address. Use the same address
   as `support_email` in the app (section 11): in-app AI output reports and
@@ -413,6 +452,21 @@ closed track and production checks).
 5. Play Console → the track → Create new release → upload AAB → release
    notes → roll out (after the accessibility pass in section 7 for
    anything beyond internal testing).
+
+Draft release notes for 3.18.0-beta1 (Play allows 500 characters per
+language; this is about 450):
+
+```
+• Search shows the words around each match and opens the meeting at that moment; Find in meeting
+• Find & replace across a meeting, with undo; tap-to-seek keeps working on edited lines
+• Storage screen: remove a meeting's audio but keep its transcript; optional automatic clean-up
+• Long-press to select several meetings: delete, tag, export, remove audio
+• Choose the spoken language and the summary language
+• Long meetings open without freezing
+```
+
+If 3.17.0-beta1 never reached a track, fold its notes (below) into these
+and keep the total under 500 characters.
 
 Draft release notes for 3.17.0-beta1 (Play allows 500 characters per
 language; this is about 450):
@@ -539,10 +593,23 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [x] Bump `versionCode` to 112 and `versionName` to `3.17.0-beta1` in
-  `android/app/build.gradle.kts` (done; 111 / 3.16.0-beta1 before it).
-  Bump both again for every later upload: Play rejects a versionCode it
-  has already seen.
+- [ ] Bump `versionCode` to 113 and `versionName` to `3.18.0-beta1` in
+  `android/app/build.gradle.kts`. The maintainer makes this bump in a
+  separate commit right after the Batch 4 documentation update; until
+  then the build reads 112 / 3.17.0-beta1 (111 / 3.16.0-beta1 before
+  that). Bump both again for every later upload: Play rejects a
+  versionCode it has already seen.
+- [ ] Run CI on the merged Batch 4 branch (`b4/integration`), not only on
+  the five group branches: `testReleaseUnitTest` (new BulkActions,
+  FindReplace, MeetingLanguage, MeetingLoad, MomentSearch, OpenMeetings,
+  OutputLanguage, Retention, StorageUsage and WordRealign tests, plus
+  additions to LibrarySearch, TopicChapters and TranscriptSplitter), then
+  `assembleRelease` with `lintVital` and the native export check. The
+  groups all edited `menu_detail.xml` and MeetingDetailActivity's menu
+  code, and three of them MainActivity, MeetingAdapter and
+  `item_meeting.xml`; the integration commit resolved those, so lint must
+  pass on the merged tree. Batch 4 changes no native code, so the JNI
+  export list is unchanged.
 - [ ] Watch the first CI run of Batch 3. The arm64 configures of both
   `:app` and `:native-v82` now need Arm KleidiAI v1.32.0 as well as the
   llama.cpp v1.0.0 and whisper.cpp b5907 tarballs. In CI, KleidiAI comes
@@ -605,8 +672,11 @@ Work through it before the first targetSdk 36 upload to any track.
   Notes and gotchas). After the first upload, check the pre-launch report
   on tablet devices.
 - [ ] **Data safety**: file the answers in section 4 (unchanged by
-  3.16.0-beta1 and by 3.17.0-beta1, whose speech detector, new models and
-  KleidiAI send nothing off the phone). "No data collected" is no longer accurate. Re-read
+  3.16.0-beta1, by 3.17.0-beta1, whose speech detector, new models and
+  KleidiAI send nothing off the phone, and by 3.18.0-beta1, whose storage
+  clean-up, multi-select export, search and language settings work on the
+  phone or go only where the user sends them). "No data collected" is no
+  longer accurate. Re-read
   Google's ML Kit Android data disclosure
   (https://developers.google.com/ml-kit/android-data-disclosure) and
   declare what it lists for the bundled text-recognition SDK: App info and
@@ -649,7 +719,8 @@ Work through it before the first targetSdk 36 upload to any track.
   Android (model downloads, summaries and speaker suggestions, plus
   import and transcription on Android 14 and lower); keep the
   declaration. Optional: re-record the microphone video to show the
-  notification's Mark moment action.
+  notification's Mark moment action. 3.18.0-beta1 changes nothing here:
+  the daily clean-up is a JobScheduler job, not a foreground service.
 - [ ] **Network state**: ACCESS_NETWORK_STATE (Play shows "view network
   connections") was already in the merged manifest through ML Kit's
   datatransport, so Play shows no new permission. Recap now also reads it
@@ -680,7 +751,15 @@ Work through it before the first targetSdk 36 upload to any track.
   records of native crashes, freezes and memory kills. 3.17.0-beta1 does
   not change the policy: the speech detector works on the phone, and the
   new models come from Hugging Face, which the Model downloads section
-  already names.
+  already names. 3.18.0-beta1 does change it, in both copies together
+  (`docs/privacy-policy.md` and `privacy_policy_body`, same section
+  headings for PrivacyPolicyDriftTest): Deleting your data now names
+  Remove audio, automatic clean-up (off unless turned on) and the Storage
+  screen's Delete unused models, and says that Android's Manage space
+  button for Recap opens that screen rather than clearing everything, so
+  uninstalling removes everything; Permissions adds clean-up
+  notifications and the once-a-day clean-up run. Nothing new leaves the
+  phone.
 - [ ] Set up a way to triage the "Recap AI output report" emails that
   arrive at the support address, and decide on a response time.
 
@@ -810,6 +889,51 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] *Decision*: whether any opt-in model (Gemma 4 QAT, Qwen 3.5 2B/4B,
   Parakeet Ultra) should ever be suggested on first run. None is today;
   that needs the quality and speed checks below first.
+- [ ] *Decision* (3.18.0-beta1): a long press on a home-list meeting now
+  starts multi-select instead of opening the meeting's action sheet. The
+  sheet is still reachable from the selection bar's More when exactly one
+  meeting is selected, and as a "Meeting options" screen-reader action on
+  every row, but Rename, Summarise and the rest now take one more tap for
+  existing users. Confirm this change of habit is acceptable for the
+  release.
+- [ ] *Decision*: keep the safety stop that holds back an automatic
+  clean-up run that would delete more than 10 whole meetings
+  (`Retention.AUTO_MAX_MEETINGS`) and posts a "due for clean-up" review
+  notification instead? It is not in the roadmap spec; it was added
+  against data loss, for example after restoring a backup of old
+  meetings or a clock change. It applies only to "Delete old meetings";
+  "Remove old audio" has no cap.
+- [ ] *Decision*: with `android:manageSpaceActivity` set, Android's App
+  info → Storage shows Manage space, which opens Recap's Storage screen,
+  where Clear storage used to be. Users can therefore no longer wipe all
+  of Recap's data from Android settings (Clear cache remains); short of
+  uninstalling, there is no one-step "delete everything", since the
+  Storage screen deletes models and audio, multi-select deletes meetings,
+  and voice profiles and settings are separate. The privacy policy now
+  says so. Confirm this is acceptable, or add a "Delete all Recap data"
+  action to the Storage screen.
+- [ ] *Decision*: the custom-vocabulary offer after Find & replace adds the
+  term to the end of the list, but Whisper's prompt keeps only about the
+  first 600 characters of the list (`Vocab.promptFor`), so a term added to
+  a long list may never reach Whisper, and the dialog does not say so.
+  Check the offer's wording against the Settings custom-vocabulary text
+  on a device and decide whether to mention the limit or put new terms
+  first.
+- [ ] *Decision*, after the device check below: if Qwen 2.5 1.5B or
+  Gemma 3 1B drift into English on a long German meeting summarised with
+  "Same as meeting", consider asking the map-reduce condense prompt to
+  keep the transcript's language. Today only the final summary prompt
+  names the output language; the condensed section notes do not.
+- [x] Per-import language with one downloaded model: settled in the
+  language review fixes. The import model sheet now appears whenever the
+  only downloaded model can take a language, so its Spoken language row is
+  reachable; a single model that cannot (Parakeet, English-only) starts at
+  once as before.
+- [x] Menu naming: the meeting's toolbar search is "Find in meeting" and
+  the ⋮ item is "Find & replace…", so the two are told apart.
+- [ ] Look at the amber find colours (`values/colors_moment.xml`,
+  `values-night/colors_moment.xml`) against the brand on a device, in
+  light and dark theme, and adjust if wanted.
 - [ ] Plan for Local Network Protection: opt-in on Android 16 and to be
   enforced in a later release, it will gate LAN Ollama on private IPs.
   Test it now with
@@ -1081,9 +1205,11 @@ silence with speech detection" on unless noted:
 - [ ] A Parakeet or Nemotron import works with the setting on;
   `meetily_whisper` logs `VAD model loaded`, and `meetily_vad` logs no
   `speech gate off` warning.
-- [ ] After Settings → Apps → Recap → Clear storage, the first import or
-  live recording copies the model out of the APK again and the gate
-  works; after Force stop the self-test runs again and the gate works.
+- [ ] After clearing Recap's data (`adb shell pm clear com.recap.mobile`;
+  from 3.18.0-beta1 Settings → Apps → Recap → Storage shows Manage space,
+  which opens Recap's Storage screen instead), the first import or live
+  recording copies the model out of the APK again and the gate works;
+  after Force stop the self-test runs again and the gate works.
 - [ ] Android 11+: kill the process during an import (as in the
   exit-record checks above, on a debug build) and relaunch. The report's
   Native work line names the `vad` job (model `silero-v6.2.0`) alongside
@@ -1141,12 +1267,176 @@ New opt-in models (3.17.0-beta1):
   Gemma 4 E2B QAT reads Tight fit on a 10 GB phone (8/12 GB) where the
   unsloth E2B reads Fits this phone (8/10 GB).
 
+Opening a meeting off the main thread (3.18.0-beta1):
+
+- [ ] Open a 2-hour meeting on a low-end phone. The title and date appear
+  at once with no jank; "Opening meeting…" appears only if the read takes
+  more than about a quarter of a second, and TalkBack announces it once.
+  The toolbar and ⋮ items are greyed out for that moment and work once
+  the meeting is shown.
+- [ ] Rotate while that meeting is still opening: it opens once, with no
+  double render and no crash. Rotate again once it is open: the tab
+  (Summary, Transcript or Audio), collapsed chapters and scroll position
+  come back.
+- [ ] Open meetings from a reminder notification and from the
+  summary-done and import-done notifications: the title appears almost
+  at once (read from the start of the file) and the meeting opens.
+- [ ] After an accuracy check, "Redo summary" (EXTRA_REGENERATE_SUMMARY)
+  still opens the template chooser. The home sheet's Rename, Summarize,
+  Topics, Check accuracy and Share (now under multi-select's More, or the
+  row's "Meeting options" TalkBack action) still open their dialog once
+  the meeting is shown. Repeat one of them with a rotation during the
+  load.
+- [ ] With Developer options → Don't keep activities on: take a photo,
+  pick a gallery image, attach a file and export Markdown from a meeting;
+  each lands once the meeting reopens. Back out at once after the camera
+  returns: the photo is still on the meeting next time.
+- [ ] Finish a recording and rotate before answering the "follows on
+  from" card: it is still offered. After Not now it does not come back on
+  rotation.
+- [ ] Open a meeting whose file was deleted or corrupted (on a debug
+  build, delete or truncate its JSON under `files/meetings` with `adb
+  shell run-as com.recap.mobile`, then open it from a notification or
+  the list): the "Meeting not found" toast and close, as before.
+
+Storage, Remove audio, automatic clean-up and multi-select (3.18.0-beta1):
+
+- [ ] Settings → Apps → Recap → Storage → Manage space opens Recap's
+  Storage screen, not Android's clear-storage dialog. With app lock on it
+  asks to unlock first. The totals appear after "Measuring storage…", and
+  the screen stays responsive with several large models installed.
+- [ ] On the Storage screen the five largest recordings open their
+  meeting, and Delete unused models lists only models not selected
+  anywhere; with the automatic accuracy check on, the model it would use
+  is not listed. Tapping it while a recording, import, summary or model
+  download runs deletes nothing and says to try again once that has
+  finished.
+- [ ] On a meeting with audio, ⋮ → Remove audio (keep transcript): the
+  confirmation lists what stops working. After confirming, playback stops,
+  the player bar and Audio tab disappear, the transcript stays, the
+  language chip disappears if the language was not recorded, Storage shows
+  less meeting audio, and the audio and its clips are gone from the next
+  backup. The item is refused during a recording or import of that
+  meeting, and with an accuracy check waiting for review. On a meeting
+  with no transcript yet it asks "Delete this meeting's only recording?".
+- [ ] Automatic clean-up, first run: with old meetings present, choose
+  Remove old audio with 30 days. The preview lists the meetings it
+  reaches; Cancel saves nothing (Settings still shows Off); Turn on applies
+  it and Settings shows the rule. Starred, recently edited, reminder-holding
+  and untranscribed meetings are not affected, nor a meeting open on a
+  meeting screen.
+- [ ] Automatic clean-up, daily run: force it with `adb shell cmd
+  jobscheduler run -f com.recap.mobile 7302` (or wait a day). The quiet
+  "Storage clean-up" notification appears only when something was
+  removed. With Delete old meetings and more than 10 meetings due, nothing
+  is deleted and a "due for clean-up" notification opens the review.
+  Turning the rule Off cancels the job (`adb shell dumpsys jobscheduler`
+  no longer lists 7302 for the app); force-stop and relaunch re-arms it
+  while a rule is on.
+- [ ] Multi-select: long-press a meeting and the selection bar replaces
+  the header; tap rows to toggle; Select all; Back exits; rotation keeps
+  the selection; searching or filtering drops hidden meetings from it.
+  Bulk Delete and bulk Remove audio show counts and the "left out" note.
+  Add tag adds the tag to every selected meeting. Export writes a .zip
+  with one Markdown file per meeting, the clinical and legal notices
+  included where they apply. With one meeting selected, More → Meeting
+  options opens the old sheet. With TalkBack, rows announce checked / not
+  checked, the count is spoken, and every row has a "Meeting options"
+  action.
+
+Meeting language (3.18.0-beta1):
+
+- [ ] Pin German in Settings → Transcription → Spoken language with a
+  multilingual Whisper model, record or import German audio: the
+  transcript is German and the chip reads "Language: German".
+- [ ] With Auto-detect, import German audio with a multilingual Whisper
+  model: the chip shows German, as detected. With Parakeet or Nemotron 3.5
+  on auto it reads "not recorded".
+- [ ] With Summary language "Same as meeting", summarise a German meeting
+  with Qwen 2.5 1.5B and Gemma 3 1B on the phone, then with an endpoint:
+  summary, headings and action items are German, and the action items
+  still parse into the checklist. Repeat for Ask, Enhance notes and the
+  automatic title. Include a long German meeting that goes through
+  map-reduce (see the decision above).
+- [ ] Tap the chip, choose Re-transcribe as French, confirm the time
+  estimate, then review the comparison and accept the whole transcript:
+  the chip reads French. Cancelling leaves the transcript as it was.
+- [ ] Older meetings are unaffected: their summaries, action items and
+  transcripts are unchanged, and the chip reads "not recorded" only when
+  audio exists.
+- [ ] Pin a language with Nemotron 3.5 and check it is used. Pin
+  Indonesian with only Nemotron 3.5 installed: Re-transcribe as says it
+  needs a multilingual Whisper model. With Parakeet the pin is ignored
+  without errors.
+- [ ] Turn on Whisper's translate option with German audio: the chip reads
+  "German, translated to English" and the summary is English.
+- [ ] Queue an import with a language chosen in the model sheet while
+  another job runs: the queued run uses that language. With only one
+  multilingual model downloaded, the import sheet still appears with its
+  Spoken language row.
+- [ ] Offline summariser on a German meeting: it says action items are
+  picked out only in English instead of listing false matches.
+- [ ] TalkBack: the chip announces "Re-transcribe as…", and the Settings
+  buttons read "Spoken language: …" and "Summary language: …".
+
+Search that lands on the moment, and Find in meeting (3.18.0-beta1):
+
+- [ ] In a 2-hour meeting with chapters, search home for a phrase said
+  late in it and tap the hit: the meeting opens on the Transcript tab with
+  the right chapter expanded, the line on screen and outlined for about
+  2.5 s, and the find bar showing the phrase on that line's match.
+- [ ] Rotate while that meeting is still opening: it still lands.
+- [ ] Ask your library: tap a source with a quoted moment; it lands on the
+  quoted line with the term marked.
+- [ ] Find in meeting: type a word that occurs in several collapsed
+  chapters. Next and previous step through every match, expand each
+  chapter on the way, wrap at both ends, and the count updates. Back
+  closes the bar and clears the marks.
+- [ ] Accents: "cafe" finds "Café".
+- [ ] Edit a line that has a match while the bar is open: the marks stay on
+  the right words and next / previous still work.
+- [ ] TalkBack: a home row reads "Match at 0:42:10: …"; opening a hit moves
+  focus to the landed line and reads it; next / previous speak "Match 3 of
+  12, 0:42:10, Ana: …"; every bar button has a label.
+- [ ] Light and dark theme: the amber marks and the current match are
+  readable.
+
+Find & replace (3.18.0-beta1):
+
+- [ ] In a meeting with audio, replace a name used about 30 times (for
+  example "Jon" → "John", whole word): the per-area counts are right,
+  "Jonas" is untouched, "Jon's" becomes "John's", and the Snackbar reads
+  "Replaced N matches".
+- [ ] After the replace, tap words on edited lines: each seeks to the right
+  moment. Play with follow on and watch the highlight move through edited
+  lines. Repeat with a one-to-two-word replace ("Jon" → "John Smith").
+- [ ] Undo from the Snackbar, then replace again and undo from ⋮ → Undo
+  last replace. Rotate between a replace and its undo. Edit one replaced
+  line before undoing: it stays as edited and the message counts it as
+  skipped. The summary's out-of-date hint comes and goes with the
+  transcript change.
+- [ ] Split a timed line in the middle and inside a word: both halves keep
+  tap-to-seek, the second half's Play from here starts at its first word,
+  and an edit made in the split dialog keeps timings.
+- [ ] Edit text on a timed line (fix one word): tap-to-seek still works on
+  that line.
+- [ ] With Find in meeting open, ⋮ → Find & replace… starts with the bar's
+  words in Find. While a summary, enhanced notes or speaker suggestions run
+  on that meeting, Find & replace says it is unavailable.
+- [ ] TalkBack: the dialog's field labels, the area check boxes with their
+  counts, the status line announced once counting settles, Snackbar Undo
+  reachable, and the "Fix a word everywhere…" custom action on a line.
+- [ ] Accept the vocabulary offer: the term appears in Settings → Custom
+  vocabulary. Not now is not asked again for that term on the same screen.
+
 Accessibility:
 
 - [ ] Run Accessibility Scanner on the home, recording, meeting detail
   (Summary, Transcript and Audio tabs), settings, import and
-  accuracy-check screens. Check touch targets, missing labels and
-  contrast (contrast was not part of this change).
+  accuracy-check screens, and from 3.18.0-beta1 on the Storage screen,
+  the home selection bar, the find bar and the Find & replace dialog.
+  Check touch targets, missing labels and contrast (contrast was not part
+  of this change).
 - [ ] TalkBack pass on a real device: start/pause/resume/stop a recording
   and listen for the announcements; import a file; generate a summary; on
   a transcript line open the actions menu and try Play from here / Edit

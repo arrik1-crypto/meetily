@@ -5,33 +5,32 @@ Your meetings never have to leave your phone.
 
 Recap records, transcribes, and summarizes meetings on your device by
 default. No account, no subscription, and your meetings go to no cloud
-service unless you turn one on — your conversations stay yours.
+service unless you turn one on.
 
 PAY ONCE, OWN IT
 Meeting AI assistants typically cost $100–200 every year, forever, and
 send your conversations to their servers to earn it. Recap is a single
-one-time purchase: everything below is included, works offline, and
-never sends your meetings anywhere unless you choose to. No tiers, no
-upsells, no recurring anything.
+one-time purchase: everything below is included and works offline. No
+tiers, no upsells.
 
 RECORD ANYWHERE
 • One-tap recording, transcribed on your phone
 • Record device audio from webinars and videos (audio only, with your
   consent; keep the screen unlocked while recording)
 • Import existing recordings and transcribe them in the background
-• Crash-safe: recordings save continuously while you record
+• Crash-safe: recordings save as you go
 
 TRANSCRIPTION THAT RESPECTS PRIVACY
 • On-device Whisper models — from 75 MB Tiny to Large v3 Turbo
-• NVIDIA Parakeet (25 languages) and Nemotron engines, also fully on-device
+• NVIDIA Parakeet (25 languages) and Nemotron engines, also on-device
 • Speaker detection with reusable voice profiles
 • Custom vocabulary so your names and jargon come out right
-• Translate-to-English mode for multilingual meetings
+• Spoken language detected or chosen; AI summaries follow it, or
+  translate speech to English
 
 AI SUMMARIES — EVEN OFFLINE
 • Built-in AI engine runs models like Gemma, Llama, Qwen, and Mistral
-  directly on your phone: summaries, action items, and Q&A with zero
-  network involvement
+  directly on your phone: summaries, action items, and Q&A, offline
 • Llama models: Built with Llama. Models download on demand under their
   publishers' licences, shown in the app.
 • Or connect your own endpoint (Ollama on your PC, Groq, OpenRouter)
@@ -41,20 +40,24 @@ AI SUMMARIES — EVEN OFFLINE
   medical records or legal advice.
 • Report problematic AI output from inside the app
 
+FIND IT, FIX IT
+• Search shows the words around each match and jumps to that moment,
+  photo text included; find in meeting with next/previous
+• Find & replace across a meeting, with undo, keeping tap-to-seek
+• Free up space: remove old audio, keep transcripts; optional
+  automatic clean-up
+
 STAY ON TOP OF FOLLOW-UPS
 • Action items with reminders, a cross-meeting follow-ups list, and
-  export to your task app (.ics or text)
-• Pre-meeting briefs for recurring meetings: last time's outcomes and
-  open items, right from the calendar nudge
-• Weekly digest, tags, recurring-meeting grouping, full-text search
-  that includes photo text and attachment names
+  export to your task app
+• Pre-meeting briefs for recurring meetings, from the calendar nudge
+• Weekly digest, tags, recurring-meeting grouping
 
 BUILT FOR REAL WORK
 • Word-level tap-to-seek playback, speed control, skip-silence
 • Conversation insights: talk-time balance, questions, pace
 • Rich notes with checklists, photos, whiteboard OCR, file attachments
-• Share audio clips of key moments
-• Mark a moment from the notification without unlocking
+• Share audio clips of key moments; mark one from the notification
 • Markdown/PDF export, encrypted backups
 • Biometric app lock and screenshot blocking
 
@@ -69,8 +72,7 @@ RAM, minimum / comfortable:
   Gemma 4 E2B, Qwen 3.5 4B 8/10 GB; Gemma 4 E2B QAT 8/12 GB; Mistral 7B,
   Llama 3.1 8B, Gemma 4 E4B (also QAT) 12/16 GB; Qwen 3.5 9B 16/18 GB
 • Speaker detection: 1–2 GB
-Recap suggests models that suit your phone and shows each one's fit
-before you download it.
+Recap suggests models that suit your phone.
 
 PRIVACY, CONCRETELY
 Everything is stored in the app's private storage on your device. The
@@ -79,10 +81,10 @@ Transcription and AI run on your phone by default; Android's speech
 service and your own AI endpoint are optional, and send data only if
 you turn them on. Reading text in photos uses Google's ML Kit, which
 sends Google diagnostic data about the device and app, never your
-photos or meetings. Optional AI models are downloaded once (0.1–5.7 GB
-depending on your choice) and then work offline. Recording laws vary by
-location — always record with consent.
+photos or meetings. Optional AI models (0.1–5.7 GB) download once, then
+work offline. Recording laws vary by location — always record with
+consent.
 
 Recap is open source.
 ----------------------------------------------------------------
-(char count 3,990, counting line breaks — under the 4,000 limit)
+(char count 3,930, counting line breaks — under the 4,000 limit)
