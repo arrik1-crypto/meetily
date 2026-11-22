@@ -15,6 +15,9 @@
         app:navigationIcon="@drawable/ic_chevron_left"
         app:title="" />
 
+    <!-- Find in meeting, hidden until opened from the toolbar. -->
+    <include layout="@layout/moment_find_bar" />
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/detailRecycler"
         android:layout_width="match_parent"

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The line a search hit or an Ask-your-library moment opened at, marked
+     for a moment after the screen lands on it. An outline, so it reads apart
+     from the follow highlight (bg_line_active) and a starred line
+     (bg_line_highlight), and leaves the amber match marks inside it clear. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="?attr/colorSurfaceVariant" />
+    <stroke android:width="2dp" android:color="?attr/colorPrimary" />
+    <corners android:radius="10dp" />
+</shape>

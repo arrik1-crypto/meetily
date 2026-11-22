@@ -745,6 +745,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         transcriptAdapter.wordHighlightColor = themeColor(
             com.google.android.material.R.attr.colorPrimaryContainer
         )
+        findBar = MeetingFindBar(this, transcriptAdapter, findHost)
         recycler.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrollStateChanged(view: RecyclerView, newState: Int) {
                 // A drag means the user is reading or tagging somewhere else.
@@ -837,6 +838,21 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         requestedActionPending = savedInstanceState?.getBoolean(STATE_ACTION_PENDING) ?: true
         restoreView = savedInstanceState?.getBundle(STATE_VIEW)
+        // A search hit opens at its line once the meeting is read; the find
+        // bar comes back as it was left.
+        momentPending = savedInstanceState?.getBoolean(STATE_MOMENT_PENDING)
+            ?: (intent.hasExtra(EXTRA_SEGMENT) || intent.hasExtra(EXTRA_QUERY))
+        if (momentPending) whenLoaded { landOnMoment(it) }
+        // Kept until the bar takes it, so a screen re-created again before
+        // the read lands passes it on (onSaveInstanceState) instead of
+        // dropping a find, or a landing still to come.
+        pendingFindState = savedInstanceState?.getBundle(STATE_FIND)
+        pendingFindState?.let { find ->
+            whenLoaded {
+                pendingFindState = null
+                findBar.restore(find)
+            }
+        }
         if (savedInstanceState?.containsKey(STATE_PHOTO_RESULT) == true) {
             // The camera answered a screen that went before its meeting was
             // read, so the photo is still to be recorded.
@@ -1354,6 +1370,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (onTranscriptTab && followPlayback) {
             readyPlayer?.let { updateFollow(it.currentPosition.toLong()) }
         }
+        // An open find bar recounts when the lines changed (an edit, a split,
+        // late lines, a replace); its marks follow at once as lines rebind.
+        findBar.transcriptChanged()
     }
 
     /** Chapters are auto-collapsed once per screen, not on every re-render. */
@@ -1569,6 +1588,8 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         mainHandler.removeCallbacks(revealLoading)
+        mainHandler.removeCallbacks(endFlash)
+        findBar.release()
         // The model outlives a rotation; it must not hold on to this screen.
         loadModel?.load?.detach(loadListener)
         // A rotation hands an unrecorded photo on in the saved state.
@@ -1943,6 +1964,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             outState.putLong(STATE_CREATED_AT, headerCreatedAtMs)
         }
         viewState()?.let { outState.putBundle(STATE_VIEW, it) }
+        outState.putBoolean(STATE_MOMENT_PENDING, momentPending)
+        (findBar.saveState() ?: pendingFindState)?.let { outState.putBundle(STATE_FIND, it) }
     }
 
     private fun capturePhoto() {
@@ -2795,6 +2818,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         // it is reached.
         if (meeting == null) return true
         return when (item.itemId) {
+            R.id.moment_action_find -> {
+                findBar.open()
+                true
+            }
             R.id.action_summarize -> {
                 chooseTemplateAndSummarize()
                 true
@@ -4427,6 +4454,114 @@ class MeetingDetailActivity : AppCompatActivity() {
         topicsProgress.progress = window.coerceIn(0, total)
     }
 
+    // --- Search moments and Find in meeting -----------------------------------
+
+    /** Find in meeting, under the toolbar. Made in onCreate. */
+    private lateinit var findBar: MeetingFindBar
+
+    /** True until the line the screen was opened at (EXTRA_SEGMENT) is shown; saved with the state. */
+    private var momentPending = false
+
+    /** The find bar from the screen before a re-creation, until the read lands and it is restored. */
+    private var pendingFindState: Bundle? = null
+
+    private val endFlash = Runnable { transcriptAdapter.clearFlash() }
+
+    private val findHost = object : MeetingFindBar.Host {
+        override fun findTexts(): List<String>? = meeting?.segments?.map { it.text }
+
+        override fun findFirstVisibleSegment(): Int {
+            if (!onTranscriptTab) return 0
+            val recycler = findViewById<RecyclerView>(R.id.detailRecycler) ?: return 0
+            val manager = recycler.layoutManager as? LinearLayoutManager ?: return 0
+            // -1 for the header, which is its own adapter inside the ConcatAdapter.
+            return transcriptAdapter.segmentAtOrAfter(manager.findFirstVisibleItemPosition() - 1)
+        }
+
+        override fun findReveal(segment: Int, landing: Boolean) = revealSegment(segment, landing)
+
+        override fun findLineLabel(segment: Int): String {
+            val m = meeting ?: return ""
+            val line = m.segments.getOrNull(segment) ?: return ""
+            val time = com.meetily.mobile.data.ElapsedTime.label(line, m.createdAtMs)
+            val speaker = segmentSpeakerDisplay(this@MeetingDetailActivity, line)
+            return if (speaker.isNullOrBlank()) time else "$time, $speaker"
+        }
+    }
+
+    /**
+     * Opens at the moment a home search hit or an Ask-your-library source
+     * points to (EXTRA_SEGMENT), with the words searched for ready in Find
+     * in meeting (EXTRA_QUERY). Runs through whenLoaded, after the restored
+     * scroll; once per screen, like the requested action.
+     */
+    private fun landOnMoment(m: Meeting) {
+        if (!momentPending) return
+        momentPending = false
+        val segment = intent.getIntExtra(EXTRA_SEGMENT, -1)
+        val query = intent.getStringExtra(EXTRA_QUERY)?.takeIf { it.isNotBlank() }
+        intent.removeExtra(EXTRA_SEGMENT)
+        intent.removeExtra(EXTRA_QUERY)
+        val line = if (segment in m.segments.indices) segment else -1
+        if (query != null) {
+            // Lands once the bar has found the words: in that line, or in the
+            // nearest one still holding them if the meeting changed since.
+            findBar.open(query, focusField = false, landOn = line)
+        } else if (line >= 0) {
+            revealSegment(line, landing = true)
+        }
+    }
+
+    /**
+     * Brings transcript line [segment] on screen by the expand-then-scroll
+     * path: the transcript tab, the line's chapter expanded, then scrolled
+     * to. [landing] (opening at a search hit) also marks the line for a
+     * moment and gives it TalkBack's focus, which reads it out.
+     */
+    private fun revealSegment(segment: Int, landing: Boolean) {
+        val m = meeting ?: return
+        if (segment !in m.segments.indices || isFinishing || isDestroyed) return
+        val switched = !onTranscriptTab
+        if (switched) switchTab(Tab.TRANSCRIPT)
+        // Asked for, like a drag: playback follow must not pull the list away.
+        followScrolling = false
+        val expanded = transcriptAdapter.ensureVisible(segment)
+        if (switched || expanded || landing) {
+            // The rows were just rebuilt, so the rows on screen cannot say
+            // whether the line is already in view: always scroll.
+            val recycler = findViewById<RecyclerView>(R.id.detailRecycler) ?: return
+            val manager = recycler.layoutManager as? LinearLayoutManager ?: return
+            manager.scrollToPositionWithOffset(
+                transcriptAdapter.positionOfSegment(segment) + 1,
+                (recycler.height * 0.3f).toInt()
+            )
+        } else {
+            scrollToActive(segment)
+        }
+        if (landing) {
+            transcriptAdapter.flashSegment(segment)
+            mainHandler.removeCallbacks(endFlash)
+            mainHandler.postDelayed(endFlash, MOMENT_FLASH_MS)
+            focusLine(segment)
+        }
+    }
+
+    /** Gives line [segment] TalkBack's focus once the list has laid it out, so it is read out. */
+    private fun focusLine(segment: Int) {
+        if (!A11y.isTouchExploring(this)) return
+        val recycler = findViewById<RecyclerView>(R.id.detailRecycler) ?: return
+        recycler.postDelayed({
+            if (isFinishing || isDestroyed || !onTranscriptTab) return@postDelayed
+            // Not positionOfSegment: a chapter collapsed since must stay so.
+            val position = transcriptAdapter.visiblePositionOf(segment)
+            if (position < 0) return@postDelayed
+            // +1 for the header, which is its own adapter inside the ConcatAdapter.
+            recycler.layoutManager?.findViewByPosition(position + 1)?.performAccessibilityAction(
+                android.view.accessibility.AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null
+            )
+        }, MOMENT_FOCUS_DELAY_MS)
+    }
+
     companion object {
         /**
          * Follow refresh while playing. Words last a few hundred ms, so a
@@ -4496,5 +4631,29 @@ class MeetingDetailActivity : AppCompatActivity() {
         const val ACTION_TOPICS = "topics"
         const val ACTION_CHECK_ACCURACY = "check_accuracy"
         const val ACTION_SHARE = "share"
+
+        /**
+         * Optional: the transcript line (segment index, Int) to open at, as
+         * a home search hit or an Ask-your-library source does. The screen
+         * switches to the transcript, expands the line's chapter, scrolls to
+         * it and marks it for a moment.
+         */
+        const val EXTRA_SEGMENT = "moment_segment"
+
+        /**
+         * Optional: words (String) to open Find in meeting with, marked
+         * throughout. With EXTRA_SEGMENT, the screen lands on that line's
+         * match, or the nearest line still holding the words.
+         */
+        const val EXTRA_QUERY = "moment_query"
+
+        private const val STATE_MOMENT_PENDING = "moment_pending"
+        private const val STATE_FIND = "find_bar"
+
+        /** How long a line opened at stays marked. */
+        private const val MOMENT_FLASH_MS = 2_500L
+
+        /** Time for the list to lay out the line, and for TalkBack's own focus on a new screen to settle. */
+        private const val MOMENT_FOCUS_DELAY_MS = 400L
     }
 }

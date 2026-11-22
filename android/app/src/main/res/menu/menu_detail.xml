@@ -10,6 +10,12 @@
         android:title="@string/star_meeting"
         app:showAsAction="never" />
 
+    <!-- Opens the find bar (MeetingFindBar) under the toolbar. -->
+    <item
+        android:id="@+id/moment_action_find"
+        android:icon="@drawable/moment_ic_search"
+        android:title="@string/moment_find_action"
+        app:showAsAction="ifRoom" />
     <item
         android:id="@+id/action_summarize"
         android:icon="@drawable/ic_sparkle"

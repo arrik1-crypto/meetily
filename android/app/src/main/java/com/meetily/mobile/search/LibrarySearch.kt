@@ -14,7 +14,14 @@ object LibrarySearch {
     data class Hit(
         val meeting: Meeting,
         val score: Double,
-        val excerpts: List<String>
+        val excerpts: List<String>,
+        /**
+         * The transcript line the first quoted moment comes from, or -1 when
+         * none is quoted, so opening the hit can land on it.
+         */
+        val segmentIndex: Int = -1,
+        /** The longest search term in that line, for Find in meeting to mark. */
+        val term: String? = null
     )
 
     private val STOPWORDS = setOf(
@@ -107,7 +114,7 @@ object LibrarySearch {
     ): List<Hit> {
         val terms = tokenize(question)
         if (terms.isEmpty()) return emptyList()
-        val hits = mutableListOf<Hit>()
+        val scored = mutableListOf<Pair<Meeting, Double>>()
         for (meeting in meetings) {
             var score = 0.0
             score += 5.0 * damped(countHits(meeting.title, terms))
@@ -127,9 +134,14 @@ object LibrarySearch {
             val ageDays = ((nowMs - meeting.createdAtMs) / 86_400_000L)
                 .coerceAtLeast(0)
             score *= 1.0 + 0.3 / (1.0 + ageDays / 30.0)
-            hits.add(Hit(meeting, score, excerpts(meeting, terms)))
+            scored.add(meeting to score)
         }
-        return hits.sortedByDescending { it.score }.take(limit)
+        // Excerpts and the moment scan transcripts again, so only for the
+        // meetings kept.
+        return scored.sortedByDescending { it.second }.take(limit).map { (meeting, score) ->
+            val (segment, term) = firstMoment(meeting, terms)
+            Hit(meeting, score, excerpts(meeting, terms), segment, term)
+        }
     }
 
     /** Log-damped so one term repeated 50 times doesn't drown everything. */
@@ -148,6 +160,19 @@ object LibrarySearch {
             }
         }
         return count
+    }
+
+    /**
+     * The line [excerpts] quotes first and the longest term found in it, or
+     * (-1, null) when no transcript line matches.
+     */
+    private fun firstMoment(meeting: Meeting, terms: List<String>): Pair<Int, String?> {
+        for ((i, segment) in meeting.segments.withIndex()) {
+            val lower = segment.text.lowercase()
+            val found = terms.filter { lower.contains(it) }
+            if (found.isNotEmpty()) return i to found.maxByOrNull { it.length }
+        }
+        return -1 to null
     }
 
     /** Up to three matching moments: transcript windows, then summary lines. */

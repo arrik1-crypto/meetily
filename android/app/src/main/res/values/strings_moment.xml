@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Home search: under a matching meeting, the words around the match
+         and where they are (MeetingAdapter). A transcript match is labelled
+         with its time into the recording instead of one of these. -->
+    <string name="moment_snippet_notes">Notes</string>
+    <string name="moment_snippet_summary">Summary</string>
+    <string name="moment_snippet_action">Action item</string>
+    <string name="moment_snippet_photo">Photo text</string>
+
+    <!-- What a screen reader says for that line, without the ellipses. -->
+    <string name="moment_snippet_a11y_time">Match at %1$s: %2$s</string>
+    <string name="moment_snippet_a11y_notes">Match in the notes: %1$s</string>
+    <string name="moment_snippet_a11y_summary">Match in the summary: %1$s</string>
+    <string name="moment_snippet_a11y_action">Match in an action item: %1$s</string>
+    <string name="moment_snippet_a11y_photo">Match in photo text: %1$s</string>
+
+    <!-- Meeting screen: Find in meeting (MeetingFindBar). -->
+    <string name="moment_find_action">Find in meeting</string>
+    <string name="moment_find_hint">Find in transcript</string>
+    <string name="moment_find_previous">Previous match</string>
+    <string name="moment_find_next">Next match</string>
+    <string name="moment_find_close">Close find</string>
+    <!-- "3 of 12" beside the field; the second form when there were too
+         many matches to count them all. -->
+    <string name="moment_find_count">%1$d of %2$d</string>
+    <string name="moment_find_count_capped">%1$d of %2$d+</string>
+    <string name="moment_find_none">No matches</string>
+    <!-- Spoken politely when a search settles, and with the line when next
+         or previous moves to a match. -->
+    <string name="moment_find_a11y_position">Match %1$d of %2$d</string>
+    <string name="moment_find_a11y_position_capped">Match %1$d of more than %2$d</string>
+    <string name="moment_find_a11y_line">%1$s, %2$s: %3$s</string>
+</resources>
