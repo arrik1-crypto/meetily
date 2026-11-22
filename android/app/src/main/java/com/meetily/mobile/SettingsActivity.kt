@@ -1376,7 +1376,7 @@ class SettingsActivity : AppCompatActivity() {
                     // Cancelled recordings are discarded, never embedded.
                     if (!discarded.get() && filled >= sampleRate * 3) {
                         val embedder = com.meetily.mobile.whisper.SherpaEmbedder
-                            .create(modelPath)
+                            .create(modelPath, modelKey)
                         if (embedder != null) {
                             try {
                                 val captured = audio.copyOf(filled)

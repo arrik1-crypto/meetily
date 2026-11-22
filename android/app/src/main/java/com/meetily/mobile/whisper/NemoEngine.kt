@@ -24,7 +24,9 @@ class NemoEngine private constructor(
     private val offline: OfflineRecognizer?,
     private val online: OnlineRecognizer?,
     /** See [NemoModel.languageOption]; null for models with no language prompt. */
-    private val languageOption: String? = null
+    private val languageOption: String? = null,
+    /** NativeWork tag for the loaded sessions; ended in [release]. */
+    private val workToken: Int = 0
 ) {
 
     /** Blocking; call from a worker thread. Null on any engine failure. */
@@ -78,6 +80,7 @@ class NemoEngine private constructor(
             online?.release()
         } catch (_: Throwable) {
         }
+        com.meetily.mobile.diag.NativeWork.end(workToken)
     }
 
     companion object {
@@ -95,6 +98,11 @@ class NemoEngine private constructor(
             val transducerDecoder = File(dir, "decoder.int8.onnx").absolutePath
             val transducerJoiner = File(dir, "joiner.int8.onnx").absolutePath
             val tokens = File(dir, "tokens.txt").absolutePath
+            // Tagged before the sessions are built: the encoder alone is
+            // 600+ MB of onnxruntime allocations, where a memory kill lands.
+            val work = com.meetily.mobile.diag.NativeWork.begin(
+                com.meetily.mobile.diag.NativeJob.TRANSCRIBE, model.key
+            )
             return try {
                 if (model.streaming) {
                     val recognizer = OnlineRecognizer(
@@ -117,7 +125,7 @@ class NemoEngine private constructor(
                             enableEndpoint = false
                         )
                     )
-                    NemoEngine(null, recognizer, model.languageOption)
+                    NemoEngine(null, recognizer, model.languageOption, work)
                 } else {
                     val recognizer = OfflineRecognizer(
                         config = OfflineRecognizerConfig(
@@ -137,10 +145,11 @@ class NemoEngine private constructor(
                             )
                         )
                     )
-                    NemoEngine(recognizer, null)
+                    NemoEngine(recognizer, null, workToken = work)
                 }
             } catch (_: Throwable) {
                 // UnsatisfiedLinkError (jniLibs absent) or bad model files.
+                com.meetily.mobile.diag.NativeWork.end(work)
                 null
             }
         }

@@ -21,6 +21,11 @@ import kotlin.math.sqrt
  */
 class WhisperRecorder(
     private val modelPath: String,
+    /**
+     * Catalogue key of the model at [modelPath], only for the NativeWork tag
+     * that says which model a native crash or memory kill happened in.
+     */
+    private val modelKey: String = "",
     private val languageHint: String?, // "auto" => detect on the first chunk
     /** Whisper translate task: any spoken language comes out as English text. */
     private val translate: Boolean = false,
@@ -106,6 +111,9 @@ class WhisperRecorder(
     private val gate = TeardownGate()
     @Volatile private var contextPtr = 0L
 
+    /** NativeWork tag for [contextPtr]; published and taken back with it. */
+    private var workToken = 0
+
     /**
      * Publishing [contextPtr] after a load and taking it back in
      * [releaseNative] are one critical section. Without it a teardown that
@@ -173,6 +181,11 @@ class WhisperRecorder(
                     running = false
                     return@Thread
                 }
+                // Tagged before the load, where a memory kill would land;
+                // released with the context.
+                val work = com.meetily.mobile.diag.NativeWork.begin(
+                    com.meetily.mobile.diag.NativeJob.TRANSCRIBE, modelKey
+                )
                 val ptr = WhisperBridge.initContext(modelPath)
                 // Loading takes seconds, and teardown may have run meanwhile.
                 // If it did, nobody will ever free a pointer stored now, so
@@ -183,15 +196,18 @@ class WhisperRecorder(
                         false
                     } else {
                         contextPtr = ptr
+                        if (ptr != 0L) workToken = work
                         true
                     }
                 }
                 if (!published) {
                     if (ptr != 0L) WhisperBridge.freeContext(ptr)
+                    com.meetily.mobile.diag.NativeWork.end(work)
                     running = false
                     return@Thread
                 }
                 if (ptr == 0L) {
+                    com.meetily.mobile.diag.NativeWork.end(work)
                     onError("Could not load the Whisper model")
                     running = false
                     return@Thread
@@ -516,12 +532,14 @@ class WhisperRecorder(
      * transcription that is still using the context.
      */
     private fun releaseNative() = gate.releaseOnce {
-        val ptr = synchronized(nativeLock) {
-            val current = contextPtr
+        val (ptr, work) = synchronized(nativeLock) {
+            val current = contextPtr to workToken
             contextPtr = 0L
+            workToken = 0
             current
         }
         if (ptr != 0L) WhisperBridge.freeContext(ptr)
+        com.meetily.mobile.diag.NativeWork.end(work)
         try {
             nemoEngine?.release()
         } catch (_: Throwable) {

@@ -354,9 +354,18 @@ class MainActivity : AppCompatActivity() {
      */
     private fun maybeOfferCrashReport() {
         val crash = com.meetily.mobile.diag.CrashLog.pendingCrash(this) ?: return
+        // Same offer for a death Android recorded (native crash, ANR, memory
+        // kill), worded for it: the app may not have "crashed" as such.
+        val fromExitRecord = com.meetily.mobile.diag.CrashLog.isExitReport(crash)
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle(R.string.crash_prompt_title)
-            .setMessage(R.string.crash_prompt_body)
+            .setTitle(
+                if (fromExitRecord) R.string.exitinfo_prompt_title
+                else R.string.crash_prompt_title
+            )
+            .setMessage(
+                if (fromExitRecord) R.string.exitinfo_prompt_body
+                else R.string.crash_prompt_body
+            )
             .setPositiveButton(R.string.crash_share) { _, _ ->
                 com.meetily.mobile.diag.CrashLog.markConsumed(this, crash)
                 val send = Intent(Intent.ACTION_SEND).apply {
@@ -505,8 +514,14 @@ class MainActivity : AppCompatActivity() {
         importBanner.setOnClickListener {
             startActivity(Intent(this, ImportActivity::class.java))
         }
-        maybeOfferCrashReport()
-        maybeOfferOnDeviceEngine()
+        // A report of a native crash, ANR or memory kill is written by the
+        // exit-record scan RecapApp starts, which may still be running; wait
+        // for it (briefly) so that crash is offered now, not next launch.
+        com.meetily.mobile.diag.ExitInfoCapture.whenScanned {
+            if (isFinishing || isDestroyed) return@whenScanned
+            maybeOfferCrashReport()
+            maybeOfferOnDeviceEngine()
+        }
         summaryBanner = findViewById(R.id.summaryBanner)
         summaryBannerName = findViewById(R.id.summaryBannerName)
         summaryBannerPct = findViewById(R.id.summaryBannerPct)

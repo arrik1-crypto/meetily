@@ -10,6 +10,12 @@ class RecapApp : Application() {
         // First, before anything that could crash: local-only crash capture
         // (writes a file, chains to the system handler — no telemetry).
         com.meetily.mobile.diag.CrashLog.install(this)
+        // Native crashes, ANRs and memory kills never reach that handler.
+        // Android records them; the new ones become local reports for the
+        // same share prompt (a worker thread, nothing sent). NativeWork tags
+        // model loads so those records say what was running.
+        com.meetily.mobile.diag.NativeWork.init(this)
+        com.meetily.mobile.diag.ExitInfoCapture.start(this)
 
         // Before anything reads the transcription engine: the threads started
         // below, and every activity, service and receiver, all run after this.

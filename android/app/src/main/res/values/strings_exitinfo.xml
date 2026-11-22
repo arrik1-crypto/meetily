@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Launch offer for a report built from Android's record of how the
+         app last closed (native crash, not responding, memory kill). Same
+         share flow as crash_prompt_*; only the wording differs. -->
+    <string name="exitinfo_prompt_title">Recap stopped unexpectedly last time</string>
+    <string name="exitinfo_prompt_body">Android recorded why Recap closed (a crash in one of its on-device engines, a freeze, or the phone running short of memory), and Recap saved a report of it on this device. It never leaves your phone on its own. Would you like to share it with the developer? You choose where it goes.</string>
+</resources>

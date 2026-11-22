@@ -131,6 +131,9 @@ class AudioFileImporter(
         val nemoModel = NemoModels.byKeyOrNull(selectedKey)
         var nemoEngine: NemoEngine? = null
         var contextPtr = 0L
+        // NativeWork tag for the whisper context (NemoEngine and
+        // SherpaEmbedder tag themselves); ended with it in the finally below.
+        var whisperWork = 0
         // var, not val: set to the detected language after the first batch
         // so "auto" is paid for once rather than on every call.
         var language = "en"
@@ -149,10 +152,14 @@ class AudioFileImporter(
             if (!WhisperModels.isDownloaded(context, model)) {
                 throw ImportException("Whisper model not downloaded")
             }
+            whisperWork = com.meetily.mobile.diag.NativeWork.begin(
+                com.meetily.mobile.diag.NativeJob.TRANSCRIBE, model.key
+            )
             contextPtr = WhisperBridge.initContext(
                 WhisperModels.fileFor(context, model).absolutePath
             )
             if (contextPtr == 0L) {
+                com.meetily.mobile.diag.NativeWork.end(whisperWork)
                 throw ImportException("Could not load the Whisper model")
             }
             language = if (model.englishOnly) "en" else "auto"
@@ -166,7 +173,7 @@ class AudioFileImporter(
             val dModel = DiarizationModels.byKey(settings.diarizationModel)
             if (DiarizationModels.isDownloaded(context, dModel)) {
                 embedder = SherpaEmbedder.create(
-                    DiarizationModels.fileFor(context, dModel).absolutePath
+                    DiarizationModels.fileFor(context, dModel).absolutePath, dModel.key
                 )
                 if (embedder != null) {
                     clusterer = SpeakerClusterer()
@@ -736,6 +743,7 @@ class AudioFileImporter(
             )
         } finally {
             if (contextPtr != 0L) WhisperBridge.freeContext(contextPtr)
+            com.meetily.mobile.diag.NativeWork.end(whisperWork)
             nemoEngine?.release()
             embedder?.release()
         }

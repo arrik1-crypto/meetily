@@ -3208,7 +3208,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 val modelPath = DiarizationModels.fileFor(this, dModel).absolutePath
                 Thread {
                     var added = 0
-                    val embedder = SherpaEmbedder.create(modelPath)
+                    val embedder = SherpaEmbedder.create(modelPath, dModel.key)
                     if (embedder != null) {
                         try {
                             for ((start, end) in windows) {

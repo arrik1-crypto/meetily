@@ -952,7 +952,7 @@ class RecordingService : Service() {
                 )
             }
             val created = dModel?.let {
-                SherpaEmbedder.create(DiarizationModels.fileFor(this, it).absolutePath)
+                SherpaEmbedder.create(DiarizationModels.fileFor(this, it).absolutePath, it.key)
             }
             val profiles = if (created != null) VoiceProfileStore.load(this) else null
             main.post {
@@ -1046,6 +1046,7 @@ class RecordingService : Service() {
             modelPath = if (nemoEngine != null) "" else {
                 WhisperModels.fileFor(this, model).absolutePath
             },
+            modelKey = model.key,
             languageHint = if (englishOnly) "en" else "auto",
             // Translate + vocab prompts are whisper features; NeMo models
             // transcribe in the spoken language and ignore both.
