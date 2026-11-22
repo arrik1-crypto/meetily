@@ -1,6 +1,7 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.data.DeviceFit
 import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
@@ -95,6 +96,18 @@ data class NemoModel(
 
     fun urlFor(file: NemoFile): String =
         ModelIntegrity.pinRevision("https://huggingface.co/$repo/resolve/main/${file.name}", revision)
+
+    /**
+     * Estimated memory needs over all [files]; see
+     * DeviceFit.transcriptionWorkingSetMb for the formula. Never counted as
+     * slow for the processor: onnxruntime picks its kernels at run time, so
+     * the ggml build tier (CpuFeatures) says nothing about its speed.
+     */
+    val fitNeed: DeviceFit.Need
+        get() = DeviceFit.transcriptionNeed(key, totalMb, englishOnly, slowOnBaseline = false)
+
+    /** Smallest phone, in GB of RAM, this is expected to run on (an estimate). */
+    val minRamGb: Int get() = fitNeed.minRamGb
 }
 
 object NemoModels {

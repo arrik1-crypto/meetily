@@ -150,6 +150,8 @@ reports or messages you choose to send.
   reminders and meeting nudges.
 - **Internet:** model downloads, your AI endpoint if you set one up, and ML Kit
   diagnostics.
+- **Network state:** to warn before a large model download over mobile data;
+  nothing about the network is kept or sent.
 - **Running in the background, starting after a restart, exact alarms and
   keeping the phone awake:** so recordings, transcriptions and downloads
   finish with the screen off, and reminders arrive on time.

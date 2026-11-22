@@ -1,6 +1,7 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.data.DeviceFit
 
 /**
  * Router over the two transcription-model families: whisper.cpp ggml files
@@ -22,6 +23,11 @@ object TranscriptionModels {
     fun englishOnly(key: String): Boolean =
         NemoModels.byKeyOrNull(key)?.englishOnly
             ?: WhisperModels.byKey(key).englishOnly
+
+    /** Estimated memory needs of [key]; null for a key neither family has. */
+    fun fitNeedOrNull(key: String): DeviceFit.Need? =
+        NemoModels.byKeyOrNull(key)?.fitNeed
+            ?: WhisperModels.ALL.firstOrNull { it.key == key }?.fitNeed
 
     fun isDownloaded(context: Context, key: String): Boolean {
         val nemo = NemoModels.byKeyOrNull(key)

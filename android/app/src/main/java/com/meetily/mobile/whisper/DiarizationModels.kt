@@ -1,6 +1,7 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.data.DeviceFit
 import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
@@ -16,6 +17,13 @@ data class DiarizationModel(
     val url: String
         get() = "https://github.com/k2-fsa/sherpa-onnx/releases/download/" +
             "speaker-recongition-models/$fileName" // (typo is real in upstream tag)
+
+    /**
+     * Estimated memory needs, by the transcription formula: it runs on the
+     * same onnxruntime (DeviceFit.transcriptionWorkingSetMb).
+     */
+    val fitNeed: DeviceFit.Need
+        get() = DeviceFit.speakerIdNeed(key, approxSizeMb)
 }
 
 object DiarizationModels {

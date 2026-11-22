@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Device fit: how a model's estimated memory need compares with this
+         phone (DeviceFit), the free-space check before every model download
+         (ModelSpaceCheck), and the first-run "Set up on-device AI" step
+         (OnboardingActivity). Every RAM figure is an estimate. -->
+
+    <!-- Fit badge on model picker cards. -->
+    <string name="devicefit_badge_fits">Fits this phone</string>
+    <string name="devicefit_badge_tight">Tight fit on this phone</string>
+    <string name="devicefit_badge_too_big">Too big for this phone</string>
+    <!-- %1$s is one of the three badges above. -->
+    <string name="devicefit_badge_slow">%1$s · slow on this processor</string>
+
+    <!-- The badge as a screen reader hears it. -->
+    <string name="devicefit_desc_fits">Memory fit: fits this phone. Runs comfortably with about %1$d GB of RAM.</string>
+    <string name="devicefit_desc_tight">Memory fit: tight. Needs about %1$d GB of RAM and runs best with %2$d GB, so other apps may close while it runs.</string>
+    <string name="devicefit_desc_too_big">Memory fit: too big for this phone. Needs about %1$d GB of RAM.</string>
+    <string name="devicefit_desc_slow">Slow on this phone\'s processor.</string>
+
+    <!-- Choosing a tight or too-big model in a picker. -->
+    <string name="devicefit_warn_title_tight">Tight fit for this phone</string>
+    <string name="devicefit_warn_title_too_big">May be too big for this phone</string>
+    <string name="devicefit_warn_tight">%1$s needs about %2$d GB of RAM and runs best with %3$d GB or more. On this phone, other apps may close while it runs, and a long meeting or summary could stop partway.</string>
+    <string name="devicefit_warn_too_big">%1$s needs about %2$d GB of RAM, more than this phone has. It may fail to load, or stop partway through a meeting or summary.</string>
+    <string name="devicefit_warn_slow">It is also slow on this phone\'s processor.</string>
+    <string name="devicefit_warn_estimate">These figures are estimates, so you can still try it.</string>
+    <string name="devicefit_warn_continue">Use anyway</string>
+
+    <!-- Free-space check before a model download. -->
+    <string name="devicefit_space_title">Not enough free space</string>
+    <!-- %1$s needed, %2$s free, %3$s still to free, e.g. "1.2 GB". -->
+    <string name="devicefit_space_message">This download needs about %1$s of free space, and %2$s is free. Free up about %3$s first, or the download may stop partway.</string>
+    <!-- Same figures, when the check covers several downloads: queued together, or behind ones already running. -->
+    <string name="devicefit_space_message_several">These downloads need about %1$s of free space between them, and %2$s is free. Free up about %3$s first, or a download may stop partway.</string>
+    <!-- Android refused to start the download service (the app was in the background). -->
+    <string name="devicefit_download_not_started">The download could not start while Recap was in the background. Try again to start it.</string>
+    <string name="devicefit_space_manage">Free up space</string>
+    <string name="devicefit_space_continue">Download anyway</string>
+
+    <!-- First run: "Set up on-device AI". -->
+    <string name="devicefit_setup_title">Set up on-device AI</string>
+    <string name="devicefit_setup_intro">Recap picked models that suit this phone. Each one downloads once and then works offline, so what you record stays on the phone.</string>
+    <string name="devicefit_setup_device">This phone: about %1$d GB of RAM</string>
+    <!-- %2$s is free storage, e.g. "12 GB". -->
+    <string name="devicefit_setup_device_storage">This phone: about %1$d GB of RAM · %2$s free</string>
+    <string name="devicefit_setup_transcription_label">Transcription</string>
+    <string name="devicefit_setup_llm_label">Summaries</string>
+    <string name="devicefit_setup_size">%1$d MB download</string>
+    <string name="devicefit_setup_downloaded">Already downloaded</string>
+    <string name="devicefit_why_english">English-only, the more accurate choice for English.</string>
+    <string name="devicefit_why_multilingual">Multilingual, so it follows meetings in your language.</string>
+    <string name="devicefit_why_best">The best balance of accuracy and speed for this phone.</string>
+    <string name="devicefit_why_memory">The largest model that fits this phone\'s memory.</string>
+    <string name="devicefit_why_processor">Light enough for this phone\'s processor.</string>
+    <string name="devicefit_why_llm_best">The summary model Recap recommends for phones like this.</string>
+    <string name="devicefit_why_llm_memory">The largest summary model that fits this phone\'s memory.</string>
+    <string name="devicefit_why_llm_processor">Fast enough on this phone\'s processor.</string>
+    <string name="devicefit_setup_no_llm">On-device summary models need more memory than this phone has to spare, so Recap\'s built-in offline summariser writes summaries instead. You can still choose a model in Settings.</string>
+    <!-- %1$s is the combined download size, e.g. "1.4 GB". -->
+    <string name="devicefit_setup_total">Both together download about %1$s. Downloads carry on in the background; Wi-Fi is recommended.</string>
+    <string name="devicefit_setup_total_one">This downloads about %1$s. It carries on in the background; Wi-Fi is recommended.</string>
+    <string name="devicefit_setup_metered">You seem to be on mobile data or another metered connection.</string>
+    <!-- %1$s is how much more room the suggested downloads need, e.g. "800 MB". -->
+    <string name="devicefit_setup_short">Not enough free space yet: about %1$s more is needed.</string>
+    <string name="devicefit_setup_both">Download both</string>
+    <string name="devicefit_setup_transcription_only">Transcription only</string>
+    <string name="devicefit_setup_transcription_one">Download it</string>
+    <string name="devicefit_setup_later">Choose later</string>
+    <string name="devicefit_setup_later_note">Choose later leaves everything as it is. Models can be downloaded at any time in Settings → Transcription; until then, meetings are kept as audio to transcribe later.</string>
+    <string name="devicefit_setup_started">Downloading in the background. Progress is in the notification and in Settings.</string>
+    <!-- The same, when Recap may not show notifications. -->
+    <string name="devicefit_setup_started_settings">Downloading in the background. Progress is in Settings.</string>
+    <string name="devicefit_setup_no_llm_space">There is not enough free space for a summary model as well, so Recap\'s built-in offline summariser writes summaries instead. You can download one in Settings once there is room.</string>
+
+    <!-- Before downloading over a metered connection. -->
+    <string name="devicefit_metered_title">Download over mobile data?</string>
+    <!-- %1$s is the download size, e.g. "1.4 GB". -->
+    <string name="devicefit_metered_message">You seem to be on mobile data or another metered connection. This is about %1$s and may count against your data allowance.</string>
+    <string name="devicefit_metered_go">Download now</string>
+    <string name="devicefit_offline">You\'re offline. Connect to the internet to download, or choose later.</string>
+</resources>

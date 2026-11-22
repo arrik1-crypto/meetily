@@ -107,12 +107,14 @@ object PendingModelSelection {
     }
 
     /**
-     * Drops parked picks that no download will ever complete. Only call
-     * while ModelDownloadService is not running.
+     * Drops parked picks that no download will ever complete, and the
+     * first-run "switch AI on when it arrives" with them (OnDeviceAiSetup).
+     * Only call while ModelDownloadService is not running.
      */
     fun clearStale(context: Context) {
         val p = prefs(context)
         val now = System.currentTimeMillis()
+        OnDeviceAiSetup.clearStale(context, now, STALE_MS)
         val edit = p.edit()
         var changed = false
         for (kind in KINDS) {
@@ -132,6 +134,13 @@ object PendingModelSelection {
         ModelDownloadService.KIND_DIARIZE ->
             DiarizationModels.isDownloaded(context, DiarizationModels.byKey(key))
         else -> TranscriptionModels.isDownloaded(context, key)
+    }
+
+    /** Download size of [key] of [kind], MB, for the free-space check. */
+    fun downloadSizeMb(kind: String, key: String): Int = when (kind) {
+        ModelDownloadService.KIND_LLM -> LocalLlmModels.byKey(key).sizeMb
+        ModelDownloadService.KIND_DIARIZE -> DiarizationModels.byKey(key).approxSizeMb
+        else -> TranscriptionModels.sizeMb(key)
     }
 
     /** The live selection for [kind]. */
@@ -161,6 +170,31 @@ object PendingModelSelection {
             ModelDownloadService.KIND_DIARIZE -> settings.diarizationModel = key
             else -> settings.whisperModel = key
         }
+    }
+
+    /**
+     * Applies a pick of [key] the same way from every surface that offers
+     * models (Settings' pickers and the first-run setup step). A model on
+     * disk (or a re-pick of the live selection) becomes the live selection
+     * now and cancels any earlier pick still waiting on a download. One that
+     * still has to download is only parked, so the working model stays in
+     * charge until ModelDownloadService finishes it; when the live selection
+     * is not on disk either, there is nothing to protect and the pick
+     * applies at once.
+     *
+     * Returns true when [key] still has to download: the caller then starts
+     * it, after the licence and free-space checks.
+     */
+    fun pick(context: Context, kind: String, key: String): Boolean {
+        val downloaded = isDownloaded(context, kind, key)
+        val current = selected(context, kind)
+        if (downloaded || current == key || !isDownloaded(context, kind, current)) {
+            clear(context, kind)
+            select(context, kind, key)
+        } else {
+            set(context, kind, key)
+        }
+        return !downloaded
     }
 
     /**
@@ -199,5 +233,6 @@ object PendingModelSelection {
      */
     fun onDownloadsDropped(context: Context, dropped: Collection<Pair<String, String>>) {
         for ((kind, key) in dropped) clearIf(context, kind, key)
+        OnDeviceAiSetup.onDownloadsDropped(context, dropped)
     }
 }

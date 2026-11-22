@@ -3296,8 +3296,21 @@ class MeetingDetailActivity : AppCompatActivity() {
                 )
             )
             .setPositiveButton(R.string.check_accuracy_go) { _, _ ->
-                if (choices.size == 1) startCheck(m, choices.first())
-                else chooseCheckModel(m, choices, willUse)
+                if (choices.size == 1) {
+                    // No picker to show, but the same fit warning as one.
+                    val only = choices.first()
+                    FitBadge.confirmChoice(
+                        this,
+                        com.meetily.mobile.whisper.TranscriptionModels.displayName(only),
+                        com.meetily.mobile.data.DeviceProbe.verdict(
+                            this,
+                            com.meetily.mobile.whisper.TranscriptionModels.fitNeedOrNull(only)
+                        ),
+                        alreadyActive = false
+                    ) { startCheck(m, only) }
+                } else {
+                    chooseCheckModel(m, choices, willUse)
+                }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
@@ -3327,7 +3340,14 @@ class MeetingDetailActivity : AppCompatActivity() {
                             models.metaLineFor(this, key, checkAudioMs(m))
                         },
                         downloaded = true,
-                        selected = key == preferred
+                        selected = key == preferred,
+                        fit = com.meetily.mobile.data.DeviceProbe.verdict(
+                            this, models.fitNeedOrNull(key)
+                        ),
+                        // Selected marks the recommendation here, not the
+                        // model in use, and a check run is never a no-op
+                        // re-pick: a tight or too-big model always warns.
+                        active = false
                     )
                 }
             },
