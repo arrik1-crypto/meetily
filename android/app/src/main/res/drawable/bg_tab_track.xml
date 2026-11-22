@@ -1,5 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/surface_soft" />
-    <corners android:radius="8dp" />
-</shape>
+<!-- Inset to match bg_tab_active: the track keeps its 34dp look around tabs
+     that are now 48dp tall to touch. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:bottom="10dp"
+        android:top="10dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/surface_soft" />
+            <corners android:radius="8dp" />
+        </shape>
+    </item>
+</layer-list>

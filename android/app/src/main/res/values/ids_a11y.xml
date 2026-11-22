@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- View tags used by A11y.kt. -->
+    <item name="a11y_click_label" type="id" />
+    <item name="a11y_long_click_label" type="id" />
+    <item name="a11y_custom_actions" type="id" />
+    <item name="a11y_custom_action_ids" type="id" />
+    <item name="a11y_custom_action_labels" type="id" />
+    <item name="a11y_live_region_reset" type="id" />
+</resources>

@@ -106,6 +106,9 @@ class MeetingDetailActivity : AppCompatActivity() {
     private var summaryService: SummaryService? = null
     private var summaryBound = false
 
+    /** Which summary-progress updates are read out; see ProgressAnnouncer. */
+    private val summaryAnnouncer = ProgressAnnouncer()
+
     private val summaryObserver = object : SummaryService.Observer {
         override fun onSummaryProgress(meetingId: String, percent: Int, stage: String) {
             if (isFinishing || isDestroyed) return
@@ -120,13 +123,14 @@ class MeetingDetailActivity : AppCompatActivity() {
                 return
             }
             showSummarizingUi()
-            summaryView.text = stage
+            A11y.setStatusText(summaryView, stage, summaryAnnouncer.shouldAnnounce(percent))
             setSummaryProgress(percent)
         }
 
         override fun onSummaryDone(meetingId: String, failed: Boolean) {
             if (isFinishing || isDestroyed) return
             if (meetingId != meeting?.id) return
+            summaryAnnouncer.reset()
             when (SummaryService.currentMode) {
                 SummaryService.MODE_NOTES -> if (!failed) requestSync()
                 SummaryService.MODE_SPEAKERS -> {
@@ -638,7 +642,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             onWordTap = { index, wordMs ->
                 val base = meeting?.segments?.getOrNull(index)?.audioMs
                 if (base != null) playFrom(base + wordMs)
-            }
+            },
+            lineActions = { index -> lineAccessibility(index) }
         )
         recycler.adapter = ConcatAdapter(StaticViewAdapter(headerView), transcriptAdapter)
         transcriptAdapter.wordHighlightColor = themeColor(
@@ -851,6 +856,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             // Templates emit "## Heading" markup; render it rather than show
             // the marks. m.summary keeps the raw text for share, export and
             // anything handing the summary back to a model.
+            // The view carried the progress line; its last announcement must
+            // not carry over and read the whole summary aloud.
+            A11y.endAnnouncement(summaryView)
             summaryView.text = com.meetily.mobile.notes.MarkdownSpans.render(summary)
             summaryView.visibility = View.VISIBLE
             aiPanel.visibility = View.GONE
@@ -1053,6 +1061,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         )) {
             view.setBackgroundResource(if (isActive) R.drawable.bg_tab_active else 0)
             view.setTextColor(if (isActive) active else inactive)
+            // Read as "selected"; the pill alone said which tab was open.
+            view.isSelected = isActive
             // Weight has to be set here alongside the pill and the colour.
             // Summary carried android:textStyle="bold" in the layout, so it
             // rendered bold on every tab — two tabs looked selected at once,
@@ -1096,6 +1106,38 @@ class MeetingDetailActivity : AppCompatActivity() {
         )
         persist(m)
         transcriptAdapter.update(index, m.segments[index])
+    }
+
+    /**
+     * A line's tap opens "Who said this?" (which also holds play, edit, split
+     * and share clip) and its long-press toggles the highlight — neither says
+     * so to a screen reader. This names both gestures and offers the dialog's
+     * line actions directly, using the same functions the dialog calls.
+     */
+    private fun lineAccessibility(index: Int): TranscriptLineActions {
+        val segment = meeting?.segments?.getOrNull(index)
+        val audioMs = segment?.audioMs
+        // The player bar is shown exactly when the meeting has playable
+        // audio; checking the file itself here would stat it on every bind.
+        val playable = audioMs != null && ::playerBar.isInitialized &&
+            playerBar.visibility == View.VISIBLE
+        val actions = mutableListOf<A11y.Action>()
+        if (playable && audioMs != null) {
+            actions.add(A11y.Action(getString(R.string.a11y_line_play)) { playFrom(audioMs) })
+        }
+        actions.add(A11y.Action(getString(R.string.edit_text_action)) { editSegmentText(index) })
+        actions.add(A11y.Action(getString(R.string.split_action)) { showSplitDialog(index) })
+        if (playable) {
+            actions.add(A11y.Action(getString(R.string.share_clip_action)) { shareClip(index) })
+        }
+        return TranscriptLineActions(
+            clickLabel = getString(R.string.a11y_line_options),
+            longClickLabel = getString(
+                if (segment?.highlighted == true) R.string.a11y_line_unhighlight
+                else R.string.a11y_line_highlight
+            ),
+            actions = actions
+        )
     }
 
     private fun assignSpeaker(index: Int) {
@@ -1157,7 +1199,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         player?.let { p ->
             if (playerReady && p.isPlaying) {
                 p.pause()
-                playPauseButton.setImageResource(R.drawable.ic_play)
+                setPlayPauseIcon(playing = false)
             }
         }
         // A tap made while the player was still preparing must not start
@@ -1296,6 +1338,24 @@ class MeetingDetailActivity : AppCompatActivity() {
                 showActionItemOptions(index)
                 true
             }
+            A11y.labelLongClick(row, getString(R.string.a11y_action_item_options))
+            A11y.setActions(
+                row,
+                listOfNotNull(
+                    A11y.Action(
+                        getString(
+                            if (remindAt != null) R.string.reminder_change
+                            else R.string.reminder_set
+                        )
+                    ) { pickReminderTime(index) },
+                    if (remindAt != null) {
+                        A11y.Action(getString(R.string.reminder_cancel)) { clearReminder(index) }
+                    } else null,
+                    A11y.Action(getString(R.string.a11y_remove_action_item)) {
+                        confirmRemoveAction(index)
+                    }
+                )
+            )
             list.addView(row)
         }
     }
@@ -1429,11 +1489,12 @@ class MeetingDetailActivity : AppCompatActivity() {
         val sizePx = (84 * density).toInt()
         val marginPx = (8 * density).toInt()
         val radiusPx = 14 * density
-        for (name in m.photos.toList()) {
+        // A photo whose file is gone was skipped before; still skip it here,
+        // without touching its pixels on the main thread. Filtered first so
+        // each thumbnail can say which of the remaining photos it is.
+        val shown = m.photos.toList().filter { PhotoStore.fileFor(this, it).exists() }
+        for ((position, name) in shown.withIndex()) {
             val file = PhotoStore.fileFor(this, name)
-            // A photo whose file is gone was skipped before; still skip it
-            // here, without touching its pixels on the main thread.
-            if (!file.exists()) continue
             val image = ShapeableImageView(this).apply {
                 shapeAppearanceModel = ShapeAppearanceModel.builder()
                     .setAllCornerSizes(radiusPx)
@@ -1442,12 +1503,16 @@ class MeetingDetailActivity : AppCompatActivity() {
                 layoutParams = LinearLayout.LayoutParams(sizePx, sizePx).apply {
                     marginEnd = marginPx
                 }
-                contentDescription = getString(R.string.section_photos)
+                // "Photos" on every thumbnail told a screen-reader user
+                // nothing about which one had focus.
+                contentDescription = getString(R.string.a11y_photo_n, position + 1, shown.size)
                 setOnClickListener { showPhoto(file) }
                 setOnLongClickListener {
                     confirmDeletePhoto(name)
                     true
                 }
+                A11y.labelClick(this, getString(R.string.a11y_view_photo))
+                A11y.labelLongClick(this, getString(R.string.a11y_remove_photo))
             }
             strip.addView(image)
             // Decoded off the main thread and cached; set only while this
@@ -1470,6 +1535,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             val image = ImageView(this).apply {
                 setImageBitmap(bitmap)
                 adjustViewBounds = true
+                contentDescription = getString(R.string.a11y_photo)
             }
             AlertDialog.Builder(this)
                 .setView(image)
@@ -2103,6 +2169,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         showSummarizingUi()
         setSummaryProgress(-1)
+        summaryAnnouncer.reset()
         // Generation lives in SummaryService: it survives rotation and
         // navigation, saves the result itself, and this screen just observes.
         SummaryService.start(this, m.id, template.key)
@@ -2115,7 +2182,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         reportSummaryButton.visibility = View.GONE
         progress.visibility = View.VISIBLE
         summaryView.visibility = View.VISIBLE
-        summaryView.text = getString(R.string.summarizing)
+        A11y.setStatusText(summaryView, getString(R.string.summarizing), announce = false)
     }
 
     private fun shareMeeting() {
@@ -2415,9 +2482,15 @@ class MeetingDetailActivity : AppCompatActivity() {
                 .trimEnd('0').trimEnd('.')
         }
         playerSpeedButton.text = "$label×"
+        // "1.5×" is read as "1.5 multiplication sign", with no name.
+        playerSpeedButton.contentDescription = getString(R.string.a11y_playback_speed)
+        androidx.core.view.ViewCompat.setStateDescription(
+            playerSpeedButton, getString(R.string.a11y_playback_speed_state, label)
+        )
     }
 
     private fun renderSkipSilence() {
+        A11y.setOnOff(skipSilenceButton, skipSilence)
         skipSilenceButton.alpha = if (skipSilence) 1.0f else 0.45f
         skipSilenceButton.setColorFilter(
             themeColor(
@@ -2538,7 +2611,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         playerReady = true
         playPauseButton.alpha = 1f
         p.setOnCompletionListener {
-            playPauseButton.setImageResource(R.drawable.ic_play)
+            setPlayPauseIcon(playing = false)
             updatePlayerUi(p)
         }
         attachBoost(p)
@@ -2569,14 +2642,21 @@ class MeetingDetailActivity : AppCompatActivity() {
         withPlayer { p ->
             if (p.isPlaying) {
                 p.pause()
-                playPauseButton.setImageResource(R.drawable.ic_play)
+                setPlayPauseIcon(playing = false)
             } else {
                 p.start()
                 applyPlaybackSpeed(p)
-                playPauseButton.setImageResource(R.drawable.ic_pause)
+                setPlayPauseIcon(playing = true)
                 restartTick()
             }
         }
+    }
+
+    /** The icon and its spoken name together; the name used to stay "Play". */
+    private fun setPlayPauseIcon(playing: Boolean) {
+        playPauseButton.setImageResource(if (playing) R.drawable.ic_pause else R.drawable.ic_play)
+        playPauseButton.contentDescription =
+            getString(if (playing) R.string.pause else R.string.play_audio)
     }
 
     private fun playFrom(audioMs: Long) {
@@ -2585,7 +2665,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (!p.isPlaying) {
                 p.start()
                 applyPlaybackSpeed(p)
-                playPauseButton.setImageResource(R.drawable.ic_pause)
+                setPlayPauseIcon(playing = true)
             }
             restartTick()
         }
@@ -2632,6 +2712,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     }
 
     private fun renderFollowButton() {
+        A11y.setOnOff(followButton, followPlayback)
         followButton.alpha = if (followPlayback) 1.0f else 0.45f
         followButton.setColorFilter(
             themeColor(
@@ -2749,6 +2830,13 @@ class MeetingDetailActivity : AppCompatActivity() {
             getString(R.string.playback_boost_on, boostDb)
         }
         playerBoostButton.alpha = if (boostDb <= 0) 0.45f else 1.0f
+        // The button's name is fixed, so its text (the level) never reached
+        // the screen reader.
+        androidx.core.view.ViewCompat.setStateDescription(
+            playerBoostButton,
+            if (boostDb <= 0) getString(R.string.a11y_off)
+            else getString(R.string.a11y_boost_state, boostDb)
+        )
     }
 
     private fun updatePlayerUi(p: MediaPlayer) {
@@ -3489,6 +3577,8 @@ class MeetingDetailActivity : AppCompatActivity() {
                 orientation = LinearLayout.HORIZONTAL
                 gravity = android.view.Gravity.CENTER_VERTICAL
                 setPadding(0, dp(8), 0, dp(8))
+                // One line of 15sp text plus that padding came to about 36dp.
+                minimumHeight = dp(A11y.MIN_TOUCH_DP)
                 setBackgroundResource(
                     android.R.attr.selectableItemBackground.let { attr ->
                         val tv = android.util.TypedValue()
@@ -3503,6 +3593,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     themeColor(com.google.android.material.R.attr.colorPrimary)
                 )
                 layoutParams = LinearLayout.LayoutParams(dp(20), dp(20))
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
             val label = TextView(this).apply {
                 text = attachment.name
@@ -3533,6 +3624,8 @@ class MeetingDetailActivity : AppCompatActivity() {
                 confirmRemoveAttachment(attachment)
                 true
             }
+            A11y.labelClick(row, getString(R.string.a11y_open_file))
+            A11y.labelLongClick(row, getString(R.string.a11y_remove_file))
             list.addView(row)
         }
     }

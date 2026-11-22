@@ -5,6 +5,7 @@ import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.view.ViewCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.meetily.mobile.data.ElapsedTime
 import com.meetily.mobile.data.TranscriptSegment
@@ -36,6 +37,37 @@ internal fun segmentTimeLabel(
     val display = segmentSpeakerDisplay(context, segment)
     return if (display.isNullOrBlank()) "$star$time" else "$star$time · $display"
 }
+
+/**
+ * What a screen reader reads for a transcript line: when, who, and what was
+ * said, with "Highlighted" first for a starred line. The rows' own text
+ * would read the star glyph aloud and run the parts together.
+ */
+internal fun segmentA11yDescription(
+    context: android.content.Context,
+    segment: TranscriptSegment,
+    time: String
+): String {
+    val speaker = segmentSpeakerDisplay(context, segment)
+    val line = if (speaker.isNullOrBlank()) {
+        context.getString(R.string.a11y_line_desc_no_speaker, time, segment.text)
+    } else {
+        context.getString(R.string.a11y_line_desc, time, speaker, segment.text)
+    }
+    return if (segment.highlighted) context.getString(R.string.a11y_line_highlighted, line) else line
+}
+
+/**
+ * Screen-reader labels for a transcript line's tap and long-press, plus its
+ * other actions offered directly — the long-press and the tap's dialog are
+ * otherwise the only way to reach them. Built by the screen that owns the
+ * actions, since which ones apply depends on the meeting (kept audio, etc.).
+ */
+class TranscriptLineActions(
+    val clickLabel: CharSequence?,
+    val longClickLabel: CharSequence?,
+    val actions: List<A11y.Action>
+)
 
 /**
  * Live transcript for the recording screen: recycled segment bubbles plus an
@@ -132,9 +164,13 @@ class LiveTranscriptAdapter(
             } else {
                 holder.itemView.background = null
             }
-            holder.time.text =
-                segmentTimeLabel(holder.itemView.context, segment, meetingStartMs)
+            val context = holder.itemView.context
+            holder.time.text = segmentTimeLabel(context, segment, meetingStartMs)
             holder.text.text = segment.text
+            holder.itemView.contentDescription = segmentA11yDescription(
+                context, segment, ElapsedTime.label(segment, meetingStartMs)
+            )
+            A11y.labelClick(holder.itemView, context.getString(R.string.a11y_line_tag_speaker))
             holder.text.setTextSize(TypedValue.COMPLEX_UNIT_SP, textSizeSp)
             holder.time.setTextSize(
                 TypedValue.COMPLEX_UNIT_SP, (textSizeSp - 4f).coerceAtLeast(9f)
@@ -168,7 +204,9 @@ class TranscriptLinesAdapter(
     private val onLongClick: (Int) -> Unit,
     // (segmentIndex, wordOffsetMs): tap-to-seek on a single word. Only wired
     // to lines that have word timings and a playable audio offset.
-    private val onWordTap: ((Int, Long) -> Unit)? = null
+    private val onWordTap: ((Int, Long) -> Unit)? = null,
+    // Screen-reader labels and actions for the line at a segment index.
+    private val lineActions: ((Int) -> TranscriptLineActions)? = null
 ) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
 
     private sealed class Row {
@@ -406,7 +444,10 @@ class TranscriptLinesAdapter(
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
         return if (viewType == TYPE_CHAPTER) {
-            ChapterHolder(inflater.inflate(R.layout.item_chapter_header, parent, false))
+            ChapterHolder(inflater.inflate(R.layout.item_chapter_header, parent, false)).also {
+                // Headings let a screen-reader user jump chapter to chapter.
+                ViewCompat.setAccessibilityHeading(it.itemView, true)
+            }
         } else {
             Holder(inflater.inflate(R.layout.item_transcript_line, parent, false))
         }
@@ -428,6 +469,18 @@ class TranscriptLinesAdapter(
                 )
             }
             holder.meta.setTextSize(TypedValue.COMPLEX_UNIT_SP, metaSizeSp)
+            // The chevron glyph is all that showed the state; it is hidden
+            // from the screen reader, which gets words instead.
+            holder.itemView.contentDescription =
+                ctx.getString(R.string.a11y_chapter_desc, row.title, holder.meta.text)
+            ViewCompat.setStateDescription(
+                holder.itemView,
+                ctx.getString(if (row.collapsed) R.string.a11y_collapsed else R.string.a11y_expanded)
+            )
+            A11y.labelClick(
+                holder.itemView,
+                ctx.getString(if (row.collapsed) R.string.a11y_expand else R.string.a11y_collapse)
+            )
             holder.itemView.setOnClickListener {
                 (rows.getOrNull(holder.bindingAdapterPosition) as? Row.ChapterRow)
                     ?.let { toggleChapter(it.chapterIndex) }
@@ -468,6 +521,13 @@ class TranscriptLinesAdapter(
                 ?.let { onLongClick(it.segIndex) }
             true
         }
+        val context = holder.itemView.context
+        holder.itemView.contentDescription = segmentA11yDescription(context, segment, time)
+        lineActions?.invoke(row.segIndex)?.let { labels ->
+            labels.clickLabel?.let { A11y.labelClick(holder.itemView, it) }
+            labels.longClickLabel?.let { A11y.labelLongClick(holder.itemView, it) }
+            A11y.setActions(holder.itemView, labels.actions)
+        }
     }
 
     override fun getItemCount(): Int = rows.size
@@ -491,6 +551,11 @@ class TranscriptLinesAdapter(
         }
         val span = android.text.SpannableString(segment.text)
         val spokenWord = if (row.segIndex == activeSegment) activeWord else -1
+        // TalkBack lists every ClickableSpan as a link, so a forty-word line
+        // became forty links to step through. While it is exploring, words
+        // keep the follow highlight but are not links; the line's "Play from
+        // here" action does the seeking instead.
+        val linkWords = !A11y.isTouchExploring(view.context)
         var cursor = 0
         var any = false
         for ((wordIndex, word) in words.withIndex()) {
@@ -508,21 +573,23 @@ class TranscriptLinesAdapter(
                     android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
                 )
             }
-            span.setSpan(
-                object : android.text.style.ClickableSpan() {
-                    override fun onClick(widget: View) {
-                        wordTap(row.segIndex, word.ms)
-                    }
+            if (linkWords) {
+                span.setSpan(
+                    object : android.text.style.ClickableSpan() {
+                        override fun onClick(widget: View) {
+                            wordTap(row.segIndex, word.ms)
+                        }
 
-                    override fun updateDrawState(ds: android.text.TextPaint) {
-                        // Words look like normal text, not links.
-                    }
-                },
-                at, at + word.text.length,
-                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
-            )
+                        override fun updateDrawState(ds: android.text.TextPaint) {
+                            // Words look like normal text, not links.
+                        }
+                    },
+                    at, at + word.text.length,
+                    android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+                )
+                any = true
+            }
             cursor = at + word.text.length
-            any = true
         }
         view.text = span
         view.movementMethod =

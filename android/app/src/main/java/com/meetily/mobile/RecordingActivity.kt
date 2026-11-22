@@ -56,6 +56,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private lateinit var titleInput: EditText
     private lateinit var attendeesInput: EditText
     private lateinit var statusView: TextView
+
+    /** Which status changes are read out; see RecordingStatusSpeech. */
+    private val statusSpeech = RecordingStatusSpeech()
     private lateinit var elapsedView: TextView
     private lateinit var recordDot: View
     private lateinit var transcriptRecycler: RecyclerView
@@ -357,15 +360,19 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 text = name
                 textSize = 13f
                 gravity = android.view.Gravity.CENTER
-                minHeight = (40 * density).toInt()
                 isSelected = selected
                 contentDescription = if (selected) {
                     getString(R.string.chip_active_desc, name)
                 } else {
                     name
                 }
-                setBackgroundResource(
-                    if (selected) R.drawable.bg_pill_accent else R.drawable.bg_pill
+                // A 40dp pill inside a 48dp touch target.
+                A11y.pillTouchTarget(
+                    this,
+                    if (selected) R.drawable.bg_pill_accent else R.drawable.bg_pill,
+                    visualHeightPx = (40 * density).toInt(),
+                    paddingHorizontalPx = padH,
+                    paddingVerticalPx = padV
                 )
                 setTextColor(
                     themeColor(
@@ -376,7 +383,6 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                         }
                     )
                 )
-                setPadding(padH, padV, padH, padV)
                 layoutParams = LinearLayout.LayoutParams(
                     LinearLayout.LayoutParams.WRAP_CONTENT,
                     LinearLayout.LayoutParams.WRAP_CONTENT
@@ -481,6 +487,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         transcriptAdapter.reset(svc.segmentsSnapshot(), svc.currentPartial())
         scrollToBottom()
         statusView.text = svc.currentStatusText()
+        statusSpeech.seed(svc.currentStatus(), svc.currentStatusText())
         applyCaptureMode(svc.capturesAudioOnly())
         applyPausedUi(svc.paused)
         // Re-created while the session was saving: a second Finish would open
@@ -666,7 +673,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     }
 
     override fun onStatus(status: RecordingService.Status, text: String) {
-        statusView.text = text
+        A11y.setStatusText(statusView, text, statusSpeech.shouldAnnounce(status, text))
         if (status == RecordingService.Status.PAUSED) applyPausedUi(true)
         else if (status != RecordingService.Status.FINISHING) applyPausedUi(false)
     }
@@ -870,7 +877,11 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         }
         finishButton.isEnabled = false
         pauseButton.isEnabled = false
-        statusView.text = getString(R.string.status_finishing)
+        val finishing = getString(R.string.status_finishing)
+        A11y.setStatusText(
+            statusView, finishing,
+            statusSpeech.shouldAnnounce(RecordingService.Status.FINISHING, finishing)
+        )
         svc.finishAndSave { id ->
             if (!isFinishing && !isDestroyed) openDetail(id)
         }

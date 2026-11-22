@@ -8,6 +8,9 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat
+import androidx.core.view.accessibility.AccessibilityViewCommand
 
 /**
  * Who was talking, across the length of the recording — one coloured run per
@@ -16,6 +19,10 @@ import androidx.core.content.ContextCompat
  * The waveform above shows where it was loud; this shows where a particular
  * person was speaking, which is usually the thing being looked for. Both are
  * drawn against the same timeline so they line up.
+ *
+ * The view is a 48dp touch target with the bar drawn [barHeight] tall across
+ * its middle. A screen reader cannot tap a position on it, so it also offers
+ * "next speaker turn" (its click action) and "previous speaker turn".
  */
 class SpeakerStripView @JvmOverloads constructor(
     context: Context,
@@ -39,6 +46,15 @@ class SpeakerStripView @JvmOverloads constructor(
 
     private val idle = ContextCompat.getColor(context, R.color.line_strong)
 
+    /** The drawn bar; the rest of the view's height is touch area only. */
+    private val barHeight = 8f * density
+
+    private var previousTurnActionId = View.NO_ID
+
+    init {
+        contentDescription = context.getString(R.string.a11y_speaker_strip)
+    }
+
     /**
      * Up to three speaker colours, matching the design's S1/S2/S3. Beyond
      * that, slots repeat rather than inventing colours — a meeting with
@@ -57,7 +73,47 @@ class SpeakerStripView @JvmOverloads constructor(
     fun submit(turns: List<Turn>, totalMs: Long) {
         this.turns = turns
         this.totalMs = totalMs.coerceAtLeast(1L)
+        updateAccessibility()
         invalidate()
+    }
+
+    /** Turn count as the spoken state, and the turn-to-turn actions. */
+    private fun updateAccessibility() {
+        if (previousTurnActionId != View.NO_ID) {
+            ViewCompat.removeAccessibilityAction(this, previousTurnActionId)
+            previousTurnActionId = View.NO_ID
+        }
+        if (turns.isEmpty()) {
+            ViewCompat.setStateDescription(this, null)
+            // Label and command both null removes the click action again.
+            ViewCompat.replaceAccessibilityAction(
+                this, AccessibilityActionCompat.ACTION_CLICK, null, null
+            )
+            return
+        }
+        ViewCompat.setStateDescription(
+            this,
+            resources.getQuantityString(R.plurals.a11y_speaker_turns, turns.size, turns.size)
+        )
+        ViewCompat.replaceAccessibilityAction(
+            this, AccessibilityActionCompat.ACTION_CLICK,
+            context.getString(R.string.a11y_next_turn),
+            AccessibilityViewCommand { _, _ ->
+                jumpTo(SpeakerTurnNav.next(turns.map { it.startMs }, positionMs))
+            }
+        )
+        previousTurnActionId = ViewCompat.addAccessibilityAction(
+            this, context.getString(R.string.a11y_previous_turn),
+            AccessibilityViewCommand { _, _ ->
+                jumpTo(SpeakerTurnNav.previous(turns.map { it.startMs }, positionMs))
+            }
+        )
+    }
+
+    private fun jumpTo(ms: Long?): Boolean {
+        if (ms == null) return false
+        onSeekMs?.invoke(ms)
+        return true
     }
 
     fun setPositionMs(ms: Long) {
@@ -68,13 +124,15 @@ class SpeakerStripView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (width <= 0) return
-        val h = height.toFloat()
+        val bar = minOf(barHeight, height.toFloat())
+        val top = (height - bar) / 2f
+        val bottom = top + bar
         val radius = 2f * density
 
         // Ground: the stretches nobody is speaking.
         paint.color = idle
         paint.alpha = 90
-        rect.set(0f, 0f, width.toFloat(), h)
+        rect.set(0f, top, width.toFloat(), bottom)
         canvas.drawRoundRect(rect, radius, radius, paint)
 
         paint.alpha = 255
@@ -89,7 +147,7 @@ class SpeakerStripView @JvmOverloads constructor(
             val drawnRight = maxOf(right, left + 2f * density)
             paint.color = colorForSlot(turn.slot)
             paint.alpha = if (activeSlot == null || turn.slot == activeSlot) 255 else 130
-            rect.set(left, 0f, drawnRight.coerceAtMost(width.toFloat()), h)
+            rect.set(left, top, drawnRight.coerceAtMost(width.toFloat()), bottom)
             canvas.drawRoundRect(rect, radius, radius, paint)
         }
     }

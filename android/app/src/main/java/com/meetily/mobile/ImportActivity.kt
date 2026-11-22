@@ -51,14 +51,19 @@ class ImportActivity : AppCompatActivity() {
     /** The notification-permission dialog is up; its result is still due. */
     private var awaitingPermission = false
 
+    /** Which progress updates are read out; see ProgressAnnouncer. */
+    private val progressAnnouncer = ProgressAnnouncer()
+
     private val observer = object : ImportService.Observer {
         override fun onImportProgress(meetingId: String?, percent: Int, detail: String) {
             if (isFinishing || isDestroyed) return
             progress.isIndeterminate = percent == 0
             progress.progress = percent
-            statusView.text = detail.ifBlank {
-                getString(R.string.import_status_running, percent)
-            }
+            A11y.setStatusText(
+                statusView,
+                detail.ifBlank { getString(R.string.import_status_running, percent) },
+                progressAnnouncer.shouldAnnounce(percent)
+            )
         }
 
         override fun onImportDone(
@@ -156,7 +161,7 @@ class ImportActivity : AppCompatActivity() {
                     return@setOnClickListener
                 }
             }
-            statusView.text = getString(R.string.import_stopping)
+            A11y.setStatusText(statusView, getString(R.string.import_stopping), announce = true)
         }
 
         // The same progress screen backs an accuracy check; say which it is.
@@ -385,7 +390,7 @@ class ImportActivity : AppCompatActivity() {
         }
         if (queued) {
             queueing = true
-            statusView.text = getString(R.string.import_queueing)
+            A11y.setStatusText(statusView, getString(R.string.import_queueing), announce = true)
             return
         }
         startedRun = true

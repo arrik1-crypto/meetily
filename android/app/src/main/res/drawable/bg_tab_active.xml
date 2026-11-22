@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
-    <solid android:color="@color/accent" />
-    <corners android:radius="6dp" />
-</shape>
+<!-- The pill is drawn 10dp in from the top and bottom of its tab, so the tab
+     itself can be a 48dp touch target while the pill keeps its 28dp look.
+     A layer inset rather than <inset>: an InsetDrawable reports its insets as
+     padding, and setBackgroundResource would then overwrite the tab's own. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item
+        android:bottom="10dp"
+        android:top="10dp">
+        <shape android:shape="rectangle">
+            <solid android:color="@color/accent" />
+            <corners android:radius="6dp" />
+        </shape>
+    </item>
+</layer-list>

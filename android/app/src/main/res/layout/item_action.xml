@@ -23,6 +23,7 @@
             android:id="@+id/actionText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:labelFor="@id/actionCheck"
             android:textAppearance="?attr/textAppearanceBodyMedium"
             android:textColor="?attr/colorOnSurface" />
 

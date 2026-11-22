@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -53,6 +54,12 @@ object NotesRenderer {
                         addView(
                             CheckBox(context).apply {
                                 isChecked = block.done
+                                // Built in code, this is the platform box, not
+                                // Material's 48dp one; and its text sits in the
+                                // next view, so it was announced with no name.
+                                minWidth = dp(context, 48)
+                                minHeight = dp(context, 48)
+                                contentDescription = inline(block.text).toString()
                                 setOnCheckedChangeListener { _, _ ->
                                     onToggleCheck(block.line)
                                 }
@@ -61,6 +68,10 @@ object NotesRenderer {
                         addView(
                             textView(context, null).apply {
                                 text = inline(block.text)
+                                // The checkbox carries this text as its name;
+                                // read here as well, each item is heard twice.
+                                importantForAccessibility =
+                                    View.IMPORTANT_FOR_ACCESSIBILITY_NO
                                 if (block.done) {
                                     paintFlags = paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
                                     alpha = 0.55f

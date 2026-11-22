@@ -256,6 +256,7 @@ class FollowUpsActivity : AppCompatActivity() {
                     )
                     true
                 }
+                A11y.labelLongClick(row, getString(R.string.a11y_open_meeting))
                 list.addView(row)
             }
         }

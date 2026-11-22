@@ -114,32 +114,45 @@ class SettingsActivity : AppCompatActivity() {
     private var lastRenderedKey = ""
     private var lastRenderedPercent = -1
 
+    /** Which download-progress updates are read out; see ProgressAnnouncer. */
+    private val downloadAnnouncer = ProgressAnnouncer()
+
     private val downloadObserver = object : ModelDownloadService.Observer {
         override fun onDownloadProgress(kind: String, key: String, percent: Int) {
             if (isFinishing || isDestroyed) return
             downloading = true
             if (key == lastRenderedKey && percent == lastRenderedPercent) return
+            // A new item in the queue: its first update is spoken.
+            if (key != lastRenderedKey) downloadAnnouncer.reset()
             lastRenderedKey = key
             lastRenderedPercent = percent
+            val announce = downloadAnnouncer.shouldAnnounce(percent)
             if (kind == ModelDownloadService.KIND_LLM) {
                 val model = LocalLlmModels.byKey(key)
                 llmProgress.visibility = View.VISIBLE
                 llmProgress.isIndeterminate = percent == 0
                 llmProgress.progress = percent
-                llmStatus.text = downloadingText(kind, key, model.displayName, percent)
+                A11y.setStatusText(
+                    llmStatus, downloadingText(kind, key, model.displayName, percent), announce
+                )
             } else if (kind == ModelDownloadService.KIND_DIARIZE) {
                 val model = DiarizationModels.byKey(key)
                 diarizeProgress.visibility = View.VISIBLE
                 diarizeProgress.isIndeterminate = percent == 0
                 diarizeProgress.progress = percent
-                diarizeModelStatus.text =
-                    downloadingText(kind, key, model.displayName, percent)
+                A11y.setStatusText(
+                    diarizeModelStatus,
+                    downloadingText(kind, key, model.displayName, percent),
+                    announce
+                )
             } else {
                 val name = com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
                 modelProgress.visibility = View.VISIBLE
                 modelProgress.isIndeterminate = percent == 0
                 modelProgress.progress = percent
-                whisperModelStatus.text = downloadingText(kind, key, name, percent)
+                A11y.setStatusText(
+                    whisperModelStatus, downloadingText(kind, key, name, percent), announce
+                )
             }
         }
 
@@ -160,6 +173,20 @@ class SettingsActivity : AppCompatActivity() {
                 ModelDownloadService.KIND_DIARIZE ->
                     diarizeProgress.visibility = View.GONE
                 else -> modelProgress.visibility = View.GONE
+            }
+            // The status line is about to read "<model> downloaded", the
+            // change that matters most. Set with no live region up, it was
+            // heard only when it landed inside the 100% milestone's brief
+            // announcement. A failure has its toast; a cancel was the user's
+            // own doing.
+            if (!cancelled && error == null) {
+                A11y.announceNextChange(
+                    when (kind) {
+                        ModelDownloadService.KIND_LLM -> llmStatus
+                        ModelDownloadService.KIND_DIARIZE -> diarizeModelStatus
+                        else -> whisperModelStatus
+                    }
+                )
             }
             updateWhisperSection()
             updateLocalLlmStatus()
