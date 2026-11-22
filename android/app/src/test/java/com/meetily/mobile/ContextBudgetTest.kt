@@ -35,14 +35,38 @@ class ContextBudgetTest {
     @Test
     fun aSectionAlwaysFitsItsOwnWindow() {
         // condense trims a chunk longer than charBudget - 600; a section
-        // size above that would be cut the moment it was made.
-        for (window in listOf(256, 512, 1024, 2048, 4096, 6144, 8192, 16384, 32768)) {
+        // size above that would be cut the moment it was made. Checked
+        // against that limit itself at every window, small ones included:
+        // a model trained on 1K reaches them through the trained clamp.
+        for (window in listOf(256, 512, 1024, 1280, 1354, 2048, 4096, 6144, 8192, 16384, 32768)) {
             val chunk = PromptShaping.mapChunkChars(window)
-            assertTrue("$window", chunk >= 1_000)
-            assertTrue(
-                "$window",
-                chunk <= maxOf(1_000, PromptShaping.charBudget(window) - 600)
-            )
+            val trimAt = PromptShaping.charBudget(window) - 600
+            assertTrue("$window", chunk <= trimAt)
+            assertTrue("$window", chunk > 0)
+            // The 1,000-character floor holds wherever the trim limit allows it.
+            if (trimAt >= 1_000) assertTrue("$window", chunk >= 1_000)
+        }
+    }
+
+    @Test
+    fun aSmallWindowsSectionIsNotCutByCondense() {
+        // At 1024 tokens charBudget is 1200, so condense trims at 600. A
+        // section at the old 1,000-character floor came back with its middle
+        // replaced by the omission marker every time.
+        assertEquals(1_200, PromptShaping.charBudget(1024))
+        assertEquals(600, PromptShaping.mapChunkChars(1024))
+        val text = (1..200).joinToString("\n") { "line $it with words" }
+        val bodies = mutableListOf<String>()
+        PromptShaping.condense(
+            content = text,
+            charBudget = PromptShaping.charBudget(1024),
+            generate = { messages, _ -> bodies.add(messages.last().second); "- note" },
+            chunkChars = PromptShaping.mapChunkChars(1024)
+        )
+        assertTrue(bodies.isNotEmpty())
+        // Only the last section can run long, when the 12-section cap forces it.
+        for (body in bodies.dropLast(1)) {
+            assertTrue(body, !body.contains(PromptShaping.OMISSION_MARKER))
         }
     }
 

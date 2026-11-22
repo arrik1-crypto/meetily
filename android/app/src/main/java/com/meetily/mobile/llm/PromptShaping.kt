@@ -67,13 +67,19 @@ object PromptShaping {
      * final pass reads fewer decisions and owners per minute. If that shows
      * on long meetings, scale the section reply with the window in
      * [condense] rather than shrinking the window back.
-     * Never more than [charBudget] leaves room for, so [condense] does not
-     * trim a section it has just cut.
+     * Never more than the `charBudget - 600` that [condense] trims a section
+     * to, so it does not cut a section it has just made. The 1,000-character
+     * floor gives way to that cap on a window under about 1,354 tokens (a
+     * model trained that short, through DeviceFit.clampToTrainedContext):
+     * the floor applied after the cap would make every section longer than
+     * condense lets it be.
      */
-    fun mapChunkChars(contextTokens: Int): Int =
-        (MAP_CHUNK_CHARS.toLong() * contextTokens / MAP_CHUNK_BASE_TOKENS)
-            .coerceIn(1_000L, (charBudget(contextTokens) - 600).coerceAtLeast(1_000).toLong())
+    fun mapChunkChars(contextTokens: Int): Int {
+        val cap = (charBudget(contextTokens) - 600).coerceAtLeast(400)
+        return (MAP_CHUNK_CHARS.toLong() * contextTokens / MAP_CHUNK_BASE_TOKENS)
+            .coerceIn(minOf(1_000, cap).toLong(), cap.toLong())
             .toInt()
+    }
 
     /**
      * A smaller character budget, given that [chars] tokenized to [counted]
