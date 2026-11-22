@@ -28,7 +28,23 @@ internal object LightJson {
     fun parse(text: String, keepTop: Set<String>?, drop: Set<String>): JSONObject =
         readObject(JSONTokener(text), keepTop, drop)
 
-    private fun readObject(t: JSONTokener, keep: Set<String>?, drop: Set<String>): JSONObject {
+    /**
+     * The top-level members named in [keys], read from the start of [text]
+     * and no further than the last of them. Meeting.toJson writes id, title
+     * and createdAtMs first, so a meeting's header comes back without the
+     * transcript behind it being walked. A key the text lacks costs a walk
+     * to the end, as [parse] would. Throws org.json.JSONException on input
+     * malformed before that point.
+     */
+    fun parseLeading(text: String, keys: Set<String>): JSONObject =
+        readObject(JSONTokener(text), keys, emptySet(), stopWhenKept = true)
+
+    private fun readObject(
+        t: JSONTokener,
+        keep: Set<String>?,
+        drop: Set<String>,
+        stopWhenKept: Boolean = false
+    ): JSONObject {
         if (t.nextClean() != '{') throw t.syntaxError("Expected {")
         val out = JSONObject()
         if (t.nextClean() == '}') return out
@@ -41,6 +57,7 @@ internal object LightJson {
                 skipValue(t)
             } else {
                 out.put(key, readValue(t, drop))
+                if (stopWhenKept && keep != null && out.length() == keep.size) return out
             }
             when (t.nextClean()) {
                 ',' -> continue

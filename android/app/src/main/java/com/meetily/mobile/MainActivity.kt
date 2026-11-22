@@ -496,6 +496,8 @@ class MainActivity : AppCompatActivity() {
                 startActivity(
                     Intent(this, MeetingDetailActivity::class.java)
                         .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meeting.id)
+                        .putExtra(MeetingDetailActivity.EXTRA_TITLE, meeting.title)
+                        .putExtra(MeetingDetailActivity.EXTRA_CREATED_AT_MS, meeting.createdAtMs)
                 )
             },
             onLongClick = { meeting -> showMeetingActions(meeting) },
@@ -1044,6 +1046,8 @@ class MainActivity : AppCompatActivity() {
                 else -> startActivity(
                     Intent(this, MeetingDetailActivity::class.java)
                         .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meeting.id)
+                        .putExtra(MeetingDetailActivity.EXTRA_TITLE, meeting.title)
+                        .putExtra(MeetingDetailActivity.EXTRA_CREATED_AT_MS, meeting.createdAtMs)
                         .putExtra(MeetingDetailActivity.EXTRA_ACTION, id)
                 )
             }

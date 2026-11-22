@@ -76,6 +76,38 @@ class MeetingStore(context: Context) {
     }
 
     /**
+     * [load] for a screen that shows the title and date first. [onHeader]
+     * gets a display-only copy ([Meeting.loadedPartially]) with just
+     * [HEADER_FIELDS], read from the start of the file before the full parse,
+     * which a long meeting's word timings make the slow part. It is not
+     * called when the file is missing or its start is unreadable. Blocking:
+     * call it on a worker thread.
+     */
+    fun loadStaged(id: String, onHeader: ((Meeting) -> Unit)?): Meeting? {
+        val file = fileFor(id) ?: return null
+        if (!file.exists()) return null
+        val text = try {
+            file.readText()
+        } catch (_: Exception) {
+            return null
+        }
+        if (onHeader != null) {
+            val header = try {
+                Meeting.fromJson(LightJson.parseLeading(text, HEADER_FIELDS))
+                    .also { it.loadedPartially = true }
+            } catch (_: Exception) {
+                null
+            }
+            if (header != null) onHeader(header)
+        }
+        return try {
+            Meeting.fromJson(JSONObject(text))
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * Writes [meeting], returning false if nothing reached disk.
      *
      * The result used to be discarded. AtomicJson.write already reports
