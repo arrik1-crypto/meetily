@@ -3327,7 +3327,10 @@ class MeetingDetailActivity : AppCompatActivity() {
                             models.metaLineFor(this, key, checkAudioMs(m))
                         },
                         downloaded = true,
-                        selected = key == preferred
+                        selected = key == preferred,
+                        fit = com.meetily.mobile.data.DeviceProbe.verdict(
+                            this, models.fitNeedOrNull(key)
+                        )
                     )
                 }
             },

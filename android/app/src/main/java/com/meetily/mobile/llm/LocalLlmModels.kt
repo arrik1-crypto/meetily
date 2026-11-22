@@ -1,6 +1,7 @@
 package com.meetily.mobile.llm
 
 import android.content.Context
+import com.meetily.mobile.data.DeviceFit
 import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
@@ -21,11 +22,29 @@ data class LocalLlmModel(
      * `/resolve/<revision>/` instead of the mutable `/resolve/main/`.
      * Null keeps following main. See android/scripts/model_hashes.py.
      */
-    val revision: String? = null
+    val revision: String? = null,
+    /**
+     * The RAM its display name states ("12 GB+ RAM"), when it states one. It
+     * can only raise [minRamGb] above what the formula estimates, so the
+     * label and the picker's fit badge never disagree.
+     */
+    val documentedRamGb: Int? = null
 ) {
     /** [url] with [revision] pinned in, when set. */
     val downloadUrl: String
         get() = ModelIntegrity.pinRevision(url, revision)
+
+    /**
+     * Estimated memory needs; see DeviceFit.llmWorkingSetMb for the formula.
+     * Every model a gigabyte or larger counts as slow on a phone without
+     * dot-product instructions, where every quantised matmul is emulated
+     * (CpuFeatures): the two the catalogue calls fast are the ones below it.
+     */
+    val fitNeed: DeviceFit.Need
+        get() = DeviceFit.llmNeed(key, sizeMb, documentedRamGb, slowOnBaseline = sizeMb >= 1000)
+
+    /** Smallest phone, in GB of RAM, this is expected to run on (an estimate). */
+    val minRamGb: Int get() = fitNeed.minRamGb
 }
 
 /** GGUF chat models for the embedded llama.cpp engine (filesDir/llm-models). */
@@ -70,7 +89,8 @@ object LocalLlmModels {
             "google_gemma-3-4b-it-Q4_K_M.gguf",
             "https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/" +
                 "google_gemma-3-4b-it-Q4_K_M.gguf",
-            2490
+            2490,
+            documentedRamGb = 6
         ),
         LocalLlmModel(
             "gemma4-e2b",
@@ -78,7 +98,8 @@ object LocalLlmModels {
             "gemma-4-E2B-it-Q4_K_M.gguf",
             "https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF/resolve/main/" +
                 "gemma-4-E2B-it-Q4_K_M.gguf",
-            3110
+            3110,
+            documentedRamGb = 8
         ),
         LocalLlmModel(
             "gemma4-e4b",
@@ -86,7 +107,8 @@ object LocalLlmModels {
             "gemma-4-E4B-it-Q4_K_M.gguf",
             "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/" +
                 "gemma-4-E4B-it-Q4_K_M.gguf",
-            4980
+            4980,
+            documentedRamGb = 12
         ),
         LocalLlmModel(
             "mistral-7b",
@@ -94,7 +116,8 @@ object LocalLlmModels {
             "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
             "https://huggingface.co/bartowski/Mistral-7B-Instruct-v0.3-GGUF/resolve/main/" +
                 "Mistral-7B-Instruct-v0.3-Q4_K_M.gguf",
-            4370
+            4370,
+            documentedRamGb = 12
         ),
         LocalLlmModel(
             "llama3.1-8b",
@@ -102,7 +125,8 @@ object LocalLlmModels {
             "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
             "https://huggingface.co/bartowski/Meta-Llama-3.1-8B-Instruct-GGUF/resolve/main/" +
                 "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
-            4920
+            4920,
+            documentedRamGb = 12
         ),
         LocalLlmModel(
             "qwen3.5-9b",
@@ -110,7 +134,8 @@ object LocalLlmModels {
             "Qwen_Qwen3.5-9B-Q4_K_M.gguf",
             "https://huggingface.co/bartowski/Qwen_Qwen3.5-9B-GGUF/resolve/main/" +
                 "Qwen_Qwen3.5-9B-Q4_K_M.gguf",
-            5680
+            5680,
+            documentedRamGb = 16
         ),
         // Domain specialist — same engine, domain-tuned weights (a Gemma 3 4B
         // base, so its chat template is already proven here). Summaries
@@ -125,12 +150,16 @@ object LocalLlmModels {
             "medgemma-4b-it-Q4_K_M.gguf",
             "https://huggingface.co/unsloth/medgemma-4b-it-GGUF/resolve/main/" +
                 "medgemma-4b-it-Q4_K_M.gguf",
-            2490
+            2490,
+            documentedRamGb = 6
         )
     )
 
     fun byKey(key: String): LocalLlmModel =
         ALL.firstOrNull { it.key == key } ?: ALL.first()
+
+    /** [LocalLlmModel.fitNeed] by key; null for a key the catalogue lacks. */
+    fun fitNeedOrNull(key: String): DeviceFit.Need? = ALL.firstOrNull { it.key == key }?.fitNeed
 
     fun dir(context: Context): File =
         File(context.filesDir, "llm-models").apply { mkdirs() }

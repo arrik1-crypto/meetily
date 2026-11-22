@@ -10,6 +10,7 @@ import androidx.appcompat.app.AlertDialog
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.card.MaterialCardView
 import com.google.android.material.color.MaterialColors
+import com.meetily.mobile.data.DeviceFit
 
 /**
  * Card-based model chooser used by every model surface (transcription,
@@ -26,7 +27,12 @@ object ModelPickerSheet {
         val downloaded: Boolean,
         val selected: Boolean,
         /** The model's licence line (see licences.ModelTerms.pickerLine); null hides it. */
-        val licence: CharSequence? = null
+        val licence: CharSequence? = null,
+        /**
+         * How the model fits this phone's memory (see FitBadge); null hides
+         * the badge. Choosing a tight or too-big model asks first.
+         */
+        val fit: DeviceFit.Verdict? = null
     )
 
     /**
@@ -75,6 +81,7 @@ object ModelPickerSheet {
                     text = entry.licence
                     visibility = if (entry.licence == null) View.GONE else View.VISIBLE
                 }
+                FitBadge.bind(card.findViewById(R.id.modelCardFit), entry.fit)
                 val status = card.findViewById<TextView>(R.id.modelCardStatus)
                 status.text = context.getString(
                     when {
@@ -93,9 +100,16 @@ object ModelPickerSheet {
                     card.strokeColor = outline
                 }
                 card.setOnClickListener {
-                    picked = true
-                    sheet.dismiss()
-                    onPick(entry.key)
+                    // A tight or too-big model is a warning, never a refusal;
+                    // cancelling it leaves the sheet open to choose again.
+                    FitBadge.confirmChoice(
+                        context, entry.title, entry.fit,
+                        alreadyActive = entry.selected && entry.downloaded
+                    ) {
+                        picked = true
+                        sheet.dismiss()
+                        onPick(entry.key)
+                    }
                 }
                 val trash = card.findViewById<ImageButton>(R.id.modelCardDelete)
                 if (entry.downloaded && onDelete != null) {

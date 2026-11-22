@@ -1,6 +1,7 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
+import com.meetily.mobile.data.DeviceFit
 import com.meetily.mobile.data.ResumableDownload
 import com.meetily.mobile.security.ModelIntegrity
 import java.io.File
@@ -24,6 +25,22 @@ data class WhisperModel(
             "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$fileName",
             revision
         )
+
+    /**
+     * Estimated memory needs; see DeviceFit.transcriptionWorkingSetMb for
+     * the formula. Small and up count as slow on a phone without dot-product
+     * instructions: the names already call Small and Turbo slower, and on
+     * that build every quantised dot product (Small Q's) is emulated
+     * (CpuFeatures).
+     */
+    val fitNeed: DeviceFit.Need
+        get() = DeviceFit.transcriptionNeed(
+            key, sizeMb, englishOnly,
+            slowOnBaseline = TranscriptionModels.qualityRank(key) >= 3
+        )
+
+    /** Smallest phone, in GB of RAM, this is expected to run on (an estimate). */
+    val minRamGb: Int get() = fitNeed.minRamGb
 }
 
 object WhisperModels {

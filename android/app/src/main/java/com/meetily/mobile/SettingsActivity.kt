@@ -24,6 +24,7 @@ import com.google.android.material.materialswitch.MaterialSwitch
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.BackupManager
+import com.meetily.mobile.data.DeviceProbe
 import com.meetily.mobile.licences.ModelTerms
 import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.llm.LocalLlmModels
@@ -190,6 +191,9 @@ class SettingsActivity : AppCompatActivity() {
             }
             updateWhisperSection()
             updateLocalLlmStatus()
+            if (kind == ModelDownloadService.KIND_LLM && OnDeviceAiSetup.takeJustEnabled()) {
+                showOnDeviceAiEnabled()
+            }
             if (error != null) {
                 Toast.makeText(
                     this@SettingsActivity,
@@ -714,6 +718,18 @@ class SettingsActivity : AppCompatActivity() {
             if (local) View.GONE else View.VISIBLE
     }
 
+    /**
+     * The first-run setup just turned on-device AI on behind this screen
+     * (OnDeviceAiSetup). Shown on the switches, or Save would write their
+     * old state back over it.
+     */
+    private fun showOnDeviceAiEnabled() {
+        if (settings.useLlm) useLlmSwitch.isChecked = true
+        if (settings.llmEngine == "local") {
+            findViewById<MaterialButtonToggleGroup>(R.id.llmEngineToggle).check(R.id.engineLocal)
+        }
+    }
+
     private fun updateLocalLlmStatus() {
         val model = LocalLlmModels.byKey(settings.localLlmModel)
         llmStatus.text = withPendingNote(
@@ -747,7 +763,8 @@ class SettingsActivity : AppCompatActivity() {
                         ),
                         downloaded = LocalLlmModels.isDownloaded(this, model),
                         selected = settings.localLlmModel == model.key,
-                        licence = ModelTerms.pickerLine(this, model.key)
+                        licence = ModelTerms.pickerLine(this, model.key),
+                        fit = DeviceProbe.verdict(this, model.fitNeed)
                     )
                 }
             },
@@ -1110,7 +1127,11 @@ class SettingsActivity : AppCompatActivity() {
                         downloaded = com.meetily.mobile.whisper.TranscriptionModels
                             .isDownloaded(this, key),
                         selected = settings.whisperModel == key,
-                        licence = ModelTerms.pickerLine(this, key)
+                        licence = ModelTerms.pickerLine(this, key),
+                        fit = DeviceProbe.verdict(
+                            this,
+                            com.meetily.mobile.whisper.TranscriptionModels.fitNeedOrNull(key)
+                        )
                     )
                 }
             },
@@ -1508,7 +1529,8 @@ class SettingsActivity : AppCompatActivity() {
                         ),
                         downloaded = DiarizationModels.isDownloaded(this, model),
                         selected = settings.diarizationModel == model.key,
-                        licence = ModelTerms.pickerLine(this, model.key)
+                        licence = ModelTerms.pickerLine(this, model.key),
+                        fit = DeviceProbe.verdict(this, model.fitNeed)
                     )
                 }
             },
@@ -1619,7 +1641,7 @@ class SettingsActivity : AppCompatActivity() {
      * not on disk either there is nothing working to protect, so the pick
      * applies at once.
      */
-    private fun pickModel(kind: String, key: String) {
+    private fun pickModel(kind: String, key: String, spaceChecked: Boolean = false) {
         val downloaded = PendingModelSelection.isDownloaded(this, kind, key)
         // Every download starts here, so this is where a model whose licence
         // passes use restrictions on to the user waits for their one-time
@@ -1636,21 +1658,23 @@ class SettingsActivity : AppCompatActivity() {
             }
             return
         }
-        val current = PendingModelSelection.selected(this, kind)
-        if (downloaded || current == key ||
-            !PendingModelSelection.isDownloaded(this, kind, current)
-        ) {
-            PendingModelSelection.clear(this, kind)
-            PendingModelSelection.select(this, kind, key)
-        } else {
-            PendingModelSelection.set(this, kind, key)
+        // And where free space is checked, first download or re-download
+        // alike, before anything is parked: short of room, the user can free
+        // some, go ahead anyway, or cancel and keep what they had.
+        if (!downloaded && !spaceChecked) {
+            ModelSpaceCheck.confirm(
+                this, listOf(PendingModelSelection.downloadSizeMb(kind, key))
+            ) {
+                if (!isFinishing && !isDestroyed) pickModel(kind, key, spaceChecked = true)
+            }
+            return
         }
-        if (downloaded) {
-            refreshModelStatus(kind)
-        } else {
+        if (PendingModelSelection.pick(this, kind, key)) {
             // Progress (and the "switches when ready" wording) comes from
             // the download callbacks from here on.
             startModelDownload(kind, key)
+        } else {
+            refreshModelStatus(kind)
         }
     }
 
@@ -1718,13 +1742,7 @@ class SettingsActivity : AppCompatActivity() {
      */
     private fun startModelDownload(kind: String, key: String) {
         val wasRunning = ModelDownloadService.isRunning
-        ContextCompat.startForegroundService(
-            this,
-            Intent(this, ModelDownloadService::class.java)
-                .setAction(ModelDownloadService.ACTION_START)
-                .putExtra(ModelDownloadService.EXTRA_KIND, kind)
-                .putExtra(ModelDownloadService.EXTRA_KEY, key)
-        )
+        ModelDownloadService.start(this, kind, key)
         // Immediate visual feedback; service callbacks take over from here.
         if (wasRunning) {
             downloadObserver.onDownloadQueued(kind, key)

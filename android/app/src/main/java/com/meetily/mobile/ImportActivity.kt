@@ -343,7 +343,11 @@ class ImportActivity : AppCompatActivity() {
                         meta = com.meetily.mobile.whisper.TranscriptionModels
                             .metaLineFor(this, key, durationMs),
                         downloaded = true,
-                        selected = settings.whisperModel == key
+                        selected = settings.whisperModel == key,
+                        fit = com.meetily.mobile.data.DeviceProbe.verdict(
+                            this,
+                            com.meetily.mobile.whisper.TranscriptionModels.fitNeedOrNull(key)
+                        )
                     )
                 }
             },

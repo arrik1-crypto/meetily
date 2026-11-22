@@ -16,6 +16,7 @@ import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import com.meetily.mobile.licences.ModelTerms
 import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.whisper.DiarizationModels
@@ -206,6 +207,12 @@ class ModelDownloadService : Service() {
         // and before the observer refreshes, so it renders the new choice.
         try {
             PendingModelSelection.onDownloadFinished(this, kind, key, cancelled, error)
+        } catch (_: Exception) {
+        }
+        // "Download both" on the first-run setup step switches on-device AI
+        // on now that its model is here, or forgets that if it failed.
+        try {
+            OnDeviceAiSetup.onDownloadFinished(this, kind, key, cancelled, error)
         } catch (_: Exception) {
         }
         observer?.onDownloadDone(kind, key, cancelled, error)
@@ -442,6 +449,23 @@ class ModelDownloadService : Service() {
         const val KIND_WHISPER = "whisper"
         const val KIND_DIARIZE = "diarize"
         const val KIND_LLM = "llm"
+
+        /**
+         * Starts the download of [key] of [kind], or queues it behind the one
+         * running. Callers have already applied the licence gate
+         * (licences.ModelTerms) and the free-space check (ModelSpaceCheck):
+         * see SettingsActivity.pickModel and OnboardingActivity.
+         */
+        fun start(context: Context, kind: String, key: String) {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, ModelDownloadService::class.java)
+                    .setAction(ACTION_START)
+                    .putExtra(EXTRA_KIND, kind)
+                    .putExtra(EXTRA_KEY, key)
+            )
+        }
+
         /**
          * Floor between posted progress updates. 500 ms keeps the UI and the
          * notification comfortably under the system's per-package update
