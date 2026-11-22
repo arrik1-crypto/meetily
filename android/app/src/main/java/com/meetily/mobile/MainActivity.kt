@@ -452,6 +452,13 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /** Multi-select on the list: long press, the selection bar, bulk actions. */
+    private val homeSelection = HomeSelection(
+        this,
+        refreshLibrary = { refresh() },
+        showOptions = { meeting -> showMeetingActions(meeting) }
+    )
+
     private val pickAudio =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) {
@@ -493,15 +500,24 @@ class MainActivity : AppCompatActivity() {
         recycler.layoutManager = LinearLayoutManager(this)
         adapter = MeetingAdapter(
             onClick = { meeting ->
-                startActivity(
-                    Intent(this, MeetingDetailActivity::class.java)
-                        .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meeting.id)
-                )
+                if (homeSelection.active) {
+                    homeSelection.toggle(meeting)
+                } else {
+                    startActivity(
+                        Intent(this, MeetingDetailActivity::class.java)
+                            .putExtra(MeetingDetailActivity.EXTRA_MEETING_ID, meeting.id)
+                    )
+                }
             },
-            onLongClick = { meeting -> showMeetingActions(meeting) },
+            // Long-press starts multi-select; the single-meeting sheet is in
+            // the selection bar's More (one meeting selected) and is a
+            // screen-reader action on every row (adapter.onOptions).
+            onLongClick = { meeting -> homeSelection.onLongPress(meeting) },
             onToggleStar = { meeting -> toggleStar(meeting) }
         )
+        adapter.onOptions = { meeting -> showMeetingActions(meeting) }
         recycler.adapter = adapter
+        homeSelection.setUp(adapter, savedInstanceState)
 
         orbCaption = findViewById(R.id.orbCaption)
         val orb = findViewById<View>(R.id.recordOrb)
@@ -807,6 +823,7 @@ class MainActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 allMeetings = loaded
+                homeSelection.onLibraryLoaded()
                 searchBlobs = blobs
                 searchInput.visibility = if (allMeetings.isEmpty()) View.GONE else View.VISIBLE
                 rebuildFilterChips()
@@ -967,6 +984,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun showFiltered(filtered: List<Meeting>) {
         adapter.submit(filtered)
+        homeSelection.onListShown(filtered)
         emptyState.visibility = if (allMeetings.isEmpty()) View.VISIBLE else View.GONE
         meetingCount.text = when {
             allMeetings.isEmpty() -> getString(R.string.empty_body)
@@ -984,8 +1002,11 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * Long-press used to delete immediately, which made the most destructive
-     * action the easiest one to hit by accident. It now opens the full set of
-     * things you can do to a meeting, with Delete set apart at the end.
+     * action the easiest one to hit by accident. This is the full set of
+     * things you can do to a meeting, with Delete set apart at the end. A
+     * long press now starts multi-select instead; this sheet is the
+     * selection bar's More with one meeting selected, and a screen-reader
+     * action on every row.
      */
     private fun showMeetingActions(meeting: Meeting) {
         val hasAudio = AudioStore.exists(this, meeting.audioFile)
@@ -1188,7 +1209,13 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         searchInput.removeCallbacks(applyFilterNow)
         searchWorker.shutdown()
+        homeSelection.destroy()
         super.onDestroy()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        homeSelection.save(outState)
     }
 
     companion object {

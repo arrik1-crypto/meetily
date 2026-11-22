@@ -2341,6 +2341,51 @@ class MeetingDetailActivity : AppCompatActivity() {
         ).show()
     }
 
+    /**
+     * ⋮ → Remove audio (keep transcript). Asks first and says what stops
+     * working (AudioRemoval.confirm). Then the player is freed, the audio
+     * reference goes through the normal save (persist, merged like any
+     * other edit made here), and the file, its waveform cache and its clips
+     * are deleted on the save thread, after the save already under way.
+     */
+    private fun confirmRemoveAudio() {
+        val m = meeting ?: return
+        val name = m.audioFile
+        if (name.isNullOrBlank()) {
+            Toast.makeText(this, R.string.no_audio_kept, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (AudioRemoval.isBlocked(this, m.id)) {
+            Toast.makeText(this, R.string.storage_audio_busy, Toast.LENGTH_LONG).show()
+            return
+        }
+        AudioRemoval.confirm(this, 1, AudioStore.fileFor(this, name).length()) {
+            val current = meeting ?: return@confirm
+            // Asked again: a job may have started while the question was up.
+            if (current.audioFile != name || AudioRemoval.isBlocked(this, current.id)) {
+                Toast.makeText(this, R.string.storage_audio_busy, Toast.LENGTH_LONG).show()
+                return@confirm
+            }
+            playerHandler.removeCallbacks(playerTick)
+            pendingPlayerAction = null
+            playerReady = false
+            releaseBoost()
+            try {
+                player?.release()
+            } catch (_: Exception) {
+            }
+            player = null
+            if (::playerBar.isInitialized) showPlayerBar(false)
+            current.audioFile = null
+            persist(current)
+            applyTabState()
+            renderTranscript(current)
+            val app = applicationContext
+            SYNC_EXECUTOR.execute { AudioRemoval.deleteFiles(app, name) }
+            Toast.makeText(this, R.string.storage_audio_removed, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_summarize -> {
@@ -2386,6 +2431,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             R.id.action_check_accuracy -> {
                 confirmCheckAccuracy()
+                true
+            }
+            R.id.storage_action_remove_audio -> {
+                confirmRemoveAudio()
                 true
             }
             R.id.action_star -> {

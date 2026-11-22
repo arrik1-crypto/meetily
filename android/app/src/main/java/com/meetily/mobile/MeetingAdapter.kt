@@ -4,6 +4,9 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.core.view.AccessibilityDelegateCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.color.MaterialColors
 import com.meetily.mobile.data.Meeting
@@ -84,6 +87,40 @@ class MeetingAdapter(
 
     fun hasMeeting(meetingId: String): Boolean =
         rows.any { (it as? Row.Item)?.meeting?.id == meetingId }
+
+    // --- Multi-select ------------------------------------------------------
+
+    /**
+     * The selected meeting ids while the home list is in selection mode,
+     * null outside it. HomeSelection owns the selection and MainActivity
+     * decides what a tap means; rows only show it: a selected card, the
+     * star hidden (a tap there would star rather than select), labelled tap
+     * and long-press, and a checkable node for screen readers.
+     */
+    private var selection: Set<String>? = null
+
+    /**
+     * Opens the single-meeting action sheet, offered to screen readers as
+     * an action on each row outside selection mode (a long press now starts
+     * selecting instead).
+     */
+    var onOptions: ((Meeting) -> Unit)? = null
+
+    /** Shows [selected] (null leaves selection mode), repainting only rows that changed. */
+    fun setSelection(selected: Set<String>?) {
+        val previous = selection
+        selection = selected
+        val modeChanged = (previous == null) != (selected == null)
+        for ((index, row) in rows.withIndex()) {
+            val id = (row as? Row.Item)?.meeting?.id ?: continue
+            if (modeChanged || previous?.contains(id) != selected?.contains(id)) {
+                notifyItemChanged(index, PAYLOAD_SELECTION)
+            }
+        }
+    }
+
+    /** The meetings listed now, in list order. */
+    fun listedMeetings(): List<Meeting> = rows.mapNotNull { (it as? Row.Item)?.meeting }
 
     /** Repaints a single row after its meeting changed in place (starring). */
     fun refreshMeeting(meetingId: String) {
@@ -192,6 +229,26 @@ class MeetingAdapter(
         var meetingId: String? = null
     }
 
+    /**
+     * Exposes a row as checkable, and checked when selected, while the list
+     * is in selection mode. Read from [selection] when asked, so the click
+     * event a toggle sends already carries the new state.
+     */
+    private inner class SelectionDelegate(private val holder: ItemHolder) : AccessibilityDelegateCompat() {
+        override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
+            super.onInitializeAccessibilityNodeInfo(host, info)
+            val selected = selection ?: return
+            info.isCheckable = true
+            info.isChecked = holder.meetingId?.let { it in selected } == true
+        }
+
+        override fun onInitializeAccessibilityEvent(host: View, event: android.view.accessibility.AccessibilityEvent) {
+            super.onInitializeAccessibilityEvent(host, event)
+            val selected = selection ?: return
+            event.isChecked = holder.meetingId?.let { it in selected } == true
+        }
+    }
+
     override fun getItemViewType(position: Int): Int =
         if (rows[position] is Row.Header) TYPE_HEADER else TYPE_ITEM
 
@@ -200,8 +257,26 @@ class MeetingAdapter(
         return if (viewType == TYPE_HEADER) {
             HeaderHolder(inflater.inflate(R.layout.item_meeting_header, parent, false))
         } else {
-            ItemHolder(inflater.inflate(R.layout.item_meeting, parent, false))
+            ItemHolder(inflater.inflate(R.layout.item_meeting, parent, false)).also {
+                ViewCompat.setAccessibilityDelegate(it.itemView, SelectionDelegate(it))
+            }
         }
+    }
+
+    override fun onBindViewHolder(
+        holder: RecyclerView.ViewHolder,
+        position: Int,
+        payloads: MutableList<Any>
+    ) {
+        // A selection change repaints just the selection, not the whole row.
+        val row = rows[position]
+        if (payloads.isNotEmpty() && payloads.all { it == PAYLOAD_SELECTION } &&
+            row is Row.Item && holder is ItemHolder
+        ) {
+            bindSelection(holder, row.meeting)
+            return
+        }
+        super.onBindViewHolder(holder, position, payloads)
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
@@ -222,10 +297,8 @@ class MeetingAdapter(
                     onLongClick(meeting)
                     true
                 }
-                A11y.labelLongClick(
-                    h.itemView, h.itemView.context.getString(R.string.a11y_meeting_options)
-                )
                 bindStar(h, meeting)
+                bindSelection(h, meeting)
                 bindProgress(h, meeting)
             }
         }
@@ -254,6 +327,41 @@ class MeetingAdapter(
             if (meeting.starred) R.string.unstar_meeting else R.string.star_meeting
         )
         h.star.setOnClickListener { onToggleStar(meeting) }
+    }
+
+    /**
+     * The row's part in multi-select. Outside selection mode a tap opens the
+     * meeting, a long press starts selecting, and the action sheet is a
+     * screen-reader action; inside it both toggle the row. Runs after
+     * [bindStar], whose card background a selected row replaces.
+     */
+    private fun bindSelection(h: ItemHolder, meeting: Meeting) {
+        val context = h.itemView.context
+        val selected = selection
+        val isSelected = selected?.contains(meeting.id) == true
+        h.card.setBackgroundResource(
+            when {
+                isSelected -> R.drawable.bg_card_selected
+                meeting.starred -> R.drawable.bg_card_starred
+                else -> R.drawable.bg_card
+            }
+        )
+        h.star.visibility = if (selected == null) View.VISIBLE else View.INVISIBLE
+        val toggle = context.getString(if (isSelected) R.string.storage_deselect else R.string.storage_select)
+        A11y.labelClick(
+            h.itemView,
+            if (selected == null) context.getString(R.string.storage_open_meeting) else toggle
+        )
+        A11y.labelLongClick(h.itemView, toggle)
+        val options = onOptions
+        A11y.setActions(
+            h.itemView,
+            if (selected == null && options != null) {
+                listOf(A11y.Action(context.getString(R.string.a11y_meeting_options)) { options(meeting) })
+            } else {
+                emptyList()
+            }
+        )
     }
 
     private fun bindProgress(h: ItemHolder, meeting: Meeting) {
@@ -305,5 +413,8 @@ class MeetingAdapter(
     companion object {
         private const val TYPE_HEADER = 0
         private const val TYPE_ITEM = 1
+
+        /** notifyItemChanged payload: only the selection state moved. */
+        private const val PAYLOAD_SELECTION = "selection"
     }
 }

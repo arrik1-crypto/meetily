@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- A library row picked in multi-select: the accent container fill marks
+     it as selected whether or not it is also starred (which keeps only the
+     accent edge). Screen readers hear it as a checked row
+     (MeetingAdapter.bindSelection). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/accent_container" />
+    <corners android:radius="14dp" />
+    <stroke android:width="2dp" android:color="@color/accent" />
+</shape>

@@ -39,6 +39,8 @@ class RecapApp : Application() {
         Thread {
             dropRemovedLiteRtModels()
             reselectWithdrawnLlmModel()
+            // A force-stop cancels the daily clean-up job with every other.
+            runCatching { RetentionJobService.ensureScheduled(this) }
         }.start()
     }
 
