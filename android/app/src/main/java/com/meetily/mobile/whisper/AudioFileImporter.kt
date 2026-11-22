@@ -362,6 +362,11 @@ class AudioFileImporter(
         val batch = mutableListOf<Part>()
         var batchSamples = 0
 
+        // The last chunk the speech gate skipped, while it can still be
+        // reached by the padding of speech at the start of the next one
+        // (see transcribeChunk). Its clusterId is unused.
+        var heldSkip: Part? = null
+
         fun clusterFor(audio: FloatArray): Int? = try {
             val c = clusterer
             val e = embedder
@@ -514,21 +519,8 @@ class AudioFileImporter(
             reportProgress()
         }
 
-        fun transcribeChunk(audio: FloatArray, startSample: Long) {
-            // A cut can still fire from frames already in hand when the
-            // cancel lands; it must not start an embedding or engine call.
-            if (cancelled()) return
-            // No speech in it: no embedding, no engine call, no segment. A
-            // kept chunk goes on unchanged at the same start sample, so its
-            // timestamps and word timings match a run with the gate off.
-            if (speech?.keep(audio, startSample) == false) {
-                val now = android.os.SystemClock.elapsedRealtime()
-                if (now - lastSkipReportAt >= SKIP_REPORT_INTERVAL_MS) {
-                    lastSkipReportAt = now
-                    reportProgress()
-                }
-                return
-            }
+        /** Speaker label, then the engine: a chunk the gate kept. */
+        fun recognise(audio: FloatArray, startSample: Long) {
             val clusterId = clusterFor(audio)
             val engine = nemoEngine
             if (engine == null) {
@@ -554,18 +546,62 @@ class AudioFileImporter(
             reportProgress()
         }
 
+        /**
+         * [endsQuiet] is true when the chunk was cut after [endSilenceSec]
+         * below the silence floor, false when it was cut at the length limit
+         * in sound.
+         */
+        fun transcribeChunk(audio: FloatArray, startSample: Long, endsQuiet: Boolean) {
+            // A cut can still fire from frames already in hand when the
+            // cancel lands; it must not start an embedding or engine call.
+            if (cancelled()) return
+            // No speech in it: no embedding, no engine call, no segment. A
+            // kept chunk goes on unchanged at the same start sample, so its
+            // timestamps and word timings match a run with the gate off.
+            if (speech?.keep(audio, startSample) == false) {
+                // Speech that starts in the next chunk is padded back into
+                // this one, but is only found once that chunk is scored, so
+                // a chunk cut at the length limit waits for it. One cut in
+                // silence ends in at least endSilenceSec below the floor,
+                // longer than the padding, so it has nothing to wait for.
+                heldSkip = if (endsQuiet) null else Part(audio, startSample, null)
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (now - lastSkipReportAt >= SKIP_REPORT_INTERVAL_MS) {
+                    lastSkipReportAt = now
+                    reportProgress()
+                }
+                return
+            }
+            val held = heldSkip
+            heldSkip = null
+            if (held != null) {
+                val heldEnd = held.startSample + held.audio.size
+                if (heldEnd == startSample && speech?.reachesBack(held.startSample, heldEnd) == true) {
+                    // Sent first and whole, at its own start sample, just as
+                    // with the gate off.
+                    recognise(held.audio, held.startSample)
+                }
+            }
+            recognise(audio, startSample)
+        }
+
         fun cutChunk() {
             if (chunkLen == 0) return
             // A copy: a Whisper batch holds on to it while the buffer refills.
             val audio = chunk.copyOf(chunkLen)
             val peak = chunkPeakRms
             val start = chunkStartSample
+            val endsQuiet = silenceRun >= endSilenceSec
             chunkLen = 0
             silenceRun = 0f
             chunkPeakRms = 0f
             chunkStartSample = consumedSamples
-            if (peak < minSpeechRms) return
-            transcribeChunk(audio, start)
+            if (peak < minSpeechRms) {
+                // The next chunk cannot follow on from a held one now.
+                heldSkip = null
+                return
+            }
+            transcribeChunk(audio, start, endsQuiet)
         }
 
         fun onFrame(frame: FloatArray) {

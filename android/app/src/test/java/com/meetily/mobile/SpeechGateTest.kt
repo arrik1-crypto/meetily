@@ -82,6 +82,50 @@ class SpeechGateTest {
         assertEquals(7L * WINDOW, r[0].end)
     }
 
+    @Test
+    fun aTrackerFedInPiecesFindsWhatOneCallOverTheWholeFinds() {
+        // Every split of the same probabilities gives the same finished
+        // regions, and the same open one at the end, as no split at all:
+        // the hysteresis, the start of a region and a silence that has
+        // begun all carry over.
+        val random = java.util.Random(7)
+        val levels = floatArrayOf(0f, 0.2f, 0.36f, 0.4f, 0.49f, 0.5f, 0.9f)
+        repeat(200) {
+            val all = FloatArray(400) { levels[random.nextInt(levels.size)] }
+            for (i in all.indices) {
+                // Runs, not noise, so that regions of every kind turn up.
+                if (i > 0 && random.nextInt(8) != 0) all[i] = all[i - 1]
+            }
+            val whole = SpeechGate.regions(all, 1_000L)
+            val tracker = SpeechGate.Tracker()
+            val pieces = ArrayList<SpeechGate.Region>()
+            var at = 0
+            while (at < all.size) {
+                val n = minOf(all.size - at, 1 + random.nextInt(40))
+                val found = tracker.feed(all.copyOfRange(at, at + n), 1_000L + at.toLong() * WINDOW)
+                at += n
+                pieces += found.filter { !it.open || at == all.size }
+            }
+            assertEquals(whole.map { Triple(it.start, it.end, it.open) },
+                pieces.map { Triple(it.start, it.end, it.open) })
+        }
+    }
+
+    @Test
+    fun aRegionCrossingACutKeepsItsStart() {
+        val tracker = SpeechGate.Tracker()
+        val first = tracker.feed(probs(0f to 4, 0.9f to 5), 0L)
+        assertTrue(tracker.speaking)
+        assertEquals(4L * WINDOW, first.single().start)
+        // 5 + 3 windows = 256 ms in all, enough to count once it ends,
+        // though neither part alone is.
+        val second = tracker.feed(probs(0.9f to 3, 0f to 6), 9L * WINDOW)
+        assertFalse(tracker.speaking)
+        assertEquals(4L * WINDOW, second.single().start)
+        assertEquals(12L * WINDOW, second.single().end)
+        assertFalse(second.single().open)
+    }
+
     // ---- keep ----------------------------------------------------------
 
     @Test
@@ -322,6 +366,82 @@ class SpeechGateTest {
         val first = concat(audio(27.95, false), audio(0.05, true))
         assertTrue(gate.keep(first, 0L))
         assertTrue(gate.keep(audio(3.0, true), first.size.toLong()))
+    }
+
+    /** Answers by window position in the stream, whatever the audio. */
+    private fun scripted(score: (Int) -> Float): FakeDetector {
+        var next = 0
+        return FakeDetector { windows -> FloatArray(windows.size / WINDOW) { score(next++) } }
+    }
+
+    @Test
+    fun quietSpeechBetweenTheThresholdsCarriesOnPastACut() {
+        // A speaker found at 0.9, then trailing off to 0.4 for longer than
+        // a whole chunk: under the start threshold, over the end one, so
+        // still speech, as it would be on the uncut stream.
+        val gate = SpeechGateRun(scripted { if (it < 10) 0.9f else 0.4f })
+        val first = audio(28.0, false)
+        assertTrue(gate.keep(first, 0L))
+        assertTrue(gate.keep(audio(3.0, false), first.size.toLong()))
+    }
+
+    @Test
+    fun quietSpeechEndingAfterACutPadsOnlyTheChunkItEndsIn() {
+        val sec = SpeechGate.SAMPLE_RATE
+        // 0.9 at first, 0.4 to the end of the second chunk, then nothing.
+        val endOfSpeech = (31L * sec / WINDOW).toInt()
+        val gate = SpeechGateRun(scripted {
+            when {
+                it < 10 -> 0.9f
+                it < endOfSpeech -> 0.4f
+                else -> 0f
+            }
+        })
+        assertTrue(gate.keep(audio(28.0, false), 0L))
+        assertTrue(gate.keep(audio(3.0, false), 28L * sec))
+        // Speech ended within the padding of this chunk's start.
+        assertTrue(gate.keep(audio(3.0, false), 31L * sec))
+        assertFalse(gate.keep(audio(3.0, false), 34L * sec))
+    }
+
+    @Test
+    fun speechAtTheStartOfAChunkReachesBackIntoTheSkippedOneBefore() {
+        val sec = SpeechGate.SAMPLE_RATE
+        val chunkWindows = 28 * sec / WINDOW
+        val gate = SpeechGateRun(scripted { if (it < chunkWindows) 0f else 0.9f })
+        val first = audio(28.0, false)
+        assertFalse(gate.keep(first, 0L))
+        assertFalse(gate.reachesBack(0L, first.size.toLong()))
+        assertTrue(gate.keep(audio(3.0, false), first.size.toLong()))
+        // The 300 ms before the speech lies in the first chunk.
+        assertTrue(gate.reachesBack(0L, first.size.toLong()))
+    }
+
+    @Test
+    fun speechLaterInAChunkDoesNotReachBack() {
+        val sec = SpeechGate.SAMPLE_RATE
+        // Speech starts 0.5 s into the second chunk, past the padding.
+        val speechFrom = (28L * sec + sec / 2) / WINDOW
+        val gate = SpeechGateRun(scripted { if (it < speechFrom) 0f else 0.9f })
+        val first = audio(28.0, false)
+        assertFalse(gate.keep(first, 0L))
+        assertTrue(gate.keep(audio(3.0, false), first.size.toLong()))
+        assertFalse(gate.reachesBack(0L, first.size.toLong()))
+    }
+
+    @Test
+    fun nothingReachesBackOnceTheGateHasFailed() {
+        val sec = SpeechGate.SAMPLE_RATE
+        val chunkWindows = 28 * sec / WINDOW
+        var calls = 0
+        val gate = SpeechGateRun(FakeDetector { _ ->
+            if (calls++ == 0) FloatArray(chunkWindows) else null
+        })
+        val first = audio(28.0, false)
+        assertFalse(gate.keep(first, 0L))
+        assertTrue(gate.keep(audio(3.0, true), first.size.toLong()))
+        assertTrue(gate.failed)
+        assertFalse(gate.reachesBack(0L, first.size.toLong()))
     }
 
     @Test

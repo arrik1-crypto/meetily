@@ -1,7 +1,5 @@
 package com.meetily.mobile.whisper
 
-import kotlin.math.min
-
 /**
  * The decisions of the speech gate, kept free of Android and native types so
  * they are unit-tested.
@@ -27,7 +25,8 @@ import kotlin.math.min
  *    whatever its length, since it may be a sentence that carries on;
  *  - every region is widened by [PAD_SAMPLES] each side, and a chunk is kept
  *    when any widened region overlaps it, including one that ended in the
- *    previous chunk.
+ *    previous chunk, and in the importer one that starts in the next (see
+ *    [SpeechGateRun.reachesBack]).
  *
  * The gate only ever removes whole chunks. A kept chunk is passed on
  * unchanged, at the same absolute start sample, so its timestamps, its
@@ -70,52 +69,70 @@ object SpeechGate {
     const val MIN_SILENCE_SAMPLES = SAMPLE_RATE * 100 / 1000
     const val PAD_SAMPLES = SAMPLE_RATE * 300 / 1000
 
-    /**
-     * Probabilities kept from before a chunk, about a second: enough for a
-     * region that crosses the chunk's start to be measured, and for padding
-     * from one that ended just before it to reach it.
-     */
-    const val HISTORY_WINDOWS = 32
-
     /** Speech from [start] to [end], absolute samples; [open] when still going. */
     class Region(val start: Long, val end: Long, val open: Boolean)
 
     /**
-     * The speech regions in [probs], one probability per [WINDOW] samples,
-     * the first window starting at absolute sample [firstSample].
+     * The hysteresis state machine that turns probabilities into regions,
+     * kept from one call to the next so that a run of chunks is read as one
+     * timeline. Speech still going at the end of one call carries on into
+     * the next with its own start and any silence that had begun, so a
+     * quiet speaker who stays between [NEG_THRESHOLD] and [THRESHOLD] across
+     * a cut is still in speech after it, as on an uncut stream.
      */
-    fun regions(probs: FloatArray, firstSample: Long): List<Region> {
-        val out = ArrayList<Region>()
-        var inSpeech = false
-        var start = 0L
-        var silenceFrom = -1L
-        for (i in probs.indices) {
-            val p = probs[i]
-            val at = firstSample + i.toLong() * WINDOW
-            if (p >= THRESHOLD) {
-                if (!inSpeech) {
-                    inSpeech = true
-                    start = at
-                }
-                silenceFrom = -1L
-                continue
-            }
-            if (inSpeech && p < NEG_THRESHOLD) {
-                if (silenceFrom < 0) silenceFrom = at
-                if (at - silenceFrom >= MIN_SILENCE_SAMPLES) {
-                    if (silenceFrom - start >= MIN_SPEECH_SAMPLES) {
-                        out.add(Region(start, silenceFrom, open = false))
+    class Tracker {
+        private var inSpeech = false
+        private var start = 0L
+        private var silenceFrom = -1L
+
+        /** True when speech was still going at the end of the last [feed]. */
+        val speaking: Boolean
+            get() = inSpeech
+
+        /**
+         * The regions that end in [probs] and are long enough to count,
+         * then the one still open at its end, if any. One probability per
+         * [WINDOW] samples, the first window starting at absolute sample
+         * [firstSample], which follows on from the previous call's windows.
+         */
+        fun feed(probs: FloatArray, firstSample: Long): List<Region> {
+            val out = ArrayList<Region>()
+            for (i in probs.indices) {
+                val p = probs[i]
+                val at = firstSample + i.toLong() * WINDOW
+                if (p >= THRESHOLD) {
+                    if (!inSpeech) {
+                        inSpeech = true
+                        start = at
                     }
-                    inSpeech = false
                     silenceFrom = -1L
+                    continue
+                }
+                if (inSpeech && p < NEG_THRESHOLD) {
+                    if (silenceFrom < 0) silenceFrom = at
+                    if (at - silenceFrom >= MIN_SILENCE_SAMPLES) {
+                        if (silenceFrom - start >= MIN_SPEECH_SAMPLES) {
+                            out.add(Region(start, silenceFrom, open = false))
+                        }
+                        inSpeech = false
+                        silenceFrom = -1L
+                    }
                 }
             }
+            if (inSpeech) {
+                out.add(Region(start, firstSample + probs.size.toLong() * WINDOW, open = true))
+            }
+            return out
         }
-        if (inSpeech) {
-            out.add(Region(start, firstSample + probs.size.toLong() * WINDOW, open = true))
-        }
-        return out
     }
+
+    /**
+     * The speech regions in [probs] on their own, one probability per
+     * [WINDOW] samples, the first window starting at absolute sample
+     * [firstSample].
+     */
+    fun regions(probs: FloatArray, firstSample: Long): List<Region> =
+        Tracker().feed(probs, firstSample)
 
     /** True when a padded region overlaps the chunk [chunkStart], [chunkEnd). */
     fun keep(regions: List<Region>, chunkStart: Long, chunkEnd: Long): Boolean =
@@ -186,6 +203,12 @@ fun interface SpeechDetector {
  * directly. A chunk that does not start where the last one ended (the RMS
  * check or a full backlog dropped the audio between) starts a fresh grid.
  *
+ * The regions are tracked the same way: the [SpeechGate.Tracker] state
+ * runs on across chunks that follow on directly, so speech that began
+ * before a cut is measured from its real start and ends where it would on
+ * the uncut stream, and the last region that ended still pads the chunks
+ * after it. A gap starts a fresh tracker.
+ *
  * The detector's model state carries into the next chunk only when speech
  * was still going at the end of the last one, as after a cut at the length
  * limit in mid-sentence; otherwise each chunk starts from a fresh state.
@@ -215,32 +238,52 @@ class SpeechGateRun(
     private val carry = FloatArray(SpeechGate.WINDOW)
     private var carryLen = 0
     private var resetPending = true
-    private var speechAtEnd = false
-    private val history = FloatArray(SpeechGate.HISTORY_WINDOWS)
-    private var historyLen = 0
+    private var tracker = SpeechGate.Tracker()
+
+    /** The last finished region that counted, whose padding can reach on. */
+    private var lastClosed: SpeechGate.Region? = null
+
+    /** The regions the last [keep] call found, for [reachesBack]. */
+    private var found: List<SpeechGate.Region> = emptyList()
 
     /**
      * True when [audio], 16 kHz mono starting at absolute sample [start],
      * should go to the recogniser.
      */
     fun keep(audio: FloatArray, start: Long): Boolean {
+        found = emptyList()
         if (failed || audio.isEmpty()) return true
         return try {
             decide(audio, start)
         } catch (_: Throwable) {
             failed = true
+            found = emptyList()
             onFailure("gate failed")
             true
         }
     }
 
+    /**
+     * True when the padding of speech the last [keep] call found reaches
+     * back into [chunkStart] to [chunkEnd], absolute samples: an earlier
+     * chunk that was already skipped because its own windows held no
+     * speech. A region found in one chunk is only widened back over the
+     * chunk before it once that later chunk has been scored, so a caller
+     * that can hold a skipped chunk until then (the importer) asks this
+     * and sends it after all. The live recorder does not hold chunks back,
+     * so there the padding before speech never reaches into a chunk that
+     * was already decided.
+     */
+    fun reachesBack(chunkStart: Long, chunkEnd: Long): Boolean =
+        !failed && SpeechGate.keep(found, chunkStart, chunkEnd)
+
     private fun decide(audio: FloatArray, start: Long): Boolean {
         if (start != nextStart) {
             carryLen = 0
-            historyLen = 0
-            speechAtEnd = false
+            tracker = SpeechGate.Tracker()
+            lastClosed = null
             resetPending = true
-        } else if (!speechAtEnd) {
+        } else if (!tracker.speaking) {
             resetPending = true
         }
         nextStart = start + audio.size
@@ -272,17 +315,12 @@ class SpeechGateRun(
         carryLen = audio.size - used
         System.arraycopy(audio, used, carry, 0, carryLen)
 
-        val timeline = FloatArray(historyLen + windows)
-        System.arraycopy(history, 0, timeline, 0, historyLen)
-        System.arraycopy(probs!!, 0, timeline, historyLen, windows)
-        val timelineStart = dataStart - historyLen.toLong() * SpeechGate.WINDOW
-        val regions = SpeechGate.regions(timeline, timelineStart)
-        speechAtEnd = regions.lastOrNull()?.open == true
-        val keep = SpeechGate.keep(regions, start, start + audio.size)
-
-        val kept = min(timeline.size, SpeechGate.HISTORY_WINDOWS)
-        System.arraycopy(timeline, timeline.size - kept, history, 0, kept)
-        historyLen = kept
+        // The tracker carries on from the previous chunk's last window, so
+        // a region that crosses the cut keeps its start and its hysteresis.
+        val regions = tracker.feed(probs!!, dataStart)
+        val keep = SpeechGate.keep(listOfNotNull(lastClosed) + regions, start, start + audio.size)
+        regions.lastOrNull { !it.open }?.let { lastClosed = it }
+        found = regions
         return keep
     }
 }
