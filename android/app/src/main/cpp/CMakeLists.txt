@@ -129,6 +129,10 @@ endif()
 # SME-family kernels are off here (MEETILY_KLEIDIAI_SME below), so the Q4_K
 # bulk of the shipped Q4_K_M GGUFs stays where it was on every phone
 # (CPU_REPACK on :native-v82, the plain mmap'd CPU buffer on the baseline).
+# The opt-in Gemma 4 E2B/E4B QAT GGUFs are Q4_0, so on a phone with dotprod
+# their bulk is the one catalogue bulk these kernels do take, packed
+# straight from the file's blocks at about the same size and with no
+# temporary copy (unmeasured; see ACCELERATION_FINDINGS.md).
 #
 # What it does take from them, on any phone with dotprod (all of
 # :native-v82, and baseline-tier phones that have it), is every Q6_K

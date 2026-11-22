@@ -122,7 +122,12 @@ object LocalLlmModels {
         // only when the rendered prompt does not already start with it. Its
         // EOS is <eos> where unsloth's is <turn|>; llama.cpp ends generation
         // on both for Gemma 4. Unmeasured on phones against the unsloth
-        // files, so neither is suggested over the other.
+        // files, so neither is suggested over the other. Like them, they are
+        // above DeviceFit.SMALL_LLM_MAX_MB and so set up for the 4K window
+        // (contextTokens' default), far inside the window they were trained
+        // on (131,072 tokens for E2B). On arm64 phones with dotprod their
+        // Q4_0 bulk is the one catalogue bulk KleidiAI's dotprod/i8mm
+        // kernels take (see CMakeLists.txt).
         LocalLlmModel(
             "gemma4-e2b-qat",
             "Gemma 4 E2B QAT (Google's Q4_0 · 8 GB+ RAM)",
@@ -174,7 +179,11 @@ object LocalLlmModels {
         // (chat_render.cpp), and any think block that still appears is
         // stripped (PromptShaping). Text GGUFs only; the repos' mmproj files
         // are the vision tower. Not yet checked for summary quality or speed
-        // on a phone, so the suggested default stays Qwen 2.5 1.5B.
+        // on a phone, so the suggested default stays Qwen 2.5 1.5B. The 2B
+        // file is under DeviceFit.SMALL_LLM_MAX_MB, so like the other small
+        // models it is set up for the 8K window (contextTokens' default);
+        // the 4B keeps 4K. Both are trained on 262,144 tokens, so
+        // llama_jni.c's clamp to the trained window never applies.
         LocalLlmModel(
             "qwen35-2b",
             "Qwen 3.5 2B (newer, small · 4 GB+ RAM)",

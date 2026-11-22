@@ -50,7 +50,13 @@ Baseline, verified in this repo:
   for the gap in the line above than it sounds: on every phone, the Q4_K
   bulk of the catalogue's Q4_K_M models stays where it was (`CPU_REPACK`
   on the v82 build, the plain mmap'd CPU buffer on the baseline), and only
-  their Q6_K tensors move.
+  their Q6_K tensors move. The exception is the opt-in Gemma 4 E2B and E4B
+  QAT files (Google's own builds), which are Q4_0: on a phone with dotprod
+  their bulk is the one catalogue bulk KleidiAI's dotprod/i8mm kernels
+  take. `repack()` packs Q4_0 straight from the file's blocks, at about
+  their own size and with no temporary copy, into the anonymous
+  `CPU_KLEIDIAI` buffer. Not measured on a phone, against the unsloth
+  Q4_K_M files or otherwise.
   - **What it costs (2026-11 reviews, read from v1.0.0's
     `ggml-cpu/kleidiai/kleidiai.cpp`, `repack()` and `get_alloc_size()`;
     nothing measured):** on any phone with dotprod (the whole v82 tier, and

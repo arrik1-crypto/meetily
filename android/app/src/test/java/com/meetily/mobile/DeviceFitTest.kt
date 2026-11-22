@@ -142,7 +142,9 @@ class DeviceFitTest {
     fun smallModelsAreSetUpForTheLargerWindow() {
         assertEquals(8192, DeviceFit.defaultLlmContextTokens(DeviceFit.SMALL_LLM_MAX_MB))
         assertEquals(4096, DeviceFit.defaultLlmContextTokens(DeviceFit.SMALL_LLM_MAX_MB + 1))
-        val wide = setOf("qwen2.5-0.5b", "qwen2.5-1.5b", "gemma3-1b")
+        // Qwen 3.5 2B (1396 MB) is under SMALL_LLM_MAX_MB too; Qwen 3.5 4B
+        // and both Gemma 4 QAT files are not.
+        val wide = setOf("qwen2.5-0.5b", "qwen2.5-1.5b", "gemma3-1b", "qwen35-2b")
         for (model in LocalLlmModels.ALL) {
             val expected = if (model.key in wide) 8192 else 4096
             assertEquals(model.key, expected, model.contextTokens)
@@ -175,7 +177,19 @@ class DeviceFitTest {
                 Triple(6, 4096, true), Triple(8, 4096, true), Triple(12, 4096, false)
             ),
             "gemma4-e4b" to listOf(Triple(12, 4096, true), Triple(16, 4096, false)),
-            "qwen3.5-9b" to listOf(Triple(16, 4096, true), Triple(24, 4096, false))
+            "qwen3.5-9b" to listOf(Triple(16, 4096, true), Triple(24, 4096, false)),
+            // The opt-in entries. Qwen 3.5 2B is a small model: 8K from
+            // 6 GB (2209 MB at 8K, within 40%), where it is comfortable at
+            // 4K too.
+            "qwen35-2b" to listOf(
+                Triple(3, 4096, true), Triple(4, 4096, true), Triple(6, 8192, false),
+                Triple(12, 8192, false)
+            ),
+            "qwen35-4b" to listOf(Triple(8, 4096, true), Triple(10, 4096, false)),
+            "gemma4-e2b-qat" to listOf(
+                Triple(8, 4096, true), Triple(10, 4096, true), Triple(12, 4096, false)
+            ),
+            "gemma4-e4b-qat" to listOf(Triple(12, 4096, true), Triple(16, 4096, false))
         )
         for ((key, rows) in table) {
             for ((gb, window, tight) in rows) {
@@ -305,11 +319,16 @@ class DeviceFitTest {
             Triple("gemma3-1b", 3, 32768) to 4096,
             Triple("gemma3-1b", 4, 32768) to 8192,
             Triple("qwen2.5-0.5b", 3, 32768) to 8192,
+            // Qwen 3.5 2B is trained on 262,144 tokens, so the clamp never cuts it.
+            Triple("qwen35-2b", 6, 262144) to 8192,
+            Triple("qwen35-2b", 4, 262144) to 4096,
             // 3B and larger: 4K on every phone, under 8 GB or not.
             Triple("llama3.2-3b", 6, 131072) to 4096,
             Triple("gemma3-4b", 12, 131072) to 4096,
             Triple("gemma3-4b", 12, 2048) to 2048,
-            Triple("llama3.1-8b", 16, 131072) to 4096
+            Triple("llama3.1-8b", 16, 131072) to 4096,
+            Triple("qwen35-4b", 16, 262144) to 4096,
+            Triple("gemma4-e2b-qat", 12, 131072) to 4096
         )
         for ((input, want) in rows) {
             val (key, gb, trained) = input

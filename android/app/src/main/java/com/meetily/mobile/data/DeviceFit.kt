@@ -218,10 +218,13 @@ object DeviceFit {
      * architecture rather than the file. Worked from the models' layer and
      * head counts, the q8_0 cache for 4096 tokens is 5-7% of the file for
      * the small models (27 MB for Qwen 2.5 0.5B, 58 MB for Gemma 3 1B,
-     * 62 MB for Qwen 2.5 1.5B) and about 12% for Llama 3.2 3B and Gemma 3
-     * 4B. An eighth is above every catalogue model and leaves room for the
-     * larger attention mask. A window at or below the base costs the base
-     * figure: the compute buffers do not shrink with it.
+     * 62 MB for Qwen 2.5 1.5B), about 2% for Qwen 3.5 2B (27 MB: 6 of its
+     * 24 layers have full attention and a KV cache, 2 KV heads of 256; the
+     * other layers keep a recurrent state that does not grow with the
+     * window) and about 12% for Llama 3.2 3B and Gemma 3 4B. An eighth is
+     * above every catalogue model and leaves room for the larger attention
+     * mask. A window at or below the base costs the base figure: the
+     * compute buffers do not shrink with it.
      *
      * Still an estimate, and low if the engine has to fall back to an f16
      * cache. It does not count the small sliding-window cache a tight phone
@@ -271,8 +274,12 @@ object DeviceFit {
      * for Llama 3.1 8B, 640 MiB for Gemma 3 4B. That comes before the KV
      * cache and compute buffers exist, so it competes with [LLM_RUNTIME_MB]
      * and the 10% for room instead of adding to them: well inside them for
-     * Llama 3.1 8B, about their size for Gemma 3 4B. None of this has been
-     * measured; see ACCELERATION_FINDINGS.md.
+     * Llama 3.1 8B, about their size for Gemma 3 4B. The Q4_0 weights of the
+     * opt-in Gemma 4 QAT files are packed for KleidiAI straight from the
+     * file's blocks, at about their own size and with no temporary copy, so
+     * they move into anonymous memory without growing; those files' other
+     * tensor types were not read. None of this has been measured; see
+     * ACCELERATION_FINDINGS.md.
      *
      * Not covered: KleidiAI's SME/SME2 kernels. On an SME phone they hold a
      * second packed copy of every Q6_K and Q8_0 weight (about 2.44x their
