@@ -14,14 +14,26 @@ import java.util.concurrent.Executor
  *
  * The worker holds this model and the store, never a screen, so a screen
  * rotated away or closed mid-read is released at once, and the result goes
- * to whichever screen is attached when it lands. Cleared with the screen
- * for good (back, finish), after which a read still running is dropped.
+ * to whichever screen is attached when it lands. Closed with the screen for
+ * good (back, finish: [close], then onCleared), after which a read still
+ * running is dropped and one not yet past its next stage stops there
+ * (MeetingStore.loadStaged). A rotation does not clear the model, so a read
+ * it keeps carries on.
  */
 class MeetingLoadModel : ViewModel() {
 
     val load = RetainedLoad<Meeting, Meeting>()
 
     private val main = Handler(Looper.getMainLooper())
+
+    /**
+     * Set once the screen has gone for good. The read runs on the worker
+     * every meeting screen reads and saves on, so a closed screen's read is
+     * stopped rather than finished: the next screen opened would otherwise
+     * wait behind its whole parse before even its own title could be read.
+     */
+    @Volatile
+    private var cleared = false
 
     /**
      * Attaches [listener] to the read of meeting [id], starting the read on
@@ -43,19 +55,33 @@ class MeetingLoadModel : ViewModel() {
             null
         }
         executor.execute {
+            // Still queued behind other work when the screen closed.
+            if (cleared) return@execute
             val read = try {
-                store.loadStaged(id, onHeader)
+                store.loadStaged(id, onHeader) { cleared }
             } catch (_: Throwable) {
                 // Out of memory on a huge file, say: the screen says it
                 // cannot open the meeting rather than waiting for good.
                 null
             }
+            if (cleared) return@execute
             main.post { load.finish(ticket, read) }
         }
     }
 
-    override fun onCleared() {
+    /**
+     * The screen is going for good (finishing). Stops its read at once
+     * rather than at onCleared, which comes only once the screen it returns
+     * to has settled: a parse that has not reached its next stage by then
+     * is not done at all. Main thread only.
+     */
+    fun close() {
+        cleared = true
         load.clear()
+    }
+
+    override fun onCleared() {
+        close()
     }
 
     companion object {

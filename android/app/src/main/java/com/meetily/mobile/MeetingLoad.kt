@@ -125,6 +125,23 @@ class RetainedLoad<H : Any, T : Any> {
     val isRunning: Boolean get() = running
 
     /**
+     * True when the owner went away ([ownerLeft]) after the current read
+     * began, so what it read may be older than a save made while the owner
+     * was away. Kept across a re-creation, like the read itself, and
+     * readable from [Listener.onResult]; reset when a new read starts.
+     */
+    var ownerLeftDuringRead: Boolean = false
+        private set
+
+    /**
+     * The owner has gone away for a while (stopped, not just re-created)
+     * while the read is running or its result is waiting.
+     */
+    fun ownerLeft() {
+        if (running || held) ownerLeftDuringRead = true
+    }
+
+    /**
      * Attaches [listener] to the read of [key]. Returns the ticket of a read
      * the caller must now start, or null when one for [key] is already
      * running (its header, if any, is replayed) or has finished and was
@@ -148,6 +165,7 @@ class RetainedLoad<H : Any, T : Any> {
         header = null
         held = false
         heldResult = null
+        ownerLeftDuringRead = false
         return ticket
     }
 
@@ -185,5 +203,6 @@ class RetainedLoad<H : Any, T : Any> {
         header = null
         held = false
         heldResult = null
+        ownerLeftDuringRead = false
     }
 }

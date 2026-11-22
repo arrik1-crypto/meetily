@@ -230,6 +230,75 @@ class MeetingLoadTest {
         assertFalse(load.isRunning)
     }
 
+    /** Records, with each result, whether the read was marked as maybe stale. */
+    private class StaleScreen(val load: RetainedLoad<String, String>) :
+        RetainedLoad.Listener<String, String> {
+        val results = mutableListOf<Pair<String?, Boolean>>()
+        override fun onHeader(header: String) {}
+        override fun onResult(result: String?) {
+            results.add(result to load.ownerLeftDuringRead)
+        }
+    }
+
+    @Test
+    fun retained_ownerLeavingDuringTheRead_marksItsResult_acrossARotation() {
+        val load = RetainedLoad<String, String>()
+        val first = StaleScreen(load)
+        val ticket = load.attach("m1", first)!!
+        assertFalse(load.ownerLeftDuringRead)
+        // Left (a queued summary may save meanwhile), then rotated on return.
+        load.ownerLeft()
+        load.detach(first)
+        val second = StaleScreen(load)
+        assertNull(load.attach("m1", second))
+        load.finish(ticket, "meeting")
+        assertEquals(listOf<Pair<String?, Boolean>>("meeting" to true), second.results)
+
+        // The next read is a new one, as new as its own visit.
+        load.detach(second)
+        val third = StaleScreen(load)
+        val again = load.attach("m1", third)!!
+        assertFalse(load.ownerLeftDuringRead)
+        load.finish(again, "meeting")
+        assertEquals(listOf<Pair<String?, Boolean>>("meeting" to false), third.results)
+    }
+
+    @Test
+    fun retained_ownerLeavingWhileTheResultWaits_marksIt() {
+        val load = RetainedLoad<String, String>()
+        val first = StaleScreen(load)
+        val ticket = load.attach("m1", first)!!
+        load.detach(first)
+        load.finish(ticket, "meeting")
+        load.ownerLeft()
+        val second = StaleScreen(load)
+        assertNull(load.attach("m1", second))
+        assertEquals(listOf<Pair<String?, Boolean>>("meeting" to true), second.results)
+    }
+
+    @Test
+    fun retained_ownerLeavingWithNoReadOutstanding_marksNothing() {
+        val load = RetainedLoad<String, String>()
+        load.ownerLeft()
+        assertFalse(load.ownerLeftDuringRead)
+        val screen = StaleScreen(load)
+        val ticket = load.attach("m1", screen)!!
+        load.finish(ticket, "meeting")
+        // Left after the result was handed over: that read was not stale.
+        load.ownerLeft()
+        assertFalse(load.ownerLeftDuringRead)
+        assertEquals(listOf<Pair<String?, Boolean>>("meeting" to false), screen.results)
+
+        // A cleared load forgets it too.
+        val next = load.attach("m1", screen)!!
+        load.ownerLeft()
+        assertTrue(load.ownerLeftDuringRead)
+        load.clear()
+        assertFalse(load.ownerLeftDuringRead)
+        load.finish(next, "dropped")
+        assertEquals(1, screen.results.size)
+    }
+
     @Test
     fun retained_anotherKey_replacesTheRead() {
         val load = RetainedLoad<String, String>()

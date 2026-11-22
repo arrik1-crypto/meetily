@@ -264,6 +264,9 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     override fun onStop() {
         started = false
+        // Away for a while during the read, not just rotated: the file may
+        // have been read before something saved meanwhile (onMeetingRead).
+        if (loadGate.isLoading && !isChangingConfigurations) loadModel?.load?.ownerLeft()
         summaryService?.removeObserver(summaryObserver)
         if (summaryBound) {
             try {
@@ -837,16 +840,20 @@ class MeetingDetailActivity : AppCompatActivity() {
         // configuration change. The flag travels in the saved state, so a
         // rotation before the read landed still runs it.
         if (!requestedActionPending) return
-        requestedActionPending = false
-        if (intent.getBooleanExtra(EXTRA_REGENERATE_SUMMARY, false)) {
-            intent.removeExtra(EXTRA_REGENERATE_SUMMARY)
-            headerView.post { chooseTemplateAndSummarize() }
-            return
-        }
-        val action = intent.getStringExtra(EXTRA_ACTION) ?: return
-        intent.removeExtra(EXTRA_ACTION)
         headerView.post {
-            if (isFinishing || isDestroyed) return@post
+            // Taken only here, by a screen still alive to run it. A
+            // re-creation queued ahead of this post destroys this screen
+            // first; the next one must then still find the action pending in
+            // the saved state and the extra on the intent the two share.
+            if (isFinishing || isDestroyed || !requestedActionPending) return@post
+            requestedActionPending = false
+            if (intent.getBooleanExtra(EXTRA_REGENERATE_SUMMARY, false)) {
+                intent.removeExtra(EXTRA_REGENERATE_SUMMARY)
+                chooseTemplateAndSummarize()
+                return@post
+            }
+            val action = intent.getStringExtra(EXTRA_ACTION) ?: return@post
+            intent.removeExtra(EXTRA_ACTION)
             when (action) {
                 ACTION_RENAME -> renameMeeting()
                 ACTION_SUMMARIZE -> chooseTemplateAndSummarize()
@@ -937,14 +944,19 @@ class MeetingDetailActivity : AppCompatActivity() {
         invalidateOptionsMenu()
         maybeAutoTitle(m)
 
-        // What onStart could not do without the meeting.
+        // What onStart could not do without the meeting. Its refresh is
+        // skipped only when this read is as new as the visit: a screen left
+        // and come back to while the file was read may hold a copy from
+        // before a save made meanwhile (a queued summary finishing, enhanced
+        // notes, an accepted accuracy check), which nothing else fetches.
+        val fresh = loadModel?.load?.ownerLeftDuringRead != true
         when {
             started -> {
-                skipStartSync = true
+                skipStartSync = fresh
                 attachOnStart(m)
             }
             // The first onStart is still to come, and finds the meeting.
-            !hasStarted -> skipStartSync = true
+            !hasStarted -> skipStartSync = fresh
             // Stopped since: the next onStart reads again, as after any absence.
             else -> skipStartSync = false
         }
@@ -1510,6 +1522,9 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        // Closed before its meeting was read: the read would otherwise go on
+        // to the end on the worker the next screen opened reads on.
+        if (isFinishing) loadModel?.close()
         saveEdits()
         player?.let { p ->
             if (playerReady && p.isPlaying) {
