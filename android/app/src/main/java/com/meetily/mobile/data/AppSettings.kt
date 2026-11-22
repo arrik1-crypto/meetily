@@ -104,10 +104,52 @@ class AppSettings(context: Context) {
         }
     }
 
-    /** "system" (Android speech recognizer) or "whisper" (on-device whisper.cpp). */
+    /**
+     * "whisper" (any on-device engine: whisper.cpp, Parakeet or Nemotron) or
+     * "system" (Android's speech recognizer, which on most phones is Google's
+     * and may send the audio to its servers).
+     *
+     * On-device is the default. With no model downloaded yet a meeting is
+     * recorded as audio only and can be transcribed on the phone afterwards.
+     * Installs from before this default changed were pinned to "system" by
+     * [migrateEngineDefault], so an upgrade never switches engine silently.
+     */
     var transcriptionEngine: String
-        get() = prefs.getString("transcription_engine", "system") ?: "system"
-        set(value) = prefs.edit().putString("transcription_engine", value).apply()
+        get() = prefs.getString(EngineDefault.KEY_ENGINE, EngineDefault.ON_DEVICE)
+            ?: EngineDefault.ON_DEVICE
+        set(value) = prefs.edit().putString(EngineDefault.KEY_ENGINE, value).apply()
+
+    /**
+     * Set by [migrateEngineDefault] for an upgraded install left on the system
+     * recognizer; the home screen offers the on-device engine once, then
+     * clears it whatever the answer.
+     */
+    var onDeviceEngineNoticePending: Boolean
+        get() = prefs.getBoolean(EngineDefault.KEY_NOTICE, false)
+        set(value) = prefs.edit().putBoolean(EngineDefault.KEY_NOTICE, value).apply()
+
+    /**
+     * One-shot upgrade step for the change of [transcriptionEngine]'s default
+     * from "system" to on-device. See [EngineDefault.decide] for the rules.
+     *
+     * Must run before anything reads [transcriptionEngine], so RecapApp calls
+     * it synchronously at the top of onCreate, ahead of the threads it starts
+     * and of every activity, service and receiver. It is one preference read
+     * on every later launch. [meetingsExist] is only asked when the
+     * preferences alone cannot tell an upgrade from a fresh install.
+     */
+    fun migrateEngineDefault(meetingsExist: () -> Boolean) {
+        if (prefs.getBoolean(EngineDefault.KEY_MIGRATED, false)) return
+        val stored = prefs.getString(EngineDefault.KEY_ENGINE, null)
+        val priorUse = EngineDefault.hasPriorUse(prefs.all.keys, meetingsExist)
+        val decision = EngineDefault.decide(stored, priorUse)
+        val edit = prefs.edit().putBoolean(EngineDefault.KEY_MIGRATED, true)
+        decision.writeEngine?.let { edit.putString(EngineDefault.KEY_ENGINE, it) }
+        if (decision.showNotice) edit.putBoolean(EngineDefault.KEY_NOTICE, true)
+        // commit, not apply: the pinned engine and the "done" marker reach
+        // the disk together before any other work in this process starts.
+        edit.commit()
+    }
 
     var whisperModel: String
         get() = prefs.getString("whisper_model", "base.en") ?: "base.en"

@@ -360,6 +360,57 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * Offers the on-device engine, once, to an install that predates it as
+     * the default and was kept on Android's speech service by
+     * AppSettings.migrateEngineDefault. Any answer, Back included, clears the
+     * flag; a rotation with the dialog up shows it again, since nothing was
+     * answered.
+     */
+    private fun maybeOfferOnDeviceEngine() {
+        val settings = AppSettings(this)
+        if (!settings.onDeviceEngineNoticePending) return
+        if (settings.transcriptionEngine == com.meetily.mobile.data.EngineDefault.ON_DEVICE) {
+            // Switched in Settings before this was ever shown.
+            settings.onDeviceEngineNoticePending = false
+            return
+        }
+        // One prompt at a time. The crash offer goes first, and a recording
+        // in progress keeps the engine it started with; both wait a launch.
+        if (com.meetily.mobile.diag.CrashLog.pendingCrash(this) != null) return
+        if (RecordingService.isRunning) return
+        // Only claim the audio may go to Google's servers when it may: with
+        // "Prefer on-device transcription" on and an offline recognizer on
+        // the phone, RecordingService.createRecognizer uses that instead (the
+        // same test SettingsActivity.confirmSystemEngine makes).
+        val offlineRecognizer = settings.preferOfflineRecognition &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+            android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.privacy_engine_notice_title)
+            .setMessage(
+                if (offlineRecognizer) R.string.privacy_engine_notice_body_offline
+                else R.string.privacy_engine_notice_body
+            )
+            .setPositiveButton(R.string.privacy_engine_notice_switch) { _, _ ->
+                settings.onDeviceEngineNoticePending = false
+                settings.transcriptionEngine = com.meetily.mobile.data.EngineDefault.ON_DEVICE
+                if (staysOnDevice()) orbCaption.setText(R.string.tap_to_record)
+                // No model yet: the recording still works (audio only), but
+                // Settings is where one is downloaded, so go straight there.
+                if (!com.meetily.mobile.whisper.TranscriptionModels
+                        .isDownloaded(this, settings.whisperModel)
+                ) {
+                    startActivity(Intent(this, SettingsActivity::class.java))
+                }
+            }
+            .setNegativeButton(R.string.privacy_engine_notice_keep) { _, _ ->
+                settings.onDeviceEngineNoticePending = false
+            }
+            .setOnCancelListener { settings.onDeviceEngineNoticePending = false }
+            .show()
+    }
+
     private val pickAudio =
         registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
             if (uri != null) {
@@ -438,6 +489,7 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(this, ImportActivity::class.java))
         }
         maybeOfferCrashReport()
+        maybeOfferOnDeviceEngine()
         summaryBanner = findViewById(R.id.summaryBanner)
         summaryBannerName = findViewById(R.id.summaryBannerName)
         summaryBannerPct = findViewById(R.id.summaryBannerPct)

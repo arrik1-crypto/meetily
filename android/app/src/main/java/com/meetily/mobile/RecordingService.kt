@@ -584,6 +584,13 @@ class RecordingService : Service() {
         try {
             val audio = audioFileName ?: return
             if (!AudioStore.exists(this, audio)) return
+            // No model on the phone yet, as on a fresh install's first
+            // meeting: the run could only fail, and an "Import failed" notice
+            // would be all the user heard of it. The audio stays with the
+            // meeting, whose transcript tab says how to transcribe it.
+            if (!com.meetily.mobile.whisper.TranscriptionModels
+                    .isDownloaded(this, settings.whisperModel)
+            ) return
             JobGate.requestCheck(
                 this,
                 meetingId,

@@ -11,6 +11,14 @@ class RecapApp : Application() {
         // (writes a file, chains to the system handler — no telemetry).
         com.meetily.mobile.diag.CrashLog.install(this)
 
+        // Before anything reads the transcription engine: the threads started
+        // below, and every activity, service and receiver, all run after this.
+        // An upgrade from the old "system" default is pinned to it here rather
+        // than silently moved; see AppSettings.migrateEngineDefault.
+        AppSettings(this).migrateEngineDefault {
+            java.io.File(filesDir, "meetings").list()?.any { it.endsWith(".json") } == true
+        }
+
         // Night-mode preference is process-wide state; reapply on every start.
         ThemeManager.applyNightMode(AppSettings(this).themeMode)
         // App lock + FLAG_SECURE are enforced from lifecycle callbacks so

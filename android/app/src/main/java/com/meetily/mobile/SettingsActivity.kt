@@ -63,6 +63,14 @@ class SettingsActivity : AppCompatActivity() {
 
     private var downloading = false
 
+    /**
+     * The switch to Android's speech service was already confirmed on this
+     * screen. Kept across recreation: the restored switch state runs the
+     * change listener again, and Cancel on a second dialog would undo a
+     * choice the user has already made.
+     */
+    private var systemEngineConfirmed = false
+
     private val exportBackup =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
             uri?.let { writeBackup(it, null) }
@@ -282,6 +290,8 @@ class SettingsActivity : AppCompatActivity() {
         offlineSwitch.isChecked = settings.preferOfflineRecognition
         muteSoundsSwitch.isChecked = settings.muteRecognizerSounds
         whisperSwitch.isChecked = settings.transcriptionEngine == "whisper"
+        systemEngineConfirmed =
+            savedInstanceState?.getBoolean(KEY_SYSTEM_ENGINE_OK, false) ?: false
         diarizeSwitch.isChecked = settings.diarizationEnabled
         findViewById<MaterialSwitch>(R.id.translateSwitch).isChecked = settings.whisperTranslate
         findViewById<MaterialSwitch>(R.id.liveTranscriptionSwitch).isChecked =
@@ -336,6 +346,11 @@ class SettingsActivity : AppCompatActivity() {
             updateWhisperSection()
             if (checked && !WhisperModels.isRuntimeAvailable()) {
                 Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG).show()
+            }
+            if (checked) {
+                systemEngineConfirmed = false
+            } else if (!systemEngineConfirmed) {
+                confirmSystemEngine()
             }
         }
         manageModelsButton.setOnClickListener { showModelDialog() }
@@ -527,6 +542,40 @@ class SettingsActivity : AppCompatActivity() {
             }
             .setNegativeButton(R.string.auto_title_endpoint_no, null)
             .show()
+    }
+
+    /**
+     * Turning the on-device engine off hands meetings to Android's speech
+     * service, which on most phones is Google's and may send the audio to its
+     * servers, and which leaves no recording to re-transcribe. Said once per
+     * switch-off; Cancel or Back puts the switch back. The cloud half of the
+     * warning is dropped only when the phone's offline recognizer is both
+     * preferred and available, the same test RecordingService.createRecognizer
+     * makes.
+     */
+    private fun confirmSystemEngine() {
+        val offlineRecognizer = offlineSwitch.isChecked &&
+            android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S &&
+            android.speech.SpeechRecognizer.isOnDeviceRecognitionAvailable(this)
+        AlertDialog.Builder(this)
+            .setTitle(R.string.privacy_system_engine_title)
+            .setMessage(
+                if (offlineRecognizer) R.string.privacy_system_engine_body_offline
+                else R.string.privacy_system_engine_body
+            )
+            .setPositiveButton(R.string.privacy_system_engine_confirm) { _, _ ->
+                systemEngineConfirmed = true
+            }
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
+                whisperSwitch.isChecked = true
+            }
+            .setOnCancelListener { whisperSwitch.isChecked = true }
+            .show()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_SYSTEM_ENGINE_OK, systemEngineConfirmed)
     }
 
     private fun persistAll() {
@@ -1639,5 +1688,8 @@ class SettingsActivity : AppCompatActivity() {
     companion object {
         /** Voiceprint capture window; the countdown bar drains over this. */
         private const val ENROLL_MS = 15_000L
+
+        /** Saved-state key for [systemEngineConfirmed]. */
+        private const val KEY_SYSTEM_ENGINE_OK = "sys_engine_ok"
     }
 }
