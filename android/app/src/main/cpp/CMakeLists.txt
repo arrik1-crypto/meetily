@@ -4,14 +4,15 @@ project(meetily_native C CXX)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
-# whisper.cpp and llama.cpp are fetched at configure time (pinned release
+# whisper.cpp and llama.cpp are fetched at configure time (pinned tag
 # tarballs), so the repo does not vendor them. Requires network access on the
-# build machine.
+# build machine (github.com; with KleidiAI on, see below, also its release
+# tarball, which ggml MD5-pins).
 #
 # Both projects bundle ggml, and both guard with `if (NOT TARGET ggml)`.
-# llama.cpp is added FIRST so its ggml (b4783, late Feb 2025) becomes the
-# shared one; whisper.cpp v1.7.5 (Feb 27 2025, same ggml sync window) reuses
-# it instead of adding its own.
+# llama.cpp is added FIRST so its ggml becomes the shared one and whisper.cpp
+# reuses it instead of adding its own. The two tags embed the same released
+# ggml, 1.0.0 (see the FetchContent_Declare comment below).
 include(FetchContent)
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(GGML_OPENMP OFF CACHE BOOL "" FORCE)
@@ -21,7 +22,26 @@ set(LLAMA_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 set(LLAMA_BUILD_TOOLS OFF CACHE BOOL "" FORCE)
-set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
+# The unified `llama` binary, the server Web UI, llama-connect (downloads a
+# prebuilt binary) and the standalone mtmd library. All already default OFF
+# under FetchContent at v1.0.0; pinned here so a future default cannot add a
+# target or a download to this build.
+set(LLAMA_BUILD_APP OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_UI OFF CACHE BOOL "" FORCE)
+set(LLAMA_CONNECT OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_MTMD OFF CACHE BOOL "" FORCE)
+# No TLS stack. llama-common links vendor/cpp-httplib, which adds HTTPS when
+# LLAMA_OPENSSL (default ON at v1.0.0: find_package(OpenSSL)) finds one, or
+# fetches and builds BoringSSL / LibreSSL when asked to. Recap never
+# downloads anything through llama.cpp, and nothing here may reach the
+# network. LLAMA_CURL is gone at v1.0.0 (only a deprecation shim is left),
+# so it is no longer set. LLGuidance (a cargo build) and subprocess spawning
+# (OFF by default on Android) stay off.
+set(LLAMA_OPENSSL OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_BORINGSSL OFF CACHE BOOL "" FORCE)
+set(LLAMA_BUILD_LIBRESSL OFF CACHE BOOL "" FORCE)
+set(LLAMA_LLGUIDANCE OFF CACHE BOOL "" FORCE)
+set(LLAMA_SUBPROCESS OFF CACHE BOOL "" FORCE)
 
 # The `llama-common` target, ON deliberately (it defaults to OFF under
 # FetchContent, since LLAMA_STANDALONE is OFF).
@@ -34,25 +54,40 @@ set(LLAMA_CURL OFF CACHE BOOL "" FORCE)
 # only Gemma branch there tests for "<start_of_turn>".
 #
 # Costs roughly a megabyte and pulls in vendor/cpp-httplib (added under the
-# same option). Worth it: the alternative is transcribing each new model's
-# turn format into C by hand, forever.
+# same option, built without TLS: see LLAMA_OPENSSL above; nothing here calls
+# its download code, and --gc-sections drops what is unreachable). At v1.0.0
+# llama.cpp also adds vendor/ unconditionally: header-only interface targets
+# (nlohmann, sheredom, stb, miniaudio) plus a static vendor-hash library
+# that nothing here links. Worth it: the alternative is transcribing each new
+# model's turn format into C by hand, forever.
 set(LLAMA_BUILD_COMMON ON CACHE BOOL "" FORCE)
 
 set(WHISPER_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
+# whisper.cpp b5907 also defines a `parakeet` library (its own NeMo port) on
+# every configure, with no option to drop it. Nothing here links it, and
+# both Gradle modules name the two JNI targets in externalNativeBuild
+# `targets`, so it is never built.
 
 # llama.cpp is fetched FIRST and provides the shared ggml target;
-# whisper.cpp reuses it via its `if (NOT TARGET ggml)` guard. The two tags
-# must come from a close ggml sync window: b10089 (2026-07-22) pairs with
-# whisper v1.8.6 (2026-06-01). b10089 is the floor for Gemma 4 + Qwen3.5.
+# whisper.cpp reuses it via its `if (NOT TARGET ggml)` guard (still there at
+# b5907). The two must embed the same ggml: llama.cpp v1.0.0 and
+# whisper.cpp b5907 both carry ggml 1.0.0, and their ggml headers,
+# ggml/CMakeLists.txt, ggml-cpu/CMakeLists.txt and ggml.c are identical
+# (the only ggml difference is one MATH_LIBRARY test in ggml/src, unused
+# here because whisper.cpp's copy is never added). whisper.cpp has no
+# release tag on ggml 1.0.0 yet (no v1.9.6), hence the build tag.
+# llama.cpp v1.0.0 carries the gemma4 and qwen35 architectures. If this pair
+# ever fails, the fallback is llama.cpp v0.6.0 + whisper.cpp v1.9.5 (both
+# ggml 0.26.0).
 FetchContent_Declare(
     llama_cpp
-    URL https://github.com/ggml-org/llama.cpp/archive/refs/tags/b10089.tar.gz
+    URL https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.tar.gz
 )
 FetchContent_Declare(
     whisper_cpp
-    URL https://github.com/ggml-org/whisper.cpp/archive/refs/tags/v1.8.6.tar.gz
+    URL https://github.com/ggml-org/whisper.cpp/archive/refs/tags/b5907.tar.gz
 )
 # CPU features. ggml picks its kernels at COMPILE time and this build leaves
 # GGML_NATIVE off, so by default it targets plain armv8-a: no dotprod, no
@@ -70,6 +105,34 @@ FetchContent_Declare(
 set(MEETILY_LIB_SUFFIX "" CACHE STRING "Suffix for the JNI library names")
 if (GGML_CPU_ARM_ARCH AND NOT ANDROID_ABI STREQUAL "arm64-v8a")
     message(FATAL_ERROR "GGML_CPU_ARM_ARCH is an arm64-v8a-only setting (got ${ANDROID_ABI})")
+endif()
+
+# Arm KleidiAI micro-kernels, arm64 only: ggml-cpu stops with FATAL_ERROR on
+# any other target, and the app module also builds x86_64 (emulators).
+#
+# Unlike the rest of ggml, these are chosen at RUN time, so they are on in
+# both CPU builds (the app's armv8-a baseline and :native-v82, which share
+# this file). ggml fetches KleidiAI v1.32.0 (URL and MD5 pinned in
+# ggml/src/ggml-cpu/CMakeLists.txt) and builds it with KleidiAI's own CMake,
+# which compiles each kernel file with that kernel's -march (+dotprod,
+# +i8mm, +sve, +sme...) and nothing else with it. ggml's glue
+# (ggml-cpu/kleidiai/*.cpp) keeps ggml's flags, reads the CPU's features
+# from getauxval(AT_HWCAP/AT_HWCAP2) once, and only calls a kernel whose
+# required features are all present. On a Cortex-A53/A73 (no dotprod) no
+# kernel qualifies and every matmul stays on ggml's own path, so the
+# baseline library cannot SIGILL because of it.
+#
+# Weight kernels exist for Q4_0, Q4_K, Q6_K and Q8_0; the shipped Q4_K_M
+# GGUFs are mostly Q4_K and Q6_K. Weights KleidiAI takes are repacked into a
+# "CPU_KLEIDIAI" buffer at load (anonymous memory, as CPU_REPACK already
+# is), which llama.cpp names in its "model buffer size" log line; llama_jni.c
+# forwards that line to logcat. whisper.cpp offers its weights to the same
+# extra buffer types, so transcription can take these kernels too wherever
+# its weight types match. GGML_LLAMAFILE keeps llama.cpp's default.
+if (ANDROID_ABI STREQUAL "arm64-v8a")
+    set(GGML_CPU_KLEIDIAI ON CACHE BOOL "" FORCE)
+else()
+    set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "" FORCE)
 endif()
 
 FetchContent_MakeAvailable(llama_cpp whisper_cpp)
@@ -104,5 +167,5 @@ foreach(jni_lib ${WHISPER_JNI} ${LLAMA_JNI})
 endforeach()
 
 target_link_libraries(${WHISPER_JNI} PRIVATE whisper log)
-# llama-common (not "common") is the target name at b10089.
+# llama-common (not "common") is the target name, still at v1.0.0.
 target_link_libraries(${LLAMA_JNI} PRIVATE llama llama-common log)

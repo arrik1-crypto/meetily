@@ -2,7 +2,8 @@
 # libmeetily_llama, in both CPU builds (the app's and :native-v82's "_v82").
 #
 # Only the JNI entry points stay exported. Everything else in these
-# libraries (ggml, whisper.cpp, llama.cpp, llama-common and the statically
+# libraries (ggml with KleidiAI on arm64, whisper.cpp, llama.cpp,
+# llama-common, the Recap shims in chat_render.cpp and the statically
 # linked libc++) becomes local, so:
 #   - calls between them bind directly instead of through the PLT, and the
 #     dynamic linker has thousands fewer symbols to relocate at load;

@@ -44,8 +44,10 @@ OUT = HERE.parent / "app" / "src" / "main" / "assets" / "notices.txt"
 # Keep these in step with app/src/main/cpp/CMakeLists.txt and
 # scripts/fetch_sherpa_libs.sh.
 SHERPA_VER = "v1.13.4"
-WHISPER_VER = "v1.8.6"
-LLAMA_VER = "b10089"
+WHISPER_VER = "b5907"
+LLAMA_VER = "v1.0.0"
+# Pinned by ggml at LLAMA_VER (ggml/src/ggml-cpu/CMakeLists.txt), not by us.
+KLEIDIAI_VER = "v1.32.0"
 
 # ScanCode keeps plain-text copies of licences that are only published as web
 # pages. Each file opens with YAML front matter, stripped before use.
@@ -148,6 +150,14 @@ ggml
     https://github.com/ggml-org/ggml
     The tensor library underneath whisper.cpp and llama.cpp; built as part of
     both.
+
+Arm KleidiAI {KLEIDIAI_VER}
+    Apache License 2.0
+    Copyright (c) 2024-2026 Arm Limited and/or its affiliates
+    https://github.com/ARM-software/kleidiai
+    Optimised matrix-multiplication kernels, compiled into both native
+    libraries on arm64 phones and used by ggml when the processor supports
+    them.
 
 AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric)
     Apache License 2.0
@@ -499,7 +509,7 @@ def main() -> int:
         rule("MIT License - OpenAI Whisper models"),
         texts["mit_openai"],
         rule(
-            "Apache License 2.0 - sherpa-onnx, AndroidX, Material Components, Kotlin"
+            "Apache License 2.0 - sherpa-onnx, Arm KleidiAI, AndroidX, Material Components, Kotlin"
         ).rstrip("\n") + "\n",
         texts["apache"],
         rule("Creative Commons Attribution 4.0 International (CC BY 4.0)"),

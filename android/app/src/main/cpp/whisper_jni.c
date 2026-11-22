@@ -18,7 +18,11 @@
  * second window over the trailing silence every chunk carries).
  *
  * Both are addressed below. This counter exists so the result can be
- * measured instead of assumed: it should read 1 per call.
+ * measured instead of assumed: it should read 1 per call. Since whisper.cpp
+ * b5907 the callback also runs before the language auto-detect encode,
+ * which earlier tags did not report, so a call that asks for auto-detection
+ * (the first of a file) reads 2: that extra pass was always there, and is
+ * now visible.
  */
 static int g_encoder_passes = 0;
 
@@ -54,7 +58,12 @@ static bool count_encoder_pass(struct whisper_context *ctx,
     (void) ctx;
     (void) state;
     g_encoder_passes++;
-    return !should_abort(user_data); /* false skips the encode */
+    /*
+     * false stops whisper_full before this encode: in the decode loop it
+     * ends the loop, and before language auto-detect (b5907 onwards) it
+     * returns -3, so a Stop during detection no longer waits for it.
+     */
+    return !should_abort(user_data);
 }
 
 /*

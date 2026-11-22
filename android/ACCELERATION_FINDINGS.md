@@ -8,8 +8,10 @@ paths hinge on numbers we do not have and cannot get from a build server.
 Baseline, verified in this repo:
 
 - `app/src/main/cpp/CMakeLists.txt` enables no GPU backend. `ggml` builds
-  CPU-only, and whisper.cpp v1.8.6 and llama.cpp b10089 share that one
-  target.
+  CPU-only, and whisper.cpp and llama.cpp share that one target. Since
+  Batch 3 (2026-11) the pair is llama.cpp v1.0.0 and whisper.cpp b5907,
+  which embed the same released ggml, 1.0.0; before that it was b10089
+  (ggml 0.17.0) and v1.8.6 (ggml 0.13.1).
 - `llama_jni.c` never sets `mparams.n_gpu_layers`.
 - sherpa-onnx runs `provider = "cpu"` (`NemoEngine.kt`, `SherpaEmbedder.kt`).
 - The only acceleration in the app today is CPU-side: arm64 NEON, 2–6
@@ -25,12 +27,33 @@ Baseline, verified in this repo:
   still admits Cortex-A53/A73 phones, which would SIGILL on anything newer.
   `:native-v82` builds `armv8.2-a+dotprod+fp16`, and `CpuFeatures.kt` loads
   that pair only when every core lists `asimddp`, `asimdhp` and `fphp` in
-  `/proc/cpuinfo`. i8mm/SVE (armv8.6+) still take the dotprod path. Getting
-  those means runtime variants (`GGML_BACKEND_DL` +
-  `GGML_CPU_ALL_VARIANTS`), which needs ggml, whisper and llama built as
+  `/proc/cpuinfo`. In ggml's own kernels, i8mm/SVE (armv8.6+) still take
+  the dotprod path. Getting those means runtime variants (`GGML_BACKEND_DL`
+  + `GGML_CPU_ALL_VARIANTS`), which needs ggml, whisper and llama built as
   shared libraries and the variant MODULE libraries packaged. Not
   attempted without a device to verify on. The speed-up has not been
   measured.
+- **KleidiAI (2026-11, Batch 3):** `GGML_CPU_KLEIDIAI` is on for arm64-v8a
+  in both builds (ggml-cpu refuses it for x86_64). ggml fetches Arm's
+  KleidiAI v1.32.0 at configure time (URL and MD5 pinned in
+  `ggml/src/ggml-cpu/CMakeLists.txt` at v1.0.0) and builds it with
+  KleidiAI's own CMake, which gives each kernel file its own `-march`
+  (+dotprod, +i8mm, +sve, +sme...) and nothing else. ggml's glue keeps
+  ggml's flags, reads `getauxval(AT_HWCAP/AT_HWCAP2)` once, and only calls
+  a kernel whose features the CPU has, so the armv8-a baseline cannot
+  SIGILL because of it; on a Cortex-A53/A73 no kernel qualifies and
+  everything stays on ggml's path. This is the runtime-dispatched
+  dotprod/i8mm/SVE/SME route for Q4_0, Q4_K, Q6_K and Q8_0 weight matmuls
+  that the line above says ggml's own kernels lack, without a third CPU
+  tier. Weights it takes are repacked into a `CPU_KLEIDIAI` buffer
+  (anonymous memory, as `CPU_REPACK` already was on the v82 build), and
+  whisper.cpp offers its weights to it too. `GGML_LLAMAFILE` keeps its
+  default. Not measured: no device numbers, and APK growth is unknown
+  until the first CI build. llama.cpp's warnings, errors and load-time
+  buffer lines now reach logcat under the tag `meetily_ggml` (they went to
+  stderr, which an app discards), so a phone shows whether it engaged:
+  `load_tensors: CPU_KLEIDIAI model buffer size = ...` and
+  `kleidiai: primary q4_k kernel feature ...`.
 - **Exports (2026-11, 3.16.0-beta1):** both JNI libraries, and their
   `_v82` builds, are now linked with `app/src/main/cpp/jni_exports.map`,
   which exports only `Java_*` (plus `JNI_OnLoad*`/`JNI_OnUnload*`, not
@@ -190,7 +213,8 @@ a multi-minute job on a phone.
 1. **Attack prefill on the CPU path.** Confirm we are actually getting the
    Armv9 i8mm/SVE kernels (`GGML_CPU_ALL_VARIANTS`, correct `-march`) — a
    missed path costs multiples on prefill GEMMs for free, with no correctness
-   risk. Then reduce the work itself: bigger map chunks amortise better, and
+   risk. (Batch 3 took the KleidiAI route to them instead; see the baseline
+   notes above. Confirming it on a phone is still open.) Then reduce the work itself: bigger map chunks amortise better, and
    our system prompt is identical on every map call, so prompt-prefix KV
    caching is nearly free. That is likely to beat a GPU speedup we cannot
    ship.

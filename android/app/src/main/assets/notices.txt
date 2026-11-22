@@ -46,13 +46,13 @@ ONNX Runtime
     https://github.com/microsoft/onnxruntime
     Included as the native runtime distributed with sherpa-onnx.
 
-whisper.cpp v1.8.6
+whisper.cpp b5907
     MIT License
     Copyright (c) 2023-2026 The ggml authors
     https://github.com/ggml-org/whisper.cpp
     Compiled into the native library libmeetily_whisper.so.
 
-llama.cpp b10089
+llama.cpp v1.0.0
     MIT License
     Copyright (c) 2023-2026 The ggml authors
     https://github.com/ggml-org/llama.cpp
@@ -64,6 +64,14 @@ ggml
     https://github.com/ggml-org/ggml
     The tensor library underneath whisper.cpp and llama.cpp; built as part of
     both.
+
+Arm KleidiAI v1.32.0
+    Apache License 2.0
+    Copyright (c) 2024-2026 Arm Limited and/or its affiliates
+    https://github.com/ARM-software/kleidiai
+    Optimised matrix-multiplication kernels, compiled into both native
+    libraries on arm64 phones and used by ggml when the processor supports
+    them.
 
 AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric)
     Apache License 2.0
@@ -335,7 +343,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 --------------------------------------------------------------------------------
-Apache License 2.0 - sherpa-onnx, AndroidX, Material Components, Kotlin
+Apache License 2.0 - sherpa-onnx, Arm KleidiAI, AndroidX, Material Components, Kotlin
 --------------------------------------------------------------------------------
 
                                  Apache License
