@@ -7,7 +7,6 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
-import android.content.pm.ServiceInfo
 import android.net.Uri
 import android.os.Binder
 import android.os.Build
@@ -20,8 +19,10 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.whisper.AudioFileImporter
 
 /**
- * Foreground (dataSync) service that owns a file-import run, so long
- * transcriptions survive the screen turning off or the user leaving.
+ * Foreground service that owns a file-import run, so long transcriptions
+ * survive the screen turning off or the user leaving. Recordings captured as
+ * audio only get their transcript here too, and accuracy checks run here.
+ * mediaProcessing on Android 15 and later, dataSync below: see ImportFgsType.
  * ImportActivity is a thin bound observer, mirroring the
  * RecordingService/RecordingActivity split. One import at a time.
  */
@@ -433,7 +434,7 @@ class ImportService : Service() {
         // Hand over to the next queued job while this service is still in the
         // foreground — that is what makes starting one legal at all on
         // Android 12+, and it is what serialises the queue. Not after a
-        // timeout: the service already left the foreground and the dataSync
+        // timeout: the service already left the foreground and its type's
         // budget is spent, so a start drained onto it could never satisfy
         // startForeground. The next activity resume drains instead.
         if (!wasTimedOut) JobGate.drain(this)
@@ -544,9 +545,13 @@ class ImportService : Service() {
     }
 
     /**
-     * Android 15 caps a dataSync foreground service at six hours per day for
-     * apps targeting SDK 35, and an app that does not stop when told is
-     * killed with ForegroundServiceDidNotStopInTimeException.
+     * Android 15 caps dataSync and mediaProcessing foreground services at six
+     * hours per day each for apps targeting SDK 35, and an app that does not
+     * stop when told is killed with ForegroundServiceDidNotStopInTimeException.
+     * This runs as mediaProcessing there (ImportFgsType), with an allowance
+     * of its own rather than the one downloads and summaries spend, but the
+     * cap still applies and lands here, with [fgsType] saying which; the
+     * handling is the same for both.
      *
      * That is not a limit this app comfortably sits under: CPU transcription
      * runs at two to three times realtime, so a pair of long meetings in one
@@ -555,8 +560,11 @@ class ImportService : Service() {
      *
      * Stopping has to be immediate — the compliance window is seconds, far
      * less than a whisper batch — so the flag is set for the worker to unwind
-     * against and the service gives up the foreground straight away. Whatever
-     * has been transcribed so far is already saved batch by batch.
+     * against and the service gives up the foreground straight away. That is
+     * enough for either type: leaving the foreground cancels the pending
+     * crash (ServiceInfo documents stopForeground as working), and finishRun
+     * stops the service once the worker has landed. Whatever has been
+     * transcribed so far is already saved batch by batch.
      */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onTimeout(startId: Int, fgsType: Int) {
@@ -713,7 +721,7 @@ class ImportService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
                 NOTIF_ID, notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+                ImportFgsType.forSdk(Build.VERSION.SDK_INT)
             )
         } else {
             startForeground(NOTIF_ID, notification)
