@@ -15,6 +15,7 @@ import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.LlmClient
+import com.meetily.mobile.summarize.QuotedAiText
 import com.meetily.mobile.summarize.WeeklyDigest
 import java.text.DateFormat
 import java.util.Date
@@ -39,6 +40,12 @@ class DigestActivity : AppCompatActivity() {
     @Volatile private var generatedDigest: String? = null
     @Volatile private var generatedModel: String? = null
     @Volatile private var digestNotices: List<String> = emptyList()
+
+    /**
+     * The offline digest, for Report AI output while it is the one shown;
+     * null when it quotes no summary a model wrote.
+     */
+    private var offlineReport: AiReport.Subject? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,17 +83,33 @@ class DigestActivity : AppCompatActivity() {
             // Lines from clinical or legal summaries bring their notices.
             val notices = AiDisclaimers.texts(this, AiDisclaimers.union(meetings))
             digestNotices = notices
-            val local = AiDisclaimers.appendTo(
-                WeeklyDigest.buildLocal(
-                    meetings, getString(R.string.digest_unassigned), formatDate
-                ),
-                notices
+            val listing = WeeklyDigest.buildLocal(
+                meetings, getString(R.string.digest_unassigned), formatDate
             )
+            val local = AiDisclaimers.appendTo(listing, notices)
+            // The listing itself is fixed code, but it quotes each summary's
+            // first line and the action items from the same run, so it is
+            // reportable when a model wrote any of those summaries.
+            val quoted = meetings.filter { QuotedAiText.modelWrote(it.summary, it.summaryModel) }
+            val offline = if (quoted.isEmpty()) {
+                null
+            } else {
+                AiReport.Subject(
+                    label = getString(R.string.aisafety_report_action),
+                    surface = "weekly_digest_offline",
+                    text = listing,
+                    templateKey = QuotedAiText.joinKeys(quoted.map { it.summaryTemplate })
+                        ?: QuotedAiText.UNRECORDED,
+                    modelKey = QuotedAiText.joinKeys(quoted.map { it.summaryModel })
+                )
+            }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 shareText = local
                 digestView.text = local
                 DisclaimerViews.copyWithNotices(digestView) { digestNotices }
+                offlineReport = offline
+                invalidateOptionsMenu()
                 if (useLlm) progress.visibility = View.VISIBLE
             }
             if (!useLlm) return@Thread
@@ -185,8 +208,10 @@ class DigestActivity : AppCompatActivity() {
     }
 
     override fun onPrepareOptionsMenu(menu: Menu): Boolean {
-        // Only the written digest is AI output; the offline one is a listing.
-        menu.findItem(R.id.aisafety_action_report_digest)?.isVisible = generatedDigest != null
+        // The written digest is AI output. The offline one is a listing, and
+        // reportable only when it quotes a summary a model wrote.
+        menu.findItem(R.id.aisafety_action_report_digest)?.isVisible =
+            generatedDigest != null || offlineReport != null
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -203,6 +228,9 @@ class DigestActivity : AppCompatActivity() {
                         modelKey = generatedModel
                     )
                 )
+            } else {
+                // No written digest yet, so the listing is what is shown.
+                offlineReport?.let { AiReport.show(this, it) }
             }
             return true
         }

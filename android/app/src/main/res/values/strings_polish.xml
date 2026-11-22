@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Report AI output (AiReport) on the pre-meeting brief's last-time card.
+         Read out instead of the button's visible "Report AI output", so it
+         can be told apart from the generated brief's button on the same
+         screen; it starts with the visible label. -->
+    <string name="polish_report_last_time_desc">Report AI output in the last meeting\'s summary</string>
+</resources>

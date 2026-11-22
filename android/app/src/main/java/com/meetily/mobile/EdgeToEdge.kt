@@ -32,6 +32,9 @@ import androidx.core.view.WindowInsetsCompat
  *   background then runs on under the navigation bar, or a scrolling view
  *   ([Scope.list]), which stops clipping to its padding so its last item can
  *   scroll clear of the bar.
+ * - A scrolling view above a bar that is only sometimes shown
+ *   ([Scope.listAbove]) shares the bottom inset with it: the bar takes it
+ *   while it is shown, the list while the bar is gone, never both.
  * - The keyboard always goes to the root. An edge-to-edge window is not
  *   resized for the IME, so the root shrinks the layout itself, as
  *   adjustResize used to. A bottom view drops its navigation-bar padding
@@ -89,6 +92,26 @@ object EdgeToEdge {
             bottomEdge(id, scrolls = true)
         }
 
+        /**
+         * A scrolling view ([listId]) with a bar ([barId]) under it that is
+         * shown or gone at run time. The bar keeps the navigation-bar
+         * padding of [bar]; the list takes that inset only while the bar is
+         * gone, so it is never applied twice. The list reads the bar's
+         * visibility on each dispatch, and a visibility change does not
+         * dispatch insets by itself: whoever shows or hides the bar calls
+         * ViewCompat.requestApplyInsets afterwards.
+         */
+        fun listAbove(listId: Int, barId: Int) {
+            val list = activity.findViewById<View>(listId) ?: return
+            val barView = activity.findViewById<View>(barId) ?: return
+            (list as? ViewGroup)?.clipToPadding = false
+            ViewCompat.setOnApplyWindowInsetsListener(list) { view, insets ->
+                EdgeToEdge.padListAbove(view, insets, barView.visibility != View.GONE)
+                insets
+            }
+            bar(barId)
+        }
+
         private fun bottomEdge(id: Int, scrolls: Boolean) {
             val target = activity.findViewById<View>(id) ?: return
             if (scrolls) {
@@ -122,6 +145,13 @@ object EdgeToEdge {
         )
     }
 
+    private fun padListAbove(view: View, insets: WindowInsetsCompat, barShown: Boolean) {
+        setPaddingIfChanged(
+            view,
+            listAbovePadding(basePadding(view), bars(insets).bottom, imeBottom(insets), barShown)
+        )
+    }
+
     /**
      * The root's padding: its own, plus the bars on [sides], plus at the
      * bottom the keyboard or the navigation bar, whichever is taller. The
@@ -145,6 +175,20 @@ object EdgeToEdge {
      */
     internal fun bottomPadding(base: Edges, barsBottom: Int, imeBottom: Int): Edges =
         base.copy(bottom = base.bottom + maxOf(0, barsBottom - imeBottom))
+
+    /**
+     * Padding for a list above a bar that comes and goes ([Scope.listAbove]).
+     * While the bar takes up space ([barShown]: visible or invisible, not
+     * gone) the bar is on the bottom edge and pads itself, so the list keeps
+     * its own padding; once the bar is gone, the list is on the edge and
+     * pads as [bottomPadding] does.
+     */
+    internal fun listAbovePadding(
+        base: Edges,
+        barsBottom: Int,
+        imeBottom: Int,
+        barShown: Boolean
+    ): Edges = if (barShown) base else bottomPadding(base, barsBottom, imeBottom)
 
     /** System bars (with the caption bar) and display cutouts, side by side. */
     private fun bars(insets: WindowInsetsCompat): Edges {
