@@ -267,8 +267,12 @@ class MainActivity : AppCompatActivity() {
             announcer.reset()
             return null
         }
+        // Asked of every update, wherever it is painted: the card is where
+        // progress normally shows, so its milestones are spoken there, and
+        // the banner speaks only for work it is standing in for.
+        val speak = announcer.shouldAnnounce(work.percent)
         val inline = work.meetingId != null && adapter.setProgress(
-            work.meetingId, MeetingAdapter.Progress(work.inlineLabel, work.percent)
+            work.meetingId, MeetingAdapter.Progress(work.inlineLabel, work.percent), speak
         )
         if (inline) {
             banner.visibility = View.GONE
@@ -276,7 +280,7 @@ class MainActivity : AppCompatActivity() {
         }
         // The banner reads as one phrase ("Importing standup.m4a, 50%"), so
         // the whole card is the live region, at milestones only.
-        if (announcer.shouldAnnounce(work.percent)) {
+        if (speak) {
             A11y.announceNextChange(banner)
         } else {
             A11y.endAnnouncement(banner)

@@ -141,12 +141,16 @@
         android:visibility="gone" />
 
     <!-- Nocturne segmented tabs: Summary | Transcript | Audio. Each tab is
-         48dp tall to touch; the track and pill drawables are inset by 10dp
-         so they look as before, and the top margin gives those 10dp back. -->
+         at least 48dp tall to touch, at any font scale; the track and pill
+         drawables are inset by 10dp so they look as before, and the top and
+         bottom margins give those 10dp back on each side. What follows the
+         track is never clickable where it overlaps that bottom 10dp, so
+         touches there still reach the tabs. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_marginTop="6dp"
+        android:layout_marginBottom="-10dp"
         android:background="@drawable/bg_tab_track"
         android:orientation="horizontal"
         android:padding="3dp">
@@ -158,6 +162,7 @@
             android:layout_weight="1"
             android:background="@drawable/bg_tab_active"
             android:gravity="center"
+            android:minHeight="48dp"
             android:paddingVertical="16dp"
             android:text="@string/tab_summary"
             android:textColor="?attr/colorOnPrimary"
@@ -169,6 +174,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
+            android:minHeight="48dp"
             android:paddingVertical="16dp"
             android:text="@string/tab_transcript"
             android:textColor="?attr/colorOnSurfaceVariant"
@@ -182,6 +188,7 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
+            android:minHeight="48dp"
             android:paddingVertical="16dp"
             android:text="@string/tab_audio"
             android:textColor="?attr/colorOnSurfaceVariant"
@@ -265,19 +272,24 @@
             android:textAppearance="?attr/textAppearanceLabelSmall"
             android:textColor="?attr/colorPrimary" />
 
-        <!-- 48dp tall to touch, drawing its 8dp bar across the middle; the
-             -12dp margins here and on the legend keep the bar where it was. -->
+        <!-- 48dp tall to touch, drawing its 8dp bar across the middle. Its
+             own margins keep the bar where it was, and what follows where it
+             was: -12dp above, and -20dp below, so the legend sits 8dp under
+             the bar, or the now-playing line 14dp under it when there is no
+             legend. Neither is clickable, so the strip keeps its touches
+             where they overlap. -->
         <com.meetily.mobile.SpeakerStripView
             android:id="@+id/speakerStrip"
             android:layout_width="match_parent"
             android:layout_height="48dp"
-            android:layout_marginTop="-12dp" />
+            android:layout_marginTop="-12dp"
+            android:layout_marginBottom="-20dp" />
 
         <LinearLayout
             android:id="@+id/speakerLegendRow"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="-12dp"
+            android:layout_marginTop="8dp"
             android:orientation="horizontal" />
 
         <TextView

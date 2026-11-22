@@ -165,6 +165,20 @@ class SettingsActivity : AppCompatActivity() {
                     diarizeProgress.visibility = View.GONE
                 else -> modelProgress.visibility = View.GONE
             }
+            // The status line is about to read "<model> downloaded", the
+            // change that matters most. Set with no live region up, it was
+            // heard only when it landed inside the 100% milestone's brief
+            // announcement. A failure has its toast; a cancel was the user's
+            // own doing.
+            if (!cancelled && error == null) {
+                A11y.announceNextChange(
+                    when (kind) {
+                        ModelDownloadService.KIND_LLM -> llmStatus
+                        ModelDownloadService.KIND_DIARIZE -> diarizeModelStatus
+                        else -> whisperModelStatus
+                    }
+                )
+            }
             updateWhisperSection()
             updateLocalLlmStatus()
             if (error != null) {

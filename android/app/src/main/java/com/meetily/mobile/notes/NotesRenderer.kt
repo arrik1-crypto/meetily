@@ -6,6 +6,7 @@ import android.graphics.Typeface
 import android.text.SpannableStringBuilder
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.CheckBox
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -67,6 +68,10 @@ object NotesRenderer {
                         addView(
                             textView(context, null).apply {
                                 text = inline(block.text)
+                                // The checkbox carries this text as its name;
+                                // read here as well, each item is heard twice.
+                                importantForAccessibility =
+                                    View.IMPORTANT_FOR_ACCESSIBILITY_NO
                                 if (block.done) {
                                     paintFlags = paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
                                     alpha = 0.55f

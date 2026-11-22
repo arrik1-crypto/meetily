@@ -35,11 +35,21 @@ class MeetingAdapter(
     private val progressByMeeting = HashMap<String, Progress>()
 
     /**
+     * Meetings whose next progress repaint a screen reader should speak. The
+     * caller's ProgressAnnouncer picks those updates (milestones, not every
+     * tick); while a card is listed its row is where the progress shows, so
+     * it is also where the progress is heard. A set, since an import and a
+     * summary can both reach a milestone in one pass.
+     */
+    private val announceProgressFor = HashSet<String>()
+
+    /**
      * Sets or clears the progress row inside [meetingId]'s card. Returns
      * whether that card is currently in the list — the caller falls back to a
-     * banner when it is not (filtered out, or not loaded yet).
+     * banner when it is not (filtered out, or not loaded yet). With
+     * [announce], the repaint this causes is spoken by a screen reader.
      */
-    fun setProgress(meetingId: String, value: Progress?): Boolean {
+    fun setProgress(meetingId: String, value: Progress?, announce: Boolean = false): Boolean {
         val index = rows.indexOfFirst { (it as? Row.Item)?.meeting?.id == meetingId }
         if (value != null && index < 0) {
             // Not stored for a card that is not listed: the caller shows the
@@ -48,6 +58,7 @@ class MeetingAdapter(
             // once a search or chip let it back into the list. The next sync
             // after the card reappears stores it again while work continues.
             progressByMeeting.remove(meetingId)
+            announceProgressFor.remove(meetingId)
             return false
         }
         val previous = if (value == null) {
@@ -55,9 +66,19 @@ class MeetingAdapter(
         } else {
             progressByMeeting.put(meetingId, value)
         }
+        // A newer update that is not to be spoken withdraws a request still
+        // standing, so a card that was scrolled off screen at its milestone
+        // is not read out by a bind long after. The same value painted again
+        // (the other job's tick re-renders both) leaves it alone.
+        val speak = announce && value != null
+        if (speak) {
+            announceProgressFor.add(meetingId)
+        } else if (value == null || previous != value) {
+            announceProgressFor.remove(meetingId)
+        }
         // Repaint the one row, never the list: progress ticks constantly and
         // a full rebuild would flicker the whole library.
-        if (index >= 0 && previous != value) notifyItemChanged(index)
+        if (index >= 0 && (previous != value || speak)) notifyItemChanged(index)
         return index >= 0
     }
 
@@ -166,6 +187,9 @@ class MeetingAdapter(
         val progressBar:
             com.google.android.material.progressindicator.LinearProgressIndicator =
             view.findViewById(R.id.meetingProgressBar)
+
+        /** The meeting this card was last bound to. */
+        var meetingId: String? = null
     }
 
     override fun getItemViewType(position: Int): Int =
@@ -189,6 +213,7 @@ class MeetingAdapter(
             is Row.Item -> {
                 val h = holder as ItemHolder
                 val meeting = row.meeting
+                h.meetingId = meeting.id
                 h.time.text = row.time
                 h.title.text = meeting.title
                 h.meta.text = "${row.time} · ${row.meta}"
@@ -233,6 +258,9 @@ class MeetingAdapter(
 
     private fun bindProgress(h: ItemHolder, meeting: Meeting) {
         val progress = progressByMeeting[meeting.id]
+        // Silent unless this repaint is one to speak (below): a recycled card
+        // must not carry a live region over from the meeting bound before.
+        A11y.endAnnouncement(h.progressRow)
         if (progress == null) {
             h.progressRow.visibility = View.GONE
             return
@@ -248,6 +276,28 @@ class MeetingAdapter(
             h.progressBar.visibility = View.VISIBLE
         }
         if (!wantIndeterminate) h.progressBar.progress = progress.percent
+        if (announceProgressFor.remove(meeting.id)) {
+            speakProgress(h, meeting.id, progress.label)
+        }
+    }
+
+    /**
+     * Has a screen reader read [h]'s progress row out. Rows are bound during
+     * RecyclerView's layout pass, while they are off the list (detached for
+     * the pass, or not added yet), and the accessibility event that new text
+     * raises there reaches no screen reader. So the row becomes a live region
+     * just after the pass, once it is back in the list, and its label is set
+     * again; that change is what gets spoken.
+     */
+    private fun speakProgress(h: ItemHolder, meetingId: String, label: String) {
+        h.progressRow.post {
+            // Rebound to another meeting, or repainted again, in between.
+            if (h.meetingId != meetingId || h.progressRow.visibility != View.VISIBLE ||
+                h.progressLabel.text.toString() != label
+            ) return@post
+            A11y.announceNextChange(h.progressRow)
+            h.progressLabel.text = label
+        }
     }
 
     override fun getItemCount(): Int = rows.size

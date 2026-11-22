@@ -58,11 +58,17 @@ class RecordingStatusSpeech {
     /**
      * Takes the status already on screen without speaking it: re-attaching
      * to a session that is running must not announce it again.
+     *
+     * Processing is not counted as live: it is also the status while a model
+     * is still loading, and a screen recreated then (night mode, font scale,
+     * a resize) must still hear capture go live. Re-attaching mid-chunk
+     * costs at most one extra "Listening".
      */
     fun seed(status: RecordingService.Status, text: String) {
         previous = status
         previousText = text
-        live = status != RecordingService.Status.STARTING
+        live = status != RecordingService.Status.STARTING &&
+            status != RecordingService.Status.PROCESSING
     }
 
     /** True when the change to [next] / [text] should be spoken. */

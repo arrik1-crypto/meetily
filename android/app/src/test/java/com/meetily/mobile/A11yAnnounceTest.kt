@@ -147,6 +147,18 @@ class A11yAnnounceTest {
         assertTrue(s.shouldAnnounce(Status.LISTENING, "Listening"))
     }
 
+    @Test
+    fun seedingDuringAModelLoadStillSpeaksGoingLive() {
+        // The screen recreated (a config change) while the model loads.
+        val s = RecordingStatusSpeech()
+        s.seed(Status.PROCESSING, "Loading model…")
+        assertFalse(s.shouldAnnounce(Status.PROCESSING, "Loading model…"))
+        assertTrue(s.shouldAnnounce(Status.LISTENING, "Listening"))
+        // And from there on the per-chunk churn is quiet again.
+        assertFalse(s.shouldAnnounce(Status.PROCESSING, "Processing…"))
+        assertFalse(s.shouldAnnounce(Status.LISTENING, "Listening"))
+    }
+
     // --- SpeakerTurnNav ----------------------------------------------------
 
     private val starts = listOf(0L, 10_000L, 25_000L, 40_000L)
