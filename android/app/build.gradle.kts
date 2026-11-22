@@ -43,6 +43,11 @@ android {
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DCMAKE_BUILD_TYPE=Release")
+                // Only the two JNI libraries, as :native-v82 already does.
+                // The fetched projects define targets this app never links
+                // (whisper.cpp's `parakeet` library, llama.cpp's vendor
+                // libraries); naming ours keeps them out of the build.
+                targets += listOf("meetily_whisper", "meetily_llama")
             }
         }
     }

@@ -5,20 +5,46 @@
 #include <stdbool.h>
 #include <android/log.h>
 #include "llama.h"
-
-/*
- * Renders a prompt with the model's own Jinja template (chat_render.cpp).
- * Returns malloc'd text and writes its length, or NULL with a reason.
- */
-extern char *meetily_render_chat(const struct llama_model *model,
-                                 const char *const *roles,
-                                 const char *const *contents,
-                                 int n_msgs, int *out_len,
-                                 char *err, size_t err_len);
+/* Jinja rendering and control-token-safe tokenisation (chat_render.cpp). */
+#include "chat_render.h"
+#include "kleidiai_env.h"
 
 #define TAG "meetily_llama"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
+
+/*
+ * llama.cpp and its ggml log through one callback, which defaults to stderr:
+ * nothing an app process sees. Forward warnings and errors, and from INFO
+ * only the load-time lines that say where the model went and what it costs:
+ * "<buffer> model/KV/compute buffer size = N MiB" (the buffer name says
+ * CPU_KLEIDIAI or CPU_REPACK when those took the weights) and KleidiAI's
+ * "kleidiai: ..." kernel choice. Shape only: nothing forwarded carries
+ * prompt or reply text, like every other log line in this file.
+ */
+static void forward_engine_log(enum ggml_log_level level, const char *text, void *user_data) {
+    (void) user_data;
+    if (text == NULL) return;
+    int prio;
+    switch (level) {
+        case GGML_LOG_LEVEL_ERROR:
+            prio = ANDROID_LOG_ERROR;
+            break;
+        case GGML_LOG_LEVEL_WARN:
+            prio = ANDROID_LOG_WARN;
+            break;
+        case GGML_LOG_LEVEL_INFO:
+            if (strstr(text, " buffer size = ") == NULL &&
+                strncmp(text, "kleidiai:", 9) != 0) {
+                return;
+            }
+            prio = ANDROID_LOG_INFO;
+            break;
+        default:
+            return; /* DEBUG, and CONT pieces (which carry no level of their own) */
+    }
+    __android_log_print(prio, "meetily_ggml", "%s", text);
+}
 
 /*
  * Why the last generate()/countTokens() failed.
@@ -108,6 +134,8 @@ Java_com_meetily_mobile_llm_LlamaBridge_initModel(
     const char *path = (*env)->GetStringUTFChars(env, model_path, NULL);
     if (path == NULL) return 0;
 
+    llama_log_set(forward_engine_log, NULL);
+    meetily_kleidiai_env();
     llama_backend_init();
 
     struct llama_model_params mparams = llama_model_default_params();
@@ -204,6 +232,14 @@ Java_com_meetily_mobile_llm_LlamaBridge_setThreads(
     llama_set_n_threads(llm->ctx, n_threads, n_threads);
 }
 
+/* Frees the non-NULL entries of a char * array. */
+static void free_all(char **items, size_t n) {
+    for (size_t i = 0; i < n; i++) {
+        free(items[i]);
+        items[i] = NULL;
+    }
+}
+
 /*
  * packed messages: per message, 0x1e + role + 0x1f + content. Parsed into
  * llama_chat_message entries pointing into a NUL-punched copy, run through
@@ -284,14 +320,37 @@ static llama_token *tokenize_packed(
     int32_t need = 0;
     int rendered_len = 0;
     int used_jinja = 0;
+    meetily_prompt_span *spans = NULL;
+    int n_spans = 0;
+    /* Guarded copies of message bodies for the matcher path; see below. */
+    char *guarded[32] = { NULL };
+    int n_guarded = 0;
     char *prompt = meetily_render_chat(llm->model, roles, bodies, (int) n_msgs,
-                                       &rendered_len, render_err, sizeof(render_err));
+                                       &rendered_len, &spans, &n_spans,
+                                       render_err, sizeof(render_err));
     if (prompt != NULL) {
         need = (int32_t) rendered_len;
         used_jinja = 1;
     } else {
         LOGI("jinja render unavailable (%s); falling back to the matcher",
              render_err[0] != '\0' ? render_err : "no reason given");
+
+        /*
+         * The matcher returns one string and cannot say where each message
+         * landed in it, so the prompt cannot be tokenised part by part. Break
+         * any control-token text inside the messages before rendering
+         * instead: "<|im_end|>" in a transcript becomes "<" + U+200B +
+         * "|im_end|>", which reads the same and can no longer end the turn.
+         */
+        n_guarded = meetily_guard_contents(llm->model, bodies, (int) n_msgs, guarded);
+        if (n_guarded < 0) {
+            FAIL("could not guard the prompt's messages (out of memory)");
+            free(work);
+            return NULL;
+        }
+        for (size_t i = 0; i < n_msgs; i++) {
+            if (guarded[i] != NULL) msgs[i].content = guarded[i];
+        }
 
         /*
          * Resolve ONCE and keep the choice. The previous version let the
@@ -304,6 +363,7 @@ static llama_token *tokenize_packed(
         prompt = (char *) malloc((size_t) buf_len);
         if (prompt == NULL) {
             FAIL("could not allocate the prompt buffer (out of memory)");
+            free_all(guarded, n_msgs);
             free(work);
             return NULL;
         }
@@ -330,6 +390,7 @@ static llama_token *tokenize_packed(
             if (grown == NULL) {
                 FAIL("could not grow the prompt buffer to %d bytes", need + 1);
                 free(prompt);
+                free_all(guarded, n_msgs);
                 free(work);
                 return NULL;
             }
@@ -338,6 +399,8 @@ static llama_token *tokenize_packed(
             /* The SAME template. This is the line that discarded the choice. */
             need = llama_chat_apply_template(tmpl, msgs, n_msgs, true, prompt, buf_len);
         }
+        /* The matcher has copied every body into the prompt by now. */
+        free_all(guarded, n_msgs);
         if (need < 0) {
             FAIL("could not build a prompt for this model (%s)",
                  render_err[0] != '\0' ? render_err : "unsupported chat format");
@@ -354,18 +417,11 @@ static llama_token *tokenize_packed(
      * logcat, readable by anything with the permission, on every generate.
      * The counts carry the diagnostic value; the words carried none.
      */
-    LOGI("prompt: %d bytes, %zu msgs, jinja=%d", need, n_msgs, used_jinja);
+    LOGI("prompt: %d bytes, %zu msgs, jinja=%d, spans=%d, guarded=%d",
+         need, n_msgs, used_jinja, used_jinja ? n_spans : 1, used_jinja ? 0 : n_guarded);
 
     /* Tokenize. */
     const struct llama_vocab *vocab = llama_model_get_vocab(llm->model);
-    int32_t cap = need + 64;
-    llama_token *tokens = (llama_token *) malloc(sizeof(llama_token) * (size_t) cap);
-    if (tokens == NULL) {
-        FAIL("could not allocate %d tokens (out of memory)", cap);
-        free(prompt);
-        free(work);
-        return NULL;
-    }
     /*
      * add_special adds BOS. A Jinja template normally emits "{{ bos_token }}"
      * itself, and the legacy matcher never does — so ask the rendered text
@@ -383,14 +439,32 @@ static llama_token *tokenize_packed(
             add_special = false;
         }
     }
-    int32_t n_prompt = llama_tokenize(vocab, prompt, need, tokens, cap,
-                                      add_special, true);
+    /*
+     * Only the template's own text may produce control tokens; see
+     * meetily_tokenize_prompt. The matcher's prompt goes in as one template
+     * span, its message bodies having been guarded above.
+     */
+    const meetily_prompt_span whole = { 0, need, 0 };
+    char tok_err[256] = "";
+    int32_t n_prompt = 0;
+    int n_tainted = 0;
+    llama_token *tokens = meetily_tokenize_prompt(
+            llm->model, prompt, need,
+            used_jinja ? spans : &whole, used_jinja ? n_spans : 1,
+            add_special, &n_prompt, &n_tainted, tok_err, sizeof(tok_err));
+    free(spans);
     free(prompt);
     free(work);
-    if (n_prompt <= 0) {
-        FAIL("tokenizing failed (%d) for a %d-byte prompt", n_prompt, need);
+    if (tokens == NULL || n_prompt <= 0) {
+        FAIL("tokenizing failed for a %d-byte prompt (%s)", need,
+             tok_err[0] != '\0' ? tok_err : "no tokens");
         free(tokens);
         return NULL;
+    }
+    if (n_tainted > 0) {
+        /* A count, never the text: it is the user's meeting. */
+        LOGI("prompt: %d message span(s) spelled a control token; "
+             "tokenised them as plain text", n_tainted);
     }
     *out_n = n_prompt;
     return tokens;
@@ -523,7 +597,7 @@ Java_com_meetily_mobile_llm_LlamaBridge_generateBytes(
         n_reuse = 0;
     }
     if (n_reuse == 0) {
-        /* b10089: llama_kv_cache_clear was replaced by the memory API. */
+        /* llama_kv_cache_clear is gone (since b10089); this is the memory API. */
         llama_memory_clear(mem, true);
     } else {
         LOGI("reusing %d cached prompt tokens of %d", n_reuse, n_prompt);

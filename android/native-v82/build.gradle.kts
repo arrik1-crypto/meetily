@@ -14,6 +14,9 @@ plugins {
 // blindly: CpuFeatures.loadEngineLibrary checks /proc/cpuinfo first and
 // falls back to the baseline pair.
 //
+// The Arm KleidiAI kernels are the exception: ggml picks those at run time,
+// so they are on in both builds (see CMakeLists.txt).
+//
 // arm64 only: x86_64 is emulators, where the baseline is fine.
 android {
     namespace = "com.meetily.mobile.nativev82"

@@ -32,8 +32,9 @@ object LlamaBridge {
     external fun setThreads(ptr: Long, nThreads: Int)
 
     /**
-     * [packedMessages]: per message, 0x1e + role + 0x1f + content. Returns
-     * the assistant reply, or null on failure.
+     * [packedMessages]: per message, 0x1e + role + 0x1f + content, as
+     * [PromptPacking.pack] builds it. Returns the assistant reply, or null
+     * on failure.
      *
      * Consecutive calls on the same model reuse the KV cache for the longest
      * token prefix the prompts share, so a follow-up that repeats a large

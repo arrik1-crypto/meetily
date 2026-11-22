@@ -392,11 +392,8 @@ object LocalLlm {
     fun splitIntoChunks(text: String, maxChars: Int, maxChunks: Int): List<String> =
         PromptShaping.splitIntoChunks(text, maxChars, maxChunks)
 
-    private fun pack(messages: List<Pair<String, String>>): String = buildString {
-        for ((role, content) in messages) {
-            append('\u001e').append(role).append('\u001f').append(content)
-        }
-    }
+    /** @see PromptPacking — separators inside meeting content cannot split a message. */
+    private fun pack(messages: List<Pair<String, String>>): String = PromptPacking.pack(messages)
 
     /**
      * Frees the loaded model (memory pressure, model switch, shutdown).
