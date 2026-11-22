@@ -22,6 +22,28 @@ object WeeklyDigest {
             .sortedBy { it.createdAtMs }
     }
 
+    /**
+     * [weekMeetings] read in full, from [dated] copies that need only ids and
+     * dates (MeetingStore.listPartial(setOf("createdAtMs"))). Only meetings
+     * inside the window reach [load], so the digest no longer parses the
+     * whole library, word timings and all, to show one week of it.
+     *
+     * A meeting gone by the time it is loaded is left out. The window is
+     * applied again to what [load] returns, so the result is always what
+     * [weekMeetings] over a full listing would give.
+     */
+    fun loadWeek(
+        dated: List<Meeting>,
+        nowMs: Long,
+        days: Int = WINDOW_DAYS,
+        load: (String) -> Meeting?
+    ): List<Meeting> =
+        weekMeetings(
+            weekMeetings(dated, nowMs, days).mapNotNull { load(it.id) },
+            nowMs,
+            days
+        )
+
     /** (owner or null for unassigned) -> open tasks with their meeting title. */
     fun openActionItems(meetings: List<Meeting>): Map<String?, List<Pair<String, String>>> =
         meetings.flatMap { meeting ->

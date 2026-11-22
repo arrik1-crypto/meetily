@@ -23,6 +23,7 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.search.HomeSearch
 import com.meetily.mobile.search.MeetingGroups
 
 class MainActivity : AppCompatActivity() {
@@ -757,7 +758,7 @@ class MainActivity : AppCompatActivity() {
             // lowercase it on EVERY keystroke, on the main thread. A
             // five-character query did that five times over the whole library.
             val blobs = try {
-                loaded.associate { it.id to searchBlobFor(it) }
+                loaded.associate { it.id to HomeSearch.blobFor(it) }
             } catch (_: Throwable) {
                 emptyMap()
             }
@@ -771,22 +772,6 @@ class MainActivity : AppCompatActivity() {
             }
         }
     }
-
-    /**
-     * Everything a query is matched against, lowercased once.
-     *
-     * Deliberately one string rather than a per-field scan: the fields are
-     * only ever tested with contains(), so joining them costs one pass and
-     * saves five allocations per meeting per keystroke.
-     */
-    private fun searchBlobFor(meeting: Meeting): String = buildString {
-        append(meeting.title).append('\n')
-        append(meeting.notes).append('\n')
-        append(meeting.summary).append('\n')
-        append(meeting.attendeesText()).append('\n')
-        append(meeting.tags.joinToString(" ")).append('\n')
-        append(meeting.transcriptTextWithSpeakers())
-    }.lowercase()
 
     /** One chip per tag (#tag) and per recurring series (title ×N). */
     private fun rebuildFilterChips() {
@@ -895,7 +880,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyFilter() {
         val generation = ++filterGeneration
-        val query = searchInput.text.toString().trim().lowercase()
+        val query = HomeSearch.normalizeQuery(searchInput.text.toString())
         var filtered = allMeetings
         if (flaggedOnly) {
             filtered = filtered.filter { it.starred }
@@ -923,8 +908,8 @@ class MainActivity : AppCompatActivity() {
                     // Falls back to the live scan only for a meeting that
                     // arrived after the last load (an import landing
                     // mid-session).
-                    val blob = blobs[meeting.id] ?: searchBlobFor(meeting)
-                    blob.contains(query)
+                    val blob = blobs[meeting.id] ?: HomeSearch.blobFor(meeting)
+                    HomeSearch.matches(blob, query)
                 }
             } catch (_: Throwable) {
                 return@execute

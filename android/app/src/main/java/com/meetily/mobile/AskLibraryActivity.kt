@@ -86,7 +86,10 @@ class AskLibraryActivity : AppCompatActivity() {
         val modelKey = AiReport.currentModelKey(this)
 
         Thread {
-            val hits = LibrarySearch.search(store.list(), question)
+            // The light listing: everything retrieval, the answer's context
+            // and its notices read, without the word timings (most of a
+            // transcribed meeting's bytes and parse) that none of them use.
+            val hits = LibrarySearch.search(store.listLight(), question)
             var answer: String? = null
             var llmFailed = false
             val notices = AiDisclaimers.texts(this, AiDisclaimers.union(hits.map { it.meeting }))
