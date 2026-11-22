@@ -70,7 +70,7 @@ class ModelLicencesTest {
     fun permissiveLicencesAskNothing() {
         val permissive = listOf(
             "base.en", "parakeet-tdt-v3", "parakeet-ultra", "resnet34-en", "qwen2.5-1.5b",
-            "qwen35-2b", "qwen35-4b"
+            "qwen35-2b", "qwen35-4b", "qwen3.5-9b"
         )
         for (key in permissive) {
             assertNull("$key should download without an acceptance", ModelLicences.familyFor(key))

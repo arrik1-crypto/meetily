@@ -576,9 +576,10 @@ class AudioFileImporter(
             heldSkip = null
             if (held != null) {
                 val heldEnd = held.startSample + held.audio.size
-                if (heldEnd == startSample && speech?.reachesBack(held.startSample, heldEnd) == true) {
+                if (heldEnd == startSample && speech?.sendsHeld(held.startSample, heldEnd) == true) {
                     // Sent first and whole, at its own start sample, just as
-                    // with the gate off.
+                    // with the gate off. Also when the gate failed on this
+                    // chunk: failing open must not drop the held one.
                     recognise(held.audio, held.startSample)
                 }
             }

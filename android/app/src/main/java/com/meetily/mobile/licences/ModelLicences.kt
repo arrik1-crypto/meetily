@@ -122,11 +122,11 @@ object ModelLicences {
         // Qwen2.5 README: everything except the 3B and 72B is Apache 2.0.
         put("qwen2.5-1.5b", Licence.APACHE_2)
         put("qwen2.5-0.5b", Licence.APACHE_2)
-        // Qwen/Qwen3.5-2B and Qwen/Qwen3.5-4B ship the unmodified Apache
-        // License 2.0 as their LICENSE file.
+        // Qwen/Qwen3.5-2B, Qwen/Qwen3.5-4B and Qwen/Qwen3.5-9B ship the
+        // unmodified Apache License 2.0 as their LICENSE file.
         put("qwen35-2b", Licence.APACHE_2)
         put("qwen35-4b", Licence.APACHE_2)
-        put("qwen3.5-9b", Licence.SEE_MODEL_PAGE)
+        put("qwen3.5-9b", Licence.APACHE_2)
         put("llama3.2-3b", Licence.LLAMA_3_2)
         put("llama3.1-8b", Licence.LLAMA_3_1)
         put("gemma3-1b", Licence.GEMMA)

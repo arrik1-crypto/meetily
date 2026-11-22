@@ -96,10 +96,11 @@ licences, and where they came from.
 
 Recap's own source is available under the MIT License.
 
-Apart from the small Silero speech detector listed in part one, models are
-not shipped inside the app. They are downloaded from the sources listed in
-part two only when you choose to install them. A model's licence is set by
-its publisher and can change; the linked page is authoritative.
+Apart from the small Silero speech detector and ML Kit's text-recognition
+model, both listed in part one, models are not shipped inside the app. They
+are downloaded from the sources listed in part two only when you choose to
+install them. A model's licence is set by its publisher and can change; the
+linked page is authoritative.
 
 
 Built with Llama
@@ -309,7 +310,7 @@ Qwen 3.5 2B, Qwen 3.5 4B
     https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF
 
 Qwen 3.5 9B
-    Licence: see model page
+    Licence: Apache License 2.0
     Alibaba Cloud (Qwen team)
     https://huggingface.co/Qwen/Qwen3.5-9B
     GGUF conversion downloaded from:

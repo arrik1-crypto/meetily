@@ -50,6 +50,23 @@ jobs:
       - name: Fetch sherpa-onnx native libs
         run: bash android/scripts/fetch_sherpa_libs.sh
 
+      # ggml-cpu (llama.cpp v1.0.0) fetches Arm KleidiAI v1.32.0 at CMake configure
+      # time for every arm64 build (:app and :native-v82). Keep one verified copy
+      # and point FetchContent at it. FETCHCONTENT_SOURCE_DIR skips ggml's URL_HASH,
+      # so the MD5 (ggml's pin) is checked here.
+      - name: Cache KleidiAI source
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/kleidiai
+          key: kleidiai-v1.32.0-05f1953428ffe8e8c7f585dc6d508887
+      - name: Fetch KleidiAI source
+        run: |
+          d=$HOME/.cache/kleidiai; mkdir -p "$d"; f=$d/kleidiai-v1.32.0-src.tar.gz
+          [ -f "$f" ] || curl -fsSL --retry 3 -o "$f" https://github.com/ARM-software/kleidiai/releases/download/v1.32.0/kleidiai-v1.32.0-src.tar.gz
+          echo "05f1953428ffe8e8c7f585dc6d508887  $f" | md5sum -c -
+          rm -rf "$d/kleidiai-v1.32.0" && tar -xzf "$f" -C "$d"
+          echo "ORG_GRADLE_PROJECT_kleidiaiSourceDir=$d/kleidiai-v1.32.0" >> "$GITHUB_ENV"
+
       - name: Run unit tests
         working-directory: android
         run: ./gradlew --no-daemon testReleaseUnitTest

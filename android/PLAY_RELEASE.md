@@ -549,11 +549,17 @@ Work through it before the first targetSdk 36 upload to any track.
   this documentation update; until then the build reads 3.16.0-beta1
   (111).
 - [ ] Watch the first CI run of Batch 3. The arm64 configures of both
-  `:app` and `:native-v82` now download Arm KleidiAI v1.32.0 from
-  github.com (ARM-software/kleidiai releases; ggml pins its URL and MD5)
-  as well as the llama.cpp v1.0.0 and whisper.cpp b5907 tarballs. If that
-  host is ever unreachable from CI, mirroring the tarball or adding an
-  `actions/cache` for it is the follow-up.
+  `:app` and `:native-v82` now need Arm KleidiAI v1.32.0 as well as the
+  llama.cpp v1.0.0 and whisper.cpp b5907 tarballs. In CI, KleidiAI comes
+  from an `actions/cache` copy (done): the workflows' "Fetch KleidiAI
+  source" step downloads it once from github.com (ARM-software/kleidiai
+  releases), checks it against ggml's MD5 pin and passes the tree to both
+  configures as `FETCHCONTENT_SOURCE_DIR_KLEIDIAI` (the
+  `kleidiaiSourceDir` Gradle property); `CMakeLists.txt` stops the build if
+  that tree is not v1.32.0, so update the workflows' version, MD5 and that
+  check together with any llama.cpp bump. Check that the step's MD5 check
+  passes and that neither configure downloads KleidiAI itself. Local
+  builds without the property still let ggml download it.
 - [ ] Compare that run's "Check native library exports" step output and
   the APK/AAB sizes with the 3.16.0-beta1 build, to measure what KleidiAI
   costs in size (the bundled speech detector adds about 0.9 MB, its
@@ -705,7 +711,7 @@ Work through it before the first targetSdk 36 upload to any track.
   and the licence acceptance wording (`licences_accept_body` and
   `licences_accept_hai_def_note` in `strings_licences.xml`) before the
   paid launch. The terms refer to "Recap's developer" without naming a
-  legal entity, carry a "Last updated: 21 November 2026" date, and point
+  legal entity, carry a "Last updated: 22 November 2026" date, and point
   to the Play listing support address for contact.
 - [ ] Have a qualified reviewer approve the clinical and legal disclaimer
   wording (`aisafety_disclaimer_clinical`, `aisafety_disclaimer_legal` in
@@ -718,12 +724,12 @@ Work through it before the first targetSdk 36 upload to any track.
   "manufacturer"), given MedGemma and the clinical templates in a paid
   app. This ties in with the Health apps declaration.
 - [ ] Confirm, from the publishers' pages, the licences the app labels
-  "see model page": Nemotron 3.5, Nemotron EN, TitaNet large/small, Qwen
-  3.5 9B and Mistral 7B v0.3. Update `ModelLicences.kt` and the MODELS
-  text in `build_notices.py` together (ModelLicencesTest keeps them in
-  step) and regenerate. Qwen 3.5 9B's Hugging Face cards (bartowski's and
-  upstream's) say apache-2.0, but read the LICENSE file of
-  Qwen/Qwen3.5-9B before relabelling it.
+  "see model page": Nemotron 3.5, Nemotron EN, TitaNet large/small and
+  Mistral 7B v0.3. Update `ModelLicences.kt` and the MODELS text in
+  `build_notices.py` together (ModelLicencesTest keeps them in step) and
+  regenerate. (Qwen 3.5 9B is now labelled Apache 2.0: the LICENSE file
+  of Qwen/Qwen3.5-9B is the unmodified Apache License 2.0, "Copyright 2026
+  Alibaba Cloud", as for the 2B and 4B.)
 - [ ] Batch 3 licence labels, as the code now has them (check each against
   the publisher's page before the paid launch):
   - **Gemma 4** (E2B/E4B, the unsloth files and Google's QAT builds):
@@ -735,8 +741,9 @@ Work through it before the first targetSdk 36 upload to any track.
     Terms of Use already limit their Gemma section to Gemma 3. If Google
     ever puts Gemma 4 under the Gemma Terms, set `Licence.GEMMA` for the
     four keys, which brings them under the acceptance gate.
-  - **Qwen 3.5 2B and 4B**: Apache 2.0 (Qwen/Qwen3.5-2B and
-    Qwen/Qwen3.5-4B ship the unmodified Apache License 2.0).
+  - **Qwen 3.5 2B, 4B and 9B**: Apache 2.0 (Qwen/Qwen3.5-2B,
+    Qwen/Qwen3.5-4B and Qwen/Qwen3.5-9B ship the unmodified Apache
+    License 2.0).
   - **Parakeet Ultra 0.6B**: CC BY 4.0, credited in `notices.txt` to
     Moondream (the weights) and NVIDIA (Parakeet TDT 0.6B v3, which
     Moondream post-trained), with the sherpa-onnx conversion as the
@@ -745,18 +752,21 @@ Work through it before the first targetSdk 36 upload to any track.
   - **Silero VAD v6.2**: MIT (Silero Team), and now **bundled in the APK**
     (`ggml-silero-v6.2.0.bin`, in whisper.cpp's ggml form), so its MIT
     notice must ship with the app: `notices.txt` part one has its entry
-    and the full MIT text, and part one's opening now says that apart from
-    this detector no model is shipped inside the app. The self-test clip
-    `vad_probe.pcm` (1.5 s of whisper.cpp's `samples/jfk.wav`) is credited
-    under whisper.cpp.
+    and the full MIT text, and the notices' introduction now says that
+    apart from this detector and ML Kit's text-recognition model no model
+    is shipped inside the app. The self-test clip `vad_probe.pcm` (1.5 s
+    of whisper.cpp's `samples/jfk.wav`) is credited under whisper.cpp.
   - **Arm KleidiAI v1.32.0**: Apache 2.0, compiled into both arm64 native
     libraries; it has its own entry with Arm's, Fujitsu's and Meta's
     copyright lines, and the Apache-2.0 heading now lists it.
-- [ ] `terms_of_use.txt` section 4 ("Models you download") still says the
-  speech and language models Recap uses "are not part of the app". The
-  bundled Silero speech detector now is. Have the reviewing lawyer decide
-  whether to amend it (for example, "apart from a small speech detector
-  built into the app"), and update its "Last updated" date if so.
+- [ ] `terms_of_use.txt` now names the bundled Silero speech detector:
+  section 4 ("Models you download") says the speech and language models
+  are not part of the app "apart from a small speech detector built into
+  the app (Silero VAD, MIT License, listed under Settings > Open-source
+  licences)", section 8's "as is" disclaimer covers "the speech detector
+  built into it", and the date reads 22 November 2026. Tick this once the
+  reviewing lawyer approves that wording; set "Last updated" to the
+  release date if the terms change again before then.
 - [ ] Pre-existing licence gap, not caused by Batch 3: llama-common has
   compiled in nlohmann/json (MIT) and cpp-httplib (MIT) since llama.cpp
   b10089, and neither has its own entry or copyright line in

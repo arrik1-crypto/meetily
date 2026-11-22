@@ -3,5 +3,5 @@
     <!-- Settings > Transcription: the Silero speech gate (SpeechGate,
          SileroVad), applied to every on-device model. -->
     <string name="vad_setting_title">Skip silence with speech detection</string>
-    <string name="vad_setting_desc">On by default. A small speech detector built into Recap listens first, on this phone, and stretches with no one speaking, such as silence, steady background noise or typing, are not sent to the transcription model. This usually saves time, and noise is less often turned into words that were never said. Turn this off if a very quiet speaker is being missed.</string>
+    <string name="vad_setting_desc">On by default. A small speech detector built into Recap checks the audio first, on this phone, and parts of a recording with no one speaking in them, such as silence, steady background noise or typing, are not sent to the transcription model. Noise is then less often turned into words that were never said, and recordings with long stretches of background noise can finish sooner. Turn this off if a very quiet speaker is being missed.</string>
 </resources>

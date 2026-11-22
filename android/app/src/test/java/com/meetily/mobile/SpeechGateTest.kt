@@ -445,6 +445,43 @@ class SpeechGateTest {
     }
 
     @Test
+    fun aHeldChunkIsSentWhenTheGateFailsOnTheNextOne() {
+        // The importer holds a chunk cut at the length limit with no speech
+        // in it. If the gate gives up on the next chunk, failing open must
+        // send the held one too, as a run with the gate off would have.
+        val sec = SpeechGate.SAMPLE_RATE
+        val chunkWindows = 28 * sec / WINDOW
+        var calls = 0
+        val gate = SpeechGateRun(FakeDetector { _ ->
+            if (calls++ == 0) FloatArray(chunkWindows) else null
+        })
+        val first = audio(28.0, false)
+        assertFalse(gate.keep(first, 0L))
+        assertFalse(gate.sendsHeld(0L, first.size.toLong()))
+        assertTrue(gate.keep(audio(3.0, true), first.size.toLong()))
+        assertTrue(gate.sendsHeld(0L, first.size.toLong()))
+    }
+
+    @Test
+    fun aHeldChunkGoesOnlyWhereSpeechReachesBackWhileTheGateWorks() {
+        val sec = SpeechGate.SAMPLE_RATE
+        val chunkWindows = 28 * sec / WINDOW
+        val reaching = SpeechGateRun(scripted { if (it < chunkWindows) 0f else 0.9f })
+        val first = audio(28.0, false)
+        assertFalse(reaching.keep(first, 0L))
+        assertTrue(reaching.keep(audio(3.0, false), first.size.toLong()))
+        assertTrue(reaching.sendsHeld(0L, first.size.toLong()))
+
+        // Speech 0.5 s into the next chunk, past the padding.
+        val speechFrom = (28L * sec + sec / 2) / WINDOW
+        val later = SpeechGateRun(scripted { if (it < speechFrom) 0f else 0.9f })
+        assertFalse(later.keep(first, 0L))
+        assertTrue(later.keep(audio(3.0, false), first.size.toLong()))
+        assertFalse(later.failed)
+        assertFalse(later.sendsHeld(0L, first.size.toLong()))
+    }
+
+    @Test
     fun aKeptChunkIsPassedOnUntouched() {
         val gate = SpeechGateRun(FakeDetector())
         val chunk = concat(audio(0.3, false), audio(1.4, true))

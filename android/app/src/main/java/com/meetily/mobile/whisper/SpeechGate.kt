@@ -269,13 +269,25 @@ class SpeechGateRun(
      * chunk that was already skipped because its own windows held no
      * speech. A region found in one chunk is only widened back over the
      * chunk before it once that later chunk has been scored, so a caller
-     * that can hold a skipped chunk until then (the importer) asks this
-     * and sends it after all. The live recorder does not hold chunks back,
-     * so there the padding before speech never reaches into a chunk that
-     * was already decided.
+     * that can hold a skipped chunk until then (the importer) asks this,
+     * through [sendsHeld], and sends it after all. The live recorder does
+     * not hold chunks back, so there the padding before speech never
+     * reaches into a chunk that was already decided.
      */
     fun reachesBack(chunkStart: Long, chunkEnd: Long): Boolean =
         !failed && SpeechGate.keep(found, chunkStart, chunkEnd)
+
+    /**
+     * True when a chunk the importer skipped and held, [chunkStart] to
+     * [chunkEnd] in absolute samples, should go to the recogniser after
+     * all, once the chunk after it has been through [keep]: when speech
+     * found there [reachesBack] into it, or when the gate gave up while
+     * scoring that chunk. With the gate off, or failed one chunk earlier,
+     * the held chunk would have been transcribed, so failing open sends it
+     * too.
+     */
+    fun sendsHeld(chunkStart: Long, chunkEnd: Long): Boolean =
+        failed || reachesBack(chunkStart, chunkEnd)
 
     private fun decide(audio: FloatArray, start: Long): Boolean {
         if (start != nextStart) {

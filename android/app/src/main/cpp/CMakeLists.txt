@@ -7,7 +7,9 @@ set(CMAKE_CXX_STANDARD 17)
 # whisper.cpp and llama.cpp are fetched at configure time (pinned tag
 # tarballs), so the repo does not vendor them. Requires network access on the
 # build machine (github.com; with KleidiAI on, see below, also its release
-# tarball, which ggml MD5-pins).
+# tarball, which ggml MD5-pins). CI supplies KleidiAI from an actions/cache
+# copy instead: the workflows check the same MD5 and pass the tree in as
+# FETCHCONTENT_SOURCE_DIR_KLEIDIAI (the kleidiaiSourceDir Gradle property).
 #
 # Both projects bundle ggml, and both guard with `if (NOT TARGET ggml)`.
 # llama.cpp is added FIRST so its ggml becomes the shared one and whisper.cpp
@@ -113,9 +115,10 @@ endif()
 # Unlike the rest of ggml, these are chosen at RUN time, so they are on in
 # both CPU builds (the app's armv8-a baseline and :native-v82, which share
 # this file). ggml fetches KleidiAI v1.32.0 (URL and MD5 pinned in
-# ggml/src/ggml-cpu/CMakeLists.txt) and builds it with KleidiAI's own CMake,
-# which compiles each kernel file with that kernel's -march (+dotprod,
-# +i8mm, +sve, +sme...) and nothing else with it. ggml's glue
+# ggml/src/ggml-cpu/CMakeLists.txt; in CI, a cached copy, guarded below)
+# and builds it with KleidiAI's own CMake, which compiles each kernel
+# file with that kernel's -march (+dotprod, +i8mm, +sve, +sme...) and
+# nothing else with it. ggml's glue
 # (ggml-cpu/kleidiai/*.cpp) keeps ggml's flags, reads the CPU's features
 # from getauxval(AT_HWCAP/AT_HWCAP2) once, and only calls a kernel whose
 # required features are all present. On a Cortex-A53/A73 (no dotprod) no
@@ -189,6 +192,13 @@ if (ANDROID_ABI STREQUAL "arm64-v8a")
     set(GGML_CPU_KLEIDIAI ON CACHE BOOL "" FORCE)
 else()
     set(GGML_CPU_KLEIDIAI OFF CACHE BOOL "" FORCE)
+endif()
+# CI passes a pre-fetched KleidiAI tree. It must be the version ggml pins at
+# this llama.cpp tag (v1.32.0 at v1.0.0, ggml-cpu/CMakeLists.txt
+# KLEIDIAI_COMMIT_TAG), or the glue and kernels would silently mismatch.
+# Update this check with any llama.cpp bump.
+if (FETCHCONTENT_SOURCE_DIR_KLEIDIAI AND NOT FETCHCONTENT_SOURCE_DIR_KLEIDIAI MATCHES "kleidiai-v1\\.32\\.0/?$")
+    message(FATAL_ERROR "FETCHCONTENT_SOURCE_DIR_KLEIDIAI must be KleidiAI v1.32.0 (ggml's pin at llama.cpp v1.0.0)")
 endif()
 
 FetchContent_MakeAvailable(llama_cpp whisper_cpp)
