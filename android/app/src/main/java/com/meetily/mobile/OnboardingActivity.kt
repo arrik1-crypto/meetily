@@ -1,7 +1,11 @@
 package com.meetily.mobile
 
+import android.Manifest
+import android.content.ActivityNotFoundException
 import android.content.Context
+import android.content.pm.PackageManager
 import android.net.ConnectivityManager
+import android.os.Build
 import android.os.Bundle
 import android.text.format.Formatter
 import android.view.View
@@ -10,8 +14,11 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
@@ -45,6 +52,32 @@ class OnboardingActivity : AppCompatActivity() {
     private var freeBytes = -1L
     private var measuring = false
 
+    /** The free-space check for a download answer is running. */
+    private var checking = false
+
+    /**
+     * An answer is being acted on: the downloads are starting, or wait on
+     * the notification question. Further taps are ignored until it is done.
+     */
+    private var applied = false
+
+    /**
+     * The answer waiting on the notification-permission question (kept
+     * across recreation, since the question is another activity), or null.
+     */
+    private var awaitingNotifications: FirstRunSetup.Choice? = null
+
+    private val notificationPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { _ ->
+            // Granted or not, the downloads go ahead: only their progress
+            // notification needs the permission, as on the record path.
+            val choice = awaitingNotifications ?: return@registerForActivityResult
+            awaitingNotifications = null
+            val rec = recommendation
+            if (rec == null || isFinishing || isDestroyed) return@registerForActivityResult
+            startDownloads(FirstRunSetup.picks(rec, choice), choice)
+        }
+
     private val backToIntro = object : OnBackPressedCallback(false) {
         override fun handleOnBackPressed() {
             showStep(STEP_INTRO, moveFocus = true)
@@ -58,13 +91,11 @@ class OnboardingActivity : AppCompatActivity() {
         EdgeToEdge.setUp(this) { root() }
         onBackPressedDispatcher.addCallback(this, backToIntro)
 
-        device = DeviceProbe.device(this)
-        recommendation = device?.let { dev ->
-            DeviceFit.recommend(dev) { key ->
-                TranscriptionModels.fitNeedOrNull(key) ?: LocalLlmModels.fitNeedOrNull(key)
-            }
-        }
         freeBytes = savedInstanceState?.getLong(KEY_FREE_BYTES, -1L) ?: -1L
+        awaitingNotifications = savedInstanceState?.getString(KEY_AWAITING)?.let { name ->
+            FirstRunSetup.Choice.entries.firstOrNull { it.name == name }
+        }
+        refreshRecommendation()
         ViewCompat.setAccessibilityHeading(findViewById(R.id.setupTitle), true)
 
         findViewById<View>(R.id.getStartedButton).setOnClickListener {
@@ -88,6 +119,21 @@ class OnboardingActivity : AppCompatActivity() {
         super.onSaveInstanceState(outState)
         outState.putInt(KEY_STEP, step)
         outState.putLong(KEY_FREE_BYTES, freeBytes)
+        outState.putString(KEY_AWAITING, awaitingNotifications?.name)
+    }
+
+    /**
+     * The phone and what to suggest for it. Free space, once measured, is
+     * part of it: a summary model the space cannot hold beside the
+     * transcription model is not suggested (DeviceFit.recommend).
+     */
+    private fun refreshRecommendation() {
+        device = DeviceProbe.device(this, freeBytes.takeIf { it >= 0L })
+        recommendation = device?.let { dev ->
+            DeviceFit.recommend(dev) { key ->
+                TranscriptionModels.fitNeedOrNull(key) ?: LocalLlmModels.fitNeedOrNull(key)
+            }
+        }
     }
 
     private fun offerSetup(): Boolean = FirstRunSetup.shouldOffer(
@@ -140,8 +186,13 @@ class OnboardingActivity : AppCompatActivity() {
         val llm = rec.llm
         findViewById<View>(R.id.setupLlmCard).visibility =
             if (llm != null) View.VISIBLE else View.GONE
-        findViewById<View>(R.id.setupNoLlm).visibility =
-            if (llm == null) View.VISIBLE else View.GONE
+        findViewById<TextView>(R.id.setupNoLlm).apply {
+            visibility = if (llm == null) View.VISIBLE else View.GONE
+            setText(
+                if (rec.llmLeftOutForSpace) R.string.devicefit_setup_no_llm_space
+                else R.string.devicefit_setup_no_llm
+            )
+        }
         if (llm != null) {
             bindPick(
                 llm, R.id.setupLlmName, R.id.setupLlmSize,
@@ -268,10 +319,11 @@ class OnboardingActivity : AppCompatActivity() {
                 measuring = false
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 freeBytes = room.availableBytes.coerceAtLeast(0L)
-                if (step == STEP_SETUP) {
-                    bindDevice()
-                    bindStorage()
-                }
+                // The suggestion can change with the space (a summary model
+                // with no room beside the transcription model is dropped),
+                // so the whole step is bound again, not just its storage line.
+                refreshRecommendation()
+                if (step == STEP_SETUP && offerSetup()) bindSetup()
             }
         }.apply {
             name = "onboarding-space"
@@ -287,6 +339,9 @@ class OnboardingActivity : AppCompatActivity() {
      * with nothing changed.
      */
     private fun choose(choice: FirstRunSetup.Choice) {
+        // A second tap while the first is still being acted on would run
+        // the whole chain twice (two space dialogs, two toasts).
+        if (checking || applied) return
         val rec = recommendation ?: return finishOnboarding()
         val picks = FirstRunSetup.picks(rec, choice)
         val downloads = FirstRunSetup.toDownload(picks) { isDownloaded(it) }
@@ -330,33 +385,97 @@ class OnboardingActivity : AppCompatActivity() {
         downloads: List<DeviceFit.Pick>,
         choice: FirstRunSetup.Choice
     ) {
-        if (isFinishing || isDestroyed) return
-        ModelSpaceCheck.confirm(this, FirstRunSetup.sizesMb(downloads)) {
+        if (isFinishing || isDestroyed || checking) return
+        // The check measures on a worker thread, which can take seconds; the
+        // download buttons wait for it ("Choose later" stays usable).
+        checking = true
+        setChoicesEnabled(false)
+        ModelSpaceCheck.confirm(
+            this,
+            FirstRunSetup.sizesMb(downloads),
+            onMeasured = {
+                checking = false
+                setChoicesEnabled(true)
+            }
+        ) {
             if (!isFinishing && !isDestroyed) applyChoice(picks, choice)
         }
     }
+
+    private fun setChoicesEnabled(enabled: Boolean) {
+        findViewById<View>(R.id.setupBothButton).isEnabled = enabled
+        findViewById<View>(R.id.setupTranscriptionButton).isEnabled = enabled
+    }
+
+    /**
+     * Asks for the notification permission first when a download is about
+     * to start without it (Android 13+, where a new install has not been
+     * asked yet: the download's progress and "done" notifications would be
+     * dropped unseen), then starts the downloads whatever the answer.
+     */
+    private fun applyChoice(picks: List<DeviceFit.Pick>, choice: FirstRunSetup.Choice) {
+        if (applied) return
+        applied = true
+        if (picks.any { !isDownloaded(it) } && notificationsNeedAsking()) {
+            awaitingNotifications = choice
+            try {
+                notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                return
+            } catch (_: ActivityNotFoundException) {
+                awaitingNotifications = null
+            }
+        }
+        startDownloads(picks, choice)
+    }
+
+    private fun notificationsNeedAsking(): Boolean =
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
 
     /**
      * Picks each model as Settings does, so a model on disk is selected now
      * and one that has to download is selected by ModelDownloadService when
      * it arrives, then starts the downloads, transcription first.
      */
-    private fun applyChoice(picks: List<DeviceFit.Pick>, choice: FirstRunSetup.Choice) {
+    private fun startDownloads(picks: List<DeviceFit.Pick>, choice: FirstRunSetup.Choice) {
+        applied = true
         var started = false
+        var refused = false
         for (pick in picks) {
             val kind = kindOf(pick)
             val key = pick.need.key
-            if (PendingModelSelection.pick(this, kind, key)) {
-                ModelDownloadService.start(this, kind, key)
+            if (!PendingModelSelection.pick(this, kind, key)) continue
+            if (ModelDownloadService.start(this, kind, key)) {
                 started = true
+            } else {
+                // Android would not start the service (see
+                // ModelDownloadService.start): nothing waits on it.
+                PendingModelSelection.clearIf(this, kind, key)
+                refused = true
             }
+        }
+        if (refused) {
+            // Stay on this step so the same button can be tried again; a
+            // download that did start carries on, and the service ignores a
+            // second request for it.
+            applied = false
+            Toast.makeText(this, R.string.devicefit_download_not_started, Toast.LENGTH_LONG).show()
+            return
         }
         if (choice == FirstRunSetup.Choice.BOTH) {
             recommendation?.llm?.let { OnDeviceAiSetup.enableWhenDownloaded(this, it.need.key) }
         }
         if (started) {
-            Toast.makeText(applicationContext, R.string.devicefit_setup_started, Toast.LENGTH_LONG)
-                .show()
+            Toast.makeText(
+                applicationContext,
+                if (NotificationManagerCompat.from(this).areNotificationsEnabled()) {
+                    R.string.devicefit_setup_started
+                } else {
+                    R.string.devicefit_setup_started_settings
+                },
+                Toast.LENGTH_LONG
+            ).show()
         }
         finishOnboarding()
     }
@@ -405,5 +524,6 @@ class OnboardingActivity : AppCompatActivity() {
         const val STEP_SETUP = 1
         const val KEY_STEP = "onboarding_step"
         const val KEY_FREE_BYTES = "onboarding_free_bytes"
+        const val KEY_AWAITING = "onboarding_awaiting_notifications"
     }
 }

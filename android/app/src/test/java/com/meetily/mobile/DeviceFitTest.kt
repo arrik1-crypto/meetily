@@ -4,6 +4,7 @@ import com.meetily.mobile.data.DeviceFit
 import com.meetily.mobile.data.DeviceFit.CpuTier
 import com.meetily.mobile.data.DeviceFit.Level
 import com.meetily.mobile.data.DeviceFit.Limit
+import com.meetily.mobile.data.DownloadSpace
 import com.meetily.mobile.data.FirstRunSetup
 import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.whisper.DiarizationModels
@@ -290,6 +291,40 @@ class DeviceFitTest {
                 }
             }
         }
+    }
+
+    @Test
+    fun theSummaryModelIsLeftOutWhenTheSpaceCannotHoldBoth() {
+        fun withRoom(gb: Int, bytes: Long?, language: String = "en") = DeviceFit.recommend(
+            DeviceFit.Device(totalMemFor(gb), null, CpuTier.DOTPROD, bytes, language), ::need
+        )
+        // Small.en Q (181 MB) and Qwen 2.5 1.5B (1120 MB), 10% on each.
+        val both = DownloadSpace.requiredBytes(listOf(181, 1120))
+        for (gb in listOf(6, 8, 12, 16)) {
+            val unknown = withRoom(gb, null)
+            assertEquals("$gb GB", "qwen2.5-1.5b", unknown.llm!!.need.key)
+            assertFalse(unknown.llmLeftOutForSpace)
+            val exact = withRoom(gb, both)
+            assertEquals("$gb GB", "qwen2.5-1.5b", exact.llm!!.need.key)
+            assertFalse(exact.llmLeftOutForSpace)
+            val short = withRoom(gb, both - 1)
+            assertNull("$gb GB", short.llm)
+            assertTrue(short.llmLeftOutForSpace)
+            // The transcription suggestion never depends on the space.
+            assertEquals(unknown.transcription, short.transcription)
+            assertEquals(unknown.transcription, withRoom(gb, 0L).transcription)
+        }
+        // A phone with no summary model to offer reports nothing left out.
+        val small = withRoom(2, 0L)
+        assertNull(small.llm)
+        assertFalse(small.llmLeftOutForSpace)
+        // The same rule for another pair: multilingual on a 3 GB phone.
+        val three = withRoom(3, null, "de")
+        val pair = DownloadSpace.requiredBytes(
+            listOf(three.transcription!!.need.sizeMb, three.llm!!.need.sizeMb)
+        )
+        assertNotNull(withRoom(3, pair, "de").llm)
+        assertNull(withRoom(3, pair - 1, "de").llm)
     }
 
     @Test

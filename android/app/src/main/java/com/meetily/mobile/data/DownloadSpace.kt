@@ -24,6 +24,14 @@ object DownloadSpace {
     /** [requiredBytes] for several downloads queued together. */
     fun requiredBytes(sizesMb: Iterable<Int>): Long = sizesMb.sumOf { requiredBytes(it) }
 
+    /**
+     * MB a download of [sizeMb] that is [percentDone] through still has to
+     * write: the part already written is on disk and counted as used.
+     * Rounded up, so the check never asks for less than is left.
+     */
+    fun remainingMb(sizeMb: Int, percentDone: Int): Int =
+        (sizeMb.coerceAtLeast(0) * (100 - percentDone.coerceIn(0, 100)) + 99) / 100
+
     /** How much more room is needed; 0 when [availableBytes] is enough. */
     fun shortfallBytes(requiredBytes: Long, availableBytes: Long): Long =
         (requiredBytes - availableBytes.coerceAtLeast(0L)).coerceAtLeast(0L)

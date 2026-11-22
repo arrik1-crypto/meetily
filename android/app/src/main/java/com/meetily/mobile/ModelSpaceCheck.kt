@@ -8,6 +8,9 @@ import android.os.storage.StorageManager
 import android.text.format.Formatter
 import androidx.annotation.WorkerThread
 import androidx.appcompat.app.AlertDialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import com.meetily.mobile.data.DownloadSpace
 import java.util.UUID
 
@@ -52,33 +55,77 @@ object ModelSpaceCheck {
 
     /**
      * Checks there is room for downloads of [sizesMb] (several when they are
-     * queued together) and runs [onProceed] on the main thread when there
-     * is, or when the user chooses to download anyway. Nothing runs if they
-     * cancel, or if [activity] is gone by the time the answer is known.
+     * queued together, or behind downloads already running) and runs
+     * [onProceed] on the main thread when there is, or when the user chooses
+     * to download anyway. Nothing runs if they cancel, or if [activity] is
+     * gone by the time the answer is known. [onMeasured] runs on the main
+     * thread once the measurement is in, before either, so a caller can
+     * re-enable what it disabled while waiting.
+     *
+     * The answer is acted on only while [activity] is started. Measuring
+     * (and clearing other apps' caches) can take seconds, and the user may
+     * leave meanwhile; [onProceed] usually starts ModelDownloadService, and
+     * from Android 12 a foreground service cannot be started from the
+     * background. So an answer that arrives while the activity is stopped
+     * waits until the user comes back to it.
      */
-    fun confirm(activity: Activity, sizesMb: List<Int>, onProceed: () -> Unit) {
+    fun confirm(
+        activity: Activity,
+        sizesMb: List<Int>,
+        onMeasured: () -> Unit = {},
+        onProceed: () -> Unit
+    ) {
         val required = DownloadSpace.requiredBytes(sizesMb)
         if (required <= 0L) {
+            onMeasured()
             onProceed()
             return
         }
         val app = activity.applicationContext
+        val several = sizesMb.count { it > 0 } > 1
         Thread {
             val room = measure(app)
             clearCachesIfThatMakesRoom(app, room, required)
             activity.runOnUiThread {
-                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
-                val short = DownloadSpace.shortfallBytes(required, room.availableBytes)
-                if (short == 0L) {
-                    onProceed()
-                } else {
-                    showShortOfSpace(activity, required, room, short, onProceed)
+                whenStarted(activity) {
+                    onMeasured()
+                    val short = DownloadSpace.shortfallBytes(required, room.availableBytes)
+                    if (short == 0L) {
+                        onProceed()
+                    } else {
+                        showShortOfSpace(activity, required, room, short, several, onProceed)
+                    }
                 }
             }
         }.apply {
             name = "model-space-check"
             start()
         }
+    }
+
+    /**
+     * Runs [block] now if [activity] is started, otherwise the next time it
+     * starts; never once it is finishing or destroyed. Main thread only.
+     */
+    private fun whenStarted(activity: Activity, block: () -> Unit) {
+        if (activity.isFinishing || activity.isDestroyed) return
+        val lifecycle = (activity as? LifecycleOwner)?.lifecycle
+        if (lifecycle == null || lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            block()
+            return
+        }
+        lifecycle.addObserver(object : LifecycleEventObserver {
+            override fun onStateChanged(source: LifecycleOwner, event: Lifecycle.Event) {
+                when (event) {
+                    Lifecycle.Event.ON_START -> {
+                        source.lifecycle.removeObserver(this)
+                        if (!activity.isFinishing && !activity.isDestroyed) block()
+                    }
+                    Lifecycle.Event.ON_DESTROY -> source.lifecycle.removeObserver(this)
+                    else -> Unit
+                }
+            }
+        })
     }
 
     /**
@@ -105,6 +152,7 @@ object ModelSpaceCheck {
         required: Long,
         room: Room,
         short: Long,
+        several: Boolean,
         onProceed: () -> Unit
     ) {
         val manage = Intent(StorageManager.ACTION_MANAGE_STORAGE)
@@ -114,7 +162,8 @@ object ModelSpaceCheck {
             .setTitle(R.string.devicefit_space_title)
             .setMessage(
                 activity.getString(
-                    R.string.devicefit_space_message,
+                    if (several) R.string.devicefit_space_message_several
+                    else R.string.devicefit_space_message,
                     Formatter.formatShortFileSize(activity, required),
                     Formatter.formatShortFileSize(activity, room.availableBytes.coerceAtLeast(0L)),
                     Formatter.formatShortFileSize(activity, short)

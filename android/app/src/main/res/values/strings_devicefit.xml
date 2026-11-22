@@ -31,6 +31,10 @@
     <string name="devicefit_space_title">Not enough free space</string>
     <!-- %1$s needed, %2$s free, %3$s still to free, e.g. "1.2 GB". -->
     <string name="devicefit_space_message">This download needs about %1$s of free space, and %2$s is free. Free up about %3$s first, or the download may stop partway.</string>
+    <!-- Same figures, when the check covers several downloads: queued together, or behind ones already running. -->
+    <string name="devicefit_space_message_several">These downloads need about %1$s of free space between them, and %2$s is free. Free up about %3$s first, or a download may stop partway.</string>
+    <!-- Android refused to start the download service (the app was in the background). -->
+    <string name="devicefit_download_not_started">The download could not start while Recap was in the background. Try again to start it.</string>
     <string name="devicefit_space_manage">Free up space</string>
     <string name="devicefit_space_continue">Download anyway</string>
 
@@ -65,6 +69,9 @@
     <string name="devicefit_setup_later">Choose later</string>
     <string name="devicefit_setup_later_note">Choose later leaves everything as it is. Models can be downloaded at any time in Settings → Transcription; until then, meetings are kept as audio to transcribe later.</string>
     <string name="devicefit_setup_started">Downloading in the background. Progress is in the notification and in Settings.</string>
+    <!-- The same, when Recap may not show notifications. -->
+    <string name="devicefit_setup_started_settings">Downloading in the background. Progress is in Settings.</string>
+    <string name="devicefit_setup_no_llm_space">There is not enough free space for a summary model as well, so Recap\'s built-in offline summariser writes summaries instead. You can download one in Settings once there is room.</string>
 
     <!-- Before downloading over a metered connection. -->
     <string name="devicefit_metered_title">Download over mobile data?</string>

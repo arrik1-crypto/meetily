@@ -261,6 +261,16 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // The first-run setup may have turned on-device AI on while this
+        // screen was stopped, with no observer attached to hear it; Save
+        // would then write the stale switches back over it. Checked here
+        // rather than in onStart because a screen recreated while away
+        // restores its switches' saved state after onStart.
+        if (OnDeviceAiSetup.takeJustEnabled()) showOnDeviceAiEnabled()
+    }
+
     override fun onStop() {
         downloadService?.let { if (it.observer === downloadObserver) it.observer = null }
         if (downloadBound) {
@@ -1662,9 +1672,7 @@ class SettingsActivity : AppCompatActivity() {
         // alike, before anything is parked: short of room, the user can free
         // some, go ahead anyway, or cancel and keep what they had.
         if (!downloaded && !spaceChecked) {
-            ModelSpaceCheck.confirm(
-                this, listOf(PendingModelSelection.downloadSizeMb(kind, key))
-            ) {
+            ModelSpaceCheck.confirm(this, spaceNeededMb(kind, key)) {
                 if (!isFinishing && !isDestroyed) pickModel(kind, key, spaceChecked = true)
             }
             return
@@ -1676,6 +1684,31 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             refreshModelStatus(kind)
         }
+    }
+
+    /**
+     * Download sizes, MB, the free-space check for [key] of [kind] has to
+     * make room for: the model itself, plus what ModelDownloadService still
+     * has to write when this one would queue behind it (the rest of the
+     * current download and everything already waiting). Checking the new
+     * model alone let a second large one pass and then run out of room.
+     */
+    private fun spaceNeededMb(kind: String, key: String): List<Int> {
+        val sizes = mutableListOf(PendingModelSelection.downloadSizeMb(kind, key))
+        if (!ModelDownloadService.isRunning) return sizes
+        val currentKind = ModelDownloadService.currentKind
+        val currentKey = ModelDownloadService.currentKey
+        if (currentKey.isNotBlank() && !(currentKind == kind && currentKey == key)) {
+            sizes += com.meetily.mobile.data.DownloadSpace.remainingMb(
+                PendingModelSelection.downloadSizeMb(currentKind, currentKey),
+                downloadService?.percent ?: 0
+            )
+        }
+        for ((queuedKind, queuedKey) in ModelDownloadService.queuedItems) {
+            if (queuedKind == kind && queuedKey == key) continue
+            sizes += PendingModelSelection.downloadSizeMb(queuedKind, queuedKey)
+        }
+        return sizes
     }
 
     private fun refreshModelStatus(kind: String) {
@@ -1742,7 +1775,14 @@ class SettingsActivity : AppCompatActivity() {
      */
     private fun startModelDownload(kind: String, key: String) {
         val wasRunning = ModelDownloadService.isRunning
-        ModelDownloadService.start(this, kind, key)
+        if (!ModelDownloadService.start(this, kind, key)) {
+            // Android refused the service (see ModelDownloadService.start):
+            // nothing will download, so nothing stays parked behind it.
+            PendingModelSelection.clearIf(this, kind, key)
+            refreshModelStatus(kind)
+            Toast.makeText(this, R.string.devicefit_download_not_started, Toast.LENGTH_LONG).show()
+            return
+        }
         // Immediate visual feedback; service callbacks take over from here.
         if (wasRunning) {
             downloadObserver.onDownloadQueued(kind, key)

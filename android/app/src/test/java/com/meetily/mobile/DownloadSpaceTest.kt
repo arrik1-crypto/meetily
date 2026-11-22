@@ -39,6 +39,24 @@ class DownloadSpaceTest {
     }
 
     @Test
+    fun aRunningDownloadCountsOnlyWhatItHasStillToWrite() {
+        assertEquals(1120, DownloadSpace.remainingMb(1120, 0))
+        assertEquals(560, DownloadSpace.remainingMb(1120, 50))
+        assertEquals(0, DownloadSpace.remainingMb(1120, 100))
+        // Rounded up: 1% of 181 MB is 1.81 MB.
+        assertEquals(2, DownloadSpace.remainingMb(181, 99))
+        // Out-of-range progress and sizes are clamped, never negative.
+        assertEquals(181, DownloadSpace.remainingMb(181, -3))
+        assertEquals(0, DownloadSpace.remainingMb(181, 140))
+        assertEquals(0, DownloadSpace.remainingMb(-5, 10))
+        // The largest model halfway through, plus a queued one: no overflow.
+        assertEquals(
+            DownloadSpace.requiredBytes(2840) + DownloadSpace.requiredBytes(181),
+            DownloadSpace.requiredBytes(listOf(DownloadSpace.remainingMb(5680, 50), 181))
+        )
+    }
+
+    @Test
     fun shortfallIsWhatIsStillMissing() {
         assertEquals(600L, DownloadSpace.shortfallBytes(1_000L, 400L))
         assertEquals(0L, DownloadSpace.shortfallBytes(1_000L, 1_000L))

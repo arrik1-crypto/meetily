@@ -64,7 +64,10 @@ object DeviceFit {
          */
         val advertisedMemBytes: Long?,
         val tier: CpuTier,
-        /** Room the app can allocate for downloads, or null when unknown. */
+        /**
+         * Room the app can allocate for downloads, or null when unknown.
+         * Only the first-run suggestion reads it; see [recommend].
+         */
         val allocatableBytes: Long?,
         /** Locale language code, such as "en" or "de". */
         val language: String
@@ -104,7 +107,16 @@ object DeviceFit {
         val need: Need get() = verdict.need
     }
 
-    data class Recommendation(val transcription: Pick?, val llm: Pick?)
+    data class Recommendation(
+        val transcription: Pick?,
+        val llm: Pick?,
+        /**
+         * A summary model suits the phone's memory but was left out because
+         * the measured free space ([Device.allocatableBytes]) cannot hold it
+         * as well as the transcription model.
+         */
+        val llmLeftOutForSpace: Boolean = false
+    )
 
     // --- RAM classes ---------------------------------------------------------
 
@@ -146,10 +158,12 @@ object DeviceFit {
 
     /**
      * Engine overhead of an on-device LLM on top of its weights, MB: the KV
-     * cache at LocalLlm.N_CTX (4096 tokens, q8_0 keys and f16 values in
-     * llama_jni.c), roughly 90 MB for Qwen 2.5 1.5B and 400-450 MB for the
-     * 7-8B models, plus llama.cpp's compute buffers for a 512-token batch and
-     * the engine itself.
+     * cache at LocalLlm.N_CTX (4096 tokens, q8_0 keys and values with flash
+     * attention in llama_jni.c, f16 for both if that is rejected), roughly
+     * 60 MB for Qwen 2.5 1.5B and 290 MB for the 7-8B models (115 MB and
+     * 540 MB at f16), plus llama.cpp's compute buffers for a 512-token batch
+     * and the engine itself. An estimate for the q8_0 cache the engine
+     * normally gets.
      */
     const val LLM_RUNTIME_MB = 500
 
@@ -303,12 +317,25 @@ object DeviceFit {
      * LLM is optional (the built-in summariser works without one), so only a
      * comfortable fit is suggested. Neither ever suggests a model that is
      * too big, nor one that is slow on this phone's processor.
+     *
+     * Storage, when known: the LLM is left out unless the free space holds
+     * both downloads (DownloadSpace's size plus 10% each, full sizes, since
+     * on a first run neither is on disk yet). The transcription model is
+     * suggested whatever the space; the free-space check before the
+     * download then says how much is missing.
      */
     fun recommend(device: Device, needs: (String) -> Need?): Recommendation {
         val transcription = choose(
             transcriptionCandidates(device.language), device, needs, allowTight = true
         )
         val llm = choose(llmCandidates(), device, needs, allowTight = false)
+        val room = device.allocatableBytes
+        if (llm != null && room != null) {
+            val both = DownloadSpace.requiredBytes(
+                listOfNotNull(transcription?.need?.sizeMb, llm.need.sizeMb)
+            )
+            if (both > room) return Recommendation(transcription, null, llmLeftOutForSpace = true)
+        }
         return Recommendation(transcription, llm)
     }
 

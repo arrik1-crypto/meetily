@@ -32,7 +32,14 @@ object ModelPickerSheet {
          * How the model fits this phone's memory (see FitBadge); null hides
          * the badge. Choosing a tight or too-big model asks first.
          */
-        val fit: DeviceFit.Verdict? = null
+        val fit: DeviceFit.Verdict? = null,
+        /**
+         * The model already in use, so choosing it again changes nothing and
+         * skips the fit warning. That is what [selected] on a downloaded
+         * entry means in Settings and Import; a picker whose [selected]
+         * marks something else, such as a recommendation, passes its own.
+         */
+        val active: Boolean = selected && downloaded
     )
 
     /**
@@ -103,8 +110,7 @@ object ModelPickerSheet {
                     // A tight or too-big model is a warning, never a refusal;
                     // cancelling it leaves the sheet open to choose again.
                     FitBadge.confirmChoice(
-                        context, entry.title, entry.fit,
-                        alreadyActive = entry.selected && entry.downloaded
+                        context, entry.title, entry.fit, alreadyActive = entry.active
                     ) {
                         picked = true
                         sheet.dismiss()

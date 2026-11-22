@@ -107,12 +107,14 @@ object PendingModelSelection {
     }
 
     /**
-     * Drops parked picks that no download will ever complete. Only call
-     * while ModelDownloadService is not running.
+     * Drops parked picks that no download will ever complete, and the
+     * first-run "switch AI on when it arrives" with them (OnDeviceAiSetup).
+     * Only call while ModelDownloadService is not running.
      */
     fun clearStale(context: Context) {
         val p = prefs(context)
         val now = System.currentTimeMillis()
+        OnDeviceAiSetup.clearStale(context, now, STALE_MS)
         val edit = p.edit()
         var changed = false
         for (kind in KINDS) {

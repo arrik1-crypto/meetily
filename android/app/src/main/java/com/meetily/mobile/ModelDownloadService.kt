@@ -73,6 +73,12 @@ class ModelDownloadService : Service() {
     /** (display name, error-or-null) per finished item, for the summary. */
     private val finished = mutableListOf<Pair<String, String?>>()
 
+    /** Mirrors [queue] into [queuedCount] and [queuedItems]. Main thread. */
+    private fun publishQueue() {
+        queuedCount = queue.size
+        queuedItems = queue.toList()
+    }
+
     override fun onBind(intent: Intent?): IBinder = DownloadBinder()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -81,7 +87,7 @@ class ModelDownloadService : Service() {
                 // Cancel means "stop downloading models": current + queued.
                 cancelled = true
                 dropQueue()
-                queuedCount = 0
+                publishQueue()
                 if (!isRunning) stopSelf()
             }
             ACTION_START -> {
@@ -99,7 +105,7 @@ class ModelDownloadService : Service() {
                         queue.any { it.first == kind && it.second == key }
                     if (!duplicate) {
                         queue.add(kind to key)
-                        queuedCount = queue.size
+                        publishQueue()
                         observer?.onDownloadQueued(kind, key)
                         updateNotification(displayName(currentKind, currentKey), percent)
                     }
@@ -225,7 +231,7 @@ class ModelDownloadService : Service() {
         val next = queue.removeFirstOrNull()
         if (next != null) {
             cancelled = false
-            queuedCount = queue.size
+            publishQueue()
             currentKind = next.first
             currentKey = next.second
             percent = 0
@@ -246,7 +252,7 @@ class ModelDownloadService : Service() {
         }
         wakeLock = null
         queue.clear()
-        queuedCount = 0
+        publishQueue()
         stopForegroundCompat()
         if (!cancelled) postCompletionNotification()
         isRunning = false
@@ -276,7 +282,7 @@ class ModelDownloadService : Service() {
         cancelled = true
         main.post {
             dropQueue()
-            queuedCount = 0
+            publishQueue()
         }
     }
 
@@ -364,7 +370,7 @@ class ModelDownloadService : Service() {
             PendingModelSelection.onDownloadsDropped(this, listOf(currentKind to currentKey))
         } catch (_: Exception) {
         }
-        queuedCount = 0
+        publishQueue()
         postCompletionNotification()
         isRunning = false
         stopForegroundCompat()
@@ -442,6 +448,14 @@ class ModelDownloadService : Service() {
         @Volatile var queuedCount = 0
             private set
 
+        /**
+         * The (kind, key) pairs waiting behind the current download, in
+         * order: a snapshot for the free-space check, which has to leave room
+         * for them too.
+         */
+        @Volatile var queuedItems: List<Pair<String, String>> = emptyList()
+            private set
+
         const val ACTION_START = "com.meetily.mobile.download.START"
         const val ACTION_CANCEL = "com.meetily.mobile.download.CANCEL"
         const val EXTRA_KIND = "kind"
@@ -455,8 +469,15 @@ class ModelDownloadService : Service() {
          * running. Callers have already applied the licence gate
          * (licences.ModelTerms) and the free-space check (ModelSpaceCheck):
          * see SettingsActivity.pickModel and OnboardingActivity.
+         *
+         * Returns false when Android refused to start the service. From
+         * Android 12 a foreground service cannot be started while the app is
+         * in the background (ForegroundServiceStartNotAllowedException, an
+         * IllegalStateException), which a free-space check finishing after
+         * the user left could otherwise reach. The caller then un-parks the
+         * pick and asks the user to try again.
          */
-        fun start(context: Context, kind: String, key: String) {
+        fun start(context: Context, kind: String, key: String): Boolean = try {
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, ModelDownloadService::class.java)
@@ -464,6 +485,9 @@ class ModelDownloadService : Service() {
                     .putExtra(EXTRA_KIND, kind)
                     .putExtra(EXTRA_KEY, key)
             )
+            true
+        } catch (_: IllegalStateException) {
+            false
         }
 
         /**
