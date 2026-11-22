@@ -1500,6 +1500,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         actions.add(A11y.Action(getString(R.string.edit_text_action)) { editSegmentText(index) })
         actions.add(A11y.Action(getString(R.string.split_action)) { showSplitDialog(index) })
+        actions.add(A11y.Action(getString(R.string.replace_line_action)) { replace.fixWord(index) })
         if (playable) {
             actions.add(A11y.Action(getString(R.string.share_clip_action)) { shareClip(index) })
         }
@@ -1538,6 +1539,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             onShareClip = if (audioMs != null && audioFileOrNull() != null) {
                 { shareClip(index) }
             } else null,
+            onFixWord = { replace.fixWord(index) },
             onRenameCluster = if (clusterId != null) {
                 { name ->
                     val tagged = mutableListOf<Int>()
@@ -2659,6 +2661,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         menu.findItem(R.id.action_star)?.setTitle(
             if (meeting?.starred == true) R.string.unstar_meeting else R.string.star_meeting
         )
+        menu.findItem(R.id.replace_action_undo)?.isVisible = replace.canUndo(meeting?.id)
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -2844,6 +2847,14 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             R.id.action_rename -> {
                 renameMeeting()
+                true
+            }
+            R.id.replace_action_find -> {
+                replace.open()
+                true
+            }
+            R.id.replace_action_undo -> {
+                replace.undo()
                 true
             }
             R.id.action_topics -> {
@@ -3616,14 +3627,54 @@ class MeetingDetailActivity : AppCompatActivity() {
                 if (newText.isBlank()) {
                     confirmDeleteSegment(index)
                 } else {
-                    m.segments[index] =
-                        m.segments[index].copy(text = newText, words = null)
+                    // Timings re-aligned to the new wording, not dropped:
+                    // fixing one word kept costing the line its tap-to-seek.
+                    val old = m.segments[index]
+                    m.segments[index] = old.copy(
+                        text = newText,
+                        words = com.meetily.mobile.data.WordRealign
+                            .realign(old.text, old.words, newText)
+                    )
                     persist(m)
                     transcriptAdapter.update(index, m.segments[index])
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .showSecure()
+    }
+
+    // --- Find & replace (MeetingReplace) -------------------------------------
+
+    private val replace by lazy {
+        MeetingReplace(this, object : MeetingReplace.Host {
+            override fun liveMeeting(): Meeting? = meeting
+
+            override fun takeFieldEdits() = saveEdits()
+
+            override fun replaced(meeting: Meeting) = onReplaced(meeting)
+
+            override fun snackbarAnchor(): View? = shownPlayerBar()
+        })
+    }
+
+    private fun shownPlayerBar(): View? =
+        if (::playerBar.isInitialized && playerBar.visibility == View.VISIBLE) playerBar else null
+
+    /** Saves a replace (or its undo) and re-renders everything it can reach. */
+    private fun onReplaced(m: Meeting) {
+        if (m !== meeting) return
+        persist(m)
+        renderMeta(m)
+        renderTranscript(m)
+        renderStats(m)
+        renderSummary(m.summary)
+        renderActionItems(m)
+        notesInput.setText(m.notes)
+        if (headerView.findViewById<View>(R.id.notesViewMode).visibility == View.VISIBLE) {
+            renderNotes(m)
+        }
+        syncNotesButtons()
+        invalidateOptionsMenu()
     }
 
     private fun confirmDeleteSegment(index: Int) {
