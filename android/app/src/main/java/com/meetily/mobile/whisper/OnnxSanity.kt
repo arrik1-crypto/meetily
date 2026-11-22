@@ -95,7 +95,8 @@ object OnnxSanity {
             }
         } catch (e: Exception) {
             // IO or a permission refusal: either way the file is not loadable.
-            "unreadable: ${e.message}"
+            // The message names the file by its path, which is not logged.
+            "unreadable: ${e.message?.replace(file.path, file.name)}"
         }
     }
 
@@ -106,12 +107,40 @@ object OnnxSanity {
             ?: return "no \"framework\" entry in the model metadata"
         val ints = SPEAKER_FRAMEWORKS[framework] ?: return "unsupported framework \"$framework\""
         for (key in ints) {
-            val value = report.metadata[key]?.trim()?.toIntOrNull()
+            val value = report.metadata[key]?.let(::metadataInt)
             if (value == null || value < 0) return "metadata \"$key\" missing or invalid"
         }
         if (report.metadata["language"].isNullOrEmpty()) return "metadata \"language\" missing"
         return null
     }
+
+    /**
+     * An integer metadata value as sherpa-onnx reads it (v2.0.3,
+     * ToIntOrDefault in csrc/text-utils.cc), or null where it would fall back
+     * to its default: trimmed of C whitespace, then of one pair of
+     * surrounding double quotes and the whitespace inside them, then one
+     * leading '+' (not followed by another sign), then an optional '-' and
+     * ASCII digits only, within 32 bits. Neither stricter (a quoted "192"
+     * loads there) nor looser (Kotlin's own trim and toIntOrNull accept
+     * Unicode spaces and digits, which end the process there).
+     */
+    internal fun metadataInt(raw: String): Int? {
+        var s = raw.trim(::isCSpace)
+        if (s.length >= 2 && s.first() == '"' && s.last() == '"') {
+            s = s.substring(1, s.length - 1).trim(::isCSpace)
+        }
+        if (s.startsWith('+')) {
+            s = s.substring(1)
+            if (s.startsWith('+') || s.startsWith('-')) return null
+        }
+        val digits = if (s.startsWith('-')) s.substring(1) else s
+        if (digits.isEmpty() || !digits.all { it in '0'..'9' }) return null
+        val value = s.toLongOrNull() ?: return null
+        return if (value in Int.MIN_VALUE.toLong()..Int.MAX_VALUE.toLong()) value.toInt() else null
+    }
+
+    /** std::isspace in the C locale: space, \t, \n, \v, \f and \r. */
+    private fun isCSpace(c: Char): Boolean = c == ' ' || c in '\t'..'\r'
 
     fun inspect(source: Source): Report {
         val length = source.length

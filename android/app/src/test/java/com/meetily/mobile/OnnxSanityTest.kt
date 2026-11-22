@@ -132,6 +132,45 @@ class OnnxSanityTest {
     }
 
     @Test
+    fun acceptsQuotedIntegersLikeSherpa() {
+        // sherpa-onnx strips one pair of surrounding quotes before parsing,
+        // so such a model loads there and must not be turned away here.
+        for (quoted in listOf("\"192\"", " \" 192 \" ", "+192")) {
+            val meta = metadata("wespeaker").map {
+                if (it.first == "output_dim") it.first to quoted else it
+            }
+            assertNull(quoted, problem(model("wespeaker", meta = meta)))
+        }
+    }
+
+    @Test
+    fun parsesIntegerMetadataAsSherpaDoes() {
+        // Cases worked through ToIntOrDefault (v2.0.3, csrc/text-utils.cc).
+        val parsed = mapOf(
+            "192" to 192, " 192\t" to 192, "\"192\"" to 192, " \" 192 \" " to 192,
+            "+8" to 8, "\"+8\"" to 8, "-8" to -8, "007" to 7, "0" to 0,
+            "2147483647" to Int.MAX_VALUE, "-2147483648" to Int.MIN_VALUE
+        )
+        for ((raw, value) in parsed) assertEquals(raw, value, OnnxSanity.metadataInt(raw))
+        val rejected = listOf(
+            "", " ", "\"\"", "\"", "\"192", "192\"", "'192'", "\"\"192\"\"",
+            "+-8", "++8", "--8", "-+8", "+", "-", "+ 8", "19 2", "192a", "0x10", "1e3", "1.0",
+            "2147483648", "-2147483649", "99999999999999999999"
+        )
+        for (raw in rejected) assertNull(raw, OnnxSanity.metadataInt(raw))
+        // Kotlin's own trim and toIntOrNull take these (a no-break space, an
+        // em space, Arabic-Indic digits); sherpa's C-locale parse does not.
+        val kotlinOnly = listOf(
+            Char(0xA0) + "192", "192" + Char(0x2003),
+            String(charArrayOf(Char(0x661), Char(0x669), Char(0x662)))
+        )
+        for (raw in kotlinOnly) {
+            assertEquals(raw, 192, raw.trim().toIntOrNull())
+            assertNull(raw, OnnxSanity.metadataInt(raw))
+        }
+    }
+
+    @Test
     fun rejectsAModelWithoutGraphOrIrVersion() {
         assertNotNull(problem(model(graphBytes = 0)))
         assertNotNull(problem(model(irVersion = false)))

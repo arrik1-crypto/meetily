@@ -81,8 +81,13 @@ object DiarizationModels {
             "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx", 27,
             localName = "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced-2026-11-19.onnx"
         ),
+        // The file an earlier Recap downloaded under the old key. That is the
+        // earlier export only where it was fetched before 2026-11-19: the URL
+        // has served the re-export since, so later downloads by those builds
+        // are the new graph under this name. Hence "earlier download", not
+        // "earlier export". Its profiles match it either way.
         DiarizationModel(
-            "campplus-zh-en", "CAM++ (English + Chinese, earlier export)",
+            "campplus-zh-en", "CAM++ (English + Chinese, earlier download)",
             "3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx", 28,
             legacy = true,
             successor = "campplus-zh-en-v2"

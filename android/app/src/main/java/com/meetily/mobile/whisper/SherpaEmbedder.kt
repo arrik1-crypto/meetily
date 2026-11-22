@@ -55,6 +55,8 @@ class SherpaEmbedder private constructor(
     companion object {
         private const val SAMPLE_RATE = 16_000
 
+        private const val TAG = "SherpaEmbedder"
+
         /**
          * [modelKey] is the catalogue key (DiarizationModel.key), only for
          * the NativeWork tag that says which model a native crash or memory
@@ -66,7 +68,13 @@ class SherpaEmbedder private constructor(
             // the extractor needs leaves a handle whose first use crashes
             // (see OnnxSanity). Only a structurally sound model gets that far.
             // Past it, the vendored class throws when the native handle is 0.
-            if (OnnxSanity.speakerModelProblem(java.io.File(modelPath)) != null) return null
+            // The reason is logged, by catalogue key and never by path: the
+            // file still counts as downloaded, so without it a corrupt model
+            // is speaker detection silently doing nothing on every run.
+            OnnxSanity.speakerModelProblem(java.io.File(modelPath))?.let {
+                android.util.Log.w(TAG, "speaker model $modelKey rejected: $it")
+                return null
+            }
             val work = com.meetily.mobile.diag.NativeWork.begin(
                 com.meetily.mobile.diag.NativeJob.DIARISE, modelKey
             )
