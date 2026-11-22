@@ -53,6 +53,7 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+import zlib
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CPP = ROOT / "app" / "src" / "main" / "cpp"
@@ -339,9 +340,18 @@ def main(argv):
                 if not os.path.exists(b):
                     print(f"check_jni_exports: baseline {b} not found, skipped")
                     continue
-                for abi, fname, _base, blob in libraries(b, expected)[0]:
-                    sizes, names = inspect(f"{b}: {abi}/{fname}", blob, nm, tmp)
-                    baseline[(abi, fname)] = (os.path.basename(b), sizes, names, len(blob))
+                # A baseline only adds "before" rows, so one that cannot be
+                # read (a truncated committed APK, an ELF llvm-nm rejects) is
+                # skipped, never a reason to fail a good build.
+                rows = {}
+                try:
+                    for abi, fname, _base, blob in libraries(b, expected)[0]:
+                        sizes, names = inspect(f"{b}: {abi}/{fname}", blob, nm, tmp)
+                        rows[(abi, fname)] = (os.path.basename(b), sizes, names, len(blob))
+                except (UsageError, OSError, EOFError, zipfile.BadZipFile, zlib.error) as e:
+                    print(f"check_jni_exports: baseline skipped: {e}")
+                    continue
+                baseline.update(rows)
 
             failures = 0
             for path in args.inputs:

@@ -47,6 +47,54 @@ class NativeExportsTest {
     private fun natives(cls: Class<*>): List<Method> =
         cls.declaredMethods.filter { Modifier.isNative(it.modifiers) }
 
+    /** Matched against [kotlinCode] with the literals blanked, so only declarations count. */
+    private val nativeDeclaration = Regex("""\bexternal\s+fun\b""")
+
+    /**
+     * The code of a Kotlin source file: each comment becomes one space (block
+     * comments nest in Kotlin), and so does each string or character literal
+     * unless [keepLiterals]. Literals are skipped whole either way, so the
+     * slash-star in a MIME type literal cannot start a comment.
+     */
+    private fun kotlinCode(text: String, keepLiterals: Boolean): String {
+        val out = StringBuilder(text.length)
+        var i = 0
+        while (i < text.length) {
+            val start = i
+            when {
+                text.startsWith("//", i) -> {
+                    i = text.indexOf('\n', i).let { if (it < 0) text.length else it }
+                    out.append(' ')
+                }
+                text.startsWith("/*", i) -> {
+                    var depth = 0
+                    do {
+                        when {
+                            text.startsWith("/*", i) -> { depth++; i += 2 }
+                            text.startsWith("*/", i) -> { depth--; i += 2 }
+                            else -> i++
+                        }
+                    } while (depth > 0 && i < text.length)
+                    out.append(' ')
+                }
+                text.startsWith("\"\"\"", i) -> {
+                    i = text.indexOf("\"\"\"", i + 3).let { if (it < 0) text.length else it + 3 }
+                    out.append(if (keepLiterals) text.substring(start, i) else " ")
+                }
+                text[i] == '"' || text[i] == '\'' -> {
+                    val quote = text[i++]
+                    while (i < text.length && text[i] != quote && text[i] != '\n') {
+                        i += if (text[i] == '\\') 2 else 1
+                    }
+                    i = minOf(i + 1, text.length)
+                    out.append(if (keepLiterals) text.substring(start, i) else " ")
+                }
+                else -> out.append(text[i++])
+            }
+        }
+        return out.toString()
+    }
+
     /** (library, symbol) for every native the Kotlin side declares. */
     private fun kotlinExports(): Set<Pair<String, String>> =
         bridges.flatMap { (cls, lib) ->
@@ -162,9 +210,9 @@ class NativeExportsTest {
         // [bridges], or none of the checks above would see it. Natives in
         // com.k2fsa are sherpa-onnx's own library and are not checked here.
         val root = source("java/com/meetily/mobile")
-        val external = Regex("""\bexternal\s+fun\b""")
         val declaring = root.walkTopDown()
-            .filter { it.isFile && it.extension == "kt" && external.containsMatchIn(it.readText()) }
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { nativeDeclaration.containsMatchIn(kotlinCode(it.readText(), keepLiterals = false)) }
             .map { it.relativeTo(root).invariantSeparatorsPath }
             .toSet()
         val expected = bridges.keys.map {
@@ -176,9 +224,29 @@ class NativeExportsTest {
             val file = File(root, cls.name.removePrefix("com.meetily.mobile.").replace('.', '/') + ".kt")
             assertTrue(
                 "${file.name} should load $lib",
-                file.readText().contains("loadEngineLibrary(\"$lib\")")
+                kotlinCode(file.readText(), keepLiterals = true).contains("loadEngineLibrary(\"$lib\")")
             )
         }
+    }
+
+    @Test
+    fun nativeScanSeesDeclarationsNotProse() {
+        val prose = "/** Calls the external\n * fun countTokens. */\n" +
+            "/* outer /* nested */ external fun x */\n" +
+            "val mime = \"audio/*\" // external fun\n" +
+            "val raw = \"\"\"external fun y\"\"\"\n" +
+            "val quote = '\"'\n" +
+            "val msg = \"external fun missing\"\n"
+        assertTrue(
+            "comments and strings were read as a native declaration",
+            !nativeDeclaration.containsMatchIn(kotlinCode(prose, keepLiterals = false))
+        )
+        val declared = prose + "object B {\n    @JvmStatic private external fun f(): Int\n}\n"
+        assertTrue(
+            "a native declaration after comments and strings was missed",
+            nativeDeclaration.containsMatchIn(kotlinCode(declared, keepLiterals = false))
+        )
+        assertTrue(kotlinCode(declared, keepLiterals = true).contains("\"audio/*\""))
     }
 
     @Test
