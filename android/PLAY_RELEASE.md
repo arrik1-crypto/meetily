@@ -1,15 +1,13 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Next release:
+App ID: **com.recap.mobile** (permanent). Current release:
 **3.17.0-beta1** (versionCode 112), targetSdk 36 (Android 16): Batch 3
 (llama.cpp v1.0.0 and whisper.cpp b5907 on ggml 1.0.0, Arm KleidiAI on
 arm64, control-token-safe prompts, the Silero speech gate in front of
 every on-device recogniser, an 8K window for the small on-device LLMs, and
 the opt-in Parakeet Ultra, Gemma 4 E2B/E4B QAT and Qwen 3.5 2B/4B models).
-Until the version bump, which the maintainer makes in a separate commit
-right after this documentation update, `android/app/build.gradle.kts`
-still reads **3.16.0-beta1** (versionCode 111), the Batch 2 release
+The previous release, **3.16.0-beta1** (versionCode 111), was Batch 2
 (device-fit model setup, Mark moment on the notification, wider home
 search, exit-record crash reports, mediaProcessing for ImportService,
 JNI-only native exports).
@@ -541,13 +539,10 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [x] Bump `versionCode` to 111 and `versionName` to `3.16.0-beta1` in
-  `android/app/build.gradle.kts` (done). Bump both again for every later
-  upload: Play rejects a versionCode it has already seen.
-- [ ] Bump `versionCode` to 112 and `versionName` to `3.17.0-beta1` for
-  Batch 3. The maintainer makes this bump in a separate commit right after
-  this documentation update; until then the build reads 3.16.0-beta1
-  (111).
+- [x] Bump `versionCode` to 112 and `versionName` to `3.17.0-beta1` in
+  `android/app/build.gradle.kts` (done; 111 / 3.16.0-beta1 before it).
+  Bump both again for every later upload: Play rejects a versionCode it
+  has already seen.
 - [ ] Watch the first CI run of Batch 3. The arm64 configures of both
   `:app` and `:native-v82` now need Arm KleidiAI v1.32.0 as well as the
   llama.cpp v1.0.0 and whisper.cpp b5907 tarballs. In CI, KleidiAI comes
