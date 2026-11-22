@@ -80,6 +80,8 @@ object LanguagePicker {
      * The meeting screen's language chip: the spoken language, or "unknown"
      * on a meeting whose audio could still be transcribed again. Hidden
      * when there is neither, as on a meeting from the system recognizer.
+     * It offers "Re-transcribe as…" only while there is audio; without it
+     * the language is a plain label, not a pill to tap.
      */
     fun bindChip(chip: TextView, m: Meeting, onClick: () -> Unit) {
         val code = m.language
@@ -93,17 +95,27 @@ object LanguagePicker {
             if (m.translated) R.string.language_chip_translated else R.string.language_chip,
             name
         )
-        val density = context.resources.displayMetrics.density
-        // The home screen's filter pill: 36dp to look at, 48dp to touch.
-        A11y.pillTouchTarget(
-            chip,
-            R.drawable.bg_pill,
-            visualHeightPx = (36 * density).toInt(),
-            paddingHorizontalPx = (14 * density).toInt(),
-            paddingVerticalPx = (7 * density).toInt()
-        )
-        chip.setOnClickListener { onClick() }
-        A11y.labelClick(chip, context.getString(R.string.language_retranscribe_as))
+        if (m.audioFile.isNullOrBlank()) {
+            // Nothing to transcribe again (the audio was removed): the layout's
+            // plain text, with no tap, no pill and no 48dp target.
+            A11y.clearClick(chip)
+            chip.background = null
+            chip.setPadding(0, 0, 0, 0)
+            chip.minHeight = 0
+            chip.minWidth = 0
+        } else {
+            val density = context.resources.displayMetrics.density
+            // The home screen's filter pill: 36dp to look at, 48dp to touch.
+            A11y.pillTouchTarget(
+                chip,
+                R.drawable.bg_pill,
+                visualHeightPx = (36 * density).toInt(),
+                paddingHorizontalPx = (14 * density).toInt(),
+                paddingVerticalPx = (7 * density).toInt()
+            )
+            chip.setOnClickListener { onClick() }
+            A11y.labelClick(chip, context.getString(R.string.language_retranscribe_as))
+        }
         chip.visibility = View.VISIBLE
     }
 

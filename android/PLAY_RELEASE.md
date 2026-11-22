@@ -912,13 +912,15 @@ Work through it before the first targetSdk 36 upload to any track.
   and voice profiles and settings are separate. The privacy policy now
   says so. Confirm this is acceptable, or add a "Delete all Recap data"
   action to the Storage screen.
-- [ ] *Decision*: the custom-vocabulary offer after Find & replace adds the
-  term to the end of the list, but Whisper's prompt keeps only about the
-  first 600 characters of the list (`Vocab.promptFor`), so a term added to
-  a long list may never reach Whisper, and the dialog does not say so.
-  Check the offer's wording against the Settings custom-vocabulary text
-  on a device and decide whether to mention the limit or put new terms
-  first.
+- [ ] *Decision*: the custom-vocabulary offer after Find & replace puts
+  the term at the start of the list (`Vocab.withPreset(term, existing)` in
+  MeetingReplace). So it always reaches Whisper's ~600-character prompt
+  (`Vocab.promptFor`). On a long list, though, it pushes the user's last
+  terms out of the prompt. It also rewrites the list comma-separated and
+  drops case-insensitive duplicates. The dialog (`replace_vocab_body`)
+  says none of this. Check the wording on a device against the Settings
+  custom-vocabulary text, and decide whether to keep term-first or
+  mention this in `replace_vocab_body`.
 - [ ] *Decision*, after the device check below: if Qwen 2.5 1.5B or
   Gemma 3 1B drift into English on a long German meeting summarised with
   "Same as meeting", consider asking the map-reduce condense prompt to

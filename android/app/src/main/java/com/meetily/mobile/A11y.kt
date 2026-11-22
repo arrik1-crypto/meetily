@@ -71,6 +71,19 @@ object A11y {
     }
 
     /**
+     * Undoes a tap on [view] and its [labelClick] label: a plain label again,
+     * with no tap for a screen reader to offer. The label's tag is cleared
+     * too, so a later [labelClick] with the same text adds the action back.
+     */
+    fun clearClick(view: View) {
+        // Before isClickable: setting a listener, even null, makes it clickable.
+        view.setOnClickListener(null)
+        view.isClickable = false
+        view.setTag(R.id.a11y_click_label, null)
+        ViewCompat.replaceAccessibilityAction(view, AccessibilityActionCompat.ACTION_CLICK, null, null)
+    }
+
+    /**
      * Names what a long-press does. Without a label it is announced as
      * "double-tap and hold to long press", with no hint of the result.
      */

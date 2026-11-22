@@ -424,7 +424,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         val summaryChanged = merged != null && adoptSynced(pending.ours, merged)
         if (pending.summaryDone) finishSummaryUi(reveal = summaryChanged)
-        if (pending.offerReviews && !isFinishing && !isDestroyed) offerPendingReviews()
+        // A screen being rotated away leaves the offer to the new one (attachOnStart).
+        if (pending.offerReviews && !isFinishing && !isDestroyed && !isChangingConfigurations) {
+            offerPendingReviews()
+        }
         if (syncWanted || summaryDoneWanted || offerReviewsWanted) startSync()
     }
 
@@ -1577,6 +1580,19 @@ class MeetingDetailActivity : AppCompatActivity() {
         // to the end on the worker the next screen opened reads on.
         if (isFinishing) loadModel?.close()
         saveEdits()
+        // The next screen for this meeting (a rotation, or the meeting opened
+        // again) reads the file on SYNC_EXECUTOR (MeetingLoadModel.open). A
+        // save asked for while another was running is only marked
+        // (syncWanted) and queued by completeSync, which would run after that
+        // read was queued: the read would miss the edit, count as fresh, and
+        // the next edit there would write over it. Queue it now. A rotation
+        // waits only for the running save, since SYNC_EXECUTOR runs in order;
+        // a close waits for every save to land.
+        if (isFinishing) {
+            flushSync()
+        } else if (isChangingConfigurations && syncWanted) {
+            pendingSync?.let { completeSync(it) }
+        }
         player?.let { p ->
             if (playerReady && p.isPlaying) {
                 p.pause()
@@ -4632,9 +4648,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         private const val IDLE_TICK_MS = 400L
 
         /**
-         * Every meeting screen's saves, in order. Shared rather than per
-         * instance so a save from a screen being rotated away still lands
-         * before the new instance's first read.
+         * Every meeting screen's saves, and its reads (MeetingLoadModel.open),
+         * in order. Shared rather than per instance so a save from a screen
+         * being rotated away still lands before the new instance's first read.
+         * That holds for a save already queued; a follow-up save collapsed
+         * into syncWanted is queued by onPause, before the new screen exists.
          */
         private val SYNC_EXECUTOR: java.util.concurrent.ExecutorService =
             java.util.concurrent.Executors.newSingleThreadExecutor { task ->

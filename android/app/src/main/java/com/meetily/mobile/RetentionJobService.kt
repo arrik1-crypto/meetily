@@ -6,6 +6,7 @@ import android.app.job.JobScheduler
 import android.app.job.JobService
 import android.content.ComponentName
 import android.content.Context
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The daily automatic clean-up (RetentionRunner.runAutomatic), armed only
@@ -19,14 +20,25 @@ import android.content.Context
  */
 class RetentionJobService : JobService() {
 
+    /**
+     * The stop signal of the run in progress. One per run, so a reused
+     * service instance, or a run still waiting for RetentionRunner's lock,
+     * never sees an earlier run's stop.
+     */
+    @Volatile
+    private var stopRequested: AtomicBoolean? = null
+
     override fun onStartJob(params: JobParameters?): Boolean {
         val app = applicationContext
+        val stop = AtomicBoolean(false)
+        stopRequested = stop
         Thread {
             try {
-                RetentionRunner.runAutomatic(app)
+                RetentionRunner.runAutomatic(app) { stop.get() }
             } catch (_: Throwable) {
                 // A failed run deletes nothing more; tomorrow's tries again.
             } finally {
+                // Ignored by the system when the job was already stopped.
                 params?.let { jobFinished(it, false) }
             }
         }.apply {
@@ -36,8 +48,14 @@ class RetentionJobService : JobService() {
         return true
     }
 
-    /** A run cut short stops between meetings; the next daily run carries on. */
-    override fun onStopJob(params: JobParameters?): Boolean = false
+    /**
+     * A run cut short stops between meetings; the next daily run carries on.
+     * Not rescheduled: the periodic job runs again tomorrow anyway.
+     */
+    override fun onStopJob(params: JobParameters?): Boolean {
+        stopRequested?.set(true)
+        return false
+    }
 
     companion object {
         /** Fixed, so scheduling again replaces rather than stacks (ChargingJobService is 7_301). */

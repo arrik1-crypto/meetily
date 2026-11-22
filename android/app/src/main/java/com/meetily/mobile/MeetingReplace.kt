@@ -72,12 +72,13 @@ class MeetingReplace(
     }
 
     /**
-     * A run on this meeting is about to write its summary, notes or speaker
-     * tags. Replacing under it would be overwritten by it, or would leave a
-     * summary from the old wording marked as current.
+     * A recording, import or accuracy check, or a summary, notes or speaker
+     * run, is writing this meeting. Recording and import write the transcript
+     * back whole on every save, and a summary run writes the summary, notes
+     * or speaker tags. A replace made under any of them would be overwritten,
+     * or would leave a summary from the old wording marked as current.
      */
-    private fun busy(m: Meeting): Boolean =
-        SummaryService.isRunning && SummaryService.currentMeetingId == m.id
+    private fun busy(m: Meeting): Boolean = AudioRemoval.isWriting(activity, m.id)
 
     /** "Fix a word everywhere…" on transcript line [index]: which word, then the dialog. */
     fun fixWord(index: Int) {

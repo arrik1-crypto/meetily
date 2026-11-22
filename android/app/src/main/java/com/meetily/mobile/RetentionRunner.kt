@@ -151,10 +151,13 @@ object RetentionRunner {
      * worked out again first and only meetings in both are touched, so one
      * starred, edited or given a job since is left alone. One run at a
      * time. Worker threads only.
+     *
+     * [cancelled] is checked before each meeting: once it is true the run
+     * stops there, and the outcome counts what was done before it.
      */
     @Synchronized
     @WorkerThread
-    fun apply(context: Context, approved: Plan): Outcome {
+    fun apply(context: Context, approved: Plan, cancelled: () -> Boolean = { false }): Outcome {
         val rule = approved.rule
         if (!rule.enabled) return Outcome(0, 0L)
         val still = plan(context, rule).selected.mapTo(HashSet()) { it.id }
@@ -162,6 +165,7 @@ object RetentionRunner {
         var count = 0
         var bytes = 0L
         for (candidate in approved.selected) {
+            if (cancelled()) break
             if (candidate.id !in still) continue
             // Opened since the plan above was made.
             if (OpenMeetings.isOpen(candidate.id)) continue
@@ -197,10 +201,13 @@ object RetentionRunner {
      * Holds the same lock as [apply] from plan to report, so it never plans
      * or reports around a run the user started: it waits for that run and
      * then sees what is left.
+     *
+     * [cancelled] is the job's stop signal (RetentionJobService.onStopJob):
+     * the run stops between meetings and still reports what it did.
      */
     @Synchronized
     @WorkerThread
-    fun runAutomatic(context: Context) {
+    fun runAutomatic(context: Context, cancelled: () -> Boolean = { false }) {
         val rule = rule(context)
         if (!rule.enabled) {
             RetentionJobService.cancel(context)
@@ -208,12 +215,12 @@ object RetentionRunner {
         }
         if (RecordingService.isRunning || ImportService.isRunning || SummaryService.isRunning) return
         val plan = plan(context, rule)
-        if (plan.selected.isEmpty()) return
+        if (cancelled() || plan.selected.isEmpty()) return
         if (Retention.needsReview(rule, plan.selected)) {
             notifyReview(context, plan.selected.size)
             return
         }
-        val outcome = apply(context, plan)
+        val outcome = apply(context, plan, cancelled)
         if (outcome.count > 0) notifyDone(context, rule, outcome)
     }
 

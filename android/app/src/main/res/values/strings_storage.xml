@@ -109,6 +109,11 @@
         <item quantity="one">%1$d selected meeting is left out: this doesn\'t apply to it right now (no audio, no transcript yet, or it is being recorded or has work in progress).</item>
         <item quantity="other">%1$d selected meetings are left out: this doesn\'t apply to them right now (no audio, no transcript yet, or they are being recorded or have work in progress).</item>
     </plurals>
+    <!-- The same, under bulk Delete and Add tag: only a recording or work in progress leaves a meeting out of those. -->
+    <plurals name="storage_bulk_skipped_busy">
+        <item quantity="one">%1$d selected meeting is left out: it is being recorded or something is working on it right now.</item>
+        <item quantity="other">%1$d selected meetings are left out: they are being recorded or something is working on them right now.</item>
+    </plurals>
     <string name="storage_bulk_none">This doesn\'t apply to any of the selected meetings right now.</string>
     <plurals name="storage_bulk_deleted">
         <item quantity="one">Deleted %1$d meeting</item>
@@ -150,8 +155,8 @@
     <string name="storage_retention_preview_title">Turn on automatic clean-up?</string>
     <!-- %1$d meetings, %2$s the audio size. -->
     <plurals name="storage_retention_now_audio">
-        <item quantity="one">Now: the audio of %1$d meeting is removed (%2$s). Its transcript, summary and notes stay.</item>
-        <item quantity="other">Now: the audio of %1$d meetings is removed (%2$s). Their transcripts, summaries and notes stay.</item>
+        <item quantity="one">Now: the audio of %1$d meeting is removed (%2$s). Its transcript, summary, notes, photos and attachments stay.</item>
+        <item quantity="other">Now: the audio of %1$d meetings is removed (%2$s). Their transcripts, summaries, notes, photos and attachments stay.</item>
     </plurals>
     <plurals name="storage_retention_now_meetings">
         <item quantity="one">Now: %1$d meeting is deleted, with its transcript, summary, notes, photos, attachments and audio.</item>
@@ -159,8 +164,10 @@
     </plurals>
     <string name="storage_retention_now_none">Now: nothing is old enough yet.</string>
     <!-- %1$d is the rule's number of days. -->
-    <string name="storage_retention_later_audio">After that, Recap checks once a day and removes the audio of meetings as they pass %1$d days. A quiet notification says when it has removed something.</string>
+    <string name="storage_retention_later_audio">After that, Recap checks once a day and removes the audio of meetings as they pass %1$d days. A quiet notification says when it has removed something.\n\nRemoved audio can\'t be recovered. Those meetings can no longer be played or followed along, shared as audio or clips, checked for accuracy, used to learn a voice, or transcribed again.</string>
     <string name="storage_retention_later_meetings">After that, Recap checks once a day and deletes meetings as they pass %1$d days. A quiet notification says when it has deleted something. Deleted meetings can\'t be recovered.</string>
+    <!-- Added to the review of a clean-up the daily run left for the user to confirm. -->
+    <string name="storage_retention_irreversible">This can\'t be undone.</string>
     <string name="storage_retention_kept">Never touched: starred meetings, meetings changed in the last week, meetings with a reminder still to come, and meetings being recorded, transcribed or summarised or with a job waiting. Removing old audio also skips recordings that have no transcript yet.</string>
     <plurals name="storage_retention_more">
         <item quantity="one">…and %1$d more</item>
@@ -187,7 +194,7 @@
     <string name="storage_notif_channel">Storage clean-up</string>
     <!-- %1$d is the rule's number of days. -->
     <string name="storage_notif_audio_text">Meetings older than %1$d days. Their transcripts are kept.</string>
-    <string name="storage_notif_meetings_text">Meetings older than %1$d days, as set in Settings → Storage and clean-up.</string>
+    <string name="storage_notif_meetings_text">Meetings older than %1$d days, as set in Settings → Data → Storage and clean-up.</string>
     <plurals name="storage_notif_review_title">
         <item quantity="one">%1$d old meeting is due for clean-up</item>
         <item quantity="other">%1$d old meetings are due for clean-up</item>

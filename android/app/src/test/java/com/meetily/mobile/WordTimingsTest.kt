@@ -116,7 +116,7 @@ class WordTimingsTest {
     }
 
     @Test
-    fun splitDropsWordTimings() {
+    fun splitKeepsEachPartsWordTimings() {
         val segment = TranscriptSegment(
             timestampMs = 0L,
             text = "alpha beta gamma delta",
@@ -127,7 +127,7 @@ class WordTimingsTest {
             segment, null, charPos = 11
         )
         assertTrue(result != null)
-        assertNull(result!!.first.words)
+        assertEquals(listOf(WordStamp(0, "alpha"), WordStamp(400, "beta")), result!!.first.words)
         assertNull(result.second.words)
     }
 }

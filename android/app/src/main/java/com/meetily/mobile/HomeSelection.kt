@@ -234,10 +234,15 @@ class HomeSelection(
         }
     }
 
-    /** "… left out" under a confirmation, when part of the selection is. */
+    /**
+     * "… left out" under the Delete and Add tag confirmations, when part of
+     * the selection is. Only a recording, or work in progress for Delete,
+     * leaves a meeting out of those (BulkActions.eligible); Remove audio has
+     * its own note with its other reasons (AudioRemoval.confirm).
+     */
     private fun skippedNote(skipped: Int): String =
         if (skipped == 0) "" else "\n\n" + activity.resources.getQuantityString(
-            R.plurals.storage_bulk_skipped, skipped, skipped
+            R.plurals.storage_bulk_skipped_busy, skipped, skipped
         )
 
     /** After a bulk action (main thread): say what happened, leave selection mode, show the result. */

@@ -42,7 +42,7 @@
     </plurals>
     <string name="replace_stale_note">Changing the transcript marks the summary as out of date. Replace in the summary fixes its wording, not what it paraphrased.</string>
 
-    <string name="replace_busy">Find &amp; replace is available once the summary, notes or speaker run on this meeting finishes.</string>
+    <string name="replace_busy">Find &amp; replace is available once this meeting has finished recording or transcribing, and any summary, notes or speaker run on it is done.</string>
     <string name="replace_nothing">Nothing was replaced. The meeting changed since the preview.</string>
     <plurals name="replace_done">
         <item quantity="one">Replaced %d match</item>
