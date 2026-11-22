@@ -99,13 +99,14 @@ object EdgeToEdge {
          * gone, so it is never applied twice. The list reads the bar's
          * visibility on each dispatch, and a visibility change does not
          * dispatch insets by itself: whoever shows or hides the bar calls
-         * ViewCompat.requestApplyInsets afterwards.
+         * ViewCompat.requestApplyInsets afterwards. If the layout has no such
+         * bar, the list is on the bottom edge for good and pads as [list].
          */
         fun listAbove(listId: Int, barId: Int) {
-            val list = activity.findViewById<View>(listId) ?: return
-            val barView = activity.findViewById<View>(barId) ?: return
-            (list as? ViewGroup)?.clipToPadding = false
-            ViewCompat.setOnApplyWindowInsetsListener(list) { view, insets ->
+            val listView = activity.findViewById<View>(listId) ?: return
+            val barView = activity.findViewById<View>(barId) ?: return list(listId)
+            (listView as? ViewGroup)?.clipToPadding = false
+            ViewCompat.setOnApplyWindowInsetsListener(listView) { view, insets ->
                 EdgeToEdge.padListAbove(view, insets, barView.visibility != View.GONE)
                 insets
             }
