@@ -191,6 +191,50 @@ class WordRealignTest {
     }
 
     @Test
+    fun freeEditThatKeepsTheWordCountStillKeepsEachWordsOwnTiming() {
+        val line = "um we should go now"
+        val stamps = listOf(
+            WordStamp(0, "um"), WordStamp(300, "we"), WordStamp(600, "should"),
+            WordStamp(900, "go"), WordStamp(1200, "now")
+        )
+        val newText = "we should go now please"
+        val out = WordRealign.realign(line, stamps, newText)!!
+        assertEquals(listOf("we", "should", "go", "now", "please"), out.map { it.text })
+        // One word dropped and one added keeps the count: the words in
+        // between keep their own times, not their neighbour's.
+        assertEquals(
+            listOf(WordStamp(300, "we"), WordStamp(600, "should"), WordStamp(900, "go"), WordStamp(1200, "now")),
+            out.subList(0, 4)
+        )
+        assertTrue(out[4].ms >= 1200L)
+        assertPlaceable(newText, out)
+
+        // A word moved to the other end keeps its time too, and the rest theirs.
+        val moved = WordRealign.realign(
+            "Jon Smith said hello",
+            listOf(WordStamp(0, "Jon"), WordStamp(300, "Smith"), WordStamp(600, "said"), WordStamp(900, "hello")),
+            "Smith said hello Jon"
+        )!!
+        assertEquals(
+            listOf(WordStamp(300, "Smith"), WordStamp(600, "said"), WordStamp(900, "hello")),
+            moved.subList(0, 3)
+        )
+        assertEquals("Jon", moved[3].text)
+    }
+
+    @Test
+    fun oneForOneSubstitutionsInAFreeEditStillMapByPosition() {
+        val line = "Jon Smith said hello"
+        val stamps = listOf(
+            WordStamp(0, "Jon"), WordStamp(300, "Smith"), WordStamp(600, "said"), WordStamp(900, "hello")
+        )
+        assertEquals(
+            listOf(WordStamp(0, "John"), WordStamp(300, "Smyth"), WordStamp(600, "said"), WordStamp(900, "hello")),
+            WordRealign.realign(line, stamps, "John Smyth said hello")
+        )
+    }
+
+    @Test
     fun freeEditOfAnUnspacedScriptStaysInsideTheWord() {
         val line = "東京都で会議"
         val stamps = listOf(

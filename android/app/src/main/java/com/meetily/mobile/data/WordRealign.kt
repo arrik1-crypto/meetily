@@ -8,11 +8,11 @@ package com.meetily.mobile.data
  * correcting one misheard name cost that whole line its tap-to-seek. Here
  * only the words a change touches are re-timed:
  * - words outside every change keep their text and timing exactly;
- * - a changed run whose word count is unchanged maps one to one, each new
- *   word taking the timing of the word it replaced;
- * - otherwise the run is diffed word by word: words that survive keep their
- *   own timing, and the replaced span's time is spread across its new words
- *   by their length.
+ * - inside a change, words are diffed: words that survive keep their own
+ *   timing, even when the change moved them along the line;
+ * - between two survivors, a run of as many new words as old maps one to
+ *   one, each new word taking the timing of the word it replaced; otherwise
+ *   the replaced span's time is spread across its new words by their length.
  *
  * Words are found in the text the way TranscriptLinesAdapter finds them
  * (each one searched for after the previous), so a word that cannot be
@@ -244,10 +244,11 @@ object WordRealign {
         after: Long?
     ): List<WordStamp> {
         if (tokens.isEmpty()) return emptyList()
-        if (old.size == tokens.size) {
-            return old.indices.map { WordStamp(old[it].ms, tokens[it]) }
-        }
         if (old.isEmpty()) return between(tokens, before, after)
+        // Equal word counts are diffed too: a free edit that drops one word
+        // and adds another elsewhere keeps the count, and mapping it by
+        // position would give every word in between its neighbour's time.
+        // A true one-for-one change still maps by position below.
         val pairs = if (old.size.toLong() * tokens.size <= MAX_DIFF_CELLS) {
             commonWords(old.map { it.text }, tokens)
         } else {

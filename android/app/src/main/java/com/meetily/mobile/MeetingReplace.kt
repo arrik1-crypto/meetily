@@ -17,10 +17,12 @@ import androidx.core.view.ViewCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.snackbar.Snackbar
+import com.meetily.mobile.data.ActionItem
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.FindReplace
 import com.meetily.mobile.data.FindReplace.Area
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.security.AppLock
 import com.meetily.mobile.whisper.Vocab
 import java.util.concurrent.LinkedBlockingQueue
@@ -179,9 +181,11 @@ class MeetingReplace(
             val counting = q.find.isNotEmpty() && current == null
             val status = when {
                 q.find.isEmpty() -> activity.getString(R.string.replace_preview_empty)
-                // Opened to fix a word: both fields still read the same.
-                q.replace == q.find -> activity.getString(R.string.replace_preview_same)
                 counting -> activity.getString(R.string.replace_preview_counting)
+                // Opened to fix a word: both fields still read the same. Only
+                // when nothing would change, since without Match case the
+                // word's other spellings ("jon", "JON") still count.
+                total == 0 && q.replace == q.find -> activity.getString(R.string.replace_preview_same)
                 total == 0 -> activity.getString(R.string.replace_preview_none)
                 else -> res.getQuantityString(R.plurals.replace_preview_total, total, total)
             }
@@ -278,6 +282,7 @@ class MeetingReplace(
         model.snapshot = snapshot
         model.meetingId = m.id
         host.replaced(m)
+        for (change in snapshot.actionItems) rearmReminder(m.id, change.before, change.after)
 
         val total = snapshot.counts.total()
         val done = activity.resources.getQuantityString(R.plurals.replace_done, total, total)
@@ -293,7 +298,13 @@ class MeetingReplace(
             .setTitle(activity.getString(R.string.replace_vocab_title, term))
             .setMessage(R.string.replace_vocab_body)
             .setPositiveButton(R.string.replace_vocab_add) { _, _ ->
-                settings.customVocab = Vocab.withPreset(settings.customVocab, listOf(term))
+                // First, not last: Whisper's prompt takes terms in order and
+                // stops at its length budget, so a term appended to a long
+                // list would never reach it.
+                settings.customVocab = Vocab.withPreset(
+                    term,
+                    settings.customVocab.split(',', ';', '\n').map { it.trim() }.filter { it.isNotBlank() }
+                )
                 added = true
             }
             .setNegativeButton(R.string.replace_vocab_skip) { _, _ ->
@@ -307,6 +318,24 @@ class MeetingReplace(
                 )
             }
             .showSecure()
+    }
+
+    /**
+     * Moves a reminder to an action item's new wording. Its alarm is keyed
+     * on the task text, and the receiver looks the item up by it, so the
+     * alarm armed for the old wording would fire and find nothing. One
+     * already delivered stays delivered, or the next re-arm after a restart
+     * would post it again under the new wording.
+     */
+    private fun rearmReminder(meetingId: String, before: ActionItem, after: ActionItem) {
+        val at = after.remindAtMs ?: return
+        if (before.task == after.task) return
+        Reminders.cancelActionItem(activity, meetingId, before.task)
+        if (at > System.currentTimeMillis()) {
+            if (!after.done) Reminders.scheduleActionItem(activity, meetingId, after.task, at)
+        } else if (Reminders.wasDelivered(activity, meetingId, before.task, at)) {
+            Reminders.claimDelivery(activity, meetingId, after.task, at)
+        }
     }
 
     private fun showUndoBar(message: CharSequence) {
@@ -331,9 +360,14 @@ class MeetingReplace(
             return
         }
         host.takeFieldEdits()
+        // Undo puts items back in place, by index.
+        val itemsBefore = m.actionItems.toList()
         val result = FindReplace.undo(m, snapshot)
         model.snapshot = null
         host.replaced(m)
+        itemsBefore.forEachIndexed { i, before ->
+            m.actionItems.getOrNull(i)?.let { rearmReminder(m.id, before, it) }
+        }
         val message = when {
             result.restored == 0 -> activity.getString(R.string.replace_undo_nothing)
             result.skipped > 0 -> activity.resources.getQuantityString(

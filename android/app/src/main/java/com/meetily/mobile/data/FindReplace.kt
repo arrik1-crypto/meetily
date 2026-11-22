@@ -302,13 +302,23 @@ object FindReplace {
         val taken = HashSet<Int>()
         var allLinesBack = true
         for (change in snapshot.lines) {
-            val at = find(meeting.segments, change.index, taken) { it == change.after }
+            // By wording only, as for action items below: a highlight or a
+            // speaker tag set since does not change how the line reads, and
+            // stays.
+            val at = find(meeting.segments, change.index, taken) {
+                it.timestampMs == change.after.timestampMs &&
+                    it.text == change.after.text &&
+                    it.words == change.after.words
+            }
             if (at < 0) {
                 skipped++
                 allLinesBack = false
                 continue
             }
-            meeting.segments[at] = change.before
+            meeting.segments[at] = meeting.segments[at].copy(
+                text = change.before.text,
+                words = change.before.words
+            )
             taken.add(at)
             restored++
         }

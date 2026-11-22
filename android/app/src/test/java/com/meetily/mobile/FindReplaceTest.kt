@@ -262,6 +262,27 @@ class FindReplaceTest {
     }
 
     @Test
+    fun undoStillRestoresALineHighlightedOrTaggedSinceAndKeepsThat() {
+        val original = meeting()
+        val m = meeting()
+        val snapshot = FindReplace.apply(m, query("Jon", "John"), all)!!
+        // Not wording changes: a highlight, and a speaker named everywhere.
+        m.segments[0] = m.segments[0].copy(highlighted = true)
+        m.segments[1] = m.segments[1].copy(speaker = "Priya Shah", clusterId = 2)
+
+        val result = FindReplace.undo(m, snapshot)
+        assertEquals(0, result.skipped)
+        assertEquals(original.segments[0].text, m.segments[0].text)
+        assertEquals(original.segments[0].words, m.segments[0].words)
+        assertTrue(m.segments[0].highlighted)
+        assertEquals(original.segments[1].text, m.segments[1].text)
+        assertEquals("Priya Shah", m.segments[1].speaker)
+        assertEquals(2, m.segments[1].clusterId)
+        // Every line went back, so the stale mark did too.
+        assertEquals(original.summaryStale, m.summaryStale)
+    }
+
+    @Test
     fun snapshotRestoresAnOwnerThatTheReplaceCleared() {
         val m = meeting()
         val snapshot = FindReplace.apply(m, query("Jon", ""), setOf(Area.ACTION_ITEMS))!!
