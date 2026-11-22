@@ -62,9 +62,11 @@ class DigestActivity : AppCompatActivity() {
         val formatDate: (Long) -> String = { dateFormat.format(Date(it)) }
 
         Thread {
-            val meetings = WeeklyDigest.weekMeetings(
-                MeetingStore(this).list(), System.currentTimeMillis()
-            )
+            // Dates first, then only this week's meetings in full.
+            val store = MeetingStore(this)
+            val meetings = WeeklyDigest.loadWeek(
+                store.listPartial(setOf("createdAtMs")), System.currentTimeMillis()
+            ) { store.load(it) }
             if (meetings.isEmpty()) {
                 runOnUiThread {
                     if (!isFinishing && !isDestroyed) {
