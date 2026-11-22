@@ -4,6 +4,7 @@
 #include <string.h>
 #include <android/log.h>
 #include "whisper.h"
+#include "kleidiai_env.h"
 
 #define TAG "meetily_whisper"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -91,6 +92,7 @@ Java_com_meetily_mobile_whisper_WhisperBridge_initContext(
     (void) thiz;
     const char *path = (*env)->GetStringUTFChars(env, model_path, NULL);
     if (path == NULL) return 0;
+    meetily_kleidiai_env();
     struct whisper_context_params cparams = whisper_context_default_params();
     struct whisper_context *ctx = whisper_init_from_file_with_params(path, cparams);
     (*env)->ReleaseStringUTFChars(env, model_path, path);

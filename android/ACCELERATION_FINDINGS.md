@@ -43,49 +43,82 @@ Baseline, verified in this repo:
   a kernel whose features the CPU has, so the armv8-a baseline cannot
   SIGILL because of it; on a Cortex-A53/A73 no kernel qualifies and
   everything stays on ggml's path. It is a runtime-dispatched
-  dotprod/i8mm/SME route for Q4_0, Q8_0 and Q6_K weight matmuls (Q4_K
-  only on SME2 CPUs), without a third CPU tier. Its SVE kernels need
-  256-bit vectors, and phone cores have 128-bit SVE2, so they never
-  qualify on a phone. That makes it a smaller fix for the gap in the line
-  above than it sounds: on every phone without SME2, the Q4_K bulk of the
-  catalogue's Q4_K_M models stays where it was (`CPU_REPACK` on the v82
-  build, the plain mmap'd CPU buffer on the baseline), and only their
-  Q6_K tensors move.
-  - **What it costs (2026-11 review, read from v1.0.0's
-    `ggml-cpu/kleidiai/kleidiai.cpp`):** on any phone with dotprod (the
-    whole v82 tier, and baseline-tier phones that have it), KleidiAI takes
-    every Q6_K matmul weight: the output head and about half the
-    `ffn_down`/`attn_v` tensors. It dequantises Q6_K (and Q8_0) and
-    requantises it to int8 with one scale per row, which is lossy: the v82
-    build ran these through `CPU_REPACK`'s exact Q6_K kernels before. Those
-    tensors also grow 8/6.5625 = 1.22x, as anonymous memory in a
-    `CPU_KLEIDIAI` buffer: about +270 MB for Llama 3.1 8B (1.5B Q6_K
-    parameters), up to about 9% of the file for the catalogue's models
-    (Gemma 3 1B, whose tied 262k-token output head is Q6_K). DeviceFit's
-    10% weight slack (`llmWorkingSetMb`) has to absorb that; it was not
-    raised for it. Q4_0 weights (none in the catalogue) keep per-block
-    scales and are not affected this way.
+  dotprod/i8mm route for Q4_0, Q8_0 and Q6_K weight matmuls, without a
+  third CPU tier. Its SME/SME2 kernels (the only ones it has for Q4_K) are
+  kept off, for memory (below), and its SVE kernels need 256-bit vectors,
+  which phone cores (128-bit SVE2) do not have. That makes it a smaller fix
+  for the gap in the line above than it sounds: on every phone, the Q4_K
+  bulk of the catalogue's Q4_K_M models stays where it was (`CPU_REPACK`
+  on the v82 build, the plain mmap'd CPU buffer on the baseline), and only
+  their Q6_K tensors move.
+  - **What it costs (2026-11 reviews, read from v1.0.0's
+    `ggml-cpu/kleidiai/kleidiai.cpp`, `repack()` and `get_alloc_size()`;
+    nothing measured):** on any phone with dotprod (the whole v82 tier, and
+    baseline-tier phones that have it), KleidiAI takes every Q6_K matmul
+    weight: the output head and about half the `ffn_down`/`attn_v`
+    tensors. A tied head counts: llama.cpp loads a second copy of
+    `token_embd` for the output matmul, and that copy goes to KleidiAI. It
+    dequantises Q6_K (and Q8_0) and requantises it to int8 with one scale
+    per row, which is lossy: the v82 build ran these through
+    `CPU_REPACK`'s exact Q6_K kernels before. Memory, three ways:
+    - *Steady state:* those tensors grow 8/6.5625 = 1.22x, as anonymous
+      memory in a `CPU_KLEIDIAI` buffer, while their file pages stop being
+      read: about +270 MB for Llama 3.1 8B (1.5B Q6_K parameters), up to
+      about 9% of the file across the catalogue (estimated from tensor
+      shapes). DeviceFit's 10% weight slack (`llmWorkingSetMb`) has to
+      absorb that; it was not raised for it.
+    - *Load peak:* each such weight is requantised through a temporary
+      int8 buffer of rows x cols bytes, freed before the next, on top of
+      the `CPU_KLEIDIAI` buffer written so far. The largest is the output
+      head: 128256 x 4096 = 501 MiB for Llama 3.1 8B, 262144 x 2560 =
+      640 MiB for Gemma 3 4B and MedGemma. It comes before the KV cache and
+      compute buffers are allocated, so it competes with DeviceFit's
+      `LLM_RUNTIME_MB` and 10% for room rather than adding to them: well
+      inside them for Llama 3.1 8B, about their size for Gemma 3 4B. A
+      `dumpsys meminfo` taken only during generation misses it.
+    - *SME/SME2 phones (Arm C1-class flagships, 2025 on), if the SME-family
+      kernels were on:* every Q6_K/Q8_0 (and Q4_0) weight is packed twice,
+      once for the SME kernel and once for the NEON i8mm/dotprod kernel the
+      threads past the SME thread cap run. The cap is the SMCU count from
+      sysfs, or 1, so any multi-threaded run packs both (setting
+      `GGML_TOTAL_THREADS` only drops the second copy at or below the cap).
+      That is about 2.44x the Q6_K size, and Q4_K moves out of the
+      evictable mmap into the anonymous buffer as well: for Llama 3.1 8B the
+      Q6_K copies alone are about +1.8 GB over the file, against 492 MB of
+      slack, which on a 12 GB phone is past what DeviceFit lets a model
+      take. So the build keeps them off: `kleidiai_env.h` sets
+      `GGML_KLEIDIAI_SME=0` before either engine loads a model (ggml has no
+      build option for it), and SME phones get the same i8mm/dotprod kernels
+      as other phones. Configure with `-DMEETILY_KLEIDIAI_SME=ON` to measure
+      them; turn it on for good only with DeviceFit's allowance raised to
+      what that shows.
   - whisper.cpp offers its weights to the same buffer types, but the
     shipped Whisper models are F16, q5_0 and q5_1. KleidiAI has no q5
-    kernels and runs F16 only on SME2, so on other phones transcription
-    stays on ggml's own kernels.
+    kernels and runs F16 only on SME2, which is off, so transcription stays
+    on ggml's own kernels.
   - `GGML_LLAMAFILE` keeps its default. Not measured: no device numbers,
     and APK growth is unknown until the first CI build. llama.cpp's
     warnings, errors and load-time buffer lines now reach logcat under the
     tag `meetily_ggml` (they went to stderr, which an app discards), so a
     phone shows whether it engaged: `load_tensors: CPU_KLEIDIAI model
     buffer size = ...`, and once per process `kleidiai: primary q8 kernel
-    feature DOTPROD` (or `I8MM`). The q4_k line names a kernel only on SME2
-    phones; everywhere else it reads `kleidiai: no compatible q4_k kernels
-    found for CPU features mask ...`, which is expected, not a failure.
+    feature DOTPROD` (or `I8MM`) and `kleidiai: SME disabled`. The q4_k
+    line reads `kleidiai: no compatible q4_k kernels found for CPU features
+    mask ...`, which is expected, not a failure.
   - **Device check before keeping it on:** on one dotprod phone, summarise
-    the same meeting with the same Q4_K_M model (a 7–8B one shows the
-    memory cost best) in this build and in one configured with
-    `-DGGML_CPU_KLEIDIAI=OFF`. Compare the summaries, the Ask answers, peak
-    PSS (`dumpsys meminfo` during generation), first-token latency and
-    tokens/s. If quality or memory is worse, set `GGML_CPU_KLEIDIAI` OFF in
-    the arm64 branch of `CMakeLists.txt` too, until SME2 phones are
-    targeted: without SME2 there is no Q4_K speed-up to trade against it.
+    the same meeting with the same Q4_K_M model (Llama 3.1 8B shows the
+    steady-state cost best, Gemma 3 4B the load peak) in this build and in
+    one configured with `-DGGML_CPU_KLEIDIAI=OFF`. Compare the summaries,
+    the Ask answers, first-token latency, tokens/s and peak PSS over the
+    whole run, model load included (sample `dumpsys meminfo <package>`
+    every second or so from tapping Summarise until the reply ends, and
+    keep the highest TOTAL PSS; the load peak lasts only seconds). If an
+    SME2 phone is available, repeat there with `-DMEETILY_KLEIDIAI_SME=ON`
+    as a third build; logcat should then read `kleidiai: SME enabled`. If
+    quality or memory is worse, set `GGML_CPU_KLEIDIAI` OFF in the arm64
+    branch of `CMakeLists.txt` too: with the SME kernels off there is no
+    Q4_K speed-up to trade against it. If the load peak exceeds
+    `llmWorkingSetMb`, raise its slack or turn KleidiAI off.
 - **Exports (2026-11, 3.16.0-beta1):** both JNI libraries, and their
   `_v82` builds, are now linked with `app/src/main/cpp/jni_exports.map`,
   which exports only `Java_*` (plus `JNI_OnLoad*`/`JNI_OnUnload*`, not
@@ -247,9 +280,9 @@ a multi-minute job on a phone.
    missed path costs multiples on prefill GEMMs for free, with no correctness
    risk. (Batch 3 enabled KleidiAI instead, which reaches i8mm only for
    Q4_0, Q8_0 and Q6_K weights; for the Q4_K bulk of the catalogue's
-   Q4_K_M models it does nothing on a phone without SME2, so this is still
-   open for them. See the baseline notes above, including what KleidiAI
-   costs on Q6_K.) Then reduce the work itself: bigger map chunks amortise
+   Q4_K_M models it does nothing, since its only Q4_K kernel is an SME2 one
+   and those are kept off, so this is still open for them. See the baseline
+   notes above, including what KleidiAI costs on Q6_K.) Then reduce the work itself: bigger map chunks amortise
    better, and our system prompt is identical on every map call, so
    prompt-prefix KV caching is nearly free. That is likely to beat a GPU
    speedup we cannot ship.

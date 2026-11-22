@@ -7,6 +7,7 @@
 #include "llama.h"
 /* Jinja rendering and control-token-safe tokenisation (chat_render.cpp). */
 #include "chat_render.h"
+#include "kleidiai_env.h"
 
 #define TAG "meetily_llama"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -134,6 +135,7 @@ Java_com_meetily_mobile_llm_LlamaBridge_initModel(
     if (path == NULL) return 0;
 
     llama_log_set(forward_engine_log, NULL);
+    meetily_kleidiai_env();
     llama_backend_init();
 
     struct llama_model_params mparams = llama_model_default_params();

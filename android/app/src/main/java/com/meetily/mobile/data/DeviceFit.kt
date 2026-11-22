@@ -196,11 +196,23 @@ object DeviceFit {
      * allocator slack; and [LLM_RUNTIME_MB].
      *
      * On phones with dotprod, the arm64 engine's KleidiAI kernels also
-     * requantise a Q4_K_M file's Q6_K tensors to int8 at load, held in
-     * anonymous memory at 1.22x their size. The extra is up to about 9% of
-     * the file for the catalogue's models (+270 MB for Llama 3.1 8B), comes
-     * out of the same 10%, and has not been measured; see
-     * ACCELERATION_FINDINGS.md.
+     * requantise a Q4_K_M file's Q6_K matmul weights to int8 at load, held
+     * in anonymous memory at 1.22x their size: up to about 9% of the file
+     * for the catalogue's models (+270 MB for Llama 3.1 8B), out of the same
+     * 10%. Loading also takes a temporary int8 copy of each of those weights
+     * in turn, rows x cols bytes, the largest being the output head: 501 MiB
+     * for Llama 3.1 8B, 640 MiB for Gemma 3 4B. That comes before the KV
+     * cache and compute buffers exist, so it competes with [LLM_RUNTIME_MB]
+     * and the 10% for room instead of adding to them: well inside them for
+     * Llama 3.1 8B, about their size for Gemma 3 4B. None of this has been
+     * measured; see ACCELERATION_FINDINGS.md.
+     *
+     * Not covered: KleidiAI's SME/SME2 kernels. On an SME phone they hold a
+     * second packed copy of every Q6_K and Q8_0 weight (about 2.44x their
+     * Q6_K size, +1.8 GB for Llama 3.1 8B) and move the Q4_K weights into
+     * anonymous memory too. The engine keeps them off (MEETILY_KLEIDIAI_SME
+     * in CMakeLists.txt); they need a bigger allowance here before they are
+     * turned on.
      */
     fun llmWorkingSetMb(sizeMb: Int): Int = sizeMb + sizeMb / 10 + LLM_RUNTIME_MB
 

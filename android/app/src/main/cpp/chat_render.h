@@ -19,7 +19,9 @@ extern "C" {
  * is_input is 1 for text that came from a message (meeting content, notes,
  * OCR text, titles, attendee names, the user's question, and the app's own
  * instructions) and 0 for text the chat template wrote around it: the turn
- * markers, role headers and generation cue.
+ * markers, role headers and generation cue. A role name is template text
+ * too, even though the renderer marks it as input, so a marker a template
+ * builds from it ('<|' + role + '|>') stays one control token.
  */
 typedef struct meetily_prompt_span {
     int32_t start;

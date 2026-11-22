@@ -33,6 +33,7 @@
 #include "chat.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -210,6 +211,46 @@ bool overlaps(const hit &h, const meetily_prompt_span &s) {
     return h.pos < b && a < h.pos + h.len;
 }
 
+// Whether an input part is a role name the template spliced into text of its
+// own, as in '<|' + message['role'] + '|>'. At v1.0.0 the renderer marks
+// every string of its inputs as input, roles included (chat.cpp passes
+// mark_input to global_from_json), so in such a template the turn marker
+// "<|user|>" overlaps an input span, taints it, and is tokenised in pieces:
+// the template's own marker would never become its token. Roles are the
+// app's constants ("system", "user", "assistant"), and Gemma-style templates
+// substitute "model" for "assistant"; a filter may change their case. Only a
+// bare word that tokenises the same with and without parse_special counts,
+// so treating it as template text can never let it produce a special token,
+// even when a message's whole content happens to be the same word.
+bool is_template_role(const llama_vocab *vocab, const common_chat_templates_inputs &in,
+                      const std::string &text) {
+    if (text.empty() || text.size() > 32) {
+        return false;
+    }
+    for (const unsigned char c : text) {
+        if (!(std::isalnum(c) || c == '_' || c == '-')) {
+            return false;
+        }
+    }
+    const auto same = [&text](const std::string &role) {
+        return role.size() == text.size() &&
+               std::equal(role.begin(), role.end(), text.begin(), [](unsigned char a, unsigned char b) {
+                   return std::tolower(a) == std::tolower(b);
+               });
+    };
+    bool named = same("model");
+    for (const common_chat_msg &m : in.messages) {
+        named = named || same(m.role);
+    }
+    if (!named) {
+        return false;
+    }
+    std::vector<llama_token> with_special;
+    std::vector<llama_token> without;
+    return tokenize_into(vocab, text, false, true, with_special) &&
+           tokenize_into(vocab, text, false, false, without) && with_special == without;
+}
+
 llama_token *to_malloc(const std::vector<llama_token> &v) {
     auto *out = static_cast<llama_token *>(malloc(sizeof(llama_token) * (v.empty() ? 1 : v.size())));
     if (out != nullptr && !v.empty()) {
@@ -274,14 +315,17 @@ extern "C" char *meetily_render_chat(
         const common_chat_params params = common_chat_templates_apply(tmpls.get(), in);
 
         // Flatten the parts, merging neighbours of the same kind: the
-        // renderer emits one part per template string, not per run.
+        // renderer emits one part per template string, not per run. A role
+        // name counts as template text (is_template_role), so a marker the
+        // template builds from it stays in one template span.
+        const llama_vocab *vocab = llama_model_get_vocab(model);
         std::string prompt;
         std::vector<meetily_prompt_span> spans;
         for (const common_chat_prompt_part &part : params.prompt.parts) {
             if (part.text.empty()) {
                 continue;
             }
-            const int32_t is_input = part.is_input ? 1 : 0;
+            const int32_t is_input = (part.is_input && !is_template_role(vocab, in, part.text)) ? 1 : 0;
             if (!spans.empty() && spans.back().is_input == is_input) {
                 spans.back().len += static_cast<int32_t>(part.text.size());
             } else {
