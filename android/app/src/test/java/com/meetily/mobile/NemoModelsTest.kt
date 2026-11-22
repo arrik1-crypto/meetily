@@ -3,6 +3,7 @@ package com.meetily.mobile
 import com.meetily.mobile.whisper.NemoModels
 import com.meetily.mobile.whisper.TranscriptionModels
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -87,6 +88,38 @@ class NemoModelsTest {
         assertTrue("sizes must not be copied from the English sibling",
             newEncoder != enEncoder)
         assertTrue(nemotron35.totalMb > nemotronEn.totalMb)
+    }
+
+    @Test
+    fun parakeetUltraLoadsExactlyLikeV3() {
+        // Same graph, same vocabulary, same offline transducer path: the only
+        // differences are the repo and the bytes.
+        val v3 = NemoModels.byKeyOrNull("parakeet-tdt-v3")!!
+        val ultra = NemoModels.byKeyOrNull("parakeet-ultra")!!
+        assertEquals(v3.files.map { it.name }, ultra.files.map { it.name })
+        assertEquals(v3.streaming, ultra.streaming)
+        assertEquals(v3.englishOnly, ultra.englishOnly)
+        assertEquals(v3.languagePrompt, ultra.languagePrompt)
+        assertNull(ultra.languageOption)
+        assertFalse(ultra.legacy)
+        assertTrue(ultra.repo.startsWith("csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-ultra"))
+    }
+
+    @Test
+    fun parakeetUltraIsOfferedBesideV3() {
+        val fresh = NemoModels.offered { false }.map { it.key }
+        assertTrue(fresh.contains("parakeet-tdt-v3"))
+        assertTrue(fresh.contains("parakeet-ultra"))
+        assertEquals(fresh.indexOf("parakeet-tdt-v3") + 1, fresh.indexOf("parakeet-ultra"))
+    }
+
+    @Test
+    fun parakeetUltraSizesAreReadOffItsRepo() {
+        // MiB, as NemoProgressAggregator counts them: 652,282,345 /
+        // 11,845,274 / 6,355,277 / 93,939 bytes.
+        val ultra = NemoModels.byKeyOrNull("parakeet-ultra")!!
+        assertEquals(listOf(622, 11, 6, 1), ultra.files.map { it.sizeMb })
+        assertEquals(640, ultra.totalMb)
     }
 
     @Test

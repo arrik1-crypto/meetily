@@ -290,14 +290,17 @@ object DeviceFit {
      * what WhisperModels calls the practical sweet spot on phones; base and
      * tiny step down for memory or processor. English-only models are
      * suggested only for an English locale, where they are the more accurate
-     * of a same-sized pair, and a multilingual one everywhere else.
+     * of a same-sized pair, and a multilingual one everywhere else. NeMo
+     * models, Parakeet Ultra included, are chosen by hand only.
      */
     private val TRANSCRIPTION_ENGLISH = listOf("small.en-q5_1", "base.en", "tiny.en")
     private val TRANSCRIPTION_MULTILINGUAL = listOf("small-q5_1", "base", "tiny")
 
     /**
      * Summary models a first run may suggest, best first: the one the
-     * catalogue labels "recommended", then the two it calls fast.
+     * catalogue labels "recommended", then the two it calls fast. The opt-in
+     * entries (Qwen 3.5 2B and 4B, Gemma 4 QAT) stay off this list until
+     * they have been checked for summary quality and speed on a phone.
      */
     private val LLM_ORDER = listOf("qwen2.5-1.5b", "gemma3-1b", "qwen2.5-0.5b")
 

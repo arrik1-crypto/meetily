@@ -102,6 +102,10 @@ object ModelLicences {
         // sherpa-onnx's model cards for both conversions: CC BY 4.0.
         put("parakeet-tdt-v2", Licence.CC_BY_4)
         put("parakeet-tdt-v3", Licence.CC_BY_4)
+        // Moondream's model card and the sherpa-onnx conversion's: CC BY 4.0,
+        // credited to Moondream (the weights) and NVIDIA (v3, which they
+        // post-train) in notices.txt.
+        put("parakeet-ultra", Licence.CC_BY_4)
         put("nemotron-3.5", Licence.SEE_MODEL_PAGE)
         put("nemotron-en", Licence.SEE_MODEL_PAGE)
 
@@ -118,13 +122,23 @@ object ModelLicences {
         // Qwen2.5 README: everything except the 3B and 72B is Apache 2.0.
         put("qwen2.5-1.5b", Licence.APACHE_2)
         put("qwen2.5-0.5b", Licence.APACHE_2)
+        // Qwen/Qwen3.5-2B and Qwen/Qwen3.5-4B ship the unmodified Apache
+        // License 2.0 as their LICENSE file.
+        put("qwen35-2b", Licence.APACHE_2)
+        put("qwen35-4b", Licence.APACHE_2)
         put("qwen3.5-9b", Licence.SEE_MODEL_PAGE)
         put("llama3.2-3b", Licence.LLAMA_3_2)
         put("llama3.1-8b", Licence.LLAMA_3_1)
         put("gemma3-1b", Licence.GEMMA)
         put("gemma3-4b", Licence.GEMMA)
-        put("gemma4-e2b", Licence.SEE_MODEL_PAGE)
-        put("gemma4-e4b", Licence.SEE_MODEL_PAGE)
+        // Gemma 4 is not under the Gemma Terms: Google's licence page for it
+        // (ai.google.dev/gemma/docs/gemma_4_license) is the Apache License
+        // 2.0, with no use policy attached, so it asks for no acceptance.
+        // The same for unsloth's conversions and Google's QAT builds.
+        put("gemma4-e2b", Licence.APACHE_2)
+        put("gemma4-e2b-qat", Licence.APACHE_2)
+        put("gemma4-e4b", Licence.APACHE_2)
+        put("gemma4-e4b-qat", Licence.APACHE_2)
         put("mistral-7b", Licence.SEE_MODEL_PAGE)
         // A Gemma 3 variant, but Google-Health's README puts it under the
         // Health AI Developer Foundations terms, not the Gemma Terms.

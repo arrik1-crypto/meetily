@@ -101,6 +101,25 @@ object LocalLlmModels {
             3110,
             documentedRamGb = 8
         ),
+        // Google's own quantisation-aware-trained Q4_0 builds, opt-in next to
+        // the unsloth files (which stay as they are). Text model only: the
+        // repo's mmproj file is the vision tower, which nothing here loads.
+        // Like the unsloth files, the GGUF asks for BOS (add_bos_token) and
+        // its Gemma 4 template emits bos_token, so the prompt takes the same
+        // path and ends up with one BOS: llama_jni.c adds it at tokenisation
+        // only when the rendered prompt does not already start with it. Its
+        // EOS is <eos> where unsloth's is <turn|>; llama.cpp ends generation
+        // on both for Gemma 4. Unmeasured on phones against the unsloth
+        // files, so neither is suggested over the other.
+        LocalLlmModel(
+            "gemma4-e2b-qat",
+            "Gemma 4 E2B QAT (Google's Q4_0 · 8 GB+ RAM)",
+            "gemma-4-E2B_q4_0-it.gguf",
+            "https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf/resolve/main/" +
+                "gemma-4-E2B_q4_0-it.gguf",
+            3350,
+            documentedRamGb = 8
+        ),
         LocalLlmModel(
             "gemma4-e4b",
             "Gemma 4 E4B (excellent · 12 GB+ RAM)",
@@ -108,6 +127,15 @@ object LocalLlmModels {
             "https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF/resolve/main/" +
                 "gemma-4-E4B-it-Q4_K_M.gguf",
             4980,
+            documentedRamGb = 12
+        ),
+        LocalLlmModel(
+            "gemma4-e4b-qat",
+            "Gemma 4 E4B QAT (Google's Q4_0 · 12 GB+ RAM)",
+            "gemma-4-E4B_q4_0-it.gguf",
+            "https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf/resolve/main/" +
+                "gemma-4-E4B_q4_0-it.gguf",
+            5155,
             documentedRamGb = 12
         ),
         LocalLlmModel(
@@ -127,6 +155,31 @@ object LocalLlmModels {
                 "Meta-Llama-3.1-8B-Instruct-Q4_K_M.gguf",
             4920,
             documentedRamGb = 12
+        ),
+        // The smaller Qwen 3.5 sizes, opt-in next to the 9B and from the same
+        // quantiser. Same architecture (qwen35) and template family: the
+        // template's thinking switch is turned off at render time
+        // (chat_render.cpp), and any think block that still appears is
+        // stripped (PromptShaping). Text GGUFs only; the repos' mmproj files
+        // are the vision tower. Not yet checked for summary quality or speed
+        // on a phone, so the suggested default stays Qwen 2.5 1.5B.
+        LocalLlmModel(
+            "qwen35-2b",
+            "Qwen 3.5 2B (newer, small · 4 GB+ RAM)",
+            "Qwen_Qwen3.5-2B-Q4_K_M.gguf",
+            "https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF/resolve/main/" +
+                "Qwen_Qwen3.5-2B-Q4_K_M.gguf",
+            1396,
+            documentedRamGb = 4
+        ),
+        LocalLlmModel(
+            "qwen35-4b",
+            "Qwen 3.5 4B (newer, mid-size · 8 GB+ RAM)",
+            "Qwen_Qwen3.5-4B-Q4_K_M.gguf",
+            "https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF/resolve/main/" +
+                "Qwen_Qwen3.5-4B-Q4_K_M.gguf",
+            3013,
+            documentedRamGb = 8
         ),
         LocalLlmModel(
             "qwen3.5-9b",

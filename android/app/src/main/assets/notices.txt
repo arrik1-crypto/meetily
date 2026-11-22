@@ -21,9 +21,9 @@ Built with Llama
 
 Model use restrictions
 
-    The licences of the Llama, Gemma and MedGemma models restrict what the
-    models may be used for, and require those restrictions to be passed on
-    to you. They are part of Recap's Terms of Use (Settings > Terms of use),
+    The licences of the Llama, Gemma 3 and MedGemma models restrict what
+    the models may be used for, and require those restrictions to be passed
+    on to you. They are part of Recap's Terms of Use (Settings > Terms of use),
     and Recap asks you to accept them once, before the first download of a
     model under each licence.
 
@@ -124,6 +124,16 @@ Parakeet TDT 0.6B v3 (25 languages)
     downloaded from that conversion:
     https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-v3-int8
 
+Parakeet Ultra 0.6B (25 languages)
+    Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+    Trained by Moondream as a post-training of NVIDIA's Parakeet TDT 0.6B v3
+    https://huggingface.co/moondream/parakeet-ultra
+    https://huggingface.co/nvidia/parakeet-tdt-0.6b-v3
+    Converted to ONNX and quantised to int8 by the sherpa-onnx project, and
+    downloaded from that conversion:
+    https://huggingface.co/csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-ultra-int8
+    Neither NVIDIA nor Moondream endorses Recap.
+
 Nemotron 3.5 ASR Streaming 0.6B (40 language-locales)
     Licence: see model page
     NVIDIA Corporation
@@ -176,6 +186,15 @@ Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct
     https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct-GGUF
     https://huggingface.co/Qwen/Qwen2.5-1.5B-Instruct-GGUF
 
+Qwen 3.5 2B, Qwen 3.5 4B
+    Licence: Apache License 2.0
+    Alibaba Cloud (Qwen team)
+    https://huggingface.co/Qwen/Qwen3.5-2B
+    https://huggingface.co/Qwen/Qwen3.5-4B
+    GGUF conversions downloaded from:
+    https://huggingface.co/bartowski/Qwen_Qwen3.5-2B-GGUF
+    https://huggingface.co/bartowski/Qwen_Qwen3.5-4B-GGUF
+
 Qwen 3.5 9B
     Licence: see model page
     Alibaba Cloud (Qwen team)
@@ -214,12 +233,17 @@ Gemma 3 1B Instruct, Gemma 3 4B Instruct
     https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF
 
 Gemma 4 E2B Instruct, Gemma 4 E4B Instruct
-    Licence: see model page
+    Licence: Apache License 2.0
     Google LLC
+    https://ai.google.dev/gemma/docs/gemma_4_license
     https://ai.google.dev/gemma/docs/core/model_card_4
     GGUF conversions downloaded from:
     https://huggingface.co/unsloth/gemma-4-E2B-it-GGUF
     https://huggingface.co/unsloth/gemma-4-E4B-it-GGUF
+    Quantisation-aware-trained Q4_0 builds downloaded from Google's own
+    repositories:
+    https://huggingface.co/google/gemma-4-E2B-it-qat-q4_0-gguf
+    https://huggingface.co/google/gemma-4-E4B-it-qat-q4_0-gguf
 
 MedGemma 4B
     Licence: Health AI Developer Foundations Terms of Use (copy in part
