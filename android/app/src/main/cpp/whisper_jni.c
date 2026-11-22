@@ -6,6 +6,8 @@
 #include "whisper.h"
 #include "kleidiai_env.h"
 #include "vad_guard.h"
+/* The log callback shared with llama_jni.c (engine_log.c). */
+#include "engine_log.h"
 
 #define TAG "meetily_whisper"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
@@ -93,6 +95,11 @@ Java_com_meetily_mobile_whisper_WhisperBridge_initContext(
     (void) thiz;
     const char *path = (*env)->GetStringUTFChars(env, model_path, NULL);
     if (path == NULL) return 0;
+    /*
+     * Before every load, as llama_jni.c does: whisper.cpp hands its callback
+     * to the ggml both engines share at each model and VAD load.
+     */
+    whisper_log_set(meetily_engine_log, NULL);
     meetily_kleidiai_env();
     struct whisper_context_params cparams = whisper_context_default_params();
     struct whisper_context *ctx = whisper_init_from_file_with_params(path, cparams);
@@ -508,8 +515,10 @@ Java_com_meetily_mobile_whisper_WhisperBridge_vadInit(
      * Before the load, as in initContext: the VAD model load is what first
      * asks this library's ggml for its CPU buffer types on a Parakeet or
      * Nemotron run, where no Whisper model is ever loaded, and KleidiAI
-     * reads GGML_KLEIDIAI_SME only then, once per process.
+     * reads GGML_KLEIDIAI_SME only then, once per process. The log
+     * callback likewise (see initContext).
      */
+    whisper_log_set(meetily_engine_log, NULL);
     meetily_kleidiai_env();
     /*
      * Each 512-sample window is a graph of a few small ops, so waking a

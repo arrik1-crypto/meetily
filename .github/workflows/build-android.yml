@@ -92,20 +92,27 @@ jobs:
         if: always()
         run: rm -f android/upload.keystore
 
-      # The JNI libraries export only their Java_ entry points
-      # (android/app/src/main/cpp/jni_exports.map). A hidden entry point is an
-      # UnsatisfiedLinkError on a phone rather than a build error, so check
-      # every built APK before anything is uploaded or published. The script
-      # finds the pinned NDK's llvm-nm under ANDROID_HOME itself. The APK
-      # committed under android/dist/ (the previous published build) is the
-      # "before" row in the log.
+      # The JNI library (libmeetily_native, one per CPU level) exports only
+      # its Java_ entry points (android/app/src/main/cpp/jni_exports.map). A
+      # hidden entry point is an UnsatisfiedLinkError on a phone rather than a
+      # build error, so check every built APK before anything is uploaded or
+      # published. The script finds the pinned NDK's llvm-nm under
+      # ANDROID_HOME itself, and prints each library's size and the per-ABI
+      # totals. The APK committed under android/dist/ (the previous published
+      # build) is the "before" row in the log; its two engine libraries per
+      # CPU level count towards the "before" totals. It also lists the symbol
+      # file the upload below carries for each library.
       - name: Check native library exports
         run: |
-          baseline=()
+          extra=()
           if [ -f android/dist/meetily-android.apk ]; then
-            baseline=(--baseline android/dist/meetily-android.apk)
+            extra+=(--baseline android/dist/meetily-android.apk)
           fi
-          python3 android/scripts/check_jni_exports.py "${baseline[@]}" \
+          symbols=android/app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip
+          if [ -f "$symbols" ]; then
+            extra+=(--symbols "$symbols")
+          fi
+          python3 android/scripts/check_jni_exports.py "${extra[@]}" \
             android/app/build/outputs/apk/release/*.apk
 
       - name: Upload APK artifact
@@ -117,11 +124,13 @@ jobs:
           retention-days: 30
 
       # The symbol tables of this build's native libraries (ndk.debugSymbolLevel
-      # in app/build.gradle.kts). The libraries export only their Java_ entry
-      # points now, so a native crash's backtrace in a shared exit report
-      # (diag/ExitInfoCapture, diag/TombstoneText) names no engine function:
-      # each frame is a pc and the library's BuildId, which only these
-      # symbols resolve. The APK carries none of them, so keep them here.
+      # in app/build.gradle.kts), libmeetily_native.so and
+      # libmeetily_native_v82.so among them (listed by the check above). They
+      # export only their Java_ entry points, so a native crash's backtrace in
+      # a shared exit report (diag/ExitInfoCapture, diag/TombstoneText) names
+      # no engine function: each frame is a pc and the library's BuildId,
+      # which only these symbols resolve. The APK carries none of them, so
+      # keep them here.
       - name: Upload native debug symbols
         uses: actions/upload-artifact@v4
         with:

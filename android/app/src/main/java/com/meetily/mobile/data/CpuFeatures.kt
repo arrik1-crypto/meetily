@@ -3,7 +3,7 @@ package com.meetily.mobile.data
 import java.io.File
 
 /**
- * Picks which build of the whisper/llama JNI libraries this phone can run.
+ * Says which build of the native engine library this phone can run.
  *
  * ggml's matrix kernels are chosen at COMPILE time: built for plain
  * armv8-a, every quantized dot product falls back to emulated SDOT and every
@@ -12,14 +12,10 @@ import java.io.File
  * same code dies with SIGILL on the Cortex-A53/A73 phones minSdk 26 still
  * admits.
  *
- * So both are shipped (the ":native-v82" module builds the second pair,
- * arm64 only) and this chooses one before the first System.loadLibrary.
- * Only one of a pair is ever loaded: they export the same JNI symbols.
+ * So both are shipped (the ":native-v82" module builds the second one,
+ * arm64 only), and [NativeEngines] loads the one this answer picks.
  */
 object CpuFeatures {
-
-    /** Suffix of the dotprod+fp16 build; see native-v82/build.gradle.kts. */
-    private const val V82_SUFFIX = "_v82"
 
     /**
      * True when EVERY core listed in [cpuinfo] reports dot-product and
@@ -47,23 +43,5 @@ object CpuFeatures {
         } catch (_: Throwable) {
             false
         }
-    }
-
-    /**
-     * Loads [baseName], or its dotprod+fp16 build when this CPU can run it.
-     * Falls back to the baseline if the fast build is missing (x86_64, or a
-     * build without the module) or fails to load. Throws what the baseline
-     * load throws, exactly as a plain System.loadLibrary would.
-     */
-    fun loadEngineLibrary(baseName: String) {
-        if (dotprodFp16) {
-            try {
-                System.loadLibrary(baseName + V82_SUFFIX)
-                return
-            } catch (_: UnsatisfiedLinkError) {
-                // Not packaged for this ABI; the baseline is.
-            }
-        }
-        System.loadLibrary(baseName)
     }
 }

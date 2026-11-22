@@ -88,10 +88,13 @@ jobs:
           ./gradlew --no-daemon assembleRelease
 
       # Same check as build-android.yml, on the Play bundle too: the JNI
-      # libraries must export their Java_ entry points and nothing else.
+      # library (one per CPU level) must export its Java_ entry points and
+      # nothing else. Also prints each library's size and lists the symbol
+      # file uploaded below for each.
       - name: Check native library exports
         run: |
           python3 android/scripts/check_jni_exports.py \
+            --symbols android/app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip \
             android/app/build/outputs/bundle/release/*.aab \
             android/app/build/outputs/apk/release/*.apk
 

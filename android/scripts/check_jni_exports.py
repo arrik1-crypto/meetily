@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Check what Recap's JNI libraries export, in a built APK or AAB.
+"""Check what Recap's JNI library exports, in a built APK or AAB.
 
-app/src/main/cpp/jni_exports.map hides every symbol of libmeetily_whisper
-and libmeetily_llama (and their "_v82" builds) except the JNI entry points.
-Getting that wrong fails in one of two ways, and neither shows up at build
-time:
+app/src/main/cpp/jni_exports.map hides every symbol of libmeetily_native
+(and of its "_v82" build) except the JNI entry points. Getting that wrong
+fails in one of two ways, and neither shows up at build time:
 
   - a Java_ function the Kotlin side calls is hidden: UnsatisfiedLinkError
     at its first call, on a phone;
@@ -14,7 +13,9 @@ time:
 
 So for every lib<base>*.so found under lib/<abi>/ in each input, this fails
 when (a) a symbol jni_exports.txt lists for <base> is not exported, or
-(b) anything is exported that the map's global patterns do not allow.
+(b) anything is exported that the map's global patterns do not allow. It
+also fails when an arm64-v8a input has lib<base>.so without its fast
+lib<base>_v82.so: every phone would then run the baseline build, silently.
 
 The expected list is checked in rather than parsed here from Kotlin or C.
 NativeExportsTest keeps it equal to the natives of the compiled bridge
@@ -31,11 +32,27 @@ gives the same list. Section sizes always come from the built-in reader.
 
     python3 android/scripts/check_jni_exports.py app-arm64-v8a-release.apk
     python3 android/scripts/check_jni_exports.py --baseline old.apk new.apk
+    python3 android/scripts/check_jni_exports.py --symbols native-debug-symbols.zip new.apk
+
+Every library's size is printed: "file" is the .so itself (what an install
+extracts or maps) and "zipped" what it takes inside the archive (the
+sideload APK compresses native code; the Play bundle stores it uncompressed
+and Play compresses the download). Per ABI the script then totals our
+libraries and the other native libraries beside them.
 
 --baseline adds the same figures for an earlier build, for a before/after
-comparison in the log; it never affects the result. A library missing for an
-ABI is reported, not failed (the "_v82" builds exist for arm64-v8a only);
+comparison in the log; it never affects the result. Its totals also count
+the two libraries the engines were built as until they were merged
+(libmeetily_whisper and libmeetily_llama, and their "_v82" builds), so the
+saving from linking ggml and libc++ once per CPU level can be read off the
+log. Apart from the arm64-v8a fast build above, a library missing for an
+ABI is reported, not failed (the "_v82" build exists for arm64-v8a only);
 an input with none of these libraries at all is an error.
+
+--symbols names the native-debug-symbols.zip of the same build. The
+libraries export no engine function names, so a native crash is only
+readable with it. Each of our libraries' symbol file is listed, and a
+missing one is a warning, never a failure.
 
 Exit status: 0 when every library passes, 1 when any check fails, 2 on a
 usage or environment error.
@@ -64,6 +81,14 @@ GRADLE_FILE = ROOT / "app" / "build.gradle.kts"
 # lib/<abi>/lib<name>.so anywhere in an archive or directory tree: APKs keep
 # libraries at lib/, AABs at base/lib/.
 LIB_PATH = re.compile(r"(?:^|/)lib/(?P<abi>[^/]+)/lib(?P<name>[^/]+)\.so$")
+
+# What the engines were built as before they became one library per CPU
+# level. Only --baseline inputs are searched for these, for the size totals.
+LEGACY_BASES = ("meetily_whisper", "meetily_llama")
+
+# The build :native-v82 adds on arm64-v8a, for every base in jni_exports.txt.
+FAST_ABI = "arm64-v8a"
+FAST_SUFFIX = "_v82"
 
 
 class UsageError(Exception):
@@ -230,7 +255,7 @@ def read_elf(data):
 
 def base_of(name, bases):
     """The expected base library a file name belongs to: itself, or a build
-    of it with a suffix (meetily_llama_v82 -> meetily_llama)."""
+    of it with a suffix (meetily_native_v82 -> meetily_native)."""
     best = None
     for b in bases:
         if name == b or name.startswith(b + "_"):
@@ -240,32 +265,40 @@ def base_of(name, bases):
 
 
 def libraries(path, bases):
-    """[(abi, file name, base, bytes)] for our libraries in an APK/AAB/zip or
-    a directory tree, plus the set of ABIs seen at all."""
-    found, abis = [], set()
+    """Our libraries in an APK/AAB/zip or a directory tree, as
+    [(abi, file name, base, bytes, zipped size)]; the set of ABIs seen at
+    all; and every other native library, as [(abi, file name, size, zipped
+    size)]. The zipped size is None for a directory."""
+    found, abis, others = [], set(), []
 
-    def scan(names, read):
+    def scan(names, read, size, zipped):
         for rel in names:
             m = LIB_PATH.search(rel)
             if not m:
                 continue
-            abis.add(m.group("abi"))
+            abi, fname = m.group("abi"), f"lib{m.group('name')}.so"
+            abis.add(abi)
             base = base_of(m.group("name"), bases)
             if base:
-                found.append((m.group("abi"), f"lib{m.group('name')}.so", base, read(rel)))
+                found.append((abi, fname, base, read(rel), zipped(rel)))
+            else:
+                others.append((abi, fname, size(rel), zipped(rel)))
 
     p = pathlib.Path(path)
     if not p.exists():
         raise UsageError(f"{path}: not found")
     if p.is_dir():
         names = sorted(f.relative_to(p).as_posix() for f in p.rglob("*.so"))
-        scan(names, lambda rel: (p / rel).read_bytes())
+        scan(names, lambda rel: (p / rel).read_bytes(),
+             lambda rel: (p / rel).stat().st_size, lambda rel: None)
     elif zipfile.is_zipfile(p):
         with zipfile.ZipFile(p) as zf:
-            scan(sorted(zf.namelist()), zf.read)
+            scan(sorted(zf.namelist()), zf.read,
+                 lambda rel: zf.getinfo(rel).file_size,
+                 lambda rel: zf.getinfo(rel).compress_size)
     else:
         raise UsageError(f"{path}: not an APK/AAB/zip or a directory")
-    return found, abis
+    return found, abis, others
 
 
 def inspect(label, blob, nm, tmp):
@@ -288,10 +321,11 @@ def inspect(label, blob, nm, tmp):
 SHOWN = [".dynsym", ".dynstr", ".gnu.hash", "relocs", ".text"]
 
 
-def fmt_row(label, exports, java, sizes, file_size):
+def fmt_row(label, exports, java, sizes, file_size, zipped):
     cols = [f"{label:<38}", f"{exports:>7}", f"{java:>6}"]
     cols += [f"{sizes[s]:>10}" if s in sizes else f"{'-':>10}" for s in SHOWN]
     cols.append(f"{file_size:>10}")
+    cols.append(f"{zipped:>10}" if zipped is not None else f"{'-':>10}")
     return "  " + " ".join(cols)
 
 
@@ -308,8 +342,98 @@ def shown_sizes(sizes):
 
 def header():
     cols = [f"{'library (sizes in bytes)':<38}", f"{'exports':>7}", f"{'Java_':>6}"]
-    cols += [f"{s:>10}" for s in SHOWN] + [f"{'file':>10}"]
+    cols += [f"{s:>10}" for s in SHOWN] + [f"{'file':>10}", f"{'zipped':>10}"]
     return "  " + " ".join(cols)
+
+
+def totals(rows):
+    """{abi: (count, file bytes, zipped bytes or None)} over (abi, file size,
+    zipped size) rows."""
+    out = {}
+    for abi, size, zipped in rows:
+        n, f, z = out.get(abi, (0, 0, 0))
+        z = None if (z is None or zipped is None) else z + zipped
+        out[abi] = (n + 1, f + size, z)
+    return out
+
+
+def change(new, old):
+    """'+1,234 (+5.0%)', or '-' when either side is unknown."""
+    if old is None or new is None:
+        return "-"
+    pct = f" ({(new - old) * 100.0 / old:+.1f}%)" if old else ""
+    return f"{new - old:+,}{pct}"
+
+
+def count(n):
+    return f"{n} librar{'y' if n == 1 else 'ies'}"
+
+
+def report_totals(ours, others, before, label):
+    """Per-ABI totals of our libraries, the baseline's, and the others'."""
+    print("  per ABI, bytes (zipped = as stored in the archive):")
+    mine, rest = totals(ours), totals(others)
+    for abi in sorted(set(mine) | set(rest)):
+        n, f, z = mine.get(abi, (0, 0, None))
+        print(f"    {abi}: ours {count(n)}, file {f:,}, zipped "
+              f"{'-' if z is None else f'{z:,}'}")
+        old = before.get(abi)
+        if old:
+            on, of, oz = old
+            print(f"      before ({label}): {count(on)}, file {of:,}, zipped "
+                  f"{'-' if oz is None else f'{oz:,}'}")
+            print(f"      change: file {change(f, of)}, zipped {change(z, oz)}")
+        if abi in rest:
+            rn, rf, rz = rest[abi]
+            print(f"      other native code: {count(rn)}, file {rf:,}, zipped "
+                  f"{'-' if rz is None else f'{rz:,}'}")
+
+
+def symbol_files(path):
+    """{(abi, file name): size} in a native-debug-symbols.zip, or in a
+    directory laid out like one (<abi>/lib<name>.so.sym, or .so.dbg)."""
+    p = pathlib.Path(path)
+    out = {}
+    if p.is_dir():
+        for f in p.rglob("*"):
+            parts = f.relative_to(p).parts
+            if f.is_file() and len(parts) >= 2:
+                out[(parts[-2], parts[-1])] = f.stat().st_size
+    elif zipfile.is_zipfile(p):
+        with zipfile.ZipFile(p) as zf:
+            for info in zf.infolist():
+                parts = info.filename.rstrip("/").split("/")
+                if not info.is_dir() and len(parts) >= 2:
+                    out[(parts[-2], parts[-1])] = info.file_size
+    else:
+        raise UsageError(f"{path}: not a zip or a directory")
+    return out
+
+
+def report_symbols(paths, libs):
+    """The symbol file found for each (abi, library file name) in [libs]."""
+    seen = {}
+    for path in paths:
+        if not os.path.exists(path):
+            print(f"\ncheck_jni_exports: symbols {path} not found")
+            continue
+        seen.update(symbol_files(path))
+    if not paths:
+        return
+    print("\nnative debug symbols")
+    missing = []
+    for abi, fname in sorted(libs):
+        hits = sorted((n, size) for (a, n), size in seen.items()
+                      if a == abi and n in (fname, fname + ".sym", fname + ".dbg"))
+        if hits:
+            print("  " + ", ".join(f"{abi}/{n} {size:,}" for n, size in hits))
+        else:
+            missing.append(f"{abi}/{fname}")
+    for m in missing:
+        print(f"  note: no symbol file for {m}")
+    if missing and os.environ.get("GITHUB_ACTIONS") == "true":
+        print(f"::warning::check_jni_exports: no native debug symbols for "
+              f"{', '.join(missing)}; their crashes cannot be symbolicated")
 
 
 def main(argv):
@@ -320,6 +444,8 @@ def main(argv):
     ap.add_argument("--nm", help="llvm-nm to use (default: found automatically)")
     ap.add_argument("--baseline", action="append", default=[],
                     help="an earlier APK/AAB to compare against (report only)")
+    ap.add_argument("--symbols", action="append", default=[],
+                    help="the build's native-debug-symbols.zip (report only)")
     args = ap.parse_args(argv)
 
     try:
@@ -334,7 +460,7 @@ def main(argv):
             print("::warning::check_jni_exports: no llvm-nm found under ANDROID_HOME/ndk; "
                   "used the built-in .dynsym reader")
 
-        baseline = {}
+        baseline, before, before_label = {}, {}, None
         with tempfile.TemporaryDirectory() as tmp:
             for b in args.baseline:
                 if not os.path.exists(b):
@@ -343,39 +469,55 @@ def main(argv):
                 # A baseline only adds "before" rows, so one that cannot be
                 # read (a truncated committed APK, an ELF llvm-nm rejects) is
                 # skipped, never a reason to fail a good build.
-                rows = {}
+                rows, sized = {}, []
                 try:
-                    for abi, fname, _base, blob in libraries(b, expected)[0]:
+                    found = libraries(b, set(expected) | set(LEGACY_BASES))[0]
+                    for abi, fname, _base, blob, zipped in found:
                         sizes, names = inspect(f"{b}: {abi}/{fname}", blob, nm, tmp)
-                        rows[(abi, fname)] = (os.path.basename(b), sizes, names, len(blob))
+                        rows[(abi, fname)] = (os.path.basename(b), sizes, names, len(blob), zipped)
+                        sized.append((abi, len(blob), zipped))
                 except (UsageError, OSError, EOFError, zipfile.BadZipFile, zlib.error) as e:
                     print(f"check_jni_exports: baseline skipped: {e}")
                     continue
                 baseline.update(rows)
+                # The totals compare against the first readable baseline.
+                if before_label is None:
+                    before, before_label = totals(sized), os.path.basename(b)
 
             failures = 0
+            checked = set()
             for path in args.inputs:
-                libs, abis = libraries(path, expected)
+                libs, abis, others = libraries(path, expected)
                 print(f"\n{path}")
                 if not libs:
                     raise UsageError(f"{path}: no lib{{{','.join(sorted(expected))}}}*.so under lib/<abi>/")
                 print(header())
                 problems = []
                 for abi in sorted(abis):
-                    present = {base for a, _f, base, _b in libs if a == abi}
+                    files = {f for a, f, _base, _b, _z in libs if a == abi}
+                    present = {base for a, _f, base, _b, _z in libs if a == abi}
                     for base in sorted(set(expected) - present):
                         problems.append(f"note: {abi} has no lib{base}.so (not checked)")
-                for abi, fname, base, blob in libs:
+                    if abi != FAST_ABI:
+                        continue
+                    for base in sorted(present):
+                        fast = f"lib{base}{FAST_SUFFIX}.so"
+                        if f"lib{base}.so" in files and fast not in files:
+                            problems.append(f"FAIL: {abi} has lib{base}.so but no {fast}: "
+                                            f"every phone would run the baseline build")
+                            failures += 1
+                for abi, fname, base, blob, zipped in libs:
+                    checked.add((abi, fname))
                     sizes, names = inspect(f"{path}: {abi}/{fname}", blob, nm, tmp)
                     java = sum(1 for n in names if n.startswith("Java_"))
                     print(fmt_row(f"{abi}/{fname}", len(names), java,
-                                  shown_sizes(sizes), len(blob)))
+                                  shown_sizes(sizes), len(blob), zipped))
                     old = baseline.get((abi, fname))
                     if old:
-                        label, osizes, onames, olen = old
+                        label, osizes, onames, olen, ozipped = old
                         ojava = sum(1 for n in onames if n.startswith("Java_"))
                         print(fmt_row(f"  before ({label})", len(onames), ojava,
-                                      shown_sizes(osizes), olen))
+                                      shown_sizes(osizes), olen, ozipped))
                     missing = sorted(expected[base] - names)
                     leaked = sorted(n for n in names
                                     if not any(fnmatch.fnmatchcase(n, p) for p in allowed))
@@ -394,14 +536,19 @@ def main(argv):
                         failures += 1
                 for p in problems:
                     print(f"  {p}")
+                report_totals([(a, len(b), z) for a, _f, _base, b, z in libs],
+                              [(a, size, z) for a, _f, size, z in others],
+                              before, before_label)
+            report_symbols(args.symbols, checked)
     except UsageError as e:
         print(f"check_jni_exports: {e}", file=sys.stderr)
         return 2
 
     if failures:
-        print(f"\ncheck_jni_exports: {failures} librar{'y' if failures == 1 else 'ies'} failed. "
+        print(f"\ncheck_jni_exports: {failures} check{'' if failures == 1 else 's'} failed. "
               f"Exports are set by app/src/main/cpp/jni_exports.map (applied in CMakeLists.txt); "
-              f"the expected list is jni_exports.txt beside it.")
+              f"the expected list is jni_exports.txt beside it; the {FAST_SUFFIX} build comes "
+              f"from the :native-v82 module.")
         return 1
     print("\ncheck_jni_exports: OK")
     return 0

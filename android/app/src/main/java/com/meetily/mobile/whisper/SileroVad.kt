@@ -8,15 +8,16 @@ import java.io.FileOutputStream
 
 /**
  * Silero VAD v6.2.0, bundled in the APK and run on the phone through
- * whisper.cpp's whisper_vad_* API in libmeetily_whisper: the detector behind
+ * whisper.cpp's whisper_vad_* API in libmeetily_native: the detector behind
  * [SpeechGateRun]. MIT-licensed; listed on the open-source licences screen.
  *
- * It needs only that library, loaded through [WhisperBridge.load] for the
- * CPU build the phone supports, not a Whisper model, so it gates Parakeet
- * and Nemotron as well. Every failure (copying the model, loading the
- * library, creating the context, or the once-per-process self-test, see
- * [SpeechGate.selfTestPassed]) makes [open] return null and is logged once
- * per process; the caller then transcribes as it would without a gate.
+ * It needs only that library, loaded through [WhisperBridge.load] (that is,
+ * NativeEngines) for the CPU build the phone supports, not a Whisper model,
+ * so it gates Parakeet and Nemotron as well. Every failure (copying the
+ * model, loading the library, creating the context, or the once-per-process
+ * self-test, see [SpeechGate.selfTestPassed]) makes [open] return null and
+ * is logged once per process; the caller then transcribes as it would
+ * without a gate.
  *
  * One handle per run. [probabilities] and [release] are serialised, so a
  * release from another thread waits for a call in flight instead of freeing

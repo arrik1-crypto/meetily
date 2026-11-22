@@ -48,11 +48,12 @@ android {
                 (project.findProperty("kleidiaiSourceDir") as String?)?.let {
                     arguments += "-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI=$it"
                 }
-                // Only the two JNI libraries, as :native-v82 already does.
-                // The fetched projects define targets this app never links
-                // (whisper.cpp's `parakeet` library, llama.cpp's vendor
-                // libraries); naming ours keeps them out of the build.
-                targets += listOf("meetily_whisper", "meetily_llama")
+                // Only the JNI library (whisper.cpp, llama.cpp and their one
+                // ggml), as :native-v82 does for its build. The fetched
+                // projects define targets this app never links (whisper.cpp's
+                // `parakeet` library, llama.cpp's vendor libraries); naming
+                // ours keeps them out of the build.
+                targets += listOf("meetily_native")
             }
         }
     }
@@ -165,8 +166,9 @@ dependencies {
     // the phone, but ML Kit sends Google diagnostics (see PhotoOcr and the
     // privacy policy).
     implementation("com.google.mlkit:text-recognition:16.0.1")
-    // The armv8.2-a+dotprod+fp16 build of the whisper/llama JNI libraries,
-    // chosen at runtime by CpuFeatures. Native code only.
+    // The armv8.2-a+dotprod+fp16 build of the JNI library
+    // (libmeetily_native_v82.so), chosen at runtime by NativeEngines. Native
+    // code only.
     implementation(project(":native-v82"))
 
     testImplementation("junit:junit:4.13.2")

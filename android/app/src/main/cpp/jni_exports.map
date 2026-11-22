@@ -1,9 +1,9 @@
-# Linker version script for the Recap JNI libraries: libmeetily_whisper and
-# libmeetily_llama, in both CPU builds (the app's and :native-v82's "_v82").
+# Linker version script for the Recap JNI library, libmeetily_native, in
+# both CPU builds (the app's and :native-v82's libmeetily_native_v82).
 #
-# Only the JNI entry points stay exported. Everything else in these
-# libraries (ggml with KleidiAI on arm64, whisper.cpp, llama.cpp,
-# llama-common, the Recap shims in chat_render.cpp and vad_guard.cpp and the
+# Only the JNI entry points stay exported. Everything else in the library
+# (ggml with KleidiAI on arm64, whisper.cpp, llama.cpp, llama-common, the
+# Recap shims in chat_render.cpp, vad_guard.cpp and engine_log.c and the
 # statically linked libc++) becomes local, so:
 #   - calls between them bind directly instead of through the PLT, and the
 #     dynamic linker has thousands fewer symbols to relocate at load;
@@ -11,8 +11,8 @@
 #     a GC root, so until this map existed nothing exported was ever dropped.
 #
 # Patterns only, no exact names, on purpose:
-#   - one map serves both libraries, and each defines a different part of the
-#     Java_ set;
+#   - the Java_ set changes with every new native, and jni_exports.txt
+#     already lists it (checked by NativeExportsTest and in CI);
 #   - lld's --no-undefined-version (passed by CMakeLists.txt, and on by
 #     default in the NDK toolchain) fails the link on an exact name that is
 #     not defined, but never on a pattern. JNI_OnLoad / JNI_OnUnload are not
@@ -23,7 +23,7 @@
 # their plain names.
 #
 # What must be exported is pinned elsewhere:
-#   - jni_exports.txt lists every Java_ symbol each library must export;
+#   - jni_exports.txt lists every Java_ symbol the library must export;
 #   - NativeExportsTest checks that list against the Kotlin natives and the
 #     Java_ functions in this directory;
 #   - scripts/check_jni_exports.py checks a built APK or AAB against it, in CI

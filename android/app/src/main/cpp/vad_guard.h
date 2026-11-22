@@ -1,4 +1,4 @@
-// C interface of vad_guard.cpp, the C++ side of libmeetily_whisper's speech
+// C interface of vad_guard.cpp, the C++ side of libmeetily_native's speech
 // gate, for whisper_jni.c. Internal to the library: jni_exports.map keeps it
 // local.
 #pragma once

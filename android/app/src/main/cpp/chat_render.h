@@ -1,6 +1,6 @@
-// C interface of chat_render.cpp, the C++ side of libmeetily_llama, for
-// llama_jni.c. Everything here is internal to the library: jni_exports.map
-// keeps it all local.
+// C interface of chat_render.cpp, the C++ side of the llama.cpp bridge in
+// libmeetily_native, for llama_jni.c. Everything here is internal to the
+// library: jni_exports.map keeps it all local.
 #pragma once
 
 #include <stdbool.h>
