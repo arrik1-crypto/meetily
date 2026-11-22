@@ -1,15 +1,13 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Next release:
+App ID: **com.recap.mobile** (permanent). Current release:
 **3.18.0-beta1** (versionCode 113), targetSdk 36 (Android 16): Batch 4
 (meetings read off the main thread, home search that lands on the moment
 and Find in meeting, Find & replace that keeps word timings, the Storage
 screen with Remove audio, automatic clean-up and multi-select on the home
-list, and the meeting's spoken and summary language). Until the version
-bump, which the maintainer makes in a separate commit right after this
-documentation update, `android/app/build.gradle.kts` still reads
-**3.17.0-beta1** (versionCode 112), the Batch 3 release (llama.cpp v1.0.0
+list, and the meeting's spoken and summary language). The previous
+release, **3.17.0-beta1** (versionCode 112), was Batch 3 (llama.cpp v1.0.0
 and whisper.cpp b5907 on ggml 1.0.0, Arm KleidiAI on arm64,
 control-token-safe prompts, the Silero speech gate in front of every
 on-device recogniser, an 8K window for the small on-device LLMs, and the
@@ -593,12 +591,10 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [ ] Bump `versionCode` to 113 and `versionName` to `3.18.0-beta1` in
-  `android/app/build.gradle.kts`. The maintainer makes this bump in a
-  separate commit right after the Batch 4 documentation update; until
-  then the build reads 112 / 3.17.0-beta1 (111 / 3.16.0-beta1 before
-  that). Bump both again for every later upload: Play rejects a
-  versionCode it has already seen.
+- [x] Bump `versionCode` to 113 and `versionName` to `3.18.0-beta1` in
+  `android/app/build.gradle.kts` (done; 112 / 3.17.0-beta1 before it,
+  111 / 3.16.0-beta1 before that). Bump both again for every later
+  upload: Play rejects a versionCode it has already seen.
 - [ ] Run CI on the merged Batch 4 branch (`b4/integration`), not only on
   the five group branches: `testReleaseUnitTest` (new BulkActions,
   FindReplace, MeetingLanguage, MeetingLoad, MomentSearch, OpenMeetings,
