@@ -547,6 +547,101 @@ class TranscriptResumeTest {
         assertTrue(TranscriptResume.stillWanted(true, 0L, null))
     }
 
+    /**
+     * The sync the meeting screen runs before Continue decides anything
+     * (MeetingDetailActivity.continueTranscription): its copy, unedited, as
+     * MeetingStore.syncScreenCopy merges it with what is stored.
+     */
+    private fun syncedScreenCopy(read: Meeting, stored: Meeting): Meeting =
+        MeetingMerge.mergeScreenEdits(
+            read, MeetingMerge.snapshot(read), stored, MeetingMerge.highWaterMs(read.segments)
+        )
+
+    @Test
+    fun aScreenLeftOpenWhileThePassStoppedAsksAboutWhereTheWordsStopNow() {
+        // Read when the transcript stopped at 10:00 with lines to 13:00.
+        val read = Meeting(id = "m1", title = "Call", createdAtMs = base).apply {
+            transcriptResumeMs = 600_000L
+            segments.addAll(
+                listOf(
+                    seg(0L, "a"), seg(590_000L, "b"),
+                    seg(620_000L, "old 10:20"), seg(700_000L, "old 11:40"), seg(780_000L, "old 13:00")
+                )
+            )
+        }
+        // A pass started from that screen was cancelled from its
+        // notification at 20:00, its lines running to 20:30.
+        val stored = MeetingMerge.snapshot(read).apply {
+            transcriptResumeMs = 1_200_000L
+            segments.clear()
+            segments.addAll(
+                listOf(
+                    seg(0L, "a"), seg(590_000L, "b"), seg(605_000L, "new 10:05"),
+                    seg(1_190_000L, "new 19:50"), seg(1_210_000L, "new 20:10"), seg(1_230_000L, "new 20:30")
+                )
+            )
+        }
+        // From the copy as read, every answer was refused, and the question
+        // counted lines that are no longer there.
+        assertFalse(TranscriptResume.stillAsAsked(read.transcriptResumeMs!!, stored.transcriptResumeMs))
+        assertEquals(3, TranscriptResume.redoneCount(read.segments, 600_000L, base))
+        // Synced first, the question is about what is stored, and its answer
+        // stands.
+        val synced = syncedScreenCopy(read, stored)
+        val at = synced.transcriptResumeMs!!
+        assertEquals(1_200_000L, at)
+        assertTrue(TranscriptResume.stillAsAsked(at, stored.transcriptResumeMs))
+        assertEquals(2, TranscriptResume.redoneCount(synced.segments, at, synced.createdAtMs))
+        assertEquals(stored.segments.map { it.text }, synced.segments.map { it.text })
+    }
+
+    @Test
+    fun aScreenLeftOpenWhileThePassFinishedHasNothingLeftToContinue() {
+        // Read when the transcript stopped at 10:00 with no lines past it:
+        // Continue asked nothing and started a pass at once.
+        val read = Meeting(id = "m1", title = "Call", createdAtMs = base).apply {
+            transcriptResumeMs = 600_000L
+            segments.addAll(listOf(seg(0L, "a"), seg(590_000L, "b")))
+        }
+        assertEquals(0, TranscriptResume.redoneCount(read.segments, 600_000L, base))
+        // That pass finished while the screen stayed open. The importer
+        // takes its seam from the store: from this one, none, so a pass
+        // started now would begin at 0:00 and replace every line.
+        val stored = MeetingMerge.snapshot(read).apply {
+            transcriptResumeMs = null
+            segments.add(seg(605_000L, "new 10:05"))
+            segments[0] = segments[0].copy(text = "a, fixed by hand")
+        }
+        assertFalse(TranscriptResume.stillAsAsked(600_000L, stored.transcriptResumeMs))
+        // Synced first, there is nothing to continue, and the lines stay.
+        val synced = syncedScreenCopy(read, stored)
+        assertNull(synced.transcriptResumeMs)
+        assertEquals(
+            listOf("a, fixed by hand", "b", "new 10:05"),
+            synced.segments.map { it.text }
+        )
+    }
+
+    @Test
+    fun anEditMadeOnTheScreenIsWrittenAndTheStoredPointTakenInBeforeContinuing() {
+        val read = Meeting(id = "m1", title = "Call", createdAtMs = base).apply {
+            transcriptResumeMs = 600_000L
+            segments.addAll(listOf(seg(0L, "a"), seg(590_000L, "b")))
+        }
+        // The stored point moved on, from elsewhere, after the screen read it.
+        val stored = MeetingMerge.snapshot(read).apply { transcriptResumeMs = 900_000L }
+        // A line before the seam was fixed on the screen and not saved yet.
+        val ours = MeetingMerge.snapshot(read).apply {
+            segments[1] = segments[1].copy(text = "b, fixed")
+        }
+        val synced = MeetingMerge.mergeScreenEdits(
+            read, ours, stored, MeetingMerge.highWaterMs(read.segments)
+        )
+        assertEquals(listOf("a", "b, fixed"), synced.segments.map { it.text })
+        assertEquals(900_000L, synced.transcriptResumeMs)
+        assertTrue(TranscriptResume.stillAsAsked(900_000L, stored.transcriptResumeMs))
+    }
+
     @Test
     fun continueUsesTheModelThatMadeTheWordsOrAsksToStartOver() {
         fun plan(stored: String?, storedReady: Boolean, current: String, currentReady: Boolean) =

@@ -416,9 +416,24 @@ class MeetingDetailActivity : AppCompatActivity() {
     /** "Continue transcription": the card, the menu item and the home card's option. */
     private fun continueTranscription() {
         val m = meeting ?: return
-        // The pass reads the stored lines before the seam; edits made here
-        // have to be there first.
+        // One sync, waited for, before anything is decided from this copy.
+        // It writes the edits made here (the pass reads the stored lines
+        // before the seam) and takes in what is stored. This screen does not
+        // watch transcription runs: one started from here can be cancelled
+        // from its notification, stop at its time limit or finish while the
+        // screen stays open, and nothing syncs the screen then. Its copy
+        // would ask about, and refuse every answer over, a point the store
+        // no longer holds (ContinueTranscription.refused), or start a
+        // finished transcript over from 0:00 without asking.
+        requestSync()
         flushSync()
+        if (m.transcriptResumeMs == null) {
+            // Finished, or ended (audio removed, an accuracy check applied),
+            // since this screen last showed it. adoptSynced has bound the
+            // card again and asked for the menu again.
+            Toast.makeText(this, R.string.resume_nothing_left, Toast.LENGTH_LONG).show()
+            return
+        }
         ContinueTranscription.start(this, m) {
             if (isFinishing || isDestroyed) return@start
             headerView.findViewById<View>(R.id.resume_card).visibility = View.GONE

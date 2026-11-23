@@ -120,6 +120,11 @@ object ContinueTranscription {
      * Continues [m] with the model that made its words, or offers to start
      * over with the current one when that model is gone. [onStarted] runs
      * (main thread) once a run has been started or queued.
+     *
+     * [m] has to be what is stored now: every branch acts on where its
+     * words stop and on its lines, and the importer takes its seam from the
+     * store. The meeting screen syncs and waits before calling this
+     * (MeetingDetailActivity.continueTranscription).
      */
     fun start(activity: Activity, m: Meeting, onStarted: () -> Unit) {
         val at = m.transcriptResumeMs
@@ -238,14 +243,14 @@ object ContinueTranscription {
      * saying why, when [meetingId] may not be continued now.
      *
      * [askedAtMs] is where the transcript stopped when the question was
-     * asked; what is stored must still say so. The question can outlive
-     * the state it was about (another meeting screen, opened from a
-     * notification on top of this one, continues the transcript to the
-     * end, or an accuracy check is applied), and the importer takes its
-     * seam from what is stored: a finished transcript would be started
-     * over from 0:00 and every line of it, edits included, replaced. It is
-     * read from the store: the screen's own meeting is updated in place by
-     * the screen's sync, so it would agree with the change.
+     * asked, which was what was stored then (see [start]); what is stored
+     * must still say so. The question can outlive the state it was about
+     * (another meeting screen, opened from a notification on top of this
+     * one, continues the transcript to the end, or an accuracy check is
+     * applied), and the importer takes its seam from what is stored: a
+     * finished transcript would be started over from 0:00 and every line
+     * of it, edits included, replaced. It is read from the store: the
+     * screen's copy follows the store only when the screen next syncs.
      */
     private fun refused(activity: Activity, meetingId: String, askedAtMs: Long): Boolean {
         val reason = when {

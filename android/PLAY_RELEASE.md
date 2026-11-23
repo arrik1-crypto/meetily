@@ -1768,6 +1768,13 @@ Continuing interrupted transcriptions (3.19.0-beta1):
   home card's option ("From …"). Continue transcription picks up, and the
   progress reads "Continuing from … · …" (with speaker detection on,
   "matching voices so far" first).
+- [ ] Continue from the meeting screen and stay on it. Cancel from the
+  notification well into the run, then ⋮ → Continue transcription: it
+  carries on from the new point (its question, if any, names that point
+  and is not refused). Let a second run finish with the screen still
+  open, then tap the ⋮ item if it is still there: it says the transcript
+  changed after Continue was offered, starts nothing, and the lines are
+  unchanged.
 - [ ] Import a long recording over steady background noise (a fan, an
   air conditioner) and Cancel well into it: the card's point lags behind
   the last line. Edit a line past the point, then Continue: a question

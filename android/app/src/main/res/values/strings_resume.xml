@@ -40,6 +40,11 @@
          under it (finished from another meeting screen, an accuracy check
          applied, or stopped again elsewhere), so nothing was started. -->
     <string name="resume_changed">This transcript changed while the question was open, so nothing was started. Look at it again before continuing.</string>
+    <!-- Continue was tapped (on a meeting screen left open, or in the home
+         card's options) after the transcript was finished, or ended (audio
+         removed, an accuracy check applied): there is nothing to continue,
+         and nothing was started. -->
+    <string name="resume_nothing_left">This transcript changed after “Continue transcription” was offered, so nothing was started.</string>
 
     <!-- Asked before a continuation replaces lines the transcript already
          has from where it carries on. %1$d is how many, %2$s where it
