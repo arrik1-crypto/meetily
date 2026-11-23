@@ -67,13 +67,16 @@ object JobGate {
      *
      * A passage being removed (PassageService) holds batches back too: a
      * summary or a transcription made meanwhile would read the passage it
-     * removes. It is short, and drains the queue when it ends.
+     * removes. It is short, and drains the queue when it ends. Words being
+     * re-timed (AlignService) hold them back as well: the aligner holds
+     * about 200 MB while it runs, and it drains the queue when it ends.
      */
     fun canStartBatch(): Boolean =
         !RecordingService.isRunning &&
             !ImportService.isRunning &&
             !SummaryService.isRunning &&
             !PassageService.isBusy() &&
+            !AlignService.isBusy() &&
             !startPending()
 
     /**

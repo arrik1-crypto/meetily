@@ -128,6 +128,16 @@ class SettingsActivity : AppCompatActivity() {
     }
     private val llmStatus: TextView by lazy { findViewById(R.id.localLlmStatus) }
 
+    /** The word re-timing model's row (AlignModelRow). */
+    private val alignRow: AlignModelRow by lazy {
+        AlignModelRow(
+            this,
+            findViewById(R.id.alignModelStatus),
+            findViewById(R.id.alignModelProgress),
+            findViewById(R.id.alignModelButton)
+        )
+    }
+
     // Last state actually rendered, so a repeated value (e.g. the rebind
     // catch-up replay landing on the same percent) costs no layout pass.
     private var lastRenderedKey = ""
@@ -146,7 +156,9 @@ class SettingsActivity : AppCompatActivity() {
             lastRenderedKey = key
             lastRenderedPercent = percent
             val announce = downloadAnnouncer.shouldAnnounce(percent)
-            if (kind == ModelDownloadService.KIND_LLM) {
+            if (kind == ModelDownloadService.KIND_ALIGN) {
+                alignRow.onProgress(percent)
+            } else if (kind == ModelDownloadService.KIND_LLM) {
                 val model = LocalLlmModels.byKey(key)
                 llmProgress.visibility = View.VISIBLE
                 llmProgress.isIndeterminate = percent == 0
@@ -191,6 +203,7 @@ class SettingsActivity : AppCompatActivity() {
                 ModelDownloadService.KIND_LLM -> llmProgress.visibility = View.GONE
                 ModelDownloadService.KIND_DIARIZE ->
                     diarizeProgress.visibility = View.GONE
+                ModelDownloadService.KIND_ALIGN -> alignRow.onDone(cancelled, error)
                 else -> modelProgress.visibility = View.GONE
             }
             // The status line is about to read "<model> downloaded", the
@@ -198,7 +211,7 @@ class SettingsActivity : AppCompatActivity() {
             // heard only when it landed inside the 100% milestone's brief
             // announcement. A failure has its toast; a cancel was the user's
             // own doing.
-            if (!cancelled && error == null) {
+            if (!cancelled && error == null && kind != ModelDownloadService.KIND_ALIGN) {
                 A11y.announceNextChange(
                     when (kind) {
                         ModelDownloadService.KIND_LLM -> llmStatus
@@ -224,6 +237,7 @@ class SettingsActivity : AppCompatActivity() {
         override fun onDownloadQueued(kind: String, key: String) {
             if (isFinishing || isDestroyed) return
             when (kind) {
+                ModelDownloadService.KIND_ALIGN -> alignRow.onQueued()
                 ModelDownloadService.KIND_LLM ->
                     llmStatus.text = getString(
                         R.string.download_queued_status,
@@ -280,6 +294,7 @@ class SettingsActivity : AppCompatActivity() {
             llmProgress.visibility = View.GONE
             updateWhisperSection()
             updateLocalLlmStatus()
+            alignRow.onDone(cancelled = false, error = null)
         }
     }
 
@@ -324,6 +339,7 @@ class SettingsActivity : AppCompatActivity() {
             com.meetily.mobile.whisper.NemoModels.cleanPartials(this)
             DiarizationModels.cleanPartials(this)
             LocalLlmModels.cleanPartials(this)
+            com.meetily.mobile.whisper.AlignerModels.cleanPartials(this)
             // A pick parked behind a download that died with the process
             // would otherwise claim "switching when ready" forever.
             PendingModelSelection.clearStale(this)
@@ -439,6 +455,7 @@ class SettingsActivity : AppCompatActivity() {
         voicesStatus = findViewById(R.id.voicesStatus)
         updateVoicesStatus()
         findViewById<View>(R.id.manageVoicesButton).setOnClickListener { showVoicesDialog() }
+        alignRow.bind()
 
         findViewById<View>(R.id.exportBackupButton).setOnClickListener { showExportChoice() }
         findViewById<View>(R.id.importBackupButton).setOnClickListener {

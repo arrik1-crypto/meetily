@@ -140,6 +140,10 @@ object PendingModelSelection {
     fun downloadSizeMb(kind: String, key: String): Int = when (kind) {
         ModelDownloadService.KIND_LLM -> LocalLlmModels.byKey(key).sizeMb
         ModelDownloadService.KIND_DIARIZE -> DiarizationModels.byKey(key).approxSizeMb
+        ModelDownloadService.KIND_ALIGN ->
+            com.meetily.mobile.whisper.AlignerModels.spaceNeededMb(
+                com.meetily.mobile.whisper.AlignerModels.byKey(key)
+            )
         else -> TranscriptionModels.sizeMb(key)
     }
 

@@ -190,6 +190,7 @@ class StorageActivity : AppCompatActivity() {
         StorageUsage.Area.NEMO_MODELS -> R.string.storage_area_nemo
         StorageUsage.Area.SPEAKER_MODELS -> R.string.storage_area_speaker
         StorageUsage.Area.LLM_MODELS -> R.string.storage_area_llm
+        StorageUsage.Area.ALIGN_MODELS -> R.string.align_storage_area
         StorageUsage.Area.CACHES -> R.string.storage_area_caches
         StorageUsage.Area.OTHER -> R.string.storage_area_other
     }

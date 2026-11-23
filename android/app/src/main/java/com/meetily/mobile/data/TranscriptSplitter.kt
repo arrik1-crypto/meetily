@@ -86,7 +86,15 @@ object TranscriptSplitter {
         }
         val rebase = shift ?: 0L
 
-        return segment.copy(text = first, words = firstWords.ifEmpty { null }) to TranscriptSegment(
+        // Each part keeps the line's word-timing flag while its words are the
+        // line's own; re-aligned wording, or a word cut in two (its second
+        // piece borrows the word's start), makes a part's timings estimated.
+        // The second part's words are compared before they are rebased.
+        return segment.copy(
+            text = first,
+            words = firstWords.ifEmpty { null },
+            wordTimes = WordTimes.afterEdit(segment.wordTimes, segment.words, firstWords)
+        ) to TranscriptSegment(
             timestampMs = secondTs,
             text = second,
             speaker = null,
@@ -95,7 +103,8 @@ object TranscriptSplitter {
             audioMs = secondAudioMs,
             words = secondWords
                 .map { WordStamp((it.ms - rebase).coerceAtLeast(0L), it.text) }
-                .ifEmpty { null }
+                .ifEmpty { null },
+            wordTimes = WordTimes.afterEdit(segment.wordTimes, segment.words, secondWords)
         )
     }
 }

@@ -80,7 +80,7 @@ enum class Licence(val family: TermsFamily? = null) {
 
 /**
  * Licence per model key, across every catalogue (WhisperModels, NemoModels,
- * DiarizationModels, LocalLlmModels). Keys are unique across catalogues, which
+ * DiarizationModels, LocalLlmModels, AlignerModels). Keys are unique across catalogues, which
  * ModelLicencesTest checks, so a key alone identifies the model.
  *
  * Every downloadable model must be listed: a model missing here would download
@@ -119,6 +119,11 @@ object ModelLicences {
         // 3D-Speaker's README: "released under the Apache License 2.0".
         put("campplus-zh-en", Licence.APACHE_2)
         put("campplus-zh-en-v2", Licence.APACHE_2)
+
+        // MontrealCorpusTools/mfa-models: the English MFA acoustic model
+        // v3.0.0 and dictionary v3.0.0 each declare CC BY 4.0 (model card
+        // and LICENSE file); sherpa-onnx's packaging of them says the same.
+        put("english-mfa-v3.0.0", Licence.CC_BY_4)
 
         // Qwen2.5 README: everything except the 3B and 72B is Apache 2.0.
         put("qwen2.5-1.5b", Licence.APACHE_2)

@@ -922,6 +922,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         MeetingPlayback.screenOpened(id)
         // Follows a passage being removed from this meeting (PassageUi).
         passage.attach(id)
+        // And words being re-timed on it (AlignUi).
+        align.attach(id)
         // The title and date go up at once when they are known without the
         // file. Everything else waits for the read (onMeetingRead): on a
         // long meeting that is a megabyte of JSON and its word timings, which
@@ -1697,6 +1699,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (audioMs != null) {
             actions.add(A11y.Action(getString(R.string.passage_line_action)) { passage.open(index) })
         }
+        if (segment != null && align.offers(segment)) {
+            actions.add(A11y.Action(getString(R.string.align_line_action)) { align.retimeLine(index) })
+        }
         return TranscriptLineActions(
             clickLabel = getString(R.string.a11y_line_options),
             longClickLabel = getString(
@@ -1735,6 +1740,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             onFixWord = { replace.fixWord(index) },
             onRemovePassage = if (audioMs != null) {
                 { passage.open(index) }
+            } else null,
+            onRetime = if (align.offers(segment)) {
+                { align.retimeLine(index) }
             } else null,
             onRenameCluster = if (clusterId != null) {
                 { name ->
@@ -1795,6 +1803,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         mainHandler.removeCallbacks(endFlash)
         findBar.release()
         passage.detach()
+        align.detach()
         // The model outlives a rotation; it must not hold on to this screen.
         loadModel?.load?.detach(loadListener)
         // A rotation hands an unrecorded photo on in the saved state.
@@ -2950,6 +2959,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         )) {
             menu.findItem(id)?.isVisible = hasAudio
         }
+        menu.findItem(R.id.align_action_retime)?.isVisible = align.offersAll(meeting)
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -3193,6 +3203,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             R.id.storage_action_remove_audio -> {
                 confirmRemoveAudio()
+                true
+            }
+            R.id.align_action_retime -> {
+                align.retimeEdited()
                 true
             }
             R.id.action_star -> {
@@ -4097,10 +4111,13 @@ class MeetingDetailActivity : AppCompatActivity() {
                     // Timings re-aligned to the new wording, not dropped:
                     // fixing one word kept costing the line its tap-to-seek.
                     val old = m.segments[index]
+                    val words = com.meetily.mobile.data.WordRealign
+                        .realign(old.text, old.words, newText)
                     m.segments[index] = old.copy(
                         text = newText,
-                        words = com.meetily.mobile.data.WordRealign
-                            .realign(old.text, old.words, newText)
+                        words = words,
+                        wordTimes = com.meetily.mobile.data.WordTimes
+                            .afterEdit(old.wordTimes, old.words, words)
                     )
                     persist(m)
                     transcriptAdapter.update(index, m.segments[index])
@@ -4142,6 +4159,41 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         syncNotesButtons()
         invalidateOptionsMenu()
+    }
+
+    // --- Re-time words (AlignUi, AlignService) ---------------------------------
+
+    private val align by lazy {
+        AlignUi(this, object : AlignUi.Host {
+            override fun liveMeeting(): Meeting? = meeting
+
+            override fun flushEdits() {
+                saveEdits()
+                requestSync()
+                flushSync()
+            }
+
+            override fun hasAudio(): Boolean = audioFileOrNull() != null
+
+            override fun playerDurationMs(): Long = readyPlayer?.duration?.toLong()?.takeIf { it > 0L } ?: 0L
+
+            override fun retimed(results: List<com.meetily.mobile.data.WordAlign.Retimed>) = onRetimed(results)
+        })
+    }
+
+    /**
+     * A run re-timed lines of this meeting, and saved them to the stored
+     * copy. This copy takes them too, by the same rule (a line edited here
+     * meanwhile keeps its edit), so the next save carries both.
+     */
+    private fun onRetimed(results: List<com.meetily.mobile.data.WordAlign.Retimed>) {
+        whenLoaded { m ->
+            if (com.meetily.mobile.data.WordAlign.apply(m.segments, results) == 0) return@whenLoaded
+            persist(m)
+            if (isFinishing || isDestroyed) return@whenLoaded
+            renderTranscript(m)
+            invalidateOptionsMenu()
+        }
     }
 
     // --- Remove a passage (PassageUi, PassageService) -------------------------

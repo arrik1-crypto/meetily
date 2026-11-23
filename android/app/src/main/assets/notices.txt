@@ -219,6 +219,20 @@ NeMo TitaNet large / small
     Downloaded from the sherpa-onnx speaker-recognition model release:
     https://github.com/k2-fsa/sherpa-onnx/releases
 
+--- Word re-timing (forced alignment, English) ---
+
+English MFA acoustic model and dictionary v3.0.0
+    Licence: Creative Commons Attribution 4.0 International (CC BY 4.0)
+    Michael McAuliffe and Morgan Sonderegger, Montreal Forced Aligner:
+    English MFA acoustic model v3.0.0 and English MFA dictionary v3.0.0
+    https://github.com/MontrealCorpusTools/mfa-models
+    Changed by the sherpa-onnx project: repackaged with only the files
+    alignment needs, and a pronunciation lexicon generated from the
+    dictionary for the words of its English word list (lexicon-en-us.txt,
+    whose multi-word phrase readings the lexicon keeps). Downloaded from
+    the sherpa-onnx fa-models release:
+    https://github.com/k2-fsa/sherpa-onnx/releases/tag/fa-models
+
 --- Summarisation: local language models (GGUF) ---
 
 Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct

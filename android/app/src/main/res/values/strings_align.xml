@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Re-time words (AlignUi, AlignService, WordAlign): word timings measured
+         against the recording again after an edit estimated them. -->
+    <string name="align_line_action">Re-time words</string>
+    <string name="align_menu_all">Re-time edited lines</string>
+    <string name="align_none_to_retime">No line here needs re-timing: every line\'s word timings came from the transcription or were re-timed already.</string>
+    <string name="align_line_untimed">This line has no place in the recording, so its words can\'t be re-timed.</string>
+    <string name="align_no_audio">Re-timing words needs this meeting\'s recording, and it has none any more.</string>
+    <string name="align_not_english">Re-timing words works for English speech only, and this meeting\'s language is another.</string>
+    <string name="align_translated">This transcript is an English translation of speech in another language, so its words can\'t be timed against the recording.</string>
+    <string name="align_unknown_title">Is this meeting in English?</string>
+    <string name="align_unknown_message">Recap doesn\'t know which language this meeting is in. Re-timing works for English speech only; on speech in another language it would place the words wrongly.</string>
+    <string name="align_unknown_confirm">It\'s English, re-time</string>
+
+    <!-- Offered when the model is not on the phone yet. -->
+    <string name="align_need_model_title">Download the word re-timing model?</string>
+    <string name="align_need_model_message">Re-timing words needs an English pronunciation model: a %1$s download from GitHub (the sherpa-onnx project), %2$s once unpacked. Re-timing then runs on this phone; nothing from your meetings is sent anywhere. You can delete the model in Settings.</string>
+    <string name="align_need_model_download">Download</string>
+    <string name="align_download_started">Downloading the word re-timing model. Re-time the words again once it has finished.</string>
+    <string name="align_download_running">The word re-timing model is still downloading. Re-time the words again once it has finished.</string>
+
+    <plurals name="align_confirm_all_title">
+        <item quantity="one">Re-time %1$d line?</item>
+        <item quantity="other">Re-time %1$d lines?</item>
+    </plurals>
+    <string name="align_confirm_all_message">These lines have word timings an edit estimated, or none. They are measured against the recording again, on this phone. Only the timings change, never the words. A line you edit while this runs keeps your edit.</string>
+    <string name="align_confirm_all_go">Re-time</string>
+
+    <string name="align_busy_recording">Re-timing waits while a recording is running.</string>
+    <string name="align_busy_running">Words are being re-timed in this meeting already.</string>
+    <string name="align_busy_other_meeting">Words are being re-timed in another meeting. Try again once that has finished.</string>
+    <string name="align_busy_meeting">This meeting is being recorded, transcribed, summarized or otherwise changed. Try again once that has finished.</string>
+    <string name="align_busy_batch">Re-timing waits for the transcription, summary or passage removal in progress to finish.</string>
+
+    <string name="align_progress_title">Re-timing words</string>
+    <string name="align_progress">Re-timing words: %1$d of %2$d lines</string>
+    <string name="align_progress_loading">Loading the word re-timing model…</string>
+    <string name="align_progress_note">It keeps going if you leave this screen. Stopping keeps the lines already re-timed.</string>
+    <string name="align_hide">Hide</string>
+    <string name="align_stop">Stop</string>
+
+    <string name="align_channel">Word re-timing</string>
+    <string name="align_notif_title">Re-timing words</string>
+    <string name="align_notif_done">Words re-timed</string>
+    <string name="align_notif_not_done">Words not re-timed</string>
+
+    <plurals name="align_done_saved">
+        <item quantity="one">%1$d line re-timed.</item>
+        <item quantity="other">%1$d lines re-timed.</item>
+    </plurals>
+    <plurals name="align_done_changed">
+        <item quantity="one">%1$d line was edited meanwhile and keeps your edit.</item>
+        <item quantity="other">%1$d lines were edited meanwhile and keep your edits.</item>
+    </plurals>
+    <plurals name="align_done_unaligned">
+        <item quantity="one">%1$d line keeps its timings: the recording gave too little to place its words.</item>
+        <item quantity="other">%1$d lines keep their timings: the recording gave too little to place their words.</item>
+    </plurals>
+    <plurals name="align_done_skipped">
+        <item quantity="one">%1$d line was left as it is: too long, or outside the recording.</item>
+        <item quantity="other">%1$d lines were left as they are: too long, or outside the recording.</item>
+    </plurals>
+    <plurals name="align_cancelled">
+        <item quantity="one">Stopped. %1$d line was re-timed before that; the rest keep their timings.</item>
+        <item quantity="other">Stopped. %1$d lines were re-timed before that; the rest keep their timings.</item>
+    </plurals>
+    <string name="align_nothing">Nothing was re-timed: no line needed it any more.</string>
+    <string name="align_failed">Re-timing failed. The lines keep the timings they had.</string>
+    <string name="align_timed_out">Re-timing stopped: Android\'s daily limit for background media work was reached. Lines already re-timed keep their new timings. Try the rest again later.</string>
+    <string name="align_gone">The meeting or this line changed before re-timing began, so nothing was re-timed.</string>
+    <string name="align_no_model">The word re-timing model is missing. Download it again from Settings.</string>
+    <string name="align_load_failed">The word re-timing model could not be loaded. Delete it in Settings and download it again.</string>
+
+    <!-- Settings: the optional model (AlignModelRow). -->
+    <string name="align_setting_title">Word re-timing (English)</string>
+    <string name="align_setting_desc">After you edit a transcript line, its word timings are estimated. Re-time words measures them against the recording again, on this phone, so tapping a word and the highlight during playback follow the audio. For English meetings; needs an optional model.</string>
+    <string name="align_model_status_missing">Not downloaded: %1$s from GitHub, %2$s once unpacked.</string>
+    <string name="align_model_status_ready">%1$s, downloaded (%2$s).</string>
+    <string name="align_model_downloading">Downloading the word re-timing model… %1$d%%</string>
+    <string name="align_model_queued">Waiting for the download in progress to finish.</string>
+    <string name="align_model_download">Download model</string>
+    <string name="align_model_delete">Delete model</string>
+    <string name="align_model_delete_title">Delete the word re-timing model?</string>
+    <string name="align_model_delete_message">This frees %1$s. Lines already re-timed keep their timings. Re-timing more lines needs the model downloaded again (%2$s).</string>
+    <string name="align_model_delete_confirm">Delete</string>
+    <string name="align_model_delete_busy">The model is downloading or in use. Try again once that has finished.</string>
+    <string name="align_model_deleted">Word re-timing model deleted.</string>
+    <string name="align_storage_area">Word re-timing model</string>
+</resources>
