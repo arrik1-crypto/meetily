@@ -3,6 +3,7 @@ package com.meetily.mobile
 import com.meetily.mobile.data.BulkActions
 import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.data.MeetingLanguage
 import com.meetily.mobile.data.MeetingMerge
 import com.meetily.mobile.data.Retention
 import com.meetily.mobile.data.TranscriptResume
@@ -201,6 +202,76 @@ class TranscriptResumeTest {
         assertEquals(listOf(edited), kept)
     }
 
+    // --- Saving a continuation over what the user did meanwhile ---------------
+
+    @Test
+    fun editsToTheKeptLinesDuringTheRunSurviveEverySave() {
+        val resumeMs = 60_000L
+        // What the pass read when it started, and its own lines since.
+        val atStart = listOf(seg(0L, "a"), seg(30_000L, "b"), seg(65_000L, "stopped pass"))
+        val ours = TranscriptResume.prefix(atStart, resumeMs, base) +
+            listOf(seg(60_000L, "c"), seg(90_000L, "d"))
+        // Meanwhile on the meeting screen: a line fixed and starred, one
+        // split in two, one deleted.
+        val stored = listOf(
+            seg(0L, "a, fixed by hand").copy(highlighted = true),
+            seg(30_000L, "b first half"),
+            seg(31_000L, "b second half"),
+            seg(65_000L, "stopped pass")
+        )
+        val saved = TranscriptResume.continued(stored, ours, resumeMs, base)
+        assertEquals(
+            listOf("a, fixed by hand", "b first half", "b second half", "c", "d"),
+            saved.map { it.text }
+        )
+        assertTrue(saved[0].highlighted)
+        // A deleted kept line stays deleted.
+        val deleted = TranscriptResume.continued(listOf(seg(30_000L, "b")), ours, resumeMs, base)
+        assertEquals(listOf("b", "c", "d"), deleted.map { it.text })
+    }
+
+    @Test
+    fun theKeptLinesTakeTheSpeakersThePassGaveThemAgain() {
+        val resumeMs = 60_000L
+        val relabel = TranscriptResume.Relabel(
+            spans = listOf(
+                TranscriptResume.Relabel.Span(0L, 3_500L, 4),
+                TranscriptResume.Relabel.Span(5_000L, 33_000L, 5)
+            ),
+            // The end-of-run merge folded 5 into 4.
+            merged = mapOf(5 to 4),
+            names = mapOf(4 to "Ana")
+        )
+        val stored = listOf(
+            seg(0L, "a", cluster = 1),
+            // Split by hand from the line at 5 s: inside its window.
+            seg(5_000L, "b", cluster = 2),
+            seg(12_000L, "b split", cluster = 2),
+            // Renamed by hand: the name stays, the voice is relabelled.
+            seg(20_000L, "c", cluster = 2, speaker = "Bo"),
+            // In no window: its cluster is only merged.
+            seg(40_000L, "e", cluster = 5)
+        )
+        val saved = TranscriptResume.continued(stored, emptyList(), resumeMs, base, relabel)
+        assertEquals(listOf(4, 4, 4, 4, 4), saved.map { it.clusterId })
+        assertEquals(listOf("Ana", "Ana", "Ana", "Bo", "Ana"), saved.map { it.speaker })
+        // Applying the same rules again changes nothing.
+        assertEquals(saved, saved.map { relabel.apply(it) })
+        // A line the rules leave alone is the same object.
+        val untouched = seg(50_000L, "f", cluster = 9)
+        assertTrue(relabel.apply(untouched) === untouched)
+    }
+
+    @Test
+    fun aNameGivenOnTheScreenDuringTheRunCarriesOverTheSeam() {
+        val resumeMs = 60_000L
+        val ours = listOf(seg(0L, "a", cluster = 1), seg(70_000L, "x", cluster = 1))
+        // The user named voice 1 while the pass ran.
+        val stored = listOf(seg(0L, "a", cluster = 1, speaker = "Ana"))
+        val saved = TranscriptResume.continued(stored, ours, resumeMs, base)
+        assertEquals(listOf("Ana", "Ana"), saved.map { it.speaker })
+    }
+
     @Test
     fun aMarkPastWhereTheWordsStopWaitsForThePassThatReachesIt() {
         val marks = listOf(5_000L, 59_999L, 60_000L, 90_000L)
@@ -238,7 +309,25 @@ class TranscriptResumeTest {
     fun theContinuationRunsInTheLanguageTheWordsAreIn() {
         assertEquals("de", TranscriptResume.languageFor("de", "auto"))
         assertEquals("auto", TranscriptResume.languageFor(null, "auto"))
-        assertNull(TranscriptResume.languageFor(null, null))
+        // Words that record no language were made on auto: so is the rest,
+        // rather than taking up a pin from Settings they never had.
+        assertEquals(MeetingLanguage.AUTO, TranscriptResume.languageFor(null, null))
+        assertEquals(MeetingLanguage.AUTO, TranscriptResume.languageFor(null, ""))
+        // A run that asks for one still gets it.
+        assertEquals("fr", TranscriptResume.languageFor(null, "fr"))
+        // Settings pins German; the continuation stays on auto.
+        assertNull(
+            MeetingLanguage.pinFor(TranscriptResume.languageFor(null, null), "de")
+        )
+    }
+
+    @Test
+    fun aPassThatNeverReachedAPauseCanOnlyStartOver() {
+        assertTrue(TranscriptResume.canContinue(42_000L))
+        assertFalse(TranscriptResume.canContinue(0L))
+        assertFalse(TranscriptResume.canContinue(null))
+        // And the importer agrees: a stored point of 0 is a fresh start.
+        assertNull(TranscriptResume.continueFrom(0L, "small", "small", null, null))
     }
 
     @Test
@@ -430,6 +519,27 @@ class TranscriptResumeTest {
         assertEquals(2_530_000L, requeued.single().resumeFromMs)
         assertEquals(null, JobQueue.nextRunnable(requeued, charging = false))
         assertEquals(2_530_000L, JobQueue.nextRunnable(requeued, charging = true)?.resumeFromMs)
+    }
+
+    @Test
+    fun anUnpluggedCheckCarryingItsDraftOnIsNeverTrimmed() {
+        val requeued = JobQueue.chargingRequeue(
+            "m0", "small", 1L, firstTranscript = false, language = "", resumeFromMs = 600_000L
+        )
+        assertTrue(requeued.required)
+        assertTrue(requeued.chargingOnly)
+        // A week of optional checks queued behind it.
+        var jobs = listOf(requeued)
+        for (i in 1..JobQueue.MAX_JOBS + 2) {
+            jobs = JobQueue.add(jobs, JobQueue.Job(JobQueue.KIND_CHECK, "m$i", "small", queuedAtMs = 1L + i))
+        }
+        assertTrue(jobs.any { it.meetingId == "m0" && it.resumeFromMs == 600_000L })
+        // Without a point it has no draft to strand, and stays optional.
+        assertFalse(
+            JobQueue.chargingRequeue("m0", "small", 1L, false, "", 0L).required
+        )
+        // A first transcript never was optional.
+        assertTrue(JobQueue.chargingRequeue("m0", "small", 1L, true, "", 0L).required)
     }
 
     // --- The meeting field ---------------------------------------------------------------

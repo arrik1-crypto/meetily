@@ -225,8 +225,14 @@ class MeetingStore(context: Context) {
      *
      * The write lock does NOT solve this on its own: a lost update is not a
      * torn file. The fix has to be about which side owns which field.
+     *
+     * A pass that continues an unfinished transcript passes its [seam]: the
+     * lines before it are not the pass's to write back. They are shown and
+     * editable for the whole run, so what is stored before the seam is
+     * kept, with only the pass's speaker relabelling applied, and the
+     * pass's own lines follow it (TranscriptResume.continued).
      */
-    fun saveTranscription(meeting: Meeting): Boolean {
+    fun saveTranscription(meeting: Meeting, seam: TranscriptResume.Seam? = null): Boolean {
         return AtomicJson.exclusive {
             val file = fileFor(meeting.id) ?: return@exclusive false
             // The reload is what protects the user's edits, but an import
@@ -252,8 +258,15 @@ class MeetingStore(context: Context) {
                 lastTranscribed = null
                 return@exclusive save(meeting)
             }
+            val segments = if (seam != null) {
+                TranscriptResume.continued(
+                    onDisk.segments, meeting.segments, seam.resumeMs, seam.baseMs, seam.relabel
+                )
+            } else {
+                meeting.segments
+            }
             onDisk.segments.clear()
-            onDisk.segments.addAll(meeting.segments)
+            onDisk.segments.addAll(segments)
             onDisk.audioFile = meeting.audioFile
             onDisk.transcriptModel = meeting.transcriptModel
             // The pass's language travels with its words. Kept when this

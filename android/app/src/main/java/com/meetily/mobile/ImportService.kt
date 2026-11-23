@@ -104,6 +104,16 @@ class ImportService : Service() {
     /** Staged copy this run adopts, when it came off the import queue. */
     private var adoptFile: String? = null
 
+    /**
+     * A file the user picked and started straight away (ImportActivity),
+     * not one off the queue and not a pass over a meeting's own audio. It
+     * has no queue entry of its own, so once its meeting exists it is
+     * marked in flight as that meeting's first transcript: a run that dies
+     * with the process is then offered back, from where its words stop,
+     * like any other (MainActivity.offerInterruptedWork).
+     */
+    private var directImport = false
+
     /** When this run began, so its throughput can be recorded on finish. */
     @Volatile private var runStartedMs = 0L
 
@@ -198,6 +208,7 @@ class ImportService : Service() {
                             ?.segments?.isEmpty() == true
                 } ?: false
                 adoptFile = intent.getStringExtra(EXTRA_ADOPT_FILE)
+                directImport = recheckMeetingId == null && adoptFile == null
                 resumeFromMs = intent.getLongExtra(EXTRA_RESUME_FROM_MS, 0L).coerceAtLeast(0L)
                 isRecheck = recheckMeetingId != null
                 isFirstTranscript = firstTranscript
@@ -326,6 +337,17 @@ class ImportService : Service() {
                         adoptFile?.let {
                             com.meetily.mobile.data.JobQueue.importAdopted(this, it, id)
                         }
+                        if (directImport) {
+                            // With the model the importer runs, which it
+                            // records on the meeting: the one a continuation
+                            // has to use.
+                            com.meetily.mobile.data.JobQueue.markRunning(
+                                this, com.meetily.mobile.data.JobQueue.KIND_CHECK, id,
+                                modelKey?.takeIf { it.isNotBlank() } ?: settings.whisperModel,
+                                firstTranscript = true,
+                                language = language.orEmpty()
+                            )
+                        }
                         main.post {
                             if (isRunning) {
                                 observers.forEach {
@@ -365,7 +387,9 @@ class ImportService : Service() {
                 )
             }
             val warning = result?.takeIf { !cancelled && it.truncated }?.let { r ->
-                val stoppedAt = r.resumeFromMs
+                // 0: it never reached a pause to carry on from, so the rest
+                // can only be had by starting over; say how far it got.
+                val stoppedAt = r.resumeFromMs?.takeIf { it > 0L }
                 if (stoppedAt != null) {
                     // Its words are kept with where they stop, and the meeting
                     // offers to carry on from there (ContinueTranscription).
@@ -385,7 +409,10 @@ class ImportService : Service() {
             importerReturned = true
             val stoppedAt = result?.resumeFromMs
             val continued = (result?.startedFromMs ?: 0L) > 0L
-            main.post { finishRun(result?.meetingId, error, warning, stoppedAt, continued) }
+            val hadWords = result?.hadWords == true
+            main.post {
+                finishRun(result?.meetingId, error, warning, stoppedAt, continued, hadWords)
+            }
         }.apply {
             name = "import-service"
             start()
@@ -395,14 +422,16 @@ class ImportService : Service() {
     /**
      * [stoppedAtMs] is where the words now stop when the run did not finish
      * (AudioFileImporter.Result.resumeFromMs), for a later pass to continue.
-     * [continued] is true when the run carried on an unfinished transcript.
+     * [continued] is true when the run carried on an unfinished transcript,
+     * [hadWords] when the meeting had lines before it (kept or replaced).
      */
     private fun finishRun(
         meetingId: String?,
         error: String?,
         warning: String?,
         stoppedAtMs: Long? = null,
-        continued: Boolean = false
+        continued: Boolean = false,
+        hadWords: Boolean = false
     ) {
         done = true
         // Captured because the field is cleared below, before the completion
@@ -414,8 +443,10 @@ class ImportService : Service() {
         resultWarning = warning
         val recheckId = recheckMeetingId
         // A check the charger stopped keeps its partial draft, and carries on
-        // from where it stopped once it is requeued below.
-        val keepsDraft = stoppedByUnplug && stoppedAtMs != null && !wasFirstTranscript
+        // from where it stopped once it is requeued below. One that never
+        // reached a pause to carry on from would only start over: its draft
+        // goes, as before.
+        val keepsDraft = stoppedByUnplug && (stoppedAtMs ?: 0L) > 0L && !wasFirstTranscript
         if (recheckId != null && (cancelled || error != null || warning != null) && !keepsDraft) {
             // Nothing was written to the meeting, and a partial draft would
             // produce a comparison where the whole uncovered tail reads as
@@ -445,7 +476,16 @@ class ImportService : Service() {
             if (stoppedByUnplug) {
                 requeueForCharging(recheckId, wasFirstTranscript, stoppedAtMs ?: 0L)
             }
+        } else if (directImport) {
+            // Its marker, by the meeting it was filling: the result has no
+            // id when the import failed outright.
+            currentMeetingId?.let {
+                com.meetily.mobile.data.JobQueue.finished(
+                    this, com.meetily.mobile.data.JobQueue.KIND_CHECK, it
+                )
+            }
         }
+        directImport = false
         // The words exist now, so this is the moment the summary can start —
         // see AutoSummary. Only for a recording that had none before, and only
         // on a clean run: a cancelled or partial pass leaves the transcript
@@ -455,8 +495,10 @@ class ImportService : Service() {
         ) {
             val done = com.meetily.mobile.data.MeetingStore(this).load(recheckId)
             // A continued transcript may already have a summary of the part
-            // that was there; that is marked out of date, not replaced.
-            if (done != null && !(continued && done.summary.isNotBlank())) {
+            // that was there, and one started over a summary of the lines it
+            // replaced: either is marked out of date (AudioFileImporter), not
+            // replaced, with its action items, ticks and reminders.
+            if (done != null && !((continued || hadWords) && done.summary.isNotBlank())) {
                 com.meetily.mobile.data.AutoSummary.maybeStart(
                     this, recheckId, done.title, done.segments.size
                 )
@@ -532,16 +574,10 @@ class ImportService : Service() {
     ) {
         com.meetily.mobile.data.JobQueue.enqueue(
             this,
-            com.meetily.mobile.data.JobQueue.Job(
-                com.meetily.mobile.data.JobQueue.KIND_CHECK,
-                meetingId,
-                modelKey.orEmpty(),
-                System.currentTimeMillis(),
-                chargingOnly = true,
-                firstTranscript = firstTranscript,
-                required = firstTranscript,
-                language = language.orEmpty(),
-                resumeFromMs = resumeFromMs
+            // Never trimmed when it carries a kept partial draft on; see there.
+            com.meetily.mobile.data.JobQueue.chargingRequeue(
+                meetingId, modelKey.orEmpty(), System.currentTimeMillis(),
+                firstTranscript, language.orEmpty(), resumeFromMs
             )
         )
         ChargingJobService.schedule(this)
@@ -691,7 +727,8 @@ class ImportService : Service() {
             ?.let { com.meetily.mobile.data.MeetingStore(this).load(it)?.title }
             ?.takeIf { it.isNotBlank() }
             ?: sourceName
-        val body = if (stoppedAtMs != null) {
+        // 0: no pause reached to carry on from, so it starts over.
+        val body = if (stoppedAtMs != null && stoppedAtMs > 0L) {
             getString(
                 R.string.resume_unplugged_continue, title,
                 com.meetily.mobile.data.TranscriptResume.clock(stoppedAtMs)

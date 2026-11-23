@@ -157,6 +157,29 @@ object JobQueue {
         return grown.filterNot { it in dropped }
     }
 
+    /**
+     * The job that puts back a pass the charger stopped, still waiting for
+     * power, to carry on from [resumeFromMs]. Never trimmed when it is a
+     * recording's only transcript, or when it carries on a check whose
+     * partial draft was kept for it: dropped, that draft would stay behind
+     * with nothing to finish or remove it.
+     */
+    fun chargingRequeue(
+        meetingId: String,
+        modelKey: String,
+        nowMs: Long,
+        firstTranscript: Boolean,
+        language: String,
+        resumeFromMs: Long
+    ): Job = Job(
+        KIND_CHECK, meetingId, modelKey, nowMs,
+        chargingOnly = true,
+        firstTranscript = firstTranscript,
+        required = firstTranscript || resumeFromMs > 0L,
+        language = language,
+        resumeFromMs = resumeFromMs
+    )
+
     fun remove(existing: List<Job>, kind: String, meetingId: String): List<Job> =
         existing.filterNot { it.kind == kind && it.meetingId == meetingId }
 

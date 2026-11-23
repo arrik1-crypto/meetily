@@ -133,6 +133,80 @@ object TranscriptResume {
         prefix(existing, resumeMs, baseMs) + resumed.filter { after(it, resumeMs, baseMs) }
 
     /**
+     * What a continuing pass changes about the lines it keeps: only their
+     * speakers. Kept as rules rather than as finished lines, because the
+     * kept lines stay the user's to edit for the whole run (MeetingStore
+     * applies these to whatever is stored before the seam at each save).
+     */
+    data class Relabel(
+        /**
+         * The kept lines' voice windows (see [voiceWindows]), each with the
+         * cluster the continuing pass gave it. A line whose audio offset
+         * falls inside one takes its cluster, a line split from it too.
+         * Sorted and never overlapping.
+         */
+        val spans: List<Span> = emptyList(),
+        /** Clusters the end-of-run merge folded into others (SpeakerClusterer.mergePass). */
+        val merged: Map<Int, Int> = emptyMap(),
+        /** Names from saved voice profiles, for lines whose cluster has one and no name of their own. */
+        val names: Map<Int, String> = emptyMap()
+    ) {
+        data class Span(val startMs: Long, val endMs: Long, val clusterId: Int?)
+
+        private fun spanAt(ms: Long): Span? {
+            var lo = 0
+            var hi = spans.size - 1
+            while (lo <= hi) {
+                val mid = (lo + hi) ushr 1
+                val s = spans[mid]
+                when {
+                    ms < s.startMs -> hi = mid - 1
+                    ms >= s.endMs -> lo = mid + 1
+                    else -> return s
+                }
+            }
+            return null
+        }
+
+        /** [segment] with these rules applied; the same object when nothing changes. */
+        fun apply(segment: TranscriptSegment): TranscriptSegment {
+            var cluster = segment.clusterId
+            val span = segment.audioMs?.let { spanAt(it) }
+            if (span != null) cluster = span.clusterId
+            cluster = cluster?.let { merged[it] ?: it }
+            val name = if (segment.speaker.isNullOrBlank()) cluster?.let { names[it] } else null
+            if (cluster == segment.clusterId && name == null) return segment
+            return segment.copy(clusterId = cluster, speaker = name ?: segment.speaker)
+        }
+    }
+
+    /**
+     * The transcript a continuing pass saves: the lines stored before the
+     * seam now ([stored], with anything the user changed in them meanwhile:
+     * text, speaker names, stars, splits, deletions), their speakers
+     * relabelled by [relabel], then the pass's own lines from the seam on
+     * ([ours]). Names the user gave voices before the seam carry over it
+     * ([carryNames]).
+     *
+     * The pass read the kept lines once, when it started, and a run can
+     * take hours; writing that copy back with every save undid every edit
+     * made to them meanwhile.
+     */
+    fun continued(
+        stored: List<TranscriptSegment>,
+        ours: List<TranscriptSegment>,
+        resumeMs: Long,
+        baseMs: Long,
+        relabel: Relabel = Relabel()
+    ): List<TranscriptSegment> {
+        val kept = prefix(stored, resumeMs, baseMs).map { relabel.apply(it) }
+        return carryNames(kept + ours.filter { after(it, resumeMs, baseMs) }, resumeMs, baseMs)
+    }
+
+    /** A continuing pass's save: where its seam is, and what it changes before it. See [continued]. */
+    data class Seam(val resumeMs: Long, val baseMs: Long, val relabel: Relabel = Relabel())
+
+    /**
      * The highlight marks a transcript that stops at [resumeMs] can place.
      * A mark past the last line would otherwise star whatever line happens
      * to be last so far; it waits for the pass that reaches it. All of them
@@ -177,10 +251,22 @@ object TranscriptResume {
     /**
      * The language a continuing pass runs in: what the stopped pass settled
      * on (detected or pinned), so both sides of the seam are in one
-     * language; [requested] when it settled on nothing.
+     * language. When it recorded none it ran on auto (Whisper records the
+     * code it detected or was pinned to; NeMo records none on auto, or for
+     * a pin it runs as auto), so the continuation detects too, rather than
+     * taking up a pin from Settings the words before the seam never had;
+     * unless this run asks for a language ([requested]).
      */
-    fun languageFor(storedLanguage: String?, requested: String?): String? =
-        storedLanguage ?: requested
+    fun languageFor(storedLanguage: String?, requested: String?): String =
+        storedLanguage ?: requested?.takeIf { it.isNotBlank() } ?: MeetingLanguage.AUTO
+
+    /**
+     * Whether a pass stopped at [resumeMs] reached a pause it can carry on
+     * from. One that never did (a recording whose background never stays
+     * quiet for long enough is cut only at the length limit) can only start
+     * again from the beginning, and that replaces any lines it made.
+     */
+    fun canContinue(resumeMs: Long?): Boolean = resumeMs != null && resumeMs > 0L
 
     /**
      * Whether a queued first transcript still has work to do. One queued to

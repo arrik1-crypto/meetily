@@ -46,7 +46,12 @@ class AudioFileImporter(
          * Where the words now stop when the pass did not finish, for a later
          * pass to continue from (TranscriptResume); null when it finished.
          */
-        val resumeFromMs: Long? = null
+        val resumeFromMs: Long? = null,
+        /**
+         * The meeting this pass wrote into already had lines: a summary of
+         * them is marked out of date rather than replaced (ImportService).
+         */
+        val hadWords: Boolean = false
     ) {
         val truncated: Boolean
             get() = stoppedEarly != null ||
@@ -137,6 +142,9 @@ class AudioFileImporter(
             }
         }
         val recheck = recheckTarget != null
+        // Lines were there before this pass: a continuation's kept ones, or
+        // the ones a start-over replaces.
+        val hadWords = recheckTarget?.segments?.isNotEmpty() == true
         /*
          * Whether the result is STAGED for review rather than written.
          *
@@ -325,6 +333,9 @@ class AudioFileImporter(
         var resumePointMs: () -> Long = { startMs }
         // What the last save recorded as that point; null once complete.
         var savedResumeMs: Long? = continueFromMs
+        // How this pass relabels the speakers of the lines before its seam,
+        // applied to what is stored there at each save (TranscriptResume.Relabel).
+        var relabel = TranscriptResume.Relabel()
 
         /**
          * Where transcribed segments land. A normal import owns its meeting
@@ -347,8 +358,13 @@ class AudioFileImporter(
                 meeting.transcriptResumeMs = unfinishedAt
                 // Not a plain save: the meeting is visible and editable in
                 // the library for the whole run, so anything the user changes
-                // meanwhile has to survive the next batch.
-                store.saveTranscription(meeting)
+                // meanwhile has to survive the next batch. That includes the
+                // lines a continuation keeps: what is stored before its seam
+                // stays, edits included, and only this pass's lines replace.
+                store.saveTranscription(
+                    meeting,
+                    if (seamSample > 0L) TranscriptResume.Seam(startMs, baseMs, relabel) else null
+                )
             }
         }
 
@@ -889,6 +905,12 @@ class AudioFileImporter(
                                 meeting.segments[i] = meeting.segments[i].copy(clusterId = ids[n])
                             }
                         }
+                        // The same, for the stored lines each save keeps.
+                        relabel = relabel.copy(
+                            spans = windows.mapIndexed { n, w ->
+                                TranscriptResume.Relabel.Span(w.startMs, w.endMs, ids[n])
+                            }
+                        )
                     }
                 }
                 reportProgress()
@@ -901,7 +923,7 @@ class AudioFileImporter(
             // thrown away (TranscriptResume.seekable).
             val seek = seamSample > 0L &&
                 TranscriptResume.seekable(AudioFileDecoder.audioMime(context, decodeUri))
-            val durationMs = AudioFileDecoder.decode(
+            fun decodeFrom(seekUs: Long): Long = AudioFileDecoder.decode(
                 context,
                 decodeUri,
                 onPcm = { raw ->
@@ -942,13 +964,33 @@ class AudioFileImporter(
                 // comes from the batches, which is where the time goes.
                 onProgress = { p -> onProgress(p, lastDetail) },
                 cancelled = cancelled,
-                startUs = if (seek) startMs * 1000L else 0L,
-                onStartUs = if (seek) {
-                    { us: Long -> position = us * sampleRate / 1_000_000L }
+                startUs = seekUs,
+                onStartUs = if (seekUs > 0L) {
+                    { us: Long ->
+                        val at = us * sampleRate / 1_000_000L
+                        // Landed past the seam: the audio between would never
+                        // be transcribed, and every line after it would be
+                        // stamped early by the gap.
+                        if (at > seamSample) throw SeekOvershoot()
+                        position = at
+                    }
                 } else {
                     null
                 }
             )
+            val durationMs = if (seek) {
+                try {
+                    decodeFrom(startMs * 1000L)
+                } catch (_: SeekOvershoot) {
+                    // Thrown before the first PCM: nothing has been framed.
+                    // From the top instead, discarding up to the seam, as
+                    // for MP3.
+                    position = 0L
+                    decodeFrom(0L)
+                }
+            } else {
+                decodeFrom(0L)
+            }
 
             // Cache the bars now the whole file has been through. Best
             // effort: the Audio tab still computes them itself if this did
@@ -1001,6 +1043,7 @@ class AudioFileImporter(
                     val to = s.clusterId?.let { remap[it] } ?: continue
                     meeting.segments[i] = s.copy(clusterId = to)
                 }
+                relabel = relabel.copy(merged = remap)
             }
             // Name clusters whose voices match saved profiles — after first
             // rolling profiles from other speaker models over to this one
@@ -1031,6 +1074,7 @@ class AudioFileImporter(
                                 meeting.segments[i] = s.copy(speaker = name)
                             }
                         }
+                        relabel = relabel.copy(names = names)
                     }
                 }
             }
@@ -1057,9 +1101,11 @@ class AudioFileImporter(
             if (stageOnly && cancelled() && !keepPartialCheck()) {
                 TranscriptDraft.delete(context, meeting.id)
             }
-            // New words under a summary of the part that was there before:
-            // say it is out of date, as an accepted accuracy check does.
-            if (seamSample > 0L && !stageOnly && added > 0) {
+            // New words under a summary of the part that was there before,
+            // or of the lines a start-over replaced: say it is out of date,
+            // as an accepted accuracy check does. ImportService leaves such
+            // a summary in place rather than starting a new one over it.
+            if ((seamSample > 0L || hadWords) && !stageOnly && added > 0) {
                 runCatching {
                     store.mutateIf(meeting.id) { m ->
                         if (m.summary.isNotBlank() && !m.summaryStale) {
@@ -1074,7 +1120,7 @@ class AudioFileImporter(
             if (durationMs > 0) totalMs = durationMs
             return Result(
                 meeting.id, consumedSamples * 1000 / sampleRate, totalMs, null,
-                startMs, savedResumeMs
+                startMs, savedResumeMs, hadWords
             )
         } catch (e: AudioFileDecoder.UnsupportedAudioException) {
             if (stageOnly) {
@@ -1121,7 +1167,8 @@ class AudioFileImporter(
                 totalMs,
                 e.message ?: "decode failed mid-file",
                 startMs,
-                savedResumeMs
+                savedResumeMs,
+                hadWords
             )
         } finally {
             if (contextPtr != 0L) WhisperBridge.freeContext(contextPtr)
@@ -1131,6 +1178,9 @@ class AudioFileImporter(
             vad?.release()
         }
     }
+
+    /** A seek that landed after the seam; see the decode in [import]. */
+    private class SeekOvershoot : RuntimeException()
 
     private fun isNoise(text: String): Boolean {
         val t = text.trim()

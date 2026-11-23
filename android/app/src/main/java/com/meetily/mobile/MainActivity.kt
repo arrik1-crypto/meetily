@@ -694,6 +694,14 @@ class MainActivity : AppCompatActivity() {
         if (crashDialog?.isShowing == true) return
         if (!JobGate.canStartBatch()) return
         val queue = com.meetily.mobile.data.JobQueue
+        // A run that died before its meeting was ever saved (a file import
+        // killed during its first batch) left a marker nothing can offer.
+        // Nothing is running (canStartBatch above), so every marker is dead.
+        for (dead in queue.interrupted(queue.load(this))) {
+            if (dead.kind != queue.KIND_IMPORT && !store.exists(dead.meetingId)) {
+                queue.finished(this, dead.kind, dead.meetingId)
+            }
+        }
         val interrupted = queue.interrupted(queue.load(this))
         // An import that died before its staged file became a meeting's
         // audio can be offered back; one that died after it has either a
@@ -736,10 +744,12 @@ class MainActivity : AppCompatActivity() {
             target?.title.orEmpty()
         }
         // A first transcript that stopped part-way carries on from where its
-        // words stop when resumed (TranscriptResume), and says so.
+        // words stop when resumed (TranscriptResume), and says so. One that
+        // stopped before any pause to carry on from (0) starts over.
         val continueFrom = target?.takeIf { job.kind == queue.KIND_CHECK && job.firstTranscript }
             ?.takeIf { AudioStore.exists(this, it.audioFile) }
             ?.transcriptResumeMs
+            ?.takeIf { com.meetily.mobile.data.TranscriptResume.canContinue(it) }
         // A tap is only honoured while the job is still the interrupted one
         // offered. Otherwise a stale prompt could start a second run, or
         // dequeue the crash marker of a run that is already going.
@@ -1098,10 +1108,7 @@ class MainActivity : AppCompatActivity() {
                 ActionSheet.Item(
                     MeetingDetailActivity.ACTION_CONTINUE_TRANSCRIPTION,
                     getString(R.string.resume_continue),
-                    subtitle = getString(
-                        R.string.resume_continue_from,
-                        com.meetily.mobile.data.TranscriptResume.clock(it)
-                    )
+                    subtitle = ContinueTranscription.fromLabel(this, it)
                 )
             },
             ActionSheet.Item(

@@ -395,7 +395,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         LanguagePicker.bindChip(headerView.findViewById(R.id.detailLanguageChip), m) {
             showLanguageOptions()
         }
-        // An unfinished transcript with its audio still here.
+        bindResumeCard(m)
+    }
+
+    /** The Continue card: an unfinished transcript with its audio still here. */
+    private fun bindResumeCard(m: Meeting) {
         ContinueTranscription.bindCard(
             headerView.findViewById(R.id.resume_card),
             headerView.findViewById(R.id.resume_card_text),
@@ -615,6 +619,11 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (live && !transcriptChanged) renderFollowsFrom(m)
         }
         syncBase = base
+        // Hidden by hand once a run was started from it; a run that then
+        // stopped without saving anything (cancelled while matching voices,
+        // refused, failed before its first batch) changes nothing on disk,
+        // so the card is bound again with every sync, not only on a change.
+        if (live && !transcriptChanged) bindResumeCard(m)
 
         if (live && transcriptChanged) {
             // Includes a line folded in by a save from here: without this it
