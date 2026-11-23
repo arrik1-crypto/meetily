@@ -123,28 +123,49 @@ object SubtitleImport {
         for ((n, whole) in blocks.withIndex()) {
             // The header runs to the first blank line and is not a cue,
             // unless a file leaves that line out before its first cue.
-            val block = if (vtt && n == 0) {
+            val start = if (vtt && n == 0) {
                 val first = whole.indexOfFirst { it.contains("-->") }
                 if (first < 0) continue
                 whole.drop(first)
             } else {
                 whole
             }
-            if (vtt && isVttMetadata(block.first())) continue
-            // A cue's timing line comes first, or after an identifier or an
-            // SRT index. Arrows further down are text, not a cue.
-            val at = block.take(2).indexOfFirst { it.contains("-->") }
-            if (at < 0) {
-                if (block.any { it.contains("-->") }) skipped++
-                continue
+            if (vtt && isVttMetadata(start.first())) continue
+            // One pass per cue: a block holds several when a file leaves out
+            // the blank lines between its cues.
+            var rest: List<String>? = start
+            while (rest != null) {
+                val block: List<String> = rest
+                rest = null
+                // A cue's timing line comes first, or after an identifier or
+                // an SRT index. Arrows further down are text, not a cue; such
+                // a block still had a timing, just none that could be read.
+                val at = block.take(2).indexOfFirst { it.contains("-->") }
+                if (at < 0) {
+                    if (block.any { it.contains("-->") }) {
+                        timed++
+                        skipped++
+                    }
+                    break
+                }
+                timed++
+                // A later line that reads as a timing starts the next cue
+                // (cue text cannot hold "-->"), with the bare number above
+                // it as that cue's SRT index.
+                val next = (at + 1 until block.size).firstOrNull { timingOf(block[it]) != null }
+                val end = when {
+                    next == null -> block.size
+                    next - 1 > at && isIndexLine(block[next - 1]) -> next - 1
+                    else -> next
+                }
+                if (end < block.size) rest = block.subList(end, block.size)
+                val timing = timingOf(block[at])
+                if (timing == null) {
+                    skipped++
+                    continue
+                }
+                raw.addAll(cuesOf(timing.first, timing.second, block.subList(at + 1, end)))
             }
-            timed++
-            val timing = timingOf(block[at])
-            if (timing == null) {
-                skipped++
-                continue
-            }
-            raw.addAll(cuesOf(timing.first, timing.second, block.drop(at + 1)))
         }
         // A WebVTT header with nothing under it is an empty caption file.
         if (timed == 0) return Result.Failed(if (vtt) Problem.EMPTY else Problem.NOT_CAPTIONS)
@@ -167,6 +188,12 @@ object SubtitleImport {
         }
         if (current.isNotEmpty()) blocks.add(current)
         return blocks
+    }
+
+    /** An SRT index: the cue's number, on a line of its own. */
+    private fun isIndexLine(line: String): Boolean {
+        val t = line.trim()
+        return t.isNotEmpty() && t.length <= 9 && t.all { it in '0'..'9' }
     }
 
     private fun isVttMetadata(first: String): Boolean {

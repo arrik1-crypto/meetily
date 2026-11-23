@@ -181,8 +181,11 @@ class ImportActivity : AppCompatActivity() {
                 )
                 else -> {
                     // Still probing, choosing or copying to the queue: drop
-                    // this file only.
+                    // this file only, or the rest of this screen's batch
+                    // (whose threads may have been started by an earlier
+                    // instance of this screen; they poll the run, not it).
                     abandoned = true
+                    batch?.cancelled = true
                     finish()
                     return@setOnClickListener
                 }
@@ -224,10 +227,14 @@ class ImportActivity : AppCompatActivity() {
         val handedOn = savedInstanceState?.getBoolean(STATE_STARTED, true) ?: false
         if (uri != null && savedInstanceState != null && !handedOn) {
             if (savedInstanceState.getBoolean(STATE_QUEUEING, false)) {
-                if (batchScreen != null) {
+                // Only the batch this screen was adding: another screen's
+                // batch, or a single file's queue copy, is not this one's.
+                val run = savedInstanceState.getString(STATE_BATCH_ID)?.let { runs[it] }
+                if (run != null) {
                     // A batch is still being added: this screen takes it over
                     // and stays, so the files not yet read keep their grant.
-                    batchScreen = this
+                    run.screen = this
+                    batch = run
                     started = true
                     queueing = true
                     stayWhileAdding.isEnabled = true
@@ -275,6 +282,7 @@ class ImportActivity : AppCompatActivity() {
         outState.putBoolean(STATE_QUEUEING, queueing)
         outState.putBoolean(STATE_AWAITING_PERMISSION, awaitingPermission)
         outState.putString(STATE_LANGUAGE, importLanguage)
+        batch?.let { outState.putString(STATE_BATCH_ID, it.id) }
         summary?.let {
             outState.putString(STATE_SUMMARY, it)
             outState.putBoolean(STATE_SUMMARY_SETTINGS, summaryOffersSettings)
@@ -594,6 +602,27 @@ class ImportActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * One batch being added. Its worker threads hold it, and [runs] does
+     * until it is done, so they always see Cancel: pressed on the screen that
+     * started the batch or on one re-created meanwhile that took it over,
+     * even once that screen is gone. Each batch has its own, so two batches
+     * at once (shares from two apps) never report to each other's screen.
+     */
+    private class BatchRun(val id: String) {
+        /** Cancel was pressed on a screen showing this batch. */
+        @Volatile var cancelled = false
+
+        /**
+         * The screen showing this batch, null while none is (onDestroy).
+         * Main thread only.
+         */
+        var screen: ImportActivity? = null
+    }
+
+    /** The batch this screen is adding or took over, while it is. */
+    private var batch: BatchRun? = null
+
     /** What became of one file of a batch. */
     private sealed class Outcome {
         class Queued(val result: ImportQueue.Result) : Outcome()
@@ -659,7 +688,11 @@ class ImportActivity : AppCompatActivity() {
         started = true
         queueing = true
         stayWhileAdding.isEnabled = true
-        batchScreen = this
+        val run = BatchRun(java.util.UUID.randomUUID().toString())
+        run.screen = this
+        runs[run.id] = run
+        batch = run
+        val language = importLanguage.orEmpty()
         val app = applicationContext
         val outcomes = arrayOfNulls<Outcome>(files.size)
         progress.isIndeterminate = false
@@ -668,11 +701,13 @@ class ImportActivity : AppCompatActivity() {
             // Caption files first: each takes a moment and needs nothing else.
             for ((i, file) in files.withIndex()) {
                 if (file.kind != ImportBatch.Kind.SUBTITLE) continue
-                if (batchCancelled()) break
-                runOnUiThread { batchUi().showBatchStep(i, files) }
+                if (run.cancelled) break
+                runOnUiThread { run.screen?.showBatchStep(i, files) }
                 outcomes[i] = Outcome.Caption(SubtitleFiles.import(app, file.uri, file.name))
             }
-            runOnUiThread { batchUi().queueBatchMedia(files, modelKey, outcomes) }
+            runOnUiThread {
+                (run.screen ?: this).queueBatchMedia(run, files, modelKey, language, outcomes)
+            }
         }.apply {
             name = "import-captions"
             start()
@@ -680,18 +715,20 @@ class ImportActivity : AppCompatActivity() {
     }
 
     /**
-     * The screen showing this batch: a re-created one takes it over (onCreate),
-     * and this one is gone by then. Main thread.
+     * Stages the batch's recordings, on whichever screen shows [run] now: the
+     * one that started it, or one re-created meanwhile (onCreate). With none
+     * left, the screen that started it (gone by then) still ends the batch.
      */
-    private fun batchUi(): ImportActivity = batchScreen ?: this
-
-    /** Cancel was pressed, on this screen or the one that took the batch over. */
-    private fun batchCancelled(): Boolean = abandoned || batchScreen?.abandoned == true
-
-    private fun queueBatchMedia(files: List<Picked>, modelKey: String?, outcomes: Array<Outcome?>) {
+    private fun queueBatchMedia(
+        run: BatchRun,
+        files: List<Picked>,
+        modelKey: String?,
+        language: String,
+        outcomes: Array<Outcome?>
+    ) {
         val media = files.indices.filter { files[it].kind == ImportBatch.Kind.MEDIA }
-        if (media.isEmpty() || modelKey == null || batchCancelled()) {
-            finishBatch(files, outcomes, needsModel = modelKey == null && media.isNotEmpty())
+        if (media.isEmpty() || modelKey == null || run.cancelled) {
+            finishBatch(run, files, outcomes, needsModel = modelKey == null && media.isNotEmpty())
             return
         }
         // The queue's room, in the order the files came; the rest are left
@@ -706,21 +743,21 @@ class ImportActivity : AppCompatActivity() {
         }
         val admitted = admission.admitted.map { media[it] }
         if (admitted.isEmpty()) {
-            finishBatch(files, outcomes, needsModel = false)
+            finishBatch(run, files, outcomes, needsModel = false)
             return
         }
         ImportQueue.stageBatch(
             this,
             admitted.map { ImportQueue.BatchFile(files[it].uri, files[it].name) },
             modelKey,
-            importLanguage.orEmpty(),
-            cancelled = { batchCancelled() },
-            onFile = { k -> batchUi().showBatchStep(admitted[k], files) },
+            language,
+            cancelled = { run.cancelled },
+            onFile = { k -> run.screen?.showBatchStep(admitted[k], files) },
             onResults = { results ->
                 for ((k, result) in results.withIndex()) {
                     outcomes[admitted[k]] = Outcome.Queued(result)
                 }
-                batchUi().finishBatch(files, outcomes, needsModel = false)
+                (run.screen ?: this).finishBatch(run, files, outcomes, needsModel = false)
             }
         )
     }
@@ -743,10 +780,20 @@ class ImportActivity : AppCompatActivity() {
      * in a toast; anything more is a summary that names the files left out
      * and why.
      */
-    private fun finishBatch(files: List<Picked>, outcomes: Array<Outcome?>, needsModel: Boolean) {
-        queueing = false
-        stayWhileAdding.isEnabled = false
-        batchScreen = null
+    private fun finishBatch(
+        run: BatchRun,
+        files: List<Picked>,
+        outcomes: Array<Outcome?>,
+        needsModel: Boolean
+    ) {
+        runs.remove(run.id)
+        run.screen = null
+        // This run's screen only: another batch's screen keeps its own.
+        if (batch === run) {
+            batch = null
+            queueing = false
+            stayWhileAdding.isEnabled = false
+        }
         val gone = isFinishing || isDestroyed
         val only = files.singleOrNull()
         if (only != null) {
@@ -1002,22 +1049,21 @@ class ImportActivity : AppCompatActivity() {
         const val STATE_LANGUAGE = "import_language"
         const val STATE_SUMMARY = "import_batch_summary"
         const val STATE_SUMMARY_SETTINGS = "import_batch_summary_settings"
+        const val STATE_BATCH_ID = "import_batch_id"
 
         /**
-         * The screen a batch is being added on, while it is: a screen
-         * re-created meanwhile takes the batch over instead of closing
-         * (onCreate). Main thread only; cleared when the batch is done. Held
-         * weakly: the batch's own threads keep the screen they report to.
+         * The batches being added, by id, while they are: a screen re-created
+         * meanwhile looks up the one whose id it saved and takes it over
+         * instead of closing (onCreate). Removed when the batch is done.
          */
-        var batchScreen: ImportActivity?
-            get() = batchScreenRef?.get()
-            set(value) {
-                batchScreenRef = value?.let { java.lang.ref.WeakReference(it) }
-            }
-        private var batchScreenRef: java.lang.ref.WeakReference<ImportActivity>? = null
+        val runs = java.util.concurrent.ConcurrentHashMap<String, BatchRun>()
     }
 
     override fun onDestroy() {
+        // Re-created: the next instance takes the batch over (onCreate).
+        // Until then, or for good when this screen was closed, the batch's
+        // progress has no screen to go to; its summary ends up in a toast.
+        batch?.let { if (it.screen === this) it.screen = null }
         // Re-created: the next instance shows the summary again.
         summaryDialog?.dismiss()
         summaryDialog = null

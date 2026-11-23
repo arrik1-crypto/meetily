@@ -251,6 +251,45 @@ class SubtitleImportTest {
     }
 
     @Test
+    fun cuesWithoutBlankLinesBetweenThemAreStillSplit() {
+        val srt = ok(
+            "1\n00:00:01,000 --> 00:00:02,000\nHello\n2\n00:00:03,000 --> 00:00:04,000\nWorld\n" +
+                "again\n00:00:05,000 --> 00:00:06,000\nNo index\n"
+        )
+        assertEquals(listOf("Hello", "World again", "No index"), srt.cues.map { it.text })
+        assertEquals(listOf(1_000L, 3_000L, 5_000L), srt.cues.map { it.startMs })
+        assertEquals(listOf(2_000L, 4_000L, 6_000L), srt.cues.map { it.endMs })
+        assertEquals(0, srt.skipped)
+        val vtt = ok("WEBVTT\n\n00:01.000 --> 00:02.000\n<v Ann>Hi\n00:02.000 --> 00:03.000\n<v Ben>Hello\n")
+        assertEquals(listOf("Ann" to "Hi", "Ben" to "Hello"), vtt.cues.map { it.speaker to it.text })
+    }
+
+    @Test
+    fun anUnreadableTimeInARunOfCuesSkipsOnlyThatCue() {
+        val result = ok(
+            "1\n00:00:xx,000 --> 00:00:02,000\nLost\n2\n00:00:03,000 --> 00:00:04,000\nKept\n"
+        )
+        assertEquals(listOf("Kept"), result.cues.map { it.text })
+        assertEquals(1, result.skipped)
+    }
+
+    @Test
+    fun aTimingTooFarDownItsBlockIsATimeThatCouldNotBeRead() {
+        // Two identifier lines: the WebVTT parser drops such a block, and the
+        // file is then one whose times could not be read, not an empty one.
+        assertEquals(
+            Problem.NO_CUES,
+            problem("WEBVTT\n\nid1\nid2\n00:00:01.000 --> 00:00:02.000\nHi\n")
+        )
+        assertEquals(Problem.NO_CUES, problem("intro\nmore\n00:00:01,000 --> 00:00:02,000\nHi\n"))
+        val result = ok(
+            "WEBVTT\n\nid1\nid2\n00:00:01.000 --> 00:00:02.000\nLost\n\n00:00:03.000 --> 00:00:04.000\nKept\n"
+        )
+        assertEquals(listOf("Kept"), result.cues.map { it.text })
+        assertEquals(1, result.skipped)
+    }
+
+    @Test
     fun aFileOverTheLimitIsRefusedUnread() {
         val result = SubtitleImport.parse(ByteArray(SubtitleImport.MAX_BYTES + 1))
         assertEquals(Problem.TOO_LARGE, (result as Result.Failed).problem)

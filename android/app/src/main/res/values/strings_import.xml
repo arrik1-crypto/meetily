@@ -7,8 +7,8 @@
     <string name="import_video_no_sound">That file has no sound to transcribe.</string>
     <string name="import_cancelled_nothing_kept">Import cancelled. Nothing was kept.</string>
 
-    <!-- Progress of one file of a batch, before the usual detail line. -->
-    <string name="import_batch_position">File %1$d of %2$d</string>
+    <!-- Progress of one file of a batch, before the usual detail line (or
+         "Transcribing… 12%" while there is none yet). -->
     <string name="import_batch_position_detail">File %1$d of %2$d \u00b7 %3$s</string>
 
     <!-- Several files shared or picked together. -->

@@ -433,15 +433,17 @@ class ImportService : Service() {
 
     /**
      * Progress from the worker, to the observers and the notification. One of
-     * a batch says which file it is: "File 2 of 5 · 12/40 min".
+     * a batch says which file it is: "File 2 of 5 · 12/40 min". Before the
+     * importer has a detail of its own, that is the percentage the screen and
+     * the notification show for a single file ("Transcribing… 12%"); the
+     * position line is never blank, so their fallback would not apply.
      */
     private fun reportProgress(p: Int, text: String) {
         val line = if (com.meetily.mobile.data.ImportBatch.showsPosition(batchIndex, batchSize)) {
-            if (text.isBlank()) {
-                getString(R.string.import_batch_position, batchIndex, batchSize)
-            } else {
-                getString(R.string.import_batch_position_detail, batchIndex, batchSize, text)
-            }
+            getString(
+                R.string.import_batch_position_detail, batchIndex, batchSize,
+                text.ifBlank { getString(R.string.import_status_running, p) }
+            )
         } else {
             text
         }
