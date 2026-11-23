@@ -127,6 +127,7 @@ class TrashActivity : AppCompatActivity() {
                     // A reminder due while it was here, or one a reboot
                     // cleared, is armed again (late rather than lost).
                     runCatching { Reminders.rescheduleAll(app) }
+                    TrashUi.settleRestored(app)
                     val rule = RetentionRunner.rule(app)
                     if (Trash.cleanUpWouldRetake(rule, item.createdAtMs, item.starred, System.currentTimeMillis())) {
                         app.getString(R.string.trash_restored_retake, title, rule.days)

@@ -22,7 +22,8 @@ import org.w3c.dom.Element
 class LiveUpdatesTest {
 
     private val promotable = listOf(
-        Job.RECORDING, Job.IMPORT, Job.TRANSCRIPTION, Job.CLEAR_VOICE, Job.MODEL_DOWNLOAD
+        Job.RECORDING, Job.IMPORT, Job.TRANSCRIPTION, Job.CLEAR_VOICE, Job.MODEL_DOWNLOAD,
+        Job.PASSAGE_REMOVAL
     )
 
     @Test
@@ -55,6 +56,23 @@ class LiveUpdatesTest {
         assertFalse(LiveUpdates.requestsPromotion(Job.CLEAN_UP, true, 36))
         assertFalse(LiveUpdates.requestsPromotion(Job.SUMMARY, true, 36))
         assertEquals(promotable.toSet(), Job.entries.filter { it.promotable }.toSet())
+    }
+
+    @Test
+    fun mediaPlaybackKeepsItsMediaStyleAndNeverAsks() {
+        // The user starts it, but a MediaStyle notification cannot be a
+        // Live Update; the media controls are its prominent place.
+        for (sdk in listOf(35, 36, 37)) {
+            assertFalse(LiveUpdates.requestsPromotion(Job.MEDIA_PLAYBACK, true, sdk))
+        }
+    }
+
+    @Test
+    fun removingAPassageIsTheUsersOwnJob() {
+        assertTrue(LiveUpdates.requestsPromotion(Job.PASSAGE_REMOVAL, true, 36))
+        // Swiped away: the rest of that run is an ordinary notification.
+        assertFalse(LiveUpdates.requestsPromotion(Job.PASSAGE_REMOVAL, true, 36, dismissed = true))
+        assertFalse(LiveUpdates.requestsPromotion(Job.PASSAGE_REMOVAL, true, 35))
     }
 
     @Test

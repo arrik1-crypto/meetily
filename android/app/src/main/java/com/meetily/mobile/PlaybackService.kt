@@ -319,6 +319,8 @@ class PlaybackService : Service() {
             )
             .addAction(action(R.drawable.ic_playback_forward15, R.string.playback_forward15, ACTION_FORWARD, REQUEST_FORWARD))
             .addAction(action(R.drawable.ic_close, R.string.playback_stop, ACTION_STOP, REQUEST_STOP))
+        // Never asks to be an Android 16 Live Update (LiveUpdates.Job.MEDIA_PLAYBACK):
+        // MediaStyle is not a style one may have; the media controls show it instead.
         session?.let {
             builder.setStyle(
                 Notification.MediaStyle()

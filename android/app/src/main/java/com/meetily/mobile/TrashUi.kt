@@ -41,8 +41,11 @@ object TrashUi {
      * Moves [ids] to Recently deleted. A meeting a recording, import,
      * accuracy check, summary or clear-voice copy is writing right now is
      * left out (AudioRemoval.isWriting), as deleting always has: the job's
-     * next write would bring it back. Arms the daily run that erases them
-     * when their time is up (RetentionJobService).
+     * next write would bring it back. One playing on in the background stops
+     * (MeetingPlayback): a move deletes no audio, so AudioDeletions would
+     * not stop it, and its notification would open a meeting that is no
+     * longer in the library. Arms the daily run that erases them when their
+     * time is up (RetentionJobService).
      */
     @WorkerThread
     fun moveToTrash(context: Context, ids: List<String>): Batch {
@@ -54,7 +57,9 @@ object TrashUi {
                 busy++
                 continue
             }
-            trash.moveToTrash(id)?.let { moved.add(it) }
+            val move = trash.moveToTrash(id) ?: continue
+            moved.add(move)
+            MeetingPlayback.stopMeeting(id)
         }
         if (moved.isNotEmpty()) RetentionJobService.schedule(context)
         return Batch(moved, busy)
@@ -88,6 +93,7 @@ object TrashUi {
         worker.execute {
             val trash = MeetingTrash(app)
             val restored = batch.moved.count { trash.undo(it) == MeetingTrash.Restore.RESTORED }
+            if (restored > 0) settleRestored(app)
             // Put back still waiting for a charger: make sure plugging in
             // wakes it, as queueing it did (JobGate).
             if (batch.moved.any { moved -> moved.droppedJobs.any { it.chargingOnly } }) {
@@ -101,6 +107,18 @@ object TrashUi {
                 if (!activity.isFinishing && !activity.isDestroyed) onChanged()
             }
         }
+    }
+
+    /**
+     * After a meeting came back from Recently deleted (worker thread): a
+     * passage removal that a process left unfinished on it while it was
+     * away (PassageSwap.Leftover.KEEP_BOTH) is settled now, so the file it
+     * no longer points at, which may hold the passage, goes at once rather
+     * than at the next start.
+     */
+    @WorkerThread
+    fun settleRestored(context: Context) {
+        runCatching { PassageService.recoverLeftovers(context) }
     }
 
     /** Asks before erasing one deleted meeting, naming what goes and what it frees. */

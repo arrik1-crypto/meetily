@@ -40,6 +40,27 @@ object PassageSwap {
 
     const val MARKER_SUFFIX = ".swap"
 
+    /** A marker's text: the recording [oldName] and the file [newName] that replaces it. */
+    fun markerText(oldName: String, newName: String): String =
+        org.json.JSONObject().put("old", oldName).put("new", newName).toString()
+
+    /**
+     * The recording and the new file a marker's [text] names, or null when
+     * it does not parse or names anything but two different plain file
+     * names: such a marker is only ever deleted, never followed.
+     */
+    fun markerNames(text: String): Pair<String, String>? {
+        val json = try {
+            org.json.JSONObject(text)
+        } catch (_: Exception) {
+            return null
+        }
+        val old = json.optString("old", "")
+        val new = json.optString("new", "")
+        if (!SafeFiles.isPlainName(old) || !SafeFiles.isPlainName(new) || old == new) return null
+        return old to new
+    }
+
     /** The meeting a [markerName] belongs to, or null for any other name. */
     fun meetingOfMarker(name: String): String? =
         name.takeIf { it.endsWith(MARKER_SUFFIX) && it.length > MARKER_SUFFIX.length }
@@ -117,8 +138,9 @@ object PassageSwap {
 
         /**
          * The meeting is not in the library: it may be in Recently deleted,
-         * pointing at either file, so neither is touched here; deleting it
-         * for good deletes the one it points at.
+         * pointing at either file, so neither is touched here. Restoring it
+         * settles them like any other leftover (TrashUi); erasing it for
+         * good deletes both, with the marker (MeetingAssets.deleteAll).
          */
         KEEP_BOTH
     }

@@ -263,9 +263,10 @@ object PassagePlan {
 
     /**
      * Applies [plan] to [meeting]: the transcript, the highlight marks and
-     * the chapters, and marks a summary out of date when the transcript
-     * changed under it. The audio, the clear-voice copy and the resume
-     * point are the caller's (see PassageService).
+     * the chapters, and marks its summaries out of date when the transcript
+     * changed under them: the one shown and every one kept for another
+     * template (SummaryAlternatives.markStale). The audio, the clear-voice
+     * copy and the resume point are the caller's (see PassageService).
      */
     fun applyTo(meeting: Meeting, plan: Plan) {
         meeting.segments.clear()
@@ -274,12 +275,19 @@ object PassagePlan {
         meeting.highlightMarksMs.addAll(plan.marks)
         meeting.chapters.clear()
         meeting.chapters.addAll(plan.chapters)
-        if (staleSummary(plan, meeting.summary)) meeting.summaryStale = true
+        if (plan.changesTranscript) SummaryAlternatives.markStale(meeting)
     }
 
     /** True when a summary written before [plan] no longer matches the transcript. */
     fun staleSummary(plan: Plan, summary: String): Boolean =
         plan.changesTranscript && summary.isNotBlank()
+
+    /**
+     * True when [applyTo] marks any of [meeting]'s summaries out of date:
+     * the one shown or one kept for another template.
+     */
+    fun staleSummaries(plan: Plan, meeting: Meeting): Boolean =
+        plan.changesTranscript && SummaryAlternatives.hasAny(meeting)
 
     /**
      * Where an unfinished transcript carries on after [plan], from where it

@@ -195,6 +195,9 @@ object AudioRemoval {
         }
         val removed = name
         if (!saved || removed.isNullOrBlank()) return -1L
+        // Playing on in the background (MeetingPlayback): asked to stop
+        // before its file goes, not only told afterwards (AudioDeletions).
+        MeetingPlayback.stopMeeting(meetingId)
         return deleteFiles(context, removed, copy)
     }
 

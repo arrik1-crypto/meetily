@@ -26,7 +26,6 @@ import com.meetily.mobile.data.SafeFiles
 import com.meetily.mobile.data.Waveform
 import com.meetily.mobile.whisper.ImportEta
 import com.meetily.mobile.whisper.PassageSilencer
-import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.CopyOnWriteArraySet
 
@@ -80,6 +79,12 @@ class PassageService : Service() {
     /** The newest start this instance was handed; finishRun stops with it. */
     private var lastStartId = 0
 
+    /**
+     * The user swiped this run's Live Update away: the rest of the run is an
+     * ordinary notification (LiveUpdates). Main thread.
+     */
+    private var liveUpdateDismissed = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -87,6 +92,9 @@ class PassageService : Service() {
         when (intent?.action) {
             ACTION_CANCEL -> {
                 if (isRunning) cancelRequested = true else stopSelfResult(startId)
+            }
+            ACTION_LIVE_DISMISSED -> {
+                if (isRunning) liveUpdateDismissed = true else stopSelfResult(startId)
             }
             ACTION_START -> {
                 val id = intent.getStringExtra(EXTRA_MEETING_ID)
@@ -115,6 +123,7 @@ class PassageService : Service() {
                 cancelRequested = false
                 percent = 0
                 minutesLeft = null
+                liveUpdateDismissed = false
                 createChannel()
                 startForegroundCompat(buildNotification(id))
                 // The foreground service keeps the process, not the CPU.
@@ -246,12 +255,17 @@ class PassageService : Service() {
         // (the name starts with this one's); a leftover of a run that died.
         if (target.exists()) AudioStore.delete(app, newName)
         val marker = PassageSwap.markerName(meetingId)
-        val markerJson = JSONObject().put("old", audio).put("new", newName).toString()
+        val markerJson = PassageSwap.markerText(audio, newName)
         if (!AtomicJson.write(workDir(app), marker, markerJson) || !part.renameTo(target)) {
             part.delete()
             File(workDir(app), marker).delete()
             return Result.FAILED
         }
+        // A player still on the recording (playing on in the background, or
+        // opened on the screen during the run) lets go before the meeting
+        // points at the new file: it would go on playing the passage, and the
+        // screen would go on using it (MeetingPlayback.playerFor).
+        MeetingPlayback.stopMeeting(meetingId)
         var swapped = false
         var copy: String? = null
         val saved = store.mutateIf(meetingId) { stored ->
@@ -418,16 +432,33 @@ class PassageService : Service() {
         }
         // No meeting title or transcript text: the notification can show on
         // the lock screen, and the passage is what the user wants gone.
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_delete)
             .setContentTitle(getString(R.string.passage_notif_title))
             .setContentText(text)
-            .setProgress(100, percent, percent == 0)
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openMeeting(meetingId, REQUEST_OPEN))
             .addAction(0, getString(R.string.passage_stop), cancelIntent)
-            .build()
+        // Always the user's own confirmation on the meeting screen: a Live
+        // Update on Android 16 (LiveUpdates), as Clear voice is, but not for
+        // a start that is only being refused.
+        val live = isRunning && !timedOut && LiveUpdates.requestsPromotion(
+            LiveUpdates.Job.PASSAGE_REMOVAL, userStarted = true,
+            sdkInt = Build.VERSION.SDK_INT, dismissed = liveUpdateDismissed
+        )
+        LiveUpdateBar.setBar(this, builder, live, LiveUpdates.progress(percent), percent)
+        if (live) {
+            LiveUpdateBar.requestPromotion(
+                builder,
+                PendingIntent.getService(
+                    this, REQUEST_DISMISSED,
+                    Intent(this, PassageService::class.java).setAction(ACTION_LIVE_DISMISSED),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        }
+        return builder.build()
     }
 
     private fun updateNotification(meetingId: String) {
@@ -486,6 +517,9 @@ class PassageService : Service() {
     companion object {
         const val ACTION_START = "com.meetily.mobile.passage.START"
         const val ACTION_CANCEL = "com.meetily.mobile.passage.CANCEL"
+
+        /** The user swiped the run's Live Update away (its delete intent). */
+        const val ACTION_LIVE_DISMISSED = "com.meetily.mobile.passage.LIVE_DISMISSED"
         const val EXTRA_MEETING_ID = "meeting_id"
         const val EXTRA_AUDIO = "audio_file"
         const val EXTRA_START_MS = "start_ms"
@@ -501,6 +535,7 @@ class PassageService : Service() {
         private const val REQUEST_OPEN = 4851
         private const val REQUEST_CANCEL = 4852
         private const val REQUEST_DONE = 4853
+        private const val REQUEST_DISMISSED = 4854
 
         private const val WAKE_LOCK_MS = 30 * 60 * 1000L
         private const val WAKE_LOCK_RENEW_MS = 10 * 60 * 1000L
@@ -689,18 +724,16 @@ class PassageService : Service() {
                         continue
                     }
                     if (id == running) continue
-                    val marker = try {
-                        JSONObject(file.readText())
+                    val names = try {
+                        PassageSwap.markerNames(file.readText())
                     } catch (_: Exception) {
+                        null
+                    }
+                    if (names == null) {
                         file.delete()
                         continue
                     }
-                    val old = marker.optString("old", "")
-                    val new = marker.optString("new", "")
-                    if (!SafeFiles.isPlainName(old) || !SafeFiles.isPlainName(new) || old == new) {
-                        file.delete()
-                        continue
-                    }
+                    val (old, new) = names
                     val meeting = store.load(id)
                     when (PassageSwap.leftover(meeting != null, meeting?.audioFile, old, new)) {
                         PassageSwap.Leftover.DELETE_NEW -> AudioStore.delete(context, new)
@@ -709,7 +742,9 @@ class PassageService : Service() {
                             AudioStore.delete(context, new)
                             AudioRemoval.deleteFiles(context, old)
                         }
-                        // Looked at again at every start until the meeting is back or gone for good.
+                        // Looked at again at every start, and when a meeting
+                        // comes back from Recently deleted (TrashUi); erasing
+                        // it there takes both (MeetingAssets.deleteAll).
                         PassageSwap.Leftover.KEEP_BOTH -> continue
                     }
                     file.delete()

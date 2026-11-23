@@ -77,6 +77,7 @@
     </plurals>
     <string name="passage_confirm_clearvoice">The clear-voice copy is deleted, because it holds the passage. You can make it again from the player.</string>
     <string name="passage_confirm_summary">The summary is marked out of date.</string>
+    <string name="passage_confirm_summaries">Every summary of this meeting is marked out of date.</string>
     <string name="passage_confirm_resume_done">Nothing is left to transcribe after it, so the transcript counts as complete.</string>
     <string name="passage_confirm_final">This cannot be undone.</string>
     <string name="passage_confirm_button">Remove passage</string>

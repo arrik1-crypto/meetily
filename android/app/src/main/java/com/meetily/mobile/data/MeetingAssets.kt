@@ -1,6 +1,7 @@
 package com.meetily.mobile.data
 
 import android.content.Context
+import java.io.File
 
 /**
  * Everything a meeting leaves on disk outside its own JSON file.
@@ -34,6 +35,35 @@ object MeetingAssets {
         // Staged speaker names, left behind when the meeting is deleted
         // before its suggestions were reviewed.
         SpeakerSuggestions.delete(context, meeting.id)
+        deletePassageLeftovers(context, meeting.id)
+    }
+
+    /**
+     * What a passage removal (PassageService) left of meeting [meetingId]
+     * when the process died part-way through its swap: the marker naming
+     * the recording and the file that was to replace it, in
+     * PassageSwap.WORK_DIR. One of the two holds the passage. A meeting
+     * that was not in the library when the leftovers were next looked at
+     * keeps both (PassageSwap.Leftover.KEEP_BOTH), so deleting it for good
+     * takes both, with their clips and clear-voice copies, and the marker.
+     */
+    fun deletePassageLeftovers(context: Context, meetingId: String) {
+        val markerName = PassageSwap.markerName(meetingId)
+        if (!SafeFiles.isPlainName(markerName)) return
+        val marker = File(File(AudioStore.dir(context), PassageSwap.WORK_DIR), markerName)
+        if (!marker.isFile) return
+        val names = try {
+            PassageSwap.markerNames(marker.readText())
+        } catch (_: Exception) {
+            null
+        }
+        if (names != null) {
+            for (name in listOf(names.first, names.second)) {
+                com.meetily.mobile.export.ClipExporter.deleteFor(context, name)
+                AudioStore.delete(context, name)
+            }
+        }
+        marker.delete()
     }
 
     /**

@@ -347,7 +347,14 @@ class PassageUi(
         if (hasAudio && com.meetily.mobile.data.AudioStore.clearVoiceCopy(activity, m.audioFile, m.clearVoiceFile) != null) {
             parts.add(activity.getString(R.string.passage_confirm_clearvoice))
         }
-        if (PassagePlan.staleSummary(plan, m.summary)) parts.add(activity.getString(R.string.passage_confirm_summary))
+        if (PassagePlan.staleSummaries(plan, m)) {
+            parts.add(
+                activity.getString(
+                    // Kept summaries of other styles are marked too.
+                    if (m.summaries.isEmpty()) R.string.passage_confirm_summary else R.string.passage_confirm_summaries
+                )
+            )
+        }
         if (m.transcriptResumeMs != null && PassagePlan.resumeAfter(plan, m.transcriptResumeMs) == null) {
             parts.add(activity.getString(R.string.passage_confirm_resume_done))
         }

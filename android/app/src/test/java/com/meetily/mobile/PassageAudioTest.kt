@@ -286,6 +286,19 @@ class PassageAudioTest {
     }
 
     @Test
+    fun aMarkerNamesTwoPlainFilesOrNothing() {
+        val text = PassageSwap.markerText("m1.aac", "m1-edit1.aac")
+        assertEquals("m1.aac" to "m1-edit1.aac", PassageSwap.markerNames(text))
+        // Unreadable, incomplete, the same file twice, or anything outside
+        // the audio folder: only ever deleted, never followed.
+        assertNull(PassageSwap.markerNames("not json"))
+        assertNull(PassageSwap.markerNames("{\"old\":\"m1.aac\"}"))
+        assertNull(PassageSwap.markerNames(PassageSwap.markerText("m1.aac", "m1.aac")))
+        assertNull(PassageSwap.markerNames(PassageSwap.markerText("../m1.aac", "m1-edit1.aac")))
+        assertNull(PassageSwap.markerNames(PassageSwap.markerText("m1.aac", "a/m1-edit1.aac")))
+    }
+
+    @Test
     fun theNewFileMustReadBackAsTheSameAudio() {
         val ok = Facts("audio/mp4a-latm", 16_000, 1, 60_064)
         assertEquals(Verdict.OK, PassageSwap.verify(ok, 60_000, 16_000, 1))

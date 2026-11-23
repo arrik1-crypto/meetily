@@ -367,6 +367,40 @@ class PassagePlanTest {
     }
 
     @Test
+    fun removingAPassageMarksEverySummaryOutOfDate() {
+        val kept = com.meetily.mobile.data.SavedSummary("standup", "m", "en", "Kept", 5L)
+        val meeting = Meeting(id = "m1", title = "Weekly", createdAtMs = t0, summary = "S")
+        meeting.segments.addAll(plain)
+        meeting.summaries = mutableListOf(kept)
+        val plan = PassagePlan.plan(meeting.segments, Span(10_000, 30_000), 40_000L)
+        assertTrue(PassagePlan.staleSummaries(plan, meeting))
+        PassagePlan.applyTo(meeting, plan)
+        assertTrue(meeting.summaryStale)
+        assertEquals(listOf(true), meeting.summaries.map { it.stale })
+        assertEquals("Kept", meeting.summaries.single().text)
+
+        // Only kept summaries (none shown): they go out of date all the same.
+        val onlyKept = Meeting(id = "m2", title = "Weekly", createdAtMs = t0)
+        onlyKept.segments.addAll(plain)
+        onlyKept.summaries = mutableListOf(kept)
+        val plan2 = PassagePlan.plan(onlyKept.segments, Span(10_000, 30_000), 40_000L)
+        assertFalse(PassagePlan.staleSummary(plan2, onlyKept.summary))
+        assertTrue(PassagePlan.staleSummaries(plan2, onlyKept))
+        PassagePlan.applyTo(onlyKept, plan2)
+        assertFalse(onlyKept.summaryStale)
+        assertTrue(onlyKept.summaries.single().stale)
+
+        // Silence only, no words changed: nothing is marked.
+        val untouched = Meeting(id = "m3", title = "Weekly", createdAtMs = t0)
+        untouched.segments.add(worded(0, "a b"))
+        untouched.summaries = mutableListOf(kept)
+        val silentOnly = PassagePlan.plan(untouched.segments, Span(5_000, 8_000), 10_000L)
+        assertFalse(PassagePlan.staleSummaries(silentOnly, untouched))
+        PassagePlan.applyTo(untouched, silentOnly)
+        assertFalse(untouched.summaries.single().stale)
+    }
+
+    @Test
     fun applyingTheSameSpanAgainChangesNothing() {
         val lines = listOf(worded(0, "a b c d"), worded(10_000, "e f g h"), worded(20_000, "i j"))
         val span = Span(1_000, 11_000)

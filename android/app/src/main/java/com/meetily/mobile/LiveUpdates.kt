@@ -49,6 +49,10 @@ import com.meetily.mobile.data.ImportBatch
  *    dismissed is not posted as one again (setDeleteIntent) for as long as
  *    it lasts: the run, the download queue, or the import batch its bar
  *    spans ([startsDismissed]).
+ *  - Media playback (PlaybackService) never asks: its notification is a
+ *    Notification.MediaStyle, which is not among the styles the guide lets
+ *    a Live Update have, and the system media controls are already where
+ *    it shows prominently.
  *
  * Pure decisions only, so they can be unit tested; the notifications are
  * built in the services, the bar in LiveUpdateBar.
@@ -81,6 +85,9 @@ object LiveUpdates {
         CLEAR_VOICE(true),
         MODEL_DOWNLOAD(true),
 
+        /** Remove a passage (PassageService): started only from its confirmation. */
+        PASSAGE_REMOVAL(true),
+
         /**
          * Not promoted: its bar is a few stage estimates rather than a
          * measure, and it usually ends within a minute or two.
@@ -88,7 +95,10 @@ object LiveUpdates {
         SUMMARY(false),
 
         /** Automatic clean-up (RetentionRunner): background work by definition. */
-        CLEAN_UP(false)
+        CLEAN_UP(false),
+
+        /** Meeting playback (PlaybackService): a MediaStyle notification; see the rules above. */
+        MEDIA_PLAYBACK(false)
     }
 
     /**
