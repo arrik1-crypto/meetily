@@ -264,6 +264,90 @@ Baseline, verified in this repo:
   the six-hour allowance with transcription and Clear voice. Its time and
   battery cost on a phone have not been measured; the Remove a passage
   device checks in PLAY_RELEASE.md record that on a 2-hour meeting.
+- **Startup (2026-11, Batch 7, 3.21.0-beta1): a Baseline Profile and a
+  cold-start audit; nothing measured.**
+  - *What the profile covers:* `app/src/main/baseline-prof.txt`, about 820
+    rules, hand-curated from the code rather than recorded on a device,
+    with exact method descriptors taken from the compiled bytecode. Three
+    journeys: cold start (RecapApp.onCreate and what it runs, MainActivity
+    up to its first frame, the library list's adapter and rows, the light
+    listing read and parse, the search box and filter chips, the progress
+    banners, the edge-to-edge and accessibility helpers), opening a meeting
+    (the off-main-thread read and the first render) and transcript scroll
+    (line binding, find and playback highlighting). Branches the common
+    path does not take (dialogs, photo OCR, speaker suggestions, summary
+    and job starts, player preparation, trash erase) are left out. It
+    also covers the Material 1.12.0 views those screens use (Material
+    ships no profile, and the 3.20.0-beta1 APK's merged profile had no
+    Material rules), the Kotlin standard-library functions the code calls
+    (the standard library ships none either) and ConcatAdapter, which
+    RecyclerView's own profile leaves out. The Batch 7 integration added 39
+    rules for the re-timing and system-sounds code on those journeys.
+    BaselineProfileTest keeps every rule matching a class and method that
+    exists; AGP 8.2+ has R8 rewrite the rules for the optimised build.
+  - *Why the AndroidX libraries' rules are not repeated:* they ship
+    profiles in their AARs and AGP merges them into the APK's
+    `assets/dexopt/baseline.prof`. The merged profile in the 3.20.0-beta1
+    APK held 261 classes and 838 hot methods, almost all of them library
+    rules.
+  - *profileinstaller 1.3.1 → 1.4.1:* AndroidX brought 1.3.1 in
+    transitively, and installing profiles on API 35 and later arrived only
+    in 1.4.0, so a sideloaded APK on Android 15 or 16 had its profile
+    ignored. 1.4.1 is now declared directly. Play installs compile the
+    profile at install either way.
+  - *Main-thread findings, fixed:* MainActivity parsed a whole recovered
+    meeting on the main thread in onCreate just to decide on the
+    "recovered" toast; that now runs on its own thread. The "Resume
+    interrupted work?" lookup parsed the interrupted meeting on the main
+    thread on every return to the home screen while the prompt stayed
+    unanswered; it now runs on one worker thread, and the prompt opens only
+    if it still applies when the answer is back. Opening an audio-only
+    meeting asked every model whether it was ready, which loaded
+    `libmeetily_native` and sherpa-onnx with onnxruntime on the main thread
+    even with no model on the phone; the files are now checked before the
+    runtime (ModelReadyOrderTest), with the same answer.
+  - *Left as is:* RecapApp.onCreate was already lean (the engine-default
+    migration, night mode, AppLock.install, LocalLlm.init and one prefs
+    read, in that order on purpose; Batch 7's SystemSoundsGuard.install
+    only registers a callback and starts an asynchronous prefs load), the
+    small job-queue and crash prefs reads in onResume, and ML Kit's
+    `MlKitInitProvider` at process start (deferring it to the first OCR
+    use needs a device to verify and changes when ML Kit initialises).
+  - *Unmeasured: everything.* No device, no Macrobenchmark run, no
+    before/after start-up time. No startup profile either: DEX layout
+    optimisation would also need an obfuscated R8 release, and Recap ships
+    `-dontobfuscate` so crash reports stay readable. The cold-start,
+    meeting-open and scroll checks, and the steps to generate a measured
+    profile, are in PLAY_RELEASE.md (device checks and Product decisions).
+- **Re-time words, forced alignment (2026-11, Batch 7, 3.21.0-beta1): CPU
+  only, nothing to accelerate.** sherpa-onnx's forced aligner (v2.0.3,
+  already inside the shipped `libsherpa-onnx-jni.so`, so no size added) is
+  a kaldi-style GMM aligner: feature extraction with an LDA transform, a GMM
+  acoustic model (`final.alimdl`) and a lexicon graph, decoded on the CPU.
+  It does not use onnxruntime, and it has no GPU or NPU path. Each run
+  works on one background-priority thread.
+  - *Memory, estimated:* about 200 MB of native memory while the model is
+    loaded: `final.alimdl` (50,223,203 bytes) held as stored, and the
+    5,530,360-byte `lexicon.txt` parsed into one string vector per
+    pronunciation (about 204,000 lines, roughly 120 MB); the per-line
+    decoding graphs and features are small. Read off the file sizes and
+    sherpa-onnx's data structures, not measured. DeviceFit costs it at
+    200 MB (`AlignerModels.WORKING_SET_MB`), which passes on any phone.
+  - *Time, not measured on a phone:* the model loads once per run, then
+    each line's clip (the line plus 300 ms either side; lines over 3
+    minutes are skipped) is decoded with the platform decoder, one
+    MediaExtractor and MediaCodec for the whole run, seeking per pass,
+    with lines within 30 s of each other sharing a pass, and aligned. It
+    runs as mediaProcessing on Android 15 and later, sharing the six-hour
+    allowance with transcription, Clear voice and Remove a passage. The
+    device checks in PLAY_RELEASE.md ask for the time and peak memory of a
+    run over an hour-long meeting.
+  - *Unpacking the download:* the model is published only as a
+    `.tar.bz2`, and neither Android nor the app's libraries read bzip2, so
+    Recap decompresses it in pure Kotlin (`Bzip2InputStream`, checked
+    byte for byte against `bzip2 -dc` on the real archive). About 5 s for
+    the archive's 56 MB on a desktop JVM; slower on a phone, not measured.
+    It happens once per download.
 
 ---
 

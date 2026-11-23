@@ -14,8 +14,8 @@ commit the result. Needs network access.
     python3 android/scripts/build_notices.py
 
 The MODELS section is maintained by hand below — it tracks the model
-registries (WhisperModels, NemoModels, DiarizationModels, LocalLlmModels),
-not anything fetchable. Every licence it names must agree with
+registries (WhisperModels, NemoModels, DiarizationModels, LocalLlmModels,
+AlignerModels), not anything fetchable. Every licence it names must agree with
 app/src/main/java/com/meetily/mobile/licences/ModelLicences.kt, which labels
 the model pickers and decides which downloads ask for acceptance first.
 ModelLicencesTest finds each model's entry by its heading and checks that the
@@ -201,7 +201,7 @@ GTCRN (gtcrn_simple)
     Run on the phone through sherpa-onnx when you ask for a meeting's clear
     voice copy, for playback and clips.
 
-AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric)
+AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric, profileinstaller)
     Apache License 2.0
     Copyright (c) The Android Open Source Project
     https://developer.android.com/jetpack/androidx
@@ -329,8 +329,9 @@ English MFA acoustic model and dictionary v3.0.0
     Changed by the sherpa-onnx project: repackaged with only the files
     alignment needs, and a pronunciation lexicon generated from the
     dictionary for the words of its English word list (lexicon-en-us.txt,
-    whose multi-word phrase readings the lexicon keeps). Downloaded from
-    the sherpa-onnx fa-models release:
+    whose multi-word phrase readings the lexicon keeps; sherpa-onnx does
+    not state where lexicon-en-us.txt itself comes from, or its licence).
+    Downloaded from the sherpa-onnx fa-models release:
     https://github.com/k2-fsa/sherpa-onnx/releases/tag/fa-models
 
 --- Summarisation: local language models (GGUF) ---

@@ -1,13 +1,25 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Current release:
-**3.20.0-beta1** (versionCode 115), targetSdk 36 (Android 16): Batch 6
+App ID: **com.recap.mobile** (permanent). Next release:
+**3.21.0-beta1** (versionCode 116), targetSdk 36 (Android 16): Batch 7
+(Re-time words, which measures the timings of edited transcript words
+against the recording on the phone with an optional English
+forced-alignment model; a Baseline Profile with androidx.profileinstaller
+and two main-thread fixes at start-up; and readiness for Android 17 and
+18: a plain hint when an AI server on the local network cannot be
+reached, the local network permission wired up for the targetSdk 37
+bump, system sounds a recording muted put back after a crash, the
+camera's photo grant made explicit, and export and home-list text moved
+into string resources behind an English-only per-app language list).
+Until the version bump, which the maintainer makes in a separate commit
+right after this documentation update, `android/app/build.gradle.kts`
+still reads **3.20.0-beta1** (versionCode 115), the Batch 6 release
 (Android 16 Live Updates for the recording and for long jobs the user
 starts, meeting playback that carries on in the background with
 lock-screen, headset and car controls and 15-second skips, Recently
 deleted with 30 days to restore a deleted meeting, several summaries per
-meeting, one per style, and Remove a passage). The previous release,
+meeting, one per style, and Remove a passage). The release before it,
 **3.19.0-beta1** (versionCode 114), was Batch 5 (sherpa-onnx
 v2.0.3 with ONNX Runtime 1.28.2 and the re-keyed CAM++ speaker model,
 interrupted transcriptions that carry on from where they stopped, SRT/VTT
@@ -161,7 +173,24 @@ developer receives nothing from the app. "No data collected" is still not
 the right answer: the bundled Google ML Kit text-recognition SDK, which
 reads text in photos, sends Google diagnostics. The answers below match the
 code on this branch; re-check them whenever an SDK or a network path
-changes. Re-checked for 3.20.0-beta1: no change; owner to confirm
+changes. Re-checked for 3.21.0-beta1: no change; owner to confirm
+against the merged build. It adds no permission (`ACCESS_LOCAL_NETWORK`
+is deliberately not declared at targetSdk 36), no foreground service
+type, no data type, and no network path beyond one more optional model
+download. Re-time words runs sherpa-onnx's forced aligner on the phone
+over the meeting's own recording and changes only word timings in the
+meeting's JSON (a `wordTimes` flag per line, kept on the phone and in
+backups like the rest). Its optional English model is downloaded only
+when the user asks, from github.com (the k2-fsa/sherpa-onnx fa-models
+release), through the same https-only path as the other models: an
+ordinary HTTPS request, with nothing about the user or their meetings
+sent, which the Model downloads row already covers. Nothing new leaves
+the device. androidx.profileinstaller hands the app's own compiled
+profile to ART on the phone and sends nothing. The local network
+classifier parses addresses in code and looks nothing up; the summary
+hint, the restored system sounds and the explicit camera grant change
+nothing that leaves the phone. Batch 7 adds no logcat lines.
+Re-checked for 3.20.0-beta1: no change; owner to confirm
 against the merged build. It adds two permissions
 (FOREGROUND_SERVICE_MEDIA_PLAYBACK and POST_PROMOTED_NOTIFICATIONS) and
 one foreground service type (mediaPlayback), but no network path, no
@@ -242,11 +271,11 @@ collection or a user-initiated transfer:
 | Path | What leaves the phone | Planned answer |
 |---|---|---|
 | ML Kit text recognition (`com.google.mlkit:text-recognition`, bundled Latin model) | Device, app and performance diagnostics and per-installation identifiers, to Google over HTTPS. ML Kit initialises with the app, so this happens even if no photo is ever attached. Photos and their text are not sent. | Declare (below) |
-| On-device transcription (the default for new installs), its speech detector (bundled Silero VAD) and the on-device AI engine | Nothing | Not collected |
+| On-device transcription (the default for new installs), its speech detector (bundled Silero VAD), the on-device AI engine and Re-time words (forced alignment, 3.21.0-beta1) | Nothing | Not collected |
 | Imports (audio, video with only its sound kept, WebVTT/SRT transcripts), continued transcriptions and Clear voice (bundled GTCRN) | Nothing: read, processed and stored on the phone | Not collected |
 | Android speech service engine (opt-in; switching to it asks for confirmation; installs upgraded from earlier versions keep it until they switch) | Meeting audio, captured by the system recognition service itself (Google's on most phones), which Android documents as likely to send it to remote servers. Recap hands it no audio and gets text back. | Not collected by Recap (note below) |
 | User-configured AI endpoint (off by default; Local-only AI on by default) | Transcript, notes, title, attendee names, photo text, the user's name if entered and the template instructions, to the address the user typed, with their API key | User-initiated, not shared; collection: note below |
-| Model downloads (only when the user picks a model) | An ordinary HTTPS request to Hugging Face or GitHub (IP address, file requested, user agent); no meeting data | Not collected |
+| Model downloads (only when the user picks a model; from 3.21.0-beta1 also the optional word re-timing model, from the sherpa-onnx fa-models release on GitHub) | An ordinary HTTPS request to Hugging Face or GitHub (IP address, file requested, user agent); no meeting data | Not collected |
 | Crash reports | Saved on the phone; a report leaves it only if the user shares it through the share sheet | Not collected (user-initiated) |
 | Report AI output | An email draft in the user's own email app; the generated text only if the user ticks the box; sent only if the user sends it | Not collected (user-initiated) |
 | Share, export (Markdown, PDF, Word, subtitles and action items for one meeting; several as a zip from multi-select; the whole library as Markdown files into a folder), backup | Wherever the user sends them: a file or folder picked in the system picker, or an app picked in the share sheet | Not collected (user-initiated) |
@@ -428,6 +457,29 @@ The console will ask about these (all have in-app justifications):
   show the progress dialog, pull down the shade to show "Removing a
   passage" with Stop, lock and unlock the phone, then show the transcript
   without the span and play across it.
+  **From 3.21.0-beta1 AlignService uses this type too** (declared
+  `dataSync|mediaProcessing` and started through ImportFgsType, like
+  ClearVoiceService and PassageService, so it shares the same six-hour
+  allowance; onTimeout stops it and keeps the lines measured so far). It
+  re-times the words of a recorded meeting's transcript against that
+  meeting's recording, on the phone, when the user asks. Update the
+  declaration to name it; suggested addition to the wording above:
+  "Recap also offers Re-time words: after the user edits a meeting's
+  transcript, the timings of the edited words are only estimates. When
+  the user taps Re-time words on a line, or Re-time edited lines for the
+  meeting, a foreground service decodes the matching parts of that
+  meeting's recorded audio and aligns the transcript's words to it with
+  an on-device model, so that tapping a word plays from the right
+  moment. A meeting with many edited lines takes minutes, so the work
+  must continue while the screen is off or the user leaves the meeting.
+  It runs only when the user starts it, never during a recording, shows
+  an ongoing progress notification with Stop that names no meeting, and
+  keeps the lines already done if it is stopped." Demo video: open an
+  English meeting with audio, edit one word of a line, tap the line →
+  Re-time words (download the model if offered, then tap again), show
+  the progress dialog, tap Hide, pull down the shade to show "Re-timing
+  words" with Stop, lock and unlock the phone, then tap the edited word
+  and show playback starting there.
 - **FOREGROUND_SERVICE_MEDIA_PLAYBACK** (new in 3.20.0-beta1):
   PlaybackService, declared `foregroundServiceType="mediaPlayback"`, keeps
   a meeting's recording playing with the screen off or while the user is
@@ -467,9 +519,10 @@ The console will ask about these (all have in-app justifications):
   safety effect.
 - **FOREGROUND_SERVICE_DATA_SYNC**: model downloads, summary generation
   (also enhanced notes and AI speaker suggestions); file import,
-  transcription and, from 3.19.0-beta1, Clear voice copies, and from
-  3.20.0-beta1 Remove a passage, on Android 14 and lower (Android 15+
-  uses mediaProcessing for those) — long-running user-initiated work.
+  transcription and, from 3.19.0-beta1, Clear voice copies, from
+  3.20.0-beta1 Remove a passage, and from 3.21.0-beta1 Re-time words, on
+  Android 14 and lower (Android 15+ uses mediaProcessing for those) —
+  long-running user-initiated work.
   Keep this declaration: dataSync is still declared and used.
 - **SCHEDULE_EXACT_ALARM**: user-set action-item reminders and calendar
   nudges (falls back to inexact windows when not permitted). This is an
@@ -486,6 +539,24 @@ The console will ask about these (all have in-app justifications):
   before a large model download over a metered connection and to say so
   when the phone is offline. Recap's own use keeps and sends nothing
   about the network. The privacy policy's PERMISSIONS list names it.
+- **3.21.0-beta1** adds no permission and no foreground service type. Its
+  one new service, AlignService (Re-time words), uses the existing
+  mediaProcessing and dataSync types and permissions (above), and posts
+  its progress through POST_NOTIFICATIONS on a new "Word re-timing"
+  channel (low importance; its notifications name no meeting).
+  androidx.profileinstaller 1.4.1, now a direct dependency (the shipped
+  APKs already carried 1.3.1 through AndroidX), merges in an
+  androidx.startup initializer and `ProfileInstallReceiver`, which is
+  exported but protected by `android.permission.DUMP`, so adb and the
+  system can reach it and other apps cannot; it requests no permission.
+  `ACCESS_LOCAL_NETWORK` is deliberately not declared: Android's
+  documentation says an app targeting 36 or lower gets local network
+  access through INTERNET and must neither declare nor request it.
+  LocalNetworkAccessTest fails if it is declared before the targetSdk 37
+  bump, and after the bump until it is (section 11). The manifest gains
+  `android:localeConfig` (the per-app language list), which is not a
+  permission. No Play Console declaration is expected beyond the
+  mediaProcessing and dataSync wording above.
 - **3.20.0-beta1** adds two permissions, FOREGROUND_SERVICE_MEDIA_PLAYBACK
   and POST_PROMOTED_NOTIFICATIONS, and one foreground service type,
   mediaPlayback (PlaybackService). It changes no existing type: its other
@@ -558,7 +629,13 @@ The console will ask about these (all have in-app justifications):
   hedged Android 16 Live Updates line; older lines are merged or trimmed
   to stay under 4,000 characters (3,991 now).
   The DEVICE REQUIREMENTS figures are unchanged, and there is no new
-  claim about data leaving the phone.
+  claim about data leaving the phone. For 3.21.0-beta1 the tap-to-seek
+  line adds "re-time words after edits (English)", and the clips,
+  export, notes and model-suggestion lines are shortened to make room
+  (3,993 characters now). The Baseline Profile is
+  not advertised: no start-up time has been measured. The DEVICE
+  REQUIREMENTS figures are unchanged (the re-timing model's estimated
+  200 MB needs no new line), and there is no new privacy claim.
 - **App icon**: `play-icon-512.png` (512×512, delivered separately).
 - **Feature graphic**: `play-feature-1024x500.png` (1024×500).
 - **Screenshots**: at least 2 phone screenshots (take from your device:
@@ -640,9 +717,15 @@ closed track and production checks).
    other older icons already did without credit: `notices.txt` and
    `build_notices.py` now carry a Material Design Icons entry and name
    the set in the Apache-2.0 heading, edited by hand in both, so a full
-   run should change nothing else.
+   run should change nothing else. For 3.21.0-beta1 both were edited by
+   hand again: the MODELS section gains the English MFA acoustic model
+   and dictionary v3.0.0 (CC BY 4.0, with the changes sherpa-onnx made
+   and a note that sherpa-onnx does not state the source of
+   `lexicon-en-us.txt`), and the AndroidX line names `profileinstaller`.
+   No fetched text changes (the forced aligner is part of the existing
+   sherpa-onnx library), so a full run should change nothing else.
 3. When adding a model to any catalogue (WhisperModels, NemoModels,
-   DiarizationModels, LocalLlmModels), add its licence to
+   DiarizationModels, LocalLlmModels, AlignerModels), add its licence to
    `licences/ModelLicences.kt` and to the MODELS text in
    `scripts/build_notices.py`; `ModelLicencesTest` fails otherwise. Name a
    licence only after reading the publisher's page; until then use "see
@@ -653,6 +736,19 @@ closed track and production checks).
 5. Play Console → the track → Create new release → upload AAB → release
    notes → roll out (after the accessibility pass in section 7 for
    anything beyond internal testing).
+
+Draft release notes for 3.21.0-beta1 (Play allows 500 characters per
+language; this is about 340):
+
+```
+• Re-time words: after you edit a transcript, line the edited words up with the recording again, on your phone (English; optional 49 MB model)
+• A clear message when an AI server on your own network can't be reached
+• Recognizer sounds muted for a recording come back even if Recap closed unexpectedly
+• Ready for Android 17 and 18 changes
+```
+
+If 3.20.0-beta1 never reached a track, fold its notes (below) into these
+and keep the total under 500 characters.
 
 Draft release notes for 3.20.0-beta1 (Play allows 500 characters per
 language; this is about 390):
@@ -792,8 +888,10 @@ strongest conversion line this app has.
   font at startup; that is a request to another app on the device and
   carries no user data. The on-device engines (whisper.cpp, llama.cpp
   built without curl, sherpa-onnx/onnxruntime, Arm KleidiAI, the Silero
-  speech detector run through whisper.cpp and the GTCRN speech enhancer
-  run through sherpa-onnx) make no network requests of their own.
+  speech detector run through whisper.cpp, the GTCRN speech enhancer
+  run through sherpa-onnx, and from 3.21.0-beta1 sherpa-onnx's forced
+  aligner) make no network requests of their own, and neither does
+  androidx.profileinstaller.
 - **Logcat for support** (3.17.0-beta1, widened in 3.19.0-beta1; shape
   only, never prompt, reply or transcript text): `adb logcat -s
   meetily_native meetily_ggml meetily_llama meetily_whisper meetily_vad
@@ -839,11 +937,55 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [x] Bump `versionCode` to 115 and `versionName` to `3.20.0-beta1` in
-  `android/app/build.gradle.kts` (done; 114 / 3.19.0-beta1,
+- [ ] Bump `versionCode` to 116 and `versionName` to `3.21.0-beta1` in
+  `android/app/build.gradle.kts`. The maintainer makes this bump in a
+  separate commit right after the Batch 7 documentation update; until
+  then the build reads 115 / 3.20.0-beta1 (114 / 3.19.0-beta1,
   113 / 3.18.0-beta1, 112 / 3.17.0-beta1 and 111 / 3.16.0-beta1 before
-  it). Bump both again for every later upload: Play rejects a
+  that). Bump both again for every later upload: Play rejects a
   versionCode it has already seen.
+- [ ] Run CI on the merged Batch 7 branch (`b7/integration`), not only on
+  the three group branches: `scripts/fetch_sherpa_libs.sh` and
+  `scripts/check_sherpa_jni.py` (now also the 5 ForcedAligner natives,
+  through `sherpa_jni_natives.txt`), `testReleaseUnitTest` (new
+  AlignerModels, BaselineProfile, Bzip2InputStream, ExportText,
+  InterruptedOffer, LocalNetworkAccess, LocaleConfig, ModelReadyOrder,
+  MutedStreams, TakePictureGrant, TarExtract, WordAlign and WordTimes
+  tests, plus changes to ModelLicencesTest and StatsSpansVocabExportTest;
+  1,440 JVM tests passed locally), then `assembleRelease` with
+  `lintVital`, the native export check and the new "Check baseline
+  profile" step (`check_baseline_profile.py --self-test`, then the
+  release APKs). Gradle needs no change for the new tests
+  (Bzip2InputStreamTest reads its four small archives by path).
+  Nothing in Batch 7 went through Gradle, lint, aapt or R8: the groups
+  and the integration were compiled against AndroidX stubs extended by
+  hand, so fix anything the real build turns up. In particular check the
+  calls the stubs stood in for: `ActivityResultContract.createIntent` and
+  `parseResult` (TakePictureWithGrant), the hand-written
+  `res/xml/locale_config.xml` with `android:localeConfig` (lint, and aapt
+  on `res/resources.properties`), and AGP's merge of
+  `src/main/baseline-prof.txt` into `assets/dexopt/`. Batch 7 changes no
+  native code of its own, so the JNI export list is unchanged.
+- [ ] After that run, read the "Check baseline profile" step log for
+  each APK: classes and hot methods in the merged profile, and how many
+  are the app's (the 3.20.0-beta1 APK's merged profile held 261 classes
+  and 838 hot methods, almost all from the AndroidX libraries). If the
+  step fails on the app checks, AGP did not pick up
+  `src/main/baseline-prof.txt`. If a test or this step ever fails
+  because a rule matches nothing after a rename, update the rule (or
+  regenerate the profile, under Product decisions).
+- [ ] Confirm the per-app language list on the built APK: the merged
+  manifest has `android:localeConfig="@xml/locale_config"`,
+  `aapt2 dump xmltree --file res/xml/locale_config.xml <apk>` lists only
+  `en-US` with no `android:defaultLocale`, and Settings → Apps → Recap →
+  Language on Android 13+ offers only English (United States) and the
+  system default. Keep `generateLocaleConfig` off until AGP 9.0.0-beta04
+  or later (LocaleConfigTest enforces it): from AGP 8.8 the generated
+  list carries `android:defaultLocale`, which crashes Android 15 and some
+  Android 16 builds for a user with none of the listed languages
+  (issuetracker b/399131926).
+- [x] Bump `versionCode` to 115 and `versionName` to `3.20.0-beta1`
+  (done, for Batch 6).
 - [ ] Run CI on the merged Batch 6 branch (`b6/integration`), not only on
   the five group branches: `testReleaseUnitTest` (new LiveUpdates,
   PassageAudio, PassagePlan, PlaybackRules, SummaryAlternatives and Trash
@@ -1005,6 +1147,12 @@ Work through it before the first targetSdk 36 upload to any track.
     `8a71aaccfdba3d451775507a889afd2257d2e754463fd81095a8c8f290f924c2`
     (6,355,277); `tokens.txt` is 93,939 bytes. These are the pre-#4179
     files: pinning them now pins the pre-fix int8.
+  - `english-mfa-v3.0.0` (the word re-timing model, Batch 7;
+    `AlignerModels.ALL[0].sha256`, left unset): sha256
+    `c59a15b750cdf1cc77073d05264fc9b502e0ebfc6b39c24016c74b4ae93a1e54`
+    (48,540,205 bytes, `english-mfa-v3.0.0.tar.bz2` in the sherpa-onnx
+    fa-models release, read 2026-11-23). The model hashes script does
+    not know this catalogue yet; add it there, or pin it by hand.
 
 ### Play Console declarations
 
@@ -1020,7 +1168,9 @@ Work through it before the first targetSdk 36 upload to any track.
   voice work on the phone and whose new exports go only to a file or
   folder the user picks, and by 3.20.0-beta1, whose Live Updates,
   background playback, Recently deleted, several summaries and Remove a
-  passage work on the phone; confirm this on the merged build). The data
+  passage work on the phone, and by 3.21.0-beta1, whose Re-time words
+  runs on the phone and whose optional model comes from GitHub with
+  nothing about the user sent; confirm this on the merged build). The data
   deletion question is a plain Yes or No about the data Recap collects,
   with no text to fill in: answer it as section 4 says (most likely No,
   since ML Kit's diagnostics are held by Google and Recap cannot delete
@@ -1082,7 +1232,33 @@ Work through it before the first targetSdk 36 upload to any track.
   playback use case, the wording and the demo video in section 5. It also
   adds PassageService (Remove a passage) to the mediaProcessing
   declaration and, for Android 14 and lower, to the dataSync description,
-  with its own wording and demo video in section 5.
+  with its own wording and demo video in section 5. 3.21.0-beta1 adds
+  AlignService (Re-time words) the same way: it re-times the words of a
+  recorded meeting's transcript, is started only by the user, and runs as
+  mediaProcessing on Android 15+ and dataSync below. Add it to both
+  descriptions with the wording and demo video in section 5. No new
+  permission: FOREGROUND_SERVICE_MEDIA_PROCESSING and
+  FOREGROUND_SERVICE_DATA_SYNC were already declared.
+- [ ] **Target API 37** (Android 17), whenever Recap moves to it (AGP
+  9.1.1 or later is needed; nothing in Batch 7 requires the move):
+  - Add `<uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />`
+    to `AndroidManifest.xml`. LocalNetworkAccessTest fails until it is
+    there, and fails today if it is added early. The Settings request on
+    saving a LAN endpoint and the App settings dialog after a failed
+    summary then turn on by themselves (`LocalNetworkAccess.applies`
+    reads the running app's targetSdkVersion).
+  - Expect the Nearby devices permission group to appear on the store
+    listing's permission list and in Recap's app settings.
+  - Check Play Console for any declaration it asks for about the
+    permission.
+  - Data safety: no change. The permission only gates the existing
+    AI endpoint the user configures on their own network, and nothing
+    new leaves the device.
+  - Privacy policy: optionally add one sentence to Permissions, in both
+    copies: Android asks for Nearby devices access only so Recap can
+    reach an AI server the user set up on their own network.
+  - Re-run the Android 17 device checks below at target 37, and review
+    the other Android 17 behaviour changes for apps targeting 37.
 - [ ] **POST_PROMOTED_NOTIFICATIONS** (3.20.0-beta1, Android 16 Live
   Updates): a normal permission granted at install. Check the first
   upload's permission list and the Play Console policy status for any
@@ -1153,7 +1329,16 @@ Work through it before the first targetSdk 36 upload to any track.
   files), the clean-up rule moving meetings there, and Remove a passage
   deleting the replaced recording while summaries, the title, notes,
   action items, answers and chapter titles made before are not
-  rewritten. Nothing new leaves the phone.
+  rewritten. Nothing new leaves the phone. 3.21.0-beta1 changes it
+  again, in both copies together (same headings): What is stored on
+  your phone lists the optional word re-timing model among downloaded
+  models; Transcription says Re-time words measures edited lines' word
+  timings against the recording on the phone, with an optional model
+  downloaded once, and sends nothing; Model downloads names the
+  sherpa-onnx project's releases on GitHub as that model's source;
+  Permissions adds word re-timing to the notifications and background
+  work. Nothing new leaves the phone. Nothing about local network
+  access is added while Recap targets 36 (see Target API 37 above).
 - [ ] Set up a way to triage the "Recap AI output report" emails that
   arrive at the support address, and decide on a response time.
 
@@ -1288,6 +1473,32 @@ Work through it before the first targetSdk 36 upload to any track.
   committed ONNX Runtime text and is otherwise freshly fetched. Then
   re-run `python3 android/scripts/build_notices.py` on a machine with
   unrestricted network access and commit any diff.
+- [ ] Batch 7 licence and notices changes (3.21.0-beta1), to check
+  against the publishers' pages and in Settings → Open-source licences on
+  a device:
+  - **English MFA acoustic model and dictionary v3.0.0** (the optional
+    word re-timing model): CC BY 4.0, credited in `notices.txt` part two
+    and `build_notices.py`'s MODELS section to Michael McAuliffe and
+    Morgan Sonderegger (Montreal Forced Aligner,
+    MontrealCorpusTools/mfa-models), with the changes sherpa-onnx made
+    (repackaged with only the files alignment needs, and a lexicon
+    generated from the dictionary) and the fa-models release as the
+    source; `ModelLicences.kt` labels it `CC_BY_4`, so it needs no
+    acceptance. Check that the credit meets CC BY 4.0's attribution
+    terms (creator, source, licence, indication of changes).
+  - *Decision*: the model's `lexicon.txt` also covers the words of
+    sherpa-onnx's `lexicon-en-us.txt` (from its tts-models release) and
+    keeps that file's multi-word phrase readings. sherpa-onnx does not
+    say where `lexicon-en-us.txt` comes from or under what licence, and
+    the notices now say so. Decide whether that is acceptable, or ask
+    the sherpa-onnx maintainers; the alternative is a lexicon built
+    from the CC BY 4.0 MFA dictionary alone (hosted by Recap or built
+    on the phone).
+  - **androidx.profileinstaller 1.4.1**: Apache 2.0, covered by the
+    existing AndroidX entry, whose list now names it.
+  - The vendored ForcedAligner Kotlin files are sherpa-onnx v2.0.3's
+    own (Apache 2.0, already credited), and the aligner is part of the
+    `libsherpa-onnx-jni.so` already shipped.
 - [ ] *Decision*: should installs that downloaded Gemma 3, MedGemma or
   Llama before this release be asked to accept the licence on their next
   use? The gate only fires at download time.
@@ -1459,6 +1670,78 @@ Work through it before the first targetSdk 36 upload to any track.
   span comes back; Find & replace is blocked), and on a meeting screen
   left open skip silence does not jump the new silence until it is
   reopened. Confirm each.
+- [ ] *Decision* (Re-time words): a line's own start time is never
+  moved, even when the alignment puts its first word elsewhere, because
+  chapters, passages, highlights, resume points and other lines' ends
+  depend on it; a word aligned before it starts at it. Confirm.
+- [ ] *Decision* (Re-time words): lines whose timings' origin is unknown
+  (the recogniser's own, or edits saved before 3.21.0-beta1) are offered
+  one line at a time, in English or unknown-language meetings with a
+  recording, and never by Re-time edited lines. So in an English
+  meeting nearly every line carries the action. Confirm, or offer it
+  only on lines an edit marked (which leaves pre-3.21.0-beta1 edits out).
+- [ ] *Decision* (Re-time words): it does not start by itself when the
+  model download finishes (the toast says to tap again), its progress
+  notification is not an Android 16 Live Update (adding one would mean a
+  new `LiveUpdates.Job` and its tests), and the Settings row has no fit
+  badge (only the confirm-before-download memory check, which passes on
+  any phone at the 200 MB estimate). Confirm each.
+- [ ] *Decision*: generate a measured Baseline Profile with
+  Macrobenchmark later, and replace or extend the hand-curated
+  `src/main/baseline-prof.txt` with it. Steps:
+  1. In Android Studio, File → New → New Module → Baseline Profile
+     Generator. It creates a `:baselineprofile` module (`com.android.test`
+     plus the `androidx.baselineprofile` plugin, benchmark 1.5.0) and
+     applies `androidx.baselineprofile` to `:app`.
+  2. Check that it does not change `testReleaseUnitTest` or
+     `assembleRelease` in CI: it adds `nonMinifiedRelease` and
+     `benchmarkRelease` build types. Whether the plugin works with AGP
+     8.10.1 was not confirmed, which is why Batch 7 did not add it.
+  3. Write BaselineProfileGenerator journeys with UiAutomator: start the
+     app, open the first meeting from the list, fling the transcript.
+     Setting `includeInStartupProfile = true` also writes
+     `startup-prof.txt`, but its DEX layout optimisation applies only to
+     an obfuscated, fully optimised R8 release build. Recap keeps
+     `-dontobfuscate` (`proguard-rules.pro`) so crash-report stack traces
+     stay readable, so a startup profile brings no DEX-layout gain unless
+     obfuscation is turned on, with the mapping file kept to retrace
+     crash reports. The Baseline Profile itself works with
+     `-dontobfuscate`.
+  4. Use a test meeting library with a long, transcribed meeting.
+  5. Run `./gradlew :app:generateReleaseBaselineProfile` on an API 33+
+     device or a rooted or AOSP emulator. The output goes to
+     `app/src/release/generated/baselineProfiles/baseline-prof.txt` (and
+     `startup-prof.txt`).
+  6. Merge it with, or let it replace, `src/main/baseline-prof.txt`.
+  7. Measure with a StartupBenchmark: `StartupMode.COLD`,
+     `CompilationMode.None()` against `Partial(BaselineProfiles)`.
+  Without Macrobenchmark, follow developer.android.com's "Manually
+  create and measure Baseline Profiles" (the SKIP_FILE broadcast,
+  `pm art clear-app-profiles`, use the app, the SAVE_PROFILE broadcast,
+  `pm dump-profiles --dump-classes-and-methods`) on a non-R8,
+  non-debuggable release build.
+- [ ] Optional, needs a device to verify: defer ML Kit's
+  `MlKitInitProvider` (it initialises at process start) to the first
+  photo-text use. Not done: it changes when ML Kit initialises, and so
+  possibly when its diagnostics are sent.
+- [ ] *Decision*: the Markdown export's photo line says "photo
+  attachment(s) stored in the Meetily app." while the Word export says
+  "Recap app"; both were kept byte-identical when the export text moved
+  into resources. To change it, edit `ExportText.photosMarkdown`,
+  `exporttext_photos_markdown` in `strings_exporttext.xml` and
+  ExportTextTest together.
+- [ ] Review the wording of Batch 7's new strings on a device:
+  `strings_align.xml`, `strings_platform.xml` (the LAN hints, the error
+  fallbacks, the home list's plurals) and `strings_exporttext.xml` (the
+  export headings, which must keep exports reading exactly as before).
+- [x] Integration fixes from the cross-group checks, done in the Batch 7
+  integration: `baseline-prof.txt` gains 39 rules for the code the
+  platform and re-timing groups put on the three journeys (the
+  system-sounds guard and its record at cold start, the re-timing busy
+  checks reached from the home screen's queue drain, the per-line
+  `wordTimes` parse, the meeting screen's Re-time words wiring and the
+  camera contract, and the per-line offer check while scrolling), and
+  the re-timing progress line became a plural ("0 of 1 line").
 - [ ] Review the wording of Batch 6's new strings on a device:
   `strings_liveupdates.xml` (the chip words must stay 6 characters or
   fewer, as LiveUpdatesTest checks), `strings_playback.xml`,
@@ -1503,10 +1786,17 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] Look at the amber find colours (`values/colors_moment.xml`,
   `values-night/colors_moment.xml`) against the brand on a device, in
   light and dark theme, and adjust if wanted.
-- [ ] Plan for Local Network Protection: opt-in on Android 16 and to be
-  enforced in a later release, it will gate LAN Ollama on private IPs.
-  Test it now with
-  `adb shell am compat enable RESTRICT_LOCAL_NETWORK com.recap.mobile`.
+- [x] Plan for Local Network Protection (Batch 7): Recap is ready for
+  Android 17's local network permission. At targetSdk 36 nothing
+  changes and nothing is declared; the request and the hints switch on
+  with the targetSdk 37 bump (Play Console declarations above). Test
+  with `adb shell am compat enable RESTRICT_LOCAL_NETWORK
+  com.recap.mobile` (device checks below). Known gaps: a global IPv6
+  address on the phone's own Wi-Fi counts as local to Android 17 but
+  not to Recap's classifier, which would need the device's routes, so
+  such an endpoint gets no prompt or hint; and a LAN host name Recap did
+  not resolve before connecting (an endpoint with Local-only AI off)
+  gets no hint, since no new DNS lookup is made on failure.
 - [ ] Optional: consider opting into Safer Intents
   (`android:intentMatchingFlags="enforceIntentFilter"`) after testing the
   share, Quick Settings tile, widget, boot and calendar receivers. Android
@@ -2475,6 +2765,145 @@ well as a Pixel:
   com.recap.mobile` lists PassageService as a mediaProcessing foreground
   service (dataSync on Android 14 and lower).
 
+Re-time words (3.21.0-beta1), on a phone with an English meeting that
+kept its audio:
+
+- [ ] Edit one word of a line (Edit text) and tap the line → Re-time
+  words. With no model on the phone, the download offer appears with
+  its size; download it, check that the toast says to re-time again
+  once it has finished, then tap again. The progress dialog reads "…: 0
+  of 1 line", and the toast after it "1 line re-timed." Tap the edited word:
+  playback starts at it, and follow-along highlights it in step.
+- [ ] Find & replace a name across the meeting, then ⋮ → Re-time edited
+  lines: the confirmation counts the lines; progress reaches its total
+  in the dialog and in the "Re-timing words" notification, which shows
+  no meeting title (also on the lock screen); the toast counts the lines
+  re-timed. Tap several replaced words.
+- [ ] A line with names, jargon or numbers not in the dictionary: those
+  words land between their aligned neighbours, in order, and none
+  before the line's start.
+- [ ] A non-English meeting (language chip reads German, say): both
+  actions explain that re-timing works for English only. A Whisper
+  translation to English: refused with its own explanation. A meeting
+  whose language is not recorded: "Is this meeting in English?" first;
+  Cancel changes nothing.
+- [ ] An English meeting's unedited lines offer Re-time words one at a
+  time; ⋮ → Re-time edited lines leaves them out. A line just re-timed
+  no longer offers it until it is edited again.
+- [ ] Delete the model in Settings → Transcription → Word re-timing
+  (English): Re-time words offers the download again. In that row:
+  download with progress, "Waiting for the download in progress to
+  finish." when another model download is running, and Delete model
+  refused while a run or the download is
+  going. The Storage screen shows the "Word re-timing model" row while
+  it is on the phone, and Delete unused models leaves it alone.
+- [ ] Remove the meeting's audio, then Re-time words: it explains there
+  is no recording. While a run is going, Remove audio, deleting the
+  meeting (home, multi-select) and Remove a passage on it are refused,
+  and automatic clean-up skips it.
+- [ ] Stop mid-run, from the dialog and from the notification: lines
+  already done keep their new timings, the rest are unchanged, and the
+  message says how many were re-timed.
+- [ ] Edit a line while a run is going: the edit is kept, and the
+  result says that line kept your edit.
+- [ ] Leave the meeting screen mid-run (Hide, then Back): the done
+  notification gives the outcome, and reopening the meeting shows the
+  new timings. Rotate during a run: the progress dialog comes back.
+- [ ] Start a summary or an import while a run is going: it waits and
+  starts when the run ends. During a recording, Re-time words says it
+  waits.
+- [ ] An hour-long meeting with 20 or more edited lines on a mid-range
+  phone: note how long the run takes, and the peak of `adb shell dumpsys
+  meminfo com.recap.mobile` while it runs (estimated: about 200 MB of
+  native memory with the model loaded). Record both in
+  `ACCELERATION_FINDINGS.md`.
+- [ ] Android 15+: `adb shell dumpsys activity services
+  com.recap.mobile` lists AlignService as a mediaProcessing foreground
+  service (dataSync on Android 14 and lower). With the limit shortened
+  (`adb shell device_config put activity_manager
+  media_processing_fgs_timeout_duration 60000`), a long run stops with
+  the daily-limit message and keeps the lines already done.
+- [ ] Back up and restore a meeting with re-timed lines: the timings come
+  back, and lines still marked estimated are still offered.
+
+Start-up and the Baseline Profile (3.21.0-beta1), on a release build
+and a mid- or low-end phone, 5 or more runs of each, comparing medians:
+
+- [ ] Cold start: `adb shell am force-stop com.recap.mobile`, then `adb
+  shell am start -W -S com.recap.mobile/com.meetily.mobile.MainActivity`,
+  and read TotalTime and WaitTime. The component is the app id plus the
+  class's full name, because the namespace (com.meetily.mobile) and the
+  applicationId (com.recap.mobile) differ; `.MainActivity` would
+  resolve to com.recap.mobile.MainActivity and fail.
+- [ ] Before and after: compare with the 3.20.0-beta1 APK, or with this
+  APK compiled without its profile (`adb shell cmd package compile -m
+  verify -f com.recap.mobile`). To apply the shipped profile at once on
+  a sideloaded install: `adb shell cmd package compile -m speed-profile
+  -f com.recap.mobile`; `adb shell dumpsys package dexopt | grep -A 2
+  com.recap.mobile` should then show `[status=speed-profile]`.
+- [ ] profileinstaller on a sideloaded install, also on Android 15 or
+  later: `adb shell am broadcast -a
+  androidx.profileinstaller.action.INSTALL_PROFILE
+  com.recap.mobile/androidx.profileinstaller.ProfileInstallReceiver`
+  (the receiver needs the DUMP permission, which adb has and apps do
+  not), then read logcat tag `ProfileInstaller`.
+- [ ] Time opening a long meeting (tap to transcript shown), and judge
+  scrolling a long transcript, with `adb shell dumpsys gfxinfo
+  com.recap.mobile reset` before and `adb shell dumpsys gfxinfo
+  com.recap.mobile` after.
+- [ ] Kill the process mid-recording and relaunch: "Recovered a
+  recording that was interrupted" still shows. Kill it during an
+  import and relaunch: "Resume interrupted work?" still appears once,
+  with the same title and continue-from point as before; leave it open,
+  rotate, and leave and return to the home screen: it is not stacked
+  twice, and after Yes or No it does not come back.
+- [ ] Open an audio-only meeting on a phone with no transcription model:
+  the "No transcript yet. The audio is saved: download a transcription
+  model…" hint still shows.
+
+Android 17 and 18 readiness (3.21.0-beta1):
+
+- [ ] Android 16, a LAN endpoint without the permission: `adb shell am
+  compat enable RESTRICT_LOCAL_NETWORK com.recap.mobile` and reboot. A
+  summary against the LAN endpoint fails with "Couldn't reach the AI
+  server at <host>. Check that it's running…", with no prompt at target
+  36: on a meeting with no summary yet the on-device summary is saved
+  under that sentence and the done notification shows it; on one with a
+  summary the message adds that the previous summary and action items
+  were kept. Then `adb shell am compat disable RESTRICT_LOCAL_NETWORK
+  com.recap.mobile` and reboot.
+- [ ] An endpoint on a Tailscale address (100.x, or a MagicDNS name that
+  resolves to one, with Local-only AI on) with the VPN off: the same
+  hint, which mentions the VPN, and never the permission dialog.
+- [ ] Android 17 beta, this build (target 36): a LAN endpoint works
+  with no prompt.
+- [ ] Android 17 beta, a test build at target 37 with the manifest line:
+  saving a LAN endpoint in Settings asks for Nearby devices. Grant it:
+  summaries work. Deny it: a dialog with App settings appears, and a
+  summary then fails with "Recap isn't allowed to reach devices on your
+  local network…" and the same dialog.
+- [ ] Recording mute: with the Android speech service engine and "Mute
+  recognizer chime while recording" on, start a recording, leave the
+  app and stop it from the notification: media and notification sounds
+  come straight back. On Android 17 run `adb shell cmd audio
+  set-enable-hardening throw` and repeat: no crash.
+- [ ] Mute after a crash: kill the process mid-recording (`adb shell am
+  kill com.recap.mobile`, or force stop) and reopen the app: the muted
+  streams come back. A stream muted before the recording stays muted,
+  and so does a ringer mode changed meanwhile.
+- [ ] Camera: on Android 17, run `adb logcat | grep "Please set the
+  grant explicitly in the app"` while taking a photo from the recording
+  screen and from the meeting screen: no line, and the photo is saved.
+- [ ] Per-app language: on Android 13+, Settings → Apps → Recap →
+  Language shows only English (United States) and the system default.
+  On an Android 15 phone whose system languages are all ones Recap
+  lacks (only German, say), Recap opens normally.
+- [ ] Exports and sharing read exactly as before (Markdown, PDF, Word,
+  action items to .ics, the library export, Share); the home list says
+  "1 line", "1 speaker" and "1 meeting" in the singular; Conversation
+  insights lists an auto-detected voice apart from a person named
+  "Speaker 2".
+
 Accessibility:
 
 - [ ] Run Accessibility Scanner on the home, recording, meeting detail
@@ -2487,13 +2916,15 @@ Accessibility:
   3.20.0-beta1 also the player bar with its 15-second skips, the summary
   card's style pills, the Recently deleted screen and the Storage
   screen's Recently deleted card, and the Remove a passage picker and
-  confirmation.
+  confirmation; from 3.21.0-beta1 also the Re-time words progress
+  dialog and Settings' Word re-timing (English) row.
   Check touch targets, missing labels and contrast (contrast was not part
   of this change).
 - [ ] TalkBack pass on a real device: start/pause/resume/stop a recording
   and listen for the announcements; import a file; generate a summary; on
   a transcript line open the actions menu and try Play from here / Edit
-  text / Split / Share clip / Highlight / Remove passage; expand and
+  text / Split / Share clip / Highlight / Remove passage / Re-time words
+  (its progress line is announced at milestones); expand and
   collapse chapters; on the Audio tab use the speaker strip's
   next/previous turn; and check the
   action-item reminder actions. Do not claim screen-reader support in the
@@ -2521,7 +2952,11 @@ Accessibility:
   arm64 APK went from 27.5 MB at 3.18.0-beta1 to 27.0 MB. 3.20.0-beta1
   adds no library, model or native code (background playback uses the
   platform MediaSession rather than Media3), only Kotlin, layouts and two
-  small vector icons. Every other
+  small vector icons. 3.21.0-beta1 adds no native code or bundled model
+  (the forced aligner is in the sherpa-onnx library already shipped, and
+  its model is an optional download), only Kotlin, androidx.profileinstaller
+  (now direct, already carried transitively) and the compiled profile
+  files in `assets/dexopt/`; size not yet measured. Every other
   speech/AI model is
   downloaded in-app at runtime, so Play's size limits are a non-issue —
   but the listing should mention large optional downloads.
@@ -2557,7 +2992,11 @@ Accessibility:
   - Next steps up: 36.1 needs AGP 8.13+ (and is what androidx.core 1.18
     needs); 37 needs AGP 9.1.1+, and apps targeting Android 17 (API 37)
     need the `ACCESS_LOCAL_NETWORK` runtime permission to reach LAN
-    devices such as an Ollama server.
+    devices such as an Ollama server. Batch 7 prepared the code for it
+    (the Target API 37 item in section 11 lists what the bump needs),
+    put back system sounds a crash left muted (Android 17 ignores volume
+    changes from the background), and grants the camera its photo file
+    explicitly (Android 18 stops adding that grant).
 - **Package identity**: com.recap.mobile is now permanent; the Kotlin
   namespace remains com.meetily.mobile internally, which is fine and
   invisible to users.

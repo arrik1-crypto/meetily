@@ -53,12 +53,13 @@ STAY ON TOP OF FOLLOW-UPS
 • Pre-meeting briefs for recurring meetings; weekly digest, tags
 
 BUILT FOR REAL WORK
-• Word-level tap-to-seek playback, speed, skip-silence, 15 s skips
+• Word-level tap-to-seek; re-time words after edits (English);
+  speed, skip-silence, 15 s skips
 • Background playback; lock-screen controls hide the title
-• Rich notes with checklists, photos, whiteboard OCR, file attachments
-• Share audio clips of key moments; mark one from the notification
+• Rich notes with checklists, photos, whiteboard OCR, attachments
+• Share audio clips; mark moments from the notification
 • Export Markdown, PDF, Word or SRT/VTT subtitles, or the whole
-  library as Markdown for Obsidian and other notes apps
+  library as Markdown for Obsidian and other apps
 • Encrypted backups, biometric app lock, screenshot blocking
 
 DEVICE REQUIREMENTS (estimates)
@@ -72,7 +73,7 @@ RAM, minimum / comfortable:
   Gemma 4 E2B, Qwen 3.5 4B 8/10 GB; Gemma 4 E2B QAT 8/12 GB; Mistral 7B,
   Llama 3.1 8B, Gemma 4 E4B (also QAT) 12/16 GB; Qwen 3.5 9B 16/18 GB
 • Speaker detection: 1–2 GB
-Recap suggests models that suit your phone.
+Recap suggests models for your phone.
 
 PRIVACY, CONCRETELY
 Everything is stored in the app's private storage on your device. The
@@ -87,4 +88,4 @@ consent.
 
 Recap is open source.
 ----------------------------------------------------------------
-(char count 3,991, counting line breaks — under the 4,000 limit)
+(char count 3,993, counting line breaks — under the 4,000 limit)

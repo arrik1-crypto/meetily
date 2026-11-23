@@ -45,7 +45,8 @@ All of this is kept in Recap's private storage, which other apps cannot read:
   it was made from. Ask people before saving their voice.
 - Details from your calendar saved with a meeting: the event title, attendee
   names, and the name and time of an earlier event you link it to.
-- Downloaded transcription and AI models.
+- Downloaded transcription and AI models, and the optional word re-timing
+  model.
 - Settings, including an AI endpoint address and API key if you enter them.
 - Reports of the last three crashes or unexpected closes, with Android's record
   of a native crash where there was one.
@@ -72,7 +73,10 @@ the sound of a video is taken out on the phone, and an imported WebVTT or SRT
 transcript is read on the phone. A transcription that stops part-way can be
 continued later from where it stopped, also on the phone. Clear voice, which
 removes background noise from a recording, uses a small model built into the
-app and runs on the phone too.
+app and runs on the phone too. After you edit a transcript, Re-time words can
+measure the timings of the edited words against the recording again (English
+only), with an optional model you download once; it runs on the phone, and
+nothing is sent.
 
 If you turn off on-device transcription in Settings, Recap uses Android's
 speech service instead. On most phones that service is Google's, and Android
@@ -121,7 +125,8 @@ Models are downloaded only when you ask, over https, from Hugging Face
 download servers). Like any website, they see your IP address, which file is
 requested and the technical details Android sends with a web request, such as
 the Android version and phone model. Their own privacy policies apply. Nothing
-about your meetings is sent.
+about your meetings is sent. The optional word re-timing model comes from the
+sherpa-onnx project's releases on GitHub, like some of the other models.
 
 ## Crash and bug reports
 
@@ -179,7 +184,7 @@ reports or messages you choose to send.
   the screen.
 - **Calendar (optional):** read-only, as described below.
 - **Notifications:** recording, transcription, clear-voice, passage
-  removal and download progress, playback controls, reminders, meeting
+  removal, word re-timing and download progress, playback controls, reminders, meeting
   nudges, and storage clean-up notices if you turn automatic clean-up on.
   On Android 16 a recording, and work you start such as an import, can
   show as a Live Update in the status bar and at the top of the lock
@@ -197,9 +202,9 @@ reports or messages you choose to send.
   Reading text in photos).
 - **Running in the background, starting after a restart, exact alarms and
   keeping the phone awake:** so recordings, transcriptions, clear-voice
-  copies, passage removals and downloads finish with the screen off, a
-  meeting you play keeps playing when you leave the app or lock the
-  phone, reminders arrive on time, and a once-a-day job erases meetings
+  copies, passage removals, word re-timing and downloads finish with the
+  screen off, a meeting you play keeps playing when you leave the app or
+  lock the phone, reminders arrive on time, and a once-a-day job erases meetings
   whose 30 days in Recently deleted are up and runs automatic clean-up if
   you turn it on.
 
