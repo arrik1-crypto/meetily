@@ -62,7 +62,11 @@ object NativeEngines {
 
     @Volatile private var loadedName: String? = null
 
-    /** Logged once: callers may ask again after a failure. */
+    /**
+     * Set by the first load that fails outright. Callers ask again after a
+     * failure, so the failure, and a skipped fast build before it, are logged
+     * on that first attempt only.
+     */
     @Volatile private var failureLogged = false
 
     /** The build this process loaded ([DOTPROD] or [BASELINE]), or null. */
@@ -82,7 +86,11 @@ object NativeEngines {
                 val name = loadFirst(
                     candidates(CpuFeatures.dotprodFp16),
                     { System.loadLibrary(it) },
-                    { skippedName, e -> Log.w(TAG, "lib$skippedName.so did not load: ${e.message}") }
+                    { skippedName, e ->
+                        if (!failureLogged) {
+                            Log.w(TAG, "lib$skippedName.so did not load: ${e.message}")
+                        }
+                    }
                 )
                 loadedName = name
                 Log.i(TAG, "loaded lib$name.so")
@@ -95,5 +103,17 @@ object NativeEngines {
                 false
             }
         }
+    }
+
+    /**
+     * Starts [load] on a background thread unless the library is already in.
+     * The first load maps both engines and runs llama.cpp's static
+     * constructors, so a screen that is about to check the runtime on the
+     * main thread calls this first. [load] is synchronized: a check that
+     * arrives while this runs waits for it and does not load a second time.
+     */
+    fun warmUp() {
+        if (loadedName != null) return
+        Thread({ load() }, "native-warmup").apply { isDaemon = true }.start()
     }
 }
