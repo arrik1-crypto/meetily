@@ -24,8 +24,16 @@ that:
 
 Prints what each profile holds. Exit status: 0 when every APK passes, 1
 when any check fails, 2 on a usage error. Reads the files only; no network.
+
+    python3 android/scripts/check_baseline_profile.py --self-test
+
+checks the decoder itself against APKs it builds in memory: one dex, and
+two dexes (the layout a multidex release writes, which the shipped APK does
+not exercise), plus profiles that must fail.
 """
 
+import contextlib
+import io
 import struct
 import sys
 import zipfile
@@ -107,16 +115,22 @@ def read_profile(prof, apk):
     body = zlib.decompress(prof[17:17 + compressed])
     if len(body) != uncompressed:
         raise CheckError(f"{PROF} body is {len(body)} bytes, its header says {uncompressed}")
+    # Every dex's line header first, each followed straight away by its own
+    # key, and only then every dex's data (androidx ProfileTranscoder:
+    # writeLineHeader ends with the key; readUncompressedBody reads it in the
+    # same loop). With one dex the two orders are the same bytes.
     offset = 0
     headers = []
     for _ in range(dex_count):
-        headers.append(struct.unpack_from("<HHIII", body, offset))
+        key_size, class_count, hot_size, checksum, method_count = struct.unpack_from(
+            "<HHIII", body, offset)
         offset += 16
-    names = set(apk.namelist())
-    result = []
-    for key_size, class_count, hot_size, checksum, method_count in headers:
         key = body[offset:offset + key_size].decode()
         offset += key_size
+        headers.append((key, class_count, hot_size, checksum, method_count))
+    names = set(apk.namelist())
+    result = []
+    for key, class_count, hot_size, checksum, method_count in headers:
         dex_name = key.split("!")[-1] if "!" in key else key
         if dex_name in ("", "base.apk"):
             dex_name = "classes.dex"
@@ -201,10 +215,159 @@ def check_apk(path):
         return failures
 
 
+def _synthetic_dex(methods):
+    """A dex holding just what Dex reads, for [methods]: (class, name,
+    parameter types, return type) descriptors, given method index order.
+
+    Returns the bytes and each type descriptor's index."""
+    types = sorted({t for cls, _, params, ret in methods for t in (cls, ret, *params)})
+    strings = sorted(set(types) | {name for _, name, _, _ in methods})
+    string_index = {s: i for i, s in enumerate(strings)}
+    type_index = {t: i for i, t in enumerate(types)}
+    protos = sorted({(ret, tuple(params)) for _, _, params, ret in methods})
+    proto_index = {p: i for i, p in enumerate(protos)}
+    string_ids_off = 0x70
+    type_ids_off = string_ids_off + 4 * len(strings)
+    proto_ids_off = type_ids_off + 4 * len(types)
+    method_ids_off = proto_ids_off + 12 * len(protos)
+    data_off = method_ids_off + 8 * len(methods)
+    data = bytearray()
+    params_off = {}
+    for proto in protos:
+        if proto[1]:
+            data.extend(b"\0" * (-(data_off + len(data)) % 4))
+            params_off[proto] = data_off + len(data)
+            data += struct.pack("<I", len(proto[1]))
+            data += b"".join(struct.pack("<H", type_index[t]) for t in proto[1])
+    string_off = []
+    for s in strings:
+        string_off.append(data_off + len(data))
+        raw = s.encode()
+        data += bytes([len(raw)]) + raw + b"\0"
+    out = bytearray(0x70)
+    out[:8] = b"dex\n035\0"
+    struct.pack_into("<10I", out, 0x38, len(strings), string_ids_off, len(types), type_ids_off,
+                     len(protos), proto_ids_off, 0, 0, len(methods), method_ids_off)
+    out += b"".join(struct.pack("<I", o) for o in string_off)
+    out += b"".join(struct.pack("<I", string_index[t]) for t in types)
+    for ret, params in protos:
+        out += struct.pack("<III", 0, type_index[ret], params_off.get((ret, params), 0))
+    for cls, name, params, ret in methods:
+        out += struct.pack("<HHI", type_index[cls], proto_index[(ret, tuple(params))],
+                           string_index[name])
+    return bytes(out + data), type_index
+
+
+def _synthetic_profile(dexes, keys_with_data=False):
+    """A "pro" 010 profile for [dexes]: (key, dex bytes, hot method
+    indices, class type indices). Laid out as androidx ProfileTranscoder
+    writes it: every line header, each with its key, then every dex's
+    data. [keys_with_data] puts each key in front of its dex's data
+    instead, after every header: the order this script once read, which
+    misreads every profile of more than one dex."""
+    headers = []
+    keys = []
+    bodies = []
+    for key, dex, hot, classes in dexes:
+        method_count = struct.unpack_from("<I", dex, 0x58)[0]
+        region = b""
+        last = 0
+        for index in sorted(hot):
+            region += struct.pack("<HH", index - last, 0)
+            last = index
+        class_data = b""
+        last = 0
+        for index in sorted(classes):
+            class_data += struct.pack("<H", index - last)
+            last = index
+        bitmap = bytearray((2 * method_count + 7) // 8)
+        for index in hot:
+            bitmap[index // 8] |= 1 << (index % 8)
+        raw_key = key.encode()
+        headers.append(struct.pack("<HHIII", len(raw_key), len(classes), len(region),
+                                   zlib.crc32(dex), method_count))
+        keys.append(raw_key)
+        bodies.append(region + class_data + bytes(bitmap))
+    if keys_with_data:
+        body = b"".join(headers) + b"".join(k + d for k, d in zip(keys, bodies))
+    else:
+        body = b"".join(h + k for h, k in zip(headers, keys)) + b"".join(bodies)
+    packed = zlib.compress(body)
+    return (b"pro\0" + b"010\0" + bytes([len(dexes)])
+            + struct.pack("<II", len(body), len(packed)) + packed)
+
+
+def _synthetic_apk(dex_files, prof):
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w") as apk:
+        for name, dex in dex_files:
+            apk.writestr(name, dex)
+        apk.writestr(PROF, prof)
+        apk.writestr(PROFM, b"prm\0" + b"002\0")
+    buffer.seek(0)
+    return buffer
+
+
+def self_test():
+    """Checks the decoder against APKs built in memory. Returns failures."""
+    main_create = ("Lcom/meetily/mobile/MainActivity;", "onCreate", ["Landroid/os/Bundle;"], "V")
+    app_create = ("Lcom/meetily/mobile/RecapApp;", "onCreate", [], "V")
+    detail_create = ("Lcom/meetily/mobile/MeetingDetailActivity;", "onCreate",
+                     ["Landroid/os/Bundle;"], "V")
+    library = ("Lcom/example/Library;", "run", ["I", "J"], "Z")
+    one, one_types = _synthetic_dex([library, main_create, app_create, detail_create])
+    first, first_types = _synthetic_dex([main_create, library])
+    second, second_types = _synthetic_dex([app_create, detail_create])
+    main_cls = "Lcom/meetily/mobile/MainActivity;"
+    app_cls = "Lcom/meetily/mobile/RecapApp;"
+    detail_cls = "Lcom/meetily/mobile/MeetingDetailActivity;"
+    two_dexes = [
+        ("classes.dex", first, [0, 1], [first_types[main_cls]]),
+        ("base.apk!classes2.dex", second, [0, 1],
+         [second_types[app_cls], second_types[detail_cls]]),
+    ]
+    two_files = [("classes.dex", first), ("classes2.dex", second)]
+    good = {
+        "one dex": _synthetic_apk(
+            [("classes.dex", one)],
+            _synthetic_profile([("classes.dex", one, [1, 2, 3],
+                                 [one_types[main_cls], one_types[app_cls]])])),
+        "two dexes": _synthetic_apk(two_files, _synthetic_profile(two_dexes)),
+    }
+    stale = [two_dexes[0], ("classes2.dex", first, [0], [])]
+    bad = {
+        "two dexes, each key with its data": _synthetic_apk(
+            two_files, _synthetic_profile(two_dexes, keys_with_data=True)),
+        "two dexes, the second out of step with its dex": _synthetic_apk(
+            two_files, _synthetic_profile(stale)),
+        "two dexes, only the first in the APK": _synthetic_apk(
+            two_files[:1], _synthetic_profile(two_dexes)),
+    }
+    failures = []
+    for name, apk in good.items():
+        with contextlib.redirect_stdout(io.StringIO()):
+            found = check_apk(apk)
+        if found:
+            failures.append(f"{name}: {found}")
+    for name, apk in bad.items():
+        with contextlib.redirect_stdout(io.StringIO()):
+            found = check_apk(apk)
+        if not found:
+            failures.append(f"{name}: passed")
+    return failures
+
+
 def main(argv):
+    if argv == ["--self-test"]:
+        failures = self_test()
+        for failure in failures:
+            print(f"self-test FAIL {failure}")
+        if not failures:
+            print("self-test ok")
+        return 1 if failures else 0
     if not argv or any(a.startswith("-") for a in argv):
         print(__doc__.strip().split("\n\n")[0], file=sys.stderr)
-        print("usage: check_baseline_profile.py <apk>...", file=sys.stderr)
+        print("usage: check_baseline_profile.py <apk>... | --self-test", file=sys.stderr)
         return 2
     failed = False
     for path in argv:
