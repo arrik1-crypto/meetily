@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Exports: Word and subtitles from the meeting screen's Export
+         dialog (DocxExport, SubtitleExport), and "Export library as
+         Markdown" in Settings, Data (LibraryExport, LibraryExportRunner). -->
+
+    <!-- Meeting screen, Export dialog. -->
+    <string name="export_docx">Word document (.docx)</string>
+    <string name="export_srt">Subtitles (.srt)</string>
+    <string name="export_vtt">Subtitles (.vtt)</string>
+    <!-- Shown instead of the two subtitle entries when no line of the
+         meeting has a time in the recording; tapping it explains why. -->
+    <string name="export_subtitles_unavailable">Subtitles (not available for this meeting)</string>
+    <string name="export_subtitles_untimed_title">No subtitles for this meeting</string>
+    <string name="export_subtitles_untimed_message">Subtitles need to know when each line was said in the recording, and none of this meeting\'s lines have that. Lines only get it when the meeting\'s audio is kept while recording (Settings, Keep meeting audio) or when the meeting is imported from an audio file. Lines from Android\'s speech service never have it.</string>
+    <!-- After a subtitle export: %d transcript lines had no timing and are not in the file. -->
+    <plurals name="export_subtitles_left_out">
+        <item quantity="one">Exported. %d line with no time in the recording was left out.</item>
+        <item quantity="other">Exported. %d lines with no time in the recording were left out.</item>
+    </plurals>
+
+    <!-- Settings, Data: Export library as Markdown. -->
+    <string name="export_library_desc">Export library as Markdown: one readable .md file per meeting, with its details at the top, written to a folder you choose. Audio, photos and attachments are not included.</string>
+    <string name="export_library_button">Export library as Markdown</string>
+    <string name="export_library_cancel">Stop export</string>
+    <string name="export_library_listing">Reading your library…</string>
+    <!-- %1$d is the meeting being written now (from 1), of %2$d. -->
+    <string name="export_library_progress">Exporting meeting %1$d of %2$d…</string>
+    <string name="export_library_stopping">Stopping the export…</string>
+    <string name="export_library_running">An export is already running.</string>
+    <string name="export_library_none">There are no meetings to export.</string>
+    <plurals name="export_library_done">
+        <item quantity="one">Exported %d meeting to the folder.</item>
+        <item quantity="other">Exported %d meetings to the folder.</item>
+    </plurals>
+    <plurals name="export_library_stopped">
+        <item quantity="one">Export stopped. %d meeting was written before it stopped.</item>
+        <item quantity="other">Export stopped. %d meetings were written before it stopped.</item>
+    </plurals>
+    <!-- The folder refused new files (removed, full, or access lost); %d were written before. -->
+    <plurals name="export_library_folder_failed">
+        <item quantity="one">The export stopped because the folder could not be written to. %d meeting was written before that.</item>
+        <item quantity="other">The export stopped because the folder could not be written to. %d meetings were written before that.</item>
+    </plurals>
+    <!-- Added to the result: meetings a recording, import, accuracy check or summary was writing. -->
+    <plurals name="export_library_busy">
+        <item quantity="one">%d meeting that was being recorded, transcribed or summarized was left out.</item>
+        <item quantity="other">%d meetings that were being recorded, transcribed or summarized were left out.</item>
+    </plurals>
+    <plurals name="export_library_failed">
+        <item quantity="one">%d meeting could not be written.</item>
+        <item quantity="other">%d meetings could not be written.</item>
+    </plurals>
+</resources>

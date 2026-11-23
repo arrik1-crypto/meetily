@@ -99,6 +99,24 @@ class SettingsActivity : AppCompatActivity() {
             uri?.let { readBackup(it) }
         }
 
+    /**
+     * "Export library as Markdown": the folder picked here goes straight to
+     * LibraryExportRunner, while this screen still holds the picker's
+     * grant. The runner holds the access for the length of that one export
+     * (so leaving Settings does not cut it off) and gives it back after.
+     */
+    private val exportLibrary =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+            tree?.let { startLibraryExport(it) }
+        }
+
+    /** Which library-export progress updates are read out; see ProgressAnnouncer. */
+    private val libraryExportAnnouncer = ProgressAnnouncer()
+
+    private val libraryExportListener = LibraryExportRunner.Listener { state ->
+        if (!isFinishing && !isDestroyed) renderLibraryExport(state, live = true)
+    }
+
     // --- Model downloads (owned by ModelDownloadService) --------------------
 
     private var downloadService: ModelDownloadService? = null
@@ -248,6 +266,10 @@ class SettingsActivity : AppCompatActivity() {
             Context.BIND_AUTO_CREATE
         )
         downloadBound = true
+        // A library export runs on without this screen; pick its progress
+        // (or its final count) up again, silently.
+        LibraryExportRunner.listener = libraryExportListener
+        renderLibraryExport(LibraryExportRunner.state(), live = false)
         if (!ModelDownloadService.isRunning && downloading) {
             // The download finished while we were away.
             downloading = false
@@ -273,6 +295,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     override fun onStop() {
+        if (LibraryExportRunner.listener === libraryExportListener) LibraryExportRunner.listener = null
         downloadService?.let { if (it.observer === downloadObserver) it.observer = null }
         if (downloadBound) {
             try {
@@ -421,6 +444,7 @@ class SettingsActivity : AppCompatActivity() {
                 ).show()
             }
         }
+        setUpLibraryExport()
 
         setUpStorageSection()
 
@@ -467,6 +491,78 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.settingsRetentionButton).setOnClickListener {
             RetentionUi.choose(this) { if (!isFinishing && !isDestroyed) renderRetentionSummary() }
         }
+    }
+
+    /** Data: "Export library as Markdown" and its Stop button. */
+    private fun setUpLibraryExport() {
+        findViewById<View>(R.id.exportLibraryButton).setOnClickListener {
+            try {
+                exportLibrary.launch(null)
+            } catch (e: Exception) {
+                Toast.makeText(
+                    this, getString(R.string.export_failed, e.message ?: "no file picker"),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+        findViewById<View>(R.id.exportLibraryCancel).setOnClickListener {
+            // Stops between meetings; the files already written stay.
+            LibraryExportRunner.cancel()
+        }
+    }
+
+    private fun startLibraryExport(tree: Uri) {
+        if (!LibraryExportRunner.start(this, tree)) {
+            Toast.makeText(this, R.string.export_library_running, Toast.LENGTH_SHORT).show()
+            return
+        }
+        libraryExportAnnouncer.reset()
+        renderLibraryExport(LibraryExportRunner.state(), live = true)
+    }
+
+    /**
+     * The export's progress, Stop button and final count. [live] is true for
+     * a change the run just made, which may be spoken (the start, a step of
+     * ProgressAnnouncer, stopping, the result); a re-render when the screen
+     * comes back is silent.
+     */
+    private fun renderLibraryExport(state: LibraryExportRunner.State, live: Boolean) {
+        val button = findViewById<View>(R.id.exportLibraryButton)
+        val stop = findViewById<View>(R.id.exportLibraryCancel)
+        val bar = findViewById<LinearProgressIndicator>(R.id.exportLibraryProgress)
+        val status = findViewById<TextView>(R.id.exportLibraryStatus)
+        button.isEnabled = !state.running
+        stop.visibility = if (state.running && !state.cancelling) View.VISIBLE else View.GONE
+        if (!state.running) {
+            bar.visibility = View.GONE
+            val result = state.result
+            if (result == null) {
+                status.visibility = View.GONE
+            } else {
+                status.visibility = View.VISIBLE
+                A11y.setStatusText(status, LibraryExportRunner.message(this, result), live)
+            }
+            return
+        }
+        bar.visibility = View.VISIBLE
+        status.visibility = View.VISIBLE
+        val percent = if (state.total > 0) state.done * 100 / state.total else -1
+        bar.isIndeterminate = percent < 0
+        if (percent >= 0) bar.progress = percent
+        val text = when {
+            state.cancelling -> getString(R.string.export_library_stopping)
+            state.total <= 0 -> getString(R.string.export_library_listing)
+            // The meeting being written now, counting from 1.
+            else -> getString(
+                R.string.export_library_progress, minOf(state.done + 1, state.total), state.total
+            )
+        }
+        val announce = live && if (state.cancelling) {
+            status.text.toString() != text
+        } else {
+            libraryExportAnnouncer.shouldAnnounce(percent)
+        }
+        A11y.setStatusText(status, text, announce)
     }
 
     /** On every resume too: the Storage screen can change the rule. */
