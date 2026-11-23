@@ -43,7 +43,10 @@ OUT = HERE.parent / "app" / "src" / "main" / "assets" / "notices.txt"
 
 # Keep these in step with app/src/main/cpp/CMakeLists.txt and
 # scripts/fetch_sherpa_libs.sh.
-SHERPA_VER = "v1.13.4"
+SHERPA_VER = "v2.0.3"
+# Bundled in that sherpa-onnx release's libonnxruntime.so (its version string
+# reads 1.28.2), not chosen by us; update it with SHERPA_VER.
+ORT_VER = "1.28.2"
 WHISPER_VER = "b5907"
 LLAMA_VER = "v1.0.0"
 # Pinned by ggml at LLAMA_VER (ggml/src/ggml-cpu/CMakeLists.txt), not by us.
@@ -132,7 +135,7 @@ sherpa-onnx {SHERPA_VER}
     API vendored under com.k2fsa.sherpa.onnx. Runs Parakeet, Nemotron and the
     speaker-embedding models.
 
-ONNX Runtime
+ONNX Runtime {ORT_VER}
     MIT License
     Copyright (c) Microsoft Corporation
     https://github.com/microsoft/onnxruntime

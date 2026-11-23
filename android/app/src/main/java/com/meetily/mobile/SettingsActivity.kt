@@ -1580,7 +1580,7 @@ class SettingsActivity : AppCompatActivity() {
             this,
             getString(R.string.diarize_manage),
             entriesProvider = {
-                DiarizationModels.ALL.map { model ->
+                DiarizationModels.offered(this).map { model ->
                     ModelPickerSheet.Entry(
                         key = model.key,
                         title = model.displayName,

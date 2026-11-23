@@ -50,6 +50,11 @@ jobs:
       - name: Fetch sherpa-onnx native libs
         run: bash android/scripts/fetch_sherpa_libs.sh
 
+      # Every native of the vendored Kotlin API exported by both ABIs, 16 KB
+      # LOAD alignment, nothing NEEDed that is not packaged, versions in step.
+      - name: Check sherpa-onnx libs against the vendored API
+        run: python3 android/scripts/check_sherpa_jni.py
+
       # ggml-cpu (llama.cpp v1.0.0) fetches Arm KleidiAI v1.32.0 at CMake configure
       # time for every arm64 build (:app and :native-v82). Keep one verified copy
       # and point FetchContent at it. FETCHCONTENT_SOURCE_DIR skips ggml's URL_HASH,

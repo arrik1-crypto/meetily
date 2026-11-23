@@ -1,17 +1,9 @@
 package com.meetily.mobile.whisper
 
 import android.content.Context
-import com.k2fsa.sherpa.onnx.FeatureConfig
-import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizer
-import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
-import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
-import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizer
-import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
-import com.k2fsa.sherpa.onnx.OnlineTransducerModelConfig
 import com.meetily.mobile.data.WordStamp
-import java.io.File
 
 /**
  * NVIDIA NeMo transcription through sherpa-onnx: Parakeet TDT via the
@@ -100,11 +92,7 @@ class NemoEngine private constructor(
             language: String? = null
         ): NemoEngine? {
             if (!NemoModels.isDownloaded(context, model)) return null
-            val dir = NemoModels.dir(context, model)
-            val transducerEncoder = File(dir, "encoder.int8.onnx").absolutePath
-            val transducerDecoder = File(dir, "decoder.int8.onnx").absolutePath
-            val transducerJoiner = File(dir, "joiner.int8.onnx").absolutePath
-            val tokens = File(dir, "tokens.txt").absolutePath
+            val files = SherpaConfigs.TransducerFiles.inDir(NemoModels.dir(context, model))
             // Tagged before the sessions are built: the encoder alone is
             // 600+ MB of onnxruntime allocations, where a memory kill lands.
             val work = com.meetily.mobile.diag.NativeWork.begin(
@@ -113,49 +101,20 @@ class NemoEngine private constructor(
             return try {
                 if (model.streaming) {
                     val recognizer = OnlineRecognizer(
-                        config = OnlineRecognizerConfig(
-                            featConfig = FeatureConfig(
-                                sampleRate = SAMPLE_RATE, featureDim = 80
-                            ),
-                            modelConfig = OnlineModelConfig(
-                                transducer = OnlineTransducerModelConfig(
-                                    encoder = transducerEncoder,
-                                    decoder = transducerDecoder,
-                                    joiner = transducerJoiner
-                                ),
-                                tokens = tokens,
-                                numThreads = nThreads,
-                                provider = "cpu"
-                            ),
-                            // Chunks are already VAD-cut upstream; the
-                            // recognizer must not split them further.
-                            enableEndpoint = false
-                        )
+                        config = SherpaConfigs.onlineTransducer(files, nThreads)
                     )
                     NemoEngine(null, recognizer, model.languageOptionFor(language), work)
                 } else {
                     val recognizer = OfflineRecognizer(
-                        config = OfflineRecognizerConfig(
-                            featConfig = FeatureConfig(
-                                sampleRate = SAMPLE_RATE, featureDim = 80
-                            ),
-                            modelConfig = OfflineModelConfig(
-                                transducer = OfflineTransducerModelConfig(
-                                    encoder = transducerEncoder,
-                                    decoder = transducerDecoder,
-                                    joiner = transducerJoiner
-                                ),
-                                tokens = tokens,
-                                modelType = "nemo_transducer",
-                                numThreads = nThreads,
-                                provider = "cpu"
-                            )
-                        )
+                        config = SherpaConfigs.offlineTransducer(files, nThreads)
                     )
                     NemoEngine(recognizer, null, workToken = work)
                 }
             } catch (_: Throwable) {
-                // UnsatisfiedLinkError (jniLibs absent) or bad model files.
+                // UnsatisfiedLinkError (jniLibs absent), or model files that
+                // do not load: since sherpa-onnx 2.0.0 the native constructor
+                // rethrows onnxruntime's error as a Java exception, and the
+                // vendored wrapper throws for a native handle of 0.
                 com.meetily.mobile.diag.NativeWork.end(work)
                 null
             }

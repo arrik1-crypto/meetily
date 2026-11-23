@@ -1,5 +1,5 @@
-// Vendored from k2-fsa/sherpa-onnx (tag v1.13.4), Apache License 2.0.
-// https://github.com/k2-fsa/sherpa-onnx/blob/v1.13.4/sherpa-onnx/kotlin-api/
+// Vendored from k2-fsa/sherpa-onnx (tag v2.0.3), Apache License 2.0.
+// https://github.com/k2-fsa/sherpa-onnx/blob/v2.0.3/sherpa-onnx/kotlin-api/
 package com.k2fsa.sherpa.onnx
 
 import android.content.res.AssetManager
@@ -14,6 +14,10 @@ data class OfflineRecognizerResult(
 
     // valid only for TDT models
     val durations: FloatArray,
+
+    // The decoded word IDs. Empty for greedy search decoding, non-empty when
+    // an HLG graph is used, i.e. when ctcFstDecoderConfig.graph is set.
+    val words: IntArray = IntArray(0),
 )
 
 data class OfflineTransducerModelConfig(
@@ -30,6 +34,7 @@ data class OfflineParaformerModelConfig(
 
 data class OfflineNemoEncDecCtcModelConfig(
     var model: String = "",
+    var qnnConfig: QnnConfig = QnnConfig(),
 )
 
 data class OfflineDolphinModelConfig(
@@ -94,6 +99,7 @@ data class OfflineWhisperModelConfig(
     var tailPaddings: Int = 1000, // Padding added at the end of the samples
     var enableTokenTimestamps: Boolean = false,
     var enableSegmentTimestamps: Boolean = false,
+    var qnnConfig: QnnConfig = QnnConfig(),
 )
 
 data class OfflineCanaryModelConfig(
@@ -127,6 +133,7 @@ data class OfflineMoonshineModelConfig(
     var uncachedDecoder: String = "",
     var cachedDecoder: String = "",
     var mergedDecoder: String = "",
+    var qnnConfig: QnnConfig = QnnConfig(),
 )
 
 data class OfflineSenseVoiceModelConfig(
@@ -165,6 +172,11 @@ data class OfflineModelConfig(
     var bpeVocab: String = "",
 )
 
+data class OfflineCtcFstDecoderConfig(
+    var graph: String = "",
+    var maxActive: Int = 3000,
+)
+
 data class OfflineRecognizerConfig(
     var featConfig: FeatureConfig = FeatureConfig(),
     var modelConfig: OfflineModelConfig = OfflineModelConfig(),
@@ -177,6 +189,7 @@ data class OfflineRecognizerConfig(
     var ruleFsts: String = "",
     var ruleFars: String = "",
     var blankPenalty: Float = 0.0f,
+    var ctcFstDecoderConfig: OfflineCtcFstDecoderConfig = OfflineCtcFstDecoderConfig(),
 )
 
 class OfflineRecognizer(
@@ -190,6 +203,9 @@ class OfflineRecognizer(
             newFromAsset(assetManager, config)
         } else {
             newFromFile(config)
+        }
+        require(ptr != 0L) {
+            "Invalid OfflineRecognizerConfig: failed to create native OfflineRecognizer"
         }
     }
 

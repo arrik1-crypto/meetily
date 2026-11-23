@@ -118,6 +118,7 @@ object ModelLicences {
         put("titanet-en", Licence.SEE_MODEL_PAGE)
         // 3D-Speaker's README: "released under the Apache License 2.0".
         put("campplus-zh-en", Licence.APACHE_2)
+        put("campplus-zh-en-v2", Licence.APACHE_2)
 
         // Qwen2.5 README: everything except the 3B and 72B is Apache 2.0.
         put("qwen2.5-1.5b", Licence.APACHE_2)

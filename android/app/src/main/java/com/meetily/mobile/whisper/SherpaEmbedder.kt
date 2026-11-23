@@ -1,7 +1,6 @@
 package com.meetily.mobile.whisper
 
 import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractor
-import com.k2fsa.sherpa.onnx.SpeakerEmbeddingExtractorConfig
 
 /**
  * Thin wrapper around sherpa-onnx's speaker-embedding extractor. Everything
@@ -56,29 +55,37 @@ class SherpaEmbedder private constructor(
     companion object {
         private const val SAMPLE_RATE = 16_000
 
+        private const val TAG = "SherpaEmbedder"
+
         /**
          * [modelKey] is the catalogue key (DiarizationModel.key), only for
          * the NativeWork tag that says which model a native crash or memory
          * kill happened in; never a path.
          */
         fun create(modelPath: String, modelKey: String = ""): SherpaEmbedder? {
+            // The native constructor cannot fail cleanly: a file onnxruntime
+            // cannot parse aborts the process, and one without the metadata
+            // the extractor needs leaves a handle whose first use crashes
+            // (see OnnxSanity). Only a structurally sound model gets that far.
+            // Past it, the vendored class throws when the native handle is 0.
+            // The reason is logged, by catalogue key and never by path: the
+            // file still counts as downloaded, so without it a corrupt model
+            // is speaker detection silently doing nothing on every run.
+            OnnxSanity.speakerModelProblem(java.io.File(modelPath))?.let {
+                android.util.Log.w(TAG, "speaker model $modelKey rejected: $it")
+                return null
+            }
             val work = com.meetily.mobile.diag.NativeWork.begin(
                 com.meetily.mobile.diag.NativeJob.DIARISE, modelKey
             )
             return try {
                 SherpaEmbedder(
-                    SpeakerEmbeddingExtractor(
-                        config = SpeakerEmbeddingExtractorConfig(
-                            model = modelPath,
-                            numThreads = 2,
-                            debug = false,
-                            provider = "cpu"
-                        )
-                    ),
+                    SpeakerEmbeddingExtractor(config = SherpaConfigs.speakerEmbedding(modelPath)),
                     work
                 )
             } catch (_: Throwable) {
-                // Covers UnsatisfiedLinkError (jniLibs absent) and bad models.
+                // Covers UnsatisfiedLinkError (jniLibs absent) and the
+                // IllegalArgumentException of a native handle of 0.
                 com.meetily.mobile.diag.NativeWork.end(work)
                 null
             }
