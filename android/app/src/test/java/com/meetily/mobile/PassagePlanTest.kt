@@ -374,6 +374,56 @@ class PassagePlanTest {
         val twice = PassagePlan.plan(once.segments, once.span, 30_000L)
         assertFalse(twice.changesTranscript)
         assertEquals(once.segments, twice.segments)
+        val confirmed = PassagePlan.plan(once.segments, once.span, 30_000L, snap = false)
+        assertFalse(confirmed.changesTranscript)
+        assertEquals(once.segments, confirmed.segments)
+    }
+
+    @Test
+    fun aConfirmedSpanAppliedAgainNeverTakesTheLineBeforeIt() {
+        // Lines without word timings, as from a subtitle import with audio.
+        val span = PassagePlan.spanFor(plain, 1, 1, 40_000L)!!
+        assertEquals(Span(10_000, 20_000), span)
+        val first = PassagePlan.plan(plain, span, 40_000L)
+        assertEquals(listOf(1), first.removedLines)
+        // Applied again to the result (the screen's copy after a sync, or the
+        // stored meeting once the line was also deleted by hand): the line
+        // before now runs to 20 s, across the span's start, and stays.
+        for (duration in listOf(40_000L, null)) {
+            val again = PassagePlan.plan(first.segments, first.span, duration, snap = false)
+            assertEquals(span, again.span)
+            assertFalse(again.snapped)
+            assertFalse(again.changesTranscript)
+            assertEquals(listOf(plain[0], plain[2], plain[3]), again.segments)
+        }
+    }
+
+    @Test
+    fun aConfirmedSpanToTheEndAppliedAgainKeepsEveryLineBeforeIt() {
+        val span = PassagePlan.spanFor(plain, 2, 3, 40_000L)!!
+        val first = PassagePlan.plan(plain, span, 40_000L)
+        assertEquals(Span(20_000, PassagePlan.END), first.span)
+        assertEquals(listOf(2, 3), first.removedLines)
+        val again = PassagePlan.plan(first.segments, first.span, 40_000L, snap = false)
+        assertFalse(again.changesTranscript)
+        assertEquals(listOf(plain[0], plain[1]), again.segments)
+    }
+
+    @Test
+    fun aConfirmedLineStillGoesWhenTheLineAfterItWasDeletedMeanwhile() {
+        // The user confirmed 10 to 20 s (line 1) and deleted line 2 by hand
+        // while the audio was written: line 1 now runs to 30 s, past the
+        // span's end, but it was confirmed and its audio silenced.
+        val span = Span(10_000, 20_000)
+        val stored = listOf(plain[0], plain[1], plain[3])
+        val plan = PassagePlan.plan(stored, span, 40_000L, snap = false)
+        assertEquals(span, plan.span)
+        assertEquals(listOf(1), plan.removedLines)
+        assertEquals(listOf(plain[0], plain[3]), plan.segments)
+        // A line with word timings is cut at its words as before.
+        val timed = listOf(worded(0, "a b c d"), worded(10_000, "e f g h"), worded(30_000, "i j"))
+        val cut = PassagePlan.plan(timed, Span(1_000, 11_000), 40_000L, snap = false)
+        assertEquals(listOf("a b", "g h", "i j"), cut.segments.map { it.text })
     }
 
     @Test

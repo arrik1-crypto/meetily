@@ -4052,8 +4052,13 @@ class MeetingDetailActivity : AppCompatActivity() {
         playingClearVoice = false
         waveformBars = null
         whenLoaded { m ->
+            // The span as confirmed, never moved again: this copy may hold
+            // the stored result already (a sync or the load may have read it
+            // first), and moving an edge over the line before the passage
+            // would delete that line too (PassagePlan.plan).
             val plan = com.meetily.mobile.data.PassagePlan.plan(
-                m.segments, span, null, m.highlightMarksMs, m.chapters, m.transcriptResumeMs
+                m.segments, span, null, m.highlightMarksMs, m.chapters, m.transcriptResumeMs,
+                snap = false
             )
             com.meetily.mobile.data.PassagePlan.applyTo(m, plan)
             // The file the run wrote (PassageSwap names it from the old one),

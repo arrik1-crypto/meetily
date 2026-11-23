@@ -3,8 +3,9 @@ package com.meetily.mobile.data
 /**
  * What "Remove passage" does to a meeting's transcript and the things timed
  * against its audio, worked out before anything is touched. Pure, so every
- * rule is unit-tested; PassageService applies the same plan to the stored
- * meeting and the meeting screen to its own copy.
+ * rule is unit-tested; PassageService applies the confirmed span to the
+ * stored meeting and the meeting screen to its own copy, both without
+ * moving its edges again (see [plan]).
  *
  * The audio in the span becomes silence rather than being cut out, so the
  * recording keeps its length and every time outside the span (a line's
@@ -146,6 +147,18 @@ object PassagePlan {
      * [marksMs] and [chapters], whose audio lasts [durationMs] (null when
      * not known, or when there is no audio) and whose unfinished transcript
      * stops at [resumeMs] (see [lines]).
+     *
+     * [snap] false applies a span the user already confirmed, one planned
+     * with [snap] true (PassageService on the stored meeting, the meeting
+     * screen on its own copy). Its edges never move: that span is what was
+     * shown and silenced. A line's extent runs to the next line, so once a
+     * line inside the span is gone (by this same plan already, or deleted
+     * by hand while the audio was written) the line before it reaches into
+     * the span, and moving the edge out over it would delete a line the
+     * user never chose. Without [snap], a line across an edge that cannot
+     * be cut at a word goes only when it starts inside the span: it lay
+     * inside it when the span was confirmed and has only lost the line
+     * after it since.
      */
     fun plan(
         segments: List<TranscriptSegment>,
@@ -153,7 +166,8 @@ object PassagePlan {
         durationMs: Long? = null,
         marksMs: List<Long> = emptyList(),
         chapters: List<Chapter> = emptyList(),
-        resumeMs: Long? = null
+        resumeMs: Long? = null,
+        snap: Boolean = true
     ): Plan {
         val total = durationMs?.takeIf { it > 0L }
         val clamped = Span(
@@ -167,9 +181,10 @@ object PassagePlan {
 
         // Edges that fall inside a line which cannot be cut there move out
         // to that line's edges. Moving to a line edge never lands inside
-        // another line, so two rounds always settle it.
+        // another line, so two rounds always settle it. Not for a span
+        // already confirmed (see [snap]).
         var span = clamped
-        repeat(2) {
+        if (snap) repeat(2) {
             for (line in lines) {
                 val crossesStart = line.startMs < span.startMs && span.startMs < line.endMs
                 val crossesEnd = span.endMs != END && line.startMs < span.endMs && span.endMs < line.endMs
@@ -185,8 +200,15 @@ object PassagePlan {
         val outcome = arrayOfNulls<Outcome>(segments.size)
         for (line in lines) {
             if (line.endMs <= span.startMs || line.startMs >= span.endMs) continue
-            val whole = line.startMs >= span.startMs && (span.endMs == END || line.endMs <= span.endMs)
-            outcome[line.index] = if (whole) Outcome.Removed else cut(segments[line.index], line, span)
+            val startsInside = line.startMs >= span.startMs
+            val whole = startsInside && (span.endMs == END || line.endMs <= span.endMs)
+            outcome[line.index] = if (whole) {
+                Outcome.Removed
+            } else {
+                // A line that cannot be cut at an edge (left only without
+                // [snap]) goes when it starts inside the span.
+                cut(segments[line.index], line, span) ?: if (startsInside) Outcome.Removed else null
+            }
         }
 
         val kept = ArrayList<TranscriptSegment>(segments.size)

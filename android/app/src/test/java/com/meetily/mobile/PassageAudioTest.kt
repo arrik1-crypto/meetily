@@ -147,8 +147,23 @@ class PassageAudioTest {
     @Test
     fun theSpaceCheckEstimatesTheNewFile() {
         // An hour of a live recording: 64 kbps, 28.8 MB, plus 2 %.
-        assertEquals(28_800_000L + 576_000L, PassageAudio.estimatedBytes(3_600_000L, -1))
-        assertEquals(PassageAudio.estimatedBytes(3_600_000L, 64_000), PassageAudio.estimatedBytes(3_600_000L, 0))
+        assertEquals(28_800_000L + 576_000L, PassageAudio.estimatedBytes(3_600_000L, 64_000))
+        // No stated bitrate: counted at the most the encoder can be given,
+        // never below what bitRateFor gives such a recording (192 kbps for
+        // 48 kHz stereo, three times the live recording's rate).
+        assertEquals(144_000_000L + 2_880_000L, PassageAudio.estimatedBytes(3_600_000L, -1))
+        assertEquals(
+            PassageAudio.estimatedBytes(3_600_000L, PassageAudio.MAX_BIT_RATE),
+            PassageAudio.estimatedBytes(3_600_000L, 0)
+        )
+        for (rate in listOf(8_000, 16_000, 44_100, 48_000)) {
+            for (channels in 1..2) {
+                val written = PassageAudio.bitRateFor(-1, rate, channels)
+                assertTrue(
+                    PassageAudio.estimatedBytes(3_600_000L, -1) >= PassageAudio.estimatedBytes(3_600_000L, written)
+                )
+            }
+        }
         // A lossless source is written at no more than the highest AAC rate.
         assertEquals(
             PassageAudio.estimatedBytes(60_000L, PassageAudio.MAX_BIT_RATE),

@@ -258,9 +258,12 @@ class PassageService : Service() {
             if (!PassageSwap.maySwap(true, stored.audioFile, audio)) {
                 false
             } else {
+                // The span the user confirmed, silenced as it is: its edges
+                // do not move over lines the transcript lost meanwhile.
                 val plan = PassagePlan.plan(
                     stored.segments, span, written.durationMs.takeIf { it > 0L },
-                    stored.highlightMarksMs, stored.chapters, stored.transcriptResumeMs
+                    stored.highlightMarksMs, stored.chapters, stored.transcriptResumeMs,
+                    snap = false
                 )
                 PassagePlan.applyTo(stored, plan)
                 stored.transcriptResumeMs = PassagePlan.resumeAfter(plan, stored.transcriptResumeMs)
@@ -336,9 +339,14 @@ class PassageService : Service() {
             postDoneNotification(meetingId, if (wasTimedOut) Result.TIMED_OUT else result)
         }
         timedOut = false
+        // Queued work held back while the meeting was being changed, handed
+        // over while this service is still in the foreground, which is what
+        // makes starting it legal on Android 12+ (see ImportService.finishRun).
+        // Not after a timeout: the foreground is gone already, and the next
+        // activity resume drains instead.
+        if (!wasTimedOut) JobGate.drain(this)
+        // Drain never starts this service, so this start is still the last.
         if (stopSelfResult(lastStartId)) stopForegroundCompat()
-        // Queued work held back while the meeting was being changed.
-        JobGate.drain(this)
     }
 
     /** See ClearVoiceService.onTimeout: stop between chunks, leave the foreground now. */
@@ -624,10 +632,13 @@ class PassageService : Service() {
 
         /**
          * Removes [span]'s lines from [meetingId], a meeting with no audio
-         * (there is nothing to silence): the plan is applied to the stored
-         * meeting under the store's lock. Returns REMOVED, GONE when the
-         * meeting is gone or has audio again, BUSY when something works on
-         * it, FAILED when the save failed. Worker threads only.
+         * on disk (there is nothing to silence): the plan is applied to the
+         * stored meeting under the store's lock. A meeting that still names
+         * a recording which is missing or empty (a backup restored without
+         * it) counts as having none, as on the meeting screen; its name is
+         * left as it is. Returns REMOVED, GONE when the meeting is gone or
+         * has audio again, BUSY when something works on it, FAILED when the
+         * save failed. Worker threads only.
          */
         @WorkerThread
         fun removeLinesOnly(context: Context, meetingId: String, span: PassagePlan.Span): Result {
@@ -635,12 +646,14 @@ class PassageService : Service() {
             val store = MeetingStore(context)
             var applied = false
             val saved = store.mutateIf(meetingId) { stored ->
-                if (!stored.audioFile.isNullOrBlank()) {
+                if (AudioStore.exists(context, stored.audioFile)) {
                     false
                 } else {
+                    // The span the user confirmed; see swap.
                     val plan = PassagePlan.plan(
                         stored.segments, span, null,
-                        stored.highlightMarksMs, stored.chapters, stored.transcriptResumeMs
+                        stored.highlightMarksMs, stored.chapters, stored.transcriptResumeMs,
+                        snap = false
                     )
                     PassagePlan.applyTo(stored, plan)
                     stored.transcriptResumeMs = PassagePlan.resumeAfter(plan, stored.transcriptResumeMs)

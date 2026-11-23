@@ -145,13 +145,17 @@ object PassageAudio {
     }
 
     /**
-     * Roughly how many bytes [durationMs] of audio takes at [bitRate] (the
-     * live recording's when the recording states none, and no more than
-     * the highest [bitRateFor] gives), plus a little for the frame
-     * headers. For the free-space check before a run.
+     * Roughly how many bytes [durationMs] of audio takes at [bitRate] (no
+     * more than the highest [bitRateFor] gives), plus a little for the
+     * frame headers. For the free-space check before a run. A recording
+     * that states no bitrate is counted at that highest rate: the format it
+     * decodes to is not known yet, and [bitRateFor] gives such a recording
+     * up to 96 kbps per channel, three times the live recording's rate for
+     * 48 kHz stereo. Too much asked is a refusal up front; too little is a
+     * full disk part-way through.
      */
     fun estimatedBytes(durationMs: Long, bitRate: Int): Long {
-        val rate = if (bitRate > 0) minOf(bitRate, MAX_BIT_RATE) else SPEECH_BIT_RATE
+        val rate = if (bitRate > 0) minOf(bitRate, MAX_BIT_RATE) else MAX_BIT_RATE
         val payload = durationMs.coerceAtLeast(0L) * rate / 8 / 1000
         return payload + payload / 50
     }
