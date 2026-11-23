@@ -243,6 +243,14 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback" />
 
+        <!-- Remove a passage: one meeting's audio written again with a span
+             silenced, as ImportService's types (mediaProcessing from Android
+             15, dataSync below). -->
+        <service
+            android:name=".PassageService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProcessing" />
+
         <service
             android:name=".ModelDownloadService"
             android:exported="false"

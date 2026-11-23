@@ -53,6 +53,9 @@ class RecapApp : Application() {
             // A video's sound remuxed by a process that died before an import
             // adopted it; this process's own files are told apart and kept.
             runCatching { com.meetily.mobile.whisper.VideoAudioExtractor.sweepStale(this) }
+            // A passage removal the process did not live to finish: its new
+            // file, or the recording it replaced, is deleted (PassageSwap).
+            runCatching { PassageService.recoverLeftovers(this) }
         }.start()
     }
 

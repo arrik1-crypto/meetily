@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Remove a passage: a span of a meeting is taken out on the phone. Its
+         lines are deleted (or shortened at a word) and its audio becomes
+         silence, so the recording keeps its length and every other moment
+         stays where it is (PassagePlan, PassageService, PassageUi). -->
+
+    <!-- The transcript line action (in a line's menu and for screen readers). -->
+    <string name="passage_line_action">Remove passage…</string>
+    <string name="passage_untimed">This line has no place in the recording, so a passage cannot start or end at it.</string>
+    <string name="passage_reading">Reading the recording…</string>
+
+    <!-- The range picker. -->
+    <string name="passage_range_title">Remove a passage</string>
+    <string name="passage_from_label">From the line</string>
+    <string name="passage_from_word_label">Starting at the word</string>
+    <string name="passage_to_label">To the line</string>
+    <string name="passage_to_word_label">Ending after the word</string>
+    <!-- A line or word in a list: %1$s is a time such as "12:03", %2$s its words. -->
+    <string name="passage_item">%1$s · %2$s</string>
+    <string name="passage_next">Next</string>
+    <!-- A span of the recording: %1$s and %2$s are times such as "12:03". -->
+    <string name="passage_span">%1$s – %2$s</string>
+    <!-- A span that runs to the end of the recording: %1$s is a time. -->
+    <string name="passage_span_to_end">%1$s to the end</string>
+    <!-- Lengths, such as "38 s", "2 min 5 s", "1 h 4 min". -->
+    <string name="passage_length_s">%1$d s</string>
+    <string name="passage_length_m">%1$d min %2$d s</string>
+    <string name="passage_length_h">%1$d h %2$d min</string>
+    <!-- The picker's status line: %1$s is a span, %2$s its length (or the
+         span alone when its length is not known), %3$s what happens to the lines. -->
+    <string name="passage_summary">%1$s (%2$s). %3$s</string>
+    <string name="passage_summary_no_length">%1$s. %2$s</string>
+    <plurals name="passage_summary_lines">
+        <item quantity="one">%d line goes.</item>
+        <item quantity="other">%d lines go.</item>
+    </plurals>
+    <plurals name="passage_summary_trimmed">
+        <item quantity="one">%d line is shortened.</item>
+        <item quantity="other">%d lines are shortened.</item>
+    </plurals>
+    <string name="passage_summary_empty">The end comes before the start. Choose a later end.</string>
+
+    <!-- The confirmation, which says exactly what is lost. -->
+    <!-- %1$s is a span such as "12:03 – 12:41". -->
+    <string name="passage_confirm_title">Remove %1$s?</string>
+    <!-- %1$s is a length such as "38 s". -->
+    <string name="passage_confirm_length">This removes %1$s of the meeting:</string>
+    <string name="passage_confirm_length_unknown">This removes, from the meeting:</string>
+    <plurals name="passage_confirm_lines">
+        <item quantity="one">• %d line of the transcript is deleted</item>
+        <item quantity="other">• %d lines of the transcript are deleted</item>
+    </plurals>
+    <plurals name="passage_confirm_trimmed">
+        <item quantity="one">• %d line is shortened to its words outside the passage</item>
+        <item quantity="other">• %d lines are shortened to their words outside the passage</item>
+    </plurals>
+    <plurals name="passage_confirm_highlights">
+        <item quantity="one">• %d highlight</item>
+        <item quantity="other">• %d highlights</item>
+    </plurals>
+    <string name="passage_confirm_audio">• the audio, which becomes silence. The recording keeps its length, so every other moment stays where it is</string>
+    <string name="passage_confirm_no_audio">This meeting has no audio, so only the lines go.</string>
+    <string name="passage_confirm_silence_only">No words start inside it, so the transcript stays as it is.</string>
+    <string name="passage_confirm_snapped">Some of its lines have no word timings, so the passage was widened to take those lines whole.</string>
+    <plurals name="passage_confirm_chapters_moved">
+        <item quantity="one">%d chapter now starts after the passage.</item>
+        <item quantity="other">%d chapters now start after the passage.</item>
+    </plurals>
+    <plurals name="passage_confirm_chapters_dropped">
+        <item quantity="one">%d chapter is removed: all its lines are in the passage.</item>
+        <item quantity="other">%d chapters are removed: all their lines are in the passage.</item>
+    </plurals>
+    <plurals name="passage_confirm_photos">
+        <item quantity="one">%d photo was taken during the passage. It is kept.</item>
+        <item quantity="other">%d photos were taken during the passage. They are kept.</item>
+    </plurals>
+    <string name="passage_confirm_clearvoice">The clear-voice copy is deleted, because it holds the passage. You can make it again from the player.</string>
+    <string name="passage_confirm_summary">The summary is marked out of date.</string>
+    <string name="passage_confirm_resume_done">Nothing is left to transcribe after it, so the transcript counts as complete.</string>
+    <string name="passage_confirm_final">This cannot be undone.</string>
+    <string name="passage_confirm_button">Remove passage</string>
+
+    <!-- While it runs. %1$d is a percentage; %2$s a time such as "2 min". -->
+    <string name="passage_progress_title">Removing the passage</string>
+    <string name="passage_progress">Removing the passage… %1$d%%</string>
+    <string name="passage_progress_eta">Removing the passage… %1$d%%, about %2$s left</string>
+    <string name="passage_progress_note">It keeps going if you leave this screen. Stopping changes nothing.</string>
+    <string name="passage_hide">Hide</string>
+    <string name="passage_stop">Stop</string>
+
+    <!-- How a run ended, and why one could not start. -->
+    <!-- %1$s is a span such as "12:03 – 12:41". -->
+    <string name="passage_removed_span">Removed %1$s.</string>
+    <string name="passage_removed">Passage removed.</string>
+    <string name="passage_cancelled">Stopped. Nothing was changed.</string>
+    <string name="passage_failed">Could not remove the passage. Nothing was changed.</string>
+    <string name="passage_no_space">Not enough free space to write the audio again. Free some space and try again. Nothing was changed.</string>
+    <string name="passage_timed_out">Stopped: Android limits how long apps may process media each day. Nothing was changed; try again later.</string>
+    <string name="passage_gone">The meeting or its audio changed meanwhile, so nothing was removed.</string>
+    <string name="passage_blocked_recording">Wait until the recording ends, then try again.</string>
+    <string name="passage_blocked_running">A passage of this meeting is being removed.</string>
+    <string name="passage_blocked_other">A passage of another meeting is being removed. Try again when it ends.</string>
+    <string name="passage_blocked_review">Review the finished accuracy check first: it was made from the audio as it is now.</string>
+    <string name="passage_blocked_busy">Something is working on this meeting: a transcription, a summary or a queued job. Try again when it ends.</string>
+
+    <!-- The notification. It names no meeting: it can show on the lock screen. -->
+    <string name="passage_channel">Removing passages</string>
+    <string name="passage_notif_title">Removing a passage</string>
+    <string name="passage_notif_done">Passage removed</string>
+    <string name="passage_notif_not_done">Passage not removed</string>
+</resources>

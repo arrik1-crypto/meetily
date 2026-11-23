@@ -28,6 +28,7 @@ object SpeakerPicker {
         onSplit: (() -> Unit)? = null,
         onShareClip: (() -> Unit)? = null,
         onFixWord: (() -> Unit)? = null,
+        onRemovePassage: (() -> Unit)? = null,
         onPicked: (String?) -> Unit
     ) {
         val options = mutableListOf<String>()
@@ -76,6 +77,13 @@ object SpeakerPicker {
         } else {
             clipIndex = -1
         }
+        val passageIndex: Int
+        if (onRemovePassage != null) {
+            passageIndex = options.size
+            options.add(context.getString(R.string.passage_line_action))
+        } else {
+            passageIndex = -1
+        }
         val removeIndex: Int
         if (!currentSpeaker.isNullOrBlank()) {
             removeIndex = options.size
@@ -99,6 +107,7 @@ object SpeakerPicker {
                     which == splitIndex && onSplit != null -> onSplit()
                     which == fixIndex && onFixWord != null -> onFixWord()
                     which == clipIndex && onShareClip != null -> onShareClip()
+                    which == passageIndex && onRemovePassage != null -> onRemovePassage()
                     which == removeIndex -> onPicked(null)
                 }
             }

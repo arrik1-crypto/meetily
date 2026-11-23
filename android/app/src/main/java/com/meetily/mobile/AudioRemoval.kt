@@ -34,12 +34,14 @@ object AudioRemoval {
      * [meetingId]'s content right now: transcript, summary, notes or speaker
      * tags. An edit to them made meanwhile would be overwritten (recording
      * and import write the transcript back whole on every save). This is
-     * Find & replace's rule (MeetingReplace).
+     * Find & replace's rule (MeetingReplace). A passage being removed
+     * (PassageService) counts: it rewrites the transcript and the audio.
      */
     fun isWritingContent(context: Context, meetingId: String): Boolean =
         (RecordingService.isRunning && MeetingStore(context).activeId() == meetingId) ||
             (ImportService.isRunning && ImportService.currentMeetingId == meetingId) ||
-            (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId)
+            (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
+            PassageService.isRemoving(meetingId)
 
     /**
      * [isWritingContent], or a clear-voice copy of [meetingId] being made.

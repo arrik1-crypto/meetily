@@ -148,6 +148,7 @@ object RetentionRunner {
         if (ImportService.isRunning) ImportService.currentMeetingId?.let { ids.add(it) }
         if (SummaryService.isRunning) ids.add(SummaryService.currentMeetingId)
         ClearVoiceService.preparingId()?.let { ids.add(it) }
+        PassageService.removingId()?.let { ids.add(it) }
         for (job in JobQueue.load(context)) {
             if (job.meetingId.isNotBlank()) ids.add(job.meetingId)
         }
