@@ -138,6 +138,15 @@ class ImportService : Service() {
      */
     private var chargingOnly = false
 
+    /**
+     * The user started this run just now (LiveUpdates.transcriptionUserStarted),
+     * so on Android 16 its notification is a Live Update.
+     */
+    private var userStarted = false
+
+    /** The user swiped this run's Live Update away; see [ACTION_LIVE_DISMISSED]. */
+    private var liveUpdateDismissed = false
+
     /** The charger came out mid-run, so this pass is being put back. */
     @Volatile private var stoppedByUnplug = false
 
@@ -177,6 +186,12 @@ class ImportService : Service() {
             ACTION_CANCEL -> {
                 cancelled = true
                 if (!isRunning) stopSelfResult(startId)
+                return START_NOT_STICKY
+            }
+            ACTION_LIVE_DISMISSED -> {
+                // Posted as an ordinary notification from now on, never
+                // promoted again in this run (LiveUpdates).
+                if (isRunning) liveUpdateDismissed = true else stopSelfResult(startId)
                 return START_NOT_STICKY
             }
             ACTION_START -> {
@@ -233,6 +248,12 @@ class ImportService : Service() {
                 modelKey = intent.getStringExtra(EXTRA_MODEL)
                 language = intent.getStringExtra(EXTRA_LANGUAGE)?.takeIf { it.isNotBlank() }
                 clearVoice = recheckMeetingId != null && intent.getBooleanExtra(EXTRA_CLEAR_VOICE, false)
+                userStarted = LiveUpdates.transcriptionUserStarted(
+                    passOverMeeting = recheckMeetingId != null,
+                    fromScreen = intent.getBooleanExtra(EXTRA_USER_STARTED, false),
+                    chargingOnly = chargingOnly
+                )
+                liveUpdateDismissed = false
                 createChannel()
                 startForegroundCompat(buildNotification(0))
                 // Whisper or NeMo is about to load. An idle on-device LLM from
@@ -691,7 +712,26 @@ class ImportService : Service() {
             Intent(this, ImportService::class.java).setAction(ACTION_CANCEL),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val line = text.ifBlank { getString(R.string.import_status_running, progress) }
+        // A Live Update on Android 16 when the user started this run now
+        // (LiveUpdates); a start that is only being turned down is not one.
+        val live = isRunning && !timedOut && LiveUpdates.requestsPromotion(
+            LiveUpdates.transcriptionJob(passOverMeeting = recheckMeetingId != null),
+            userStarted, Build.VERSION.SDK_INT, liveUpdateDismissed
+        )
+        val bar = LiveUpdates.progress(progress, batchIndex, batchSize)
+        // What a locked phone shows when notification contents are hidden
+        // there: how far it has got, never the meeting's or the file's name.
+        // The line is minutes and file counts only.
+        val publicVersion = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setContentTitle(getString(R.string.liveupdates_public_transcribing))
+            .setContentText(line)
+            .setOngoing(true)
+            .setSilent(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+        LiveUpdateBar.setBar(this, publicVersion, live, bar, progress)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setContentTitle(
                 if (recheckMeetingId != null) {
@@ -700,15 +740,25 @@ class ImportService : Service() {
                     getString(R.string.import_notif_title, sourceName)
                 }
             )
-            .setContentText(
-                text.ifBlank { getString(R.string.import_status_running, progress) }
-            )
-            .setProgress(100, progress, progress == 0)
+            .setContentText(line)
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openIntent)
             .addAction(0, getString(android.R.string.cancel), cancelIntent)
-            .build()
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion.build())
+        LiveUpdateBar.setBar(this, builder, live, bar, progress)
+        if (live) {
+            LiveUpdateBar.requestPromotion(
+                builder,
+                PendingIntent.getService(
+                    this, 14,
+                    Intent(this, ImportService::class.java).setAction(ACTION_LIVE_DISMISSED),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        }
+        return builder.build()
     }
 
     private fun updateNotification(progress: Int, text: String = detail) {
@@ -945,6 +995,9 @@ class ImportService : Service() {
 
         const val ACTION_START = "com.meetily.mobile.import.START"
         const val ACTION_CANCEL = "com.meetily.mobile.import.CANCEL"
+
+        /** The user swiped the run's Live Update away (its delete intent). */
+        const val ACTION_LIVE_DISMISSED = "com.meetily.mobile.import.LIVE_DISMISSED"
         const val EXTRA_NAME = "source_name"
         const val EXTRA_MODEL = "model_key"
         const val EXTRA_RECHECK_MEETING_ID = "recheck_meeting_id"
@@ -969,6 +1022,13 @@ class ImportService : Service() {
          * rather than its recording. Only ever set by an explicit choice.
          */
         const val EXTRA_CLEAR_VOICE = "clear_voice"
+        /**
+         * Passes over a meeting's audio only: the meeting screen started this
+         * one at the user's tap, rather than the job queue, so it is a Live
+         * Update on Android 16 (LiveUpdates.transcriptionUserStarted). A
+         * picked file needs no flag; it is always the user's.
+         */
+        const val EXTRA_USER_STARTED = "user_started"
         /**
          * Ints: this file is number EXTRA_BATCH_INDEX (from 1) of the
          * EXTRA_BATCH_SIZE handed over together; see JobQueue.Job.batchIndex.

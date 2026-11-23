@@ -77,6 +77,12 @@ class ClearVoiceService : Service() {
     /** The newest start this instance was handed; finishRun stops with it. */
     private var lastStartId = 0
 
+    /**
+     * The user swiped this run's Live Update away: the rest of the run is an
+     * ordinary notification (LiveUpdates). Main thread.
+     */
+    private var liveUpdateDismissed = false
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -84,6 +90,9 @@ class ClearVoiceService : Service() {
         when (intent?.action) {
             ACTION_CANCEL -> {
                 if (isRunning) cancelRequested = true else stopSelfResult(startId)
+            }
+            ACTION_LIVE_DISMISSED -> {
+                if (isRunning) liveUpdateDismissed = true else stopSelfResult(startId)
             }
             ACTION_START -> {
                 val id = intent.getStringExtra(EXTRA_MEETING_ID)
@@ -98,6 +107,7 @@ class ClearVoiceService : Service() {
                 cancelRequested = false
                 percent = 0
                 minutesLeft = null
+                liveUpdateDismissed = false
                 createChannel()
                 startForegroundCompat(buildNotification(id))
                 // The foreground service keeps the process, not the CPU.
@@ -340,16 +350,32 @@ class ClearVoiceService : Service() {
         } else {
             getString(R.string.clearvoice_progress, percent)
         }
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_sparkle)
             .setContentTitle(getString(R.string.clearvoice_notif_title))
             .setContentText(text)
-            .setProgress(100, percent, percent == 0)
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openMeeting(meetingId, REQUEST_OPEN))
             .addAction(0, getString(R.string.clearvoice_stop), cancelIntent)
-            .build()
+        // Always the user's own tap on the player: a Live Update on Android
+        // 16 (LiveUpdates), but not for a start that is only being refused.
+        val live = isRunning && !timedOut && LiveUpdates.requestsPromotion(
+            LiveUpdates.Job.CLEAR_VOICE, userStarted = true,
+            sdkInt = Build.VERSION.SDK_INT, dismissed = liveUpdateDismissed
+        )
+        LiveUpdateBar.setBar(this, builder, live, LiveUpdates.progress(percent), percent)
+        if (live) {
+            LiveUpdateBar.requestPromotion(
+                builder,
+                PendingIntent.getService(
+                    this, REQUEST_DISMISSED,
+                    Intent(this, ClearVoiceService::class.java).setAction(ACTION_LIVE_DISMISSED),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        }
+        return builder.build()
     }
 
     private fun updateNotification(meetingId: String) {
@@ -407,6 +433,9 @@ class ClearVoiceService : Service() {
     companion object {
         const val ACTION_START = "com.meetily.mobile.clearvoice.START"
         const val ACTION_CANCEL = "com.meetily.mobile.clearvoice.CANCEL"
+
+        /** The user swiped the run's Live Update away (its delete intent). */
+        const val ACTION_LIVE_DISMISSED = "com.meetily.mobile.clearvoice.LIVE_DISMISSED"
         const val EXTRA_MEETING_ID = "meeting_id"
 
         private const val CHANNEL_ID = "clear_voice"
@@ -424,6 +453,7 @@ class ClearVoiceService : Service() {
         private const val REQUEST_OPEN = 4701
         private const val REQUEST_CANCEL = 4702
         private const val REQUEST_DONE = 4703
+        private const val REQUEST_DISMISSED = 4704
 
         /** Held in renewable slices rather than one long up-front bet. */
         private const val WAKE_LOCK_MS = 30 * 60 * 1000L
