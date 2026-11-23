@@ -16,6 +16,7 @@ import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.export.TaskExport
 import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.summarize.AiDisclaimers
+import com.meetily.mobile.summarize.QuotedAiText
 import java.text.DateFormat
 import java.util.Date
 
@@ -72,13 +73,19 @@ class FollowUpsActivity : AppCompatActivity() {
                 showExportChoices()
                 true
             } else if (item.itemId == R.id.aisafety_action_report_tasks) {
-                // The items were extracted by the summary run that wrote them.
+                // The items were extracted by the summary runs that wrote
+                // them, as recorded with the items.
+                val runs = meetingsWithOpenItems().map {
+                    com.meetily.mobile.data.SummaryAlternatives.actionItemsRun(it)
+                }
                 AiReport.show(
                     this,
                     AiReport.Subject(
                         label = getString(R.string.aisafety_report_action),
                         surface = "follow_ups",
-                        text = TaskExport.text(openItems())
+                        text = TaskExport.text(openItems()),
+                        templateKey = QuotedAiText.joinKeys(runs.map { it.template }),
+                        modelKey = QuotedAiText.joinKeys(runs.map { it.model })
                     )
                 )
                 true
@@ -109,18 +116,20 @@ class FollowUpsActivity : AppCompatActivity() {
         return out
     }
 
+    /** The meetings with an item still open here. */
+    private fun meetingsWithOpenItems(): List<Meeting> = shown.filter { meeting ->
+        meeting.actionItems.any { !it.done && (meeting.id to it.task) !in completedHere }
+    }
+
     /**
-     * The fixed notices of the summaries the open items came from: the
-     * items are written by the same run, so a clinical plan's drugs and
-     * doses carry the clinical notice wherever they are shared.
+     * The fixed notices of the summary runs the open items came from, by
+     * the run that wrote the items (not the summary shown now, which a
+     * switch may have changed), so a clinical plan's drugs and doses carry
+     * the clinical notice wherever they are shared.
      */
     private fun openItemNotices(): List<String> = AiDisclaimers.texts(
         this,
-        AiDisclaimers.union(
-            shown.filter { meeting ->
-                meeting.actionItems.any { !it.done && (meeting.id to it.task) !in completedHere }
-            }
-        )
+        AiDisclaimers.unionActionItems(meetingsWithOpenItems())
     )
 
     private fun showExportChoices() {

@@ -74,7 +74,8 @@ object MeetingMerge {
         tags = meeting.tags.toMutableList(),
         chapters = meeting.chapters.toMutableList(),
         photoTexts = meeting.photoTexts.toMutableMap(),
-        attachmentsList = meeting.attachmentsList.toMutableList()
+        attachmentsList = meeting.attachmentsList.toMutableList(),
+        summaries = meeting.summaries.toMutableList()
     )
 
     /**
@@ -93,10 +94,13 @@ object MeetingMerge {
      *   and only segments stamped after [segmentsSeenThroughMs] are folded
      *   back in, exactly as [foldLateSegments] does. Otherwise the stored
      *   transcript is taken as it is.
-     * - The summary. The screen never writes one, so a new summary on disk
-     *   takes its action items, stale flag, template and model with it: a
-     *   tick made on the old list must not bring back items the new summary
-     *   dropped.
+     * - The summary. The screen never generates one, so a new summary on disk
+     *   takes its action items (with the record of the run that wrote them),
+     *   stale flag, template and model with it: a tick made on the old list
+     *   must not bring back items the new summary dropped. The summaries
+     *   kept beside it are merged per template, with
+     *   the active one (SummaryAlternatives.merge), so a switch or deletion
+     *   made here and a summary a run added meanwhile both survive.
      */
     fun mergeScreenEdits(
         base: Meeting,
@@ -116,7 +120,13 @@ object MeetingMerge {
         } else {
             disk.segments.toMutableList()
         }
-        val newSummary = disk.summary != base.summary
+        val summaryMerge = SummaryAlternatives.merge(
+            SummaryAlternatives.Fields.of(base),
+            SummaryAlternatives.Fields.of(ours),
+            SummaryAlternatives.Fields.of(disk)
+        )
+        val summaryFields = summaryMerge.fields
+        val newSummary = summaryMerge.newSummary
         return Meeting(
             id = disk.id,
             title = pick(base.title, ours.title, disk.title),
@@ -124,7 +134,7 @@ object MeetingMerge {
             segments = segments,
             notes = pick(base.notes, ours.notes, disk.notes),
             notesOriginal = pick(base.notesOriginal, ours.notesOriginal, disk.notesOriginal),
-            summary = if (newSummary) disk.summary else pick(base.summary, ours.summary, disk.summary),
+            summary = summaryFields.summary,
             attendees = pick(base.attendees, ours.attendees, disk.attendees).toMutableList(),
             qa = pick(base.qa, ours.qa, disk.qa).toMutableList(),
             actionItems = if (newSummary) {
@@ -145,22 +155,10 @@ object MeetingMerge {
             ).toMutableList(),
             starred = pick(base.starred, ours.starred, disk.starred),
             transcriptModel = pick(base.transcriptModel, ours.transcriptModel, disk.transcriptModel),
-            summaryStale = if (newSummary) {
-                disk.summaryStale
-            } else {
-                pick(base.summaryStale, ours.summaryStale, disk.summaryStale)
-            },
+            summaryStale = summaryFields.stale,
             // Which template and model wrote the summary travel with it.
-            summaryTemplate = if (newSummary) {
-                disk.summaryTemplate
-            } else {
-                pick(base.summaryTemplate, ours.summaryTemplate, disk.summaryTemplate)
-            },
-            summaryModel = if (newSummary) {
-                disk.summaryModel
-            } else {
-                pick(base.summaryModel, ours.summaryModel, disk.summaryModel)
-            },
+            summaryTemplate = summaryFields.template,
+            summaryModel = summaryFields.model,
             followsEvent = pick(base.followsEvent, ours.followsEvent, disk.followsEvent),
             // Written by the transcription pass that made the words, and
             // by the screen only through a re-transcription it started.
@@ -174,7 +172,21 @@ object MeetingMerge {
             // No screen edits these. Left out, a screen save dropped them, and
             // the marks a stopped transcription had not reached yet were lost
             // before the pass that continues it could place them.
-            highlightMarksMs = disk.highlightMarksMs.toMutableList()
+            highlightMarksMs = disk.highlightMarksMs.toMutableList(),
+            summaryAtMs = summaryFields.atMs,
+            summaryLanguage = summaryFields.language,
+            summaries = summaryFields.alternatives.toMutableList(),
+            // Which run wrote the items travels with them.
+            actionItemsTemplate = if (newSummary) {
+                disk.actionItemsTemplate
+            } else {
+                pick(base.actionItemsTemplate, ours.actionItemsTemplate, disk.actionItemsTemplate)
+            },
+            actionItemsModel = if (newSummary) {
+                disk.actionItemsModel
+            } else {
+                pick(base.actionItemsModel, ours.actionItemsModel, disk.actionItemsModel)
+            }
         )
     }
 }

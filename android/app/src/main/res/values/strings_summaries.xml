@@ -1,0 +1,57 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Several summaries per meeting, one per summary style (template):
+         the row of style pills on the meeting's summary card
+         (SummaryVersionsBar). The summary shown is the one shared, exported
+         and asked about; the others are kept to switch back to without
+         running the AI again. -->
+
+    <!-- The pill that starts another summary; its visible text is a plus sign. -->
+    <string name="summaries_new_pill">+</string>
+    <string name="summaries_new">New summary with…</string>
+
+    <!-- A summary saved before Recap recorded which style wrote it. Used
+         as a style name in the lines below, so it does not say "summary". -->
+    <string name="summaries_label_earlier">Earlier style</string>
+    <!-- A summary whose custom style has since been deleted. -->
+    <string name="summaries_label_removed">Deleted style</string>
+    <!-- A style with the language its summary is in, shown only when the
+         meeting's summaries are in different languages: "Standup (German)". -->
+    <string name="summaries_label_language">%1$s (%2$s)</string>
+
+    <!-- What a screen reader hears on a pill whose summary is out of date;
+         otherwise it hears the style alone. %1$s is a style such as "Sales
+         call report" or "Executive Summary", so "summary" is not added
+         after it (the pill's action says it shows a summary). -->
+    <string name="summaries_pill_desc_stale">%1$s, out of date</string>
+    <!-- What tapping and holding a pill does, to a screen reader. -->
+    <string name="summaries_action_show">Show this summary</string>
+    <string name="summaries_action_delete">Delete this summary</string>
+
+    <!-- The line under the pills: which summary is shown, and when it was
+         written. %1$s is a style, %2$s a date and time. -->
+    <string name="summaries_status">Showing: %1$s, written %2$s</string>
+    <string name="summaries_status_undated">Showing: %1$s</string>
+    <!-- Said after a kept summary is deleted; %1$s is a style. -->
+    <string name="summaries_deleted">Deleted: %1$s</string>
+
+    <!-- Asked before a kept summary is deleted; %1$s is a style. -->
+    <string name="summaries_delete_title">Delete the %1$s version?</string>
+    <string name="summaries_delete_message">Its text is deleted from this meeting. The summary shown now, the action items and the transcript stay. This can\'t be undone.</string>
+    <string name="summaries_delete_confirm">Delete</string>
+
+    <!-- In the style picker, beside a style that already has a summary:
+         choosing it writes that one again. %1$s is the style. -->
+    <string name="summaries_picker_has_summary">%1$s · replaces its summary</string>
+
+    <!-- Report AI output, once the summary shown and the action items come
+         from different runs (a switch since): each is reported on its own,
+         under the style and model that wrote it. -->
+    <string name="summaries_report_summary">Summary shown</string>
+    <string name="summaries_report_items">Action items</string>
+
+    <!-- Home search: under a meeting, a match found in a summary kept from
+         another style, not in the one the meeting shows (MeetingAdapter). -->
+    <string name="moment_snippet_other_summary">Other summary</string>
+    <string name="moment_snippet_a11y_other_summary">Match in another summary of this meeting: %1$s</string>
+</resources>

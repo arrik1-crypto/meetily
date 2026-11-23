@@ -4,7 +4,7 @@ import java.util.regex.Pattern
 
 /**
  * Find & replace across one meeting: its transcript lines, notes, summary
- * and action items.
+ * (with the summaries kept from other templates) and action items.
  *
  * Whole word is on and match case off by default, so fixing a misheard name
  * ("Jon" to "John") reaches "jon" and "Jon's" but not "Jonas". A match that
@@ -63,14 +63,17 @@ object FindReplace {
         val lines: List<String>,
         val notes: String,
         val summary: String,
-        val actionItems: List<ActionItem>
+        val actionItems: List<ActionItem>,
+        /** The texts of the summaries kept from other templates; the summary area covers them too. */
+        val keptSummaries: List<String> = emptyList()
     ) {
         companion object {
             fun of(meeting: Meeting) = Source(
                 meeting.segments.map { it.text },
                 meeting.notes,
                 meeting.summary,
-                meeting.actionItems.toList()
+                meeting.actionItems.toList(),
+                meeting.summaries.map { it.text }
             )
         }
     }
@@ -82,16 +85,44 @@ object FindReplace {
 
     data class ItemChange(val index: Int, val before: ActionItem, val after: ActionItem)
 
+    /**
+     * A summary kept from another template (Meeting.summaries) before and
+     * after a replace, found again by its template and the time it was
+     * written, wherever it is when Undo runs: still kept, or shown since.
+     */
+    data class KeptChange(
+        val template: String?,
+        val createdAtMs: Long,
+        val before: String,
+        val after: String
+    )
+
+    /**
+     * Which summary: its template key (SummaryAlternatives.key) and the time
+     * it was written. One entry per template, so this names one summary
+     * whether it is shown or kept, and a switch does not change it.
+     */
+    data class SummaryId(val template: String?, val createdAtMs: Long)
+
     /** Everything one replace changed: what Undo puts back. */
     data class Snapshot(
         val query: Query,
         val lines: List<LineChange>,
         val notes: TextChange?,
+        /** The summary shown when the replace ran, its text before and after. */
         val summary: TextChange?,
         val actionItems: List<ItemChange>,
-        val staleBefore: Boolean,
-        val staleAfter: Boolean,
-        val counts: Counts
+        val counts: Counts,
+        val kept: List<KeptChange> = emptyList(),
+        /** Which summary [summary] is, for Undo to find it again after a switch. */
+        val summaryId: SummaryId? = null,
+        /**
+         * Every summary this replace marked out of date, shown or kept. Undo
+         * clears the mark on these only, wherever they are by then: a pill
+         * switched since must neither lose a mark the replace did not add
+         * nor keep one it did.
+         */
+        val markedStale: List<SummaryId> = emptyList()
     )
 
     /** Places (lines, notes, summary, items) put back, and those edited since and left. */
@@ -187,7 +218,11 @@ object FindReplace {
             transcriptMatches = matches,
             transcriptLines = lines,
             notes = edits(source.notes, pattern, query.replace).size,
-            summary = edits(source.summary, pattern, query.replace).size,
+            summary = edits(source.summary, pattern, query.replace).size +
+                source.keptSummaries.sumOf { text ->
+                    val keptEdits = edits(text, pattern, query.replace)
+                    if (keptEdits.isNotEmpty() && leavesText(text, keptEdits)) keptEdits.size else 0
+                },
             actionItems = items
         )
     }
@@ -237,6 +272,9 @@ object FindReplace {
 
         var summary: TextChange? = null
         var summaryMatches = 0
+        val kept = mutableListOf<KeptChange>()
+        // Taken first: replacing with nothing can leave the summary blank.
+        val summaryId = shownId(meeting)
         if (Area.SUMMARY in areas) {
             val edits = edits(meeting.summary, pattern, replacement)
             if (edits.isNotEmpty()) {
@@ -245,6 +283,21 @@ object FindReplace {
                 meeting.summary = after
                 summaryMatches = edits.size
             }
+            // The summaries kept from other templates read the same name
+            // the same wrong way; switching to one must not bring it back.
+            // One that would be left blank is left as it was, like a line.
+            val keptAfter = meeting.summaries.map { saved ->
+                val keptEdits = edits(saved.text, pattern, replacement)
+                val text = WordRealign.applyText(saved.text, keptEdits)
+                if (keptEdits.isEmpty() || text.isBlank()) {
+                    saved
+                } else {
+                    kept.add(KeptChange(saved.template, saved.createdAtMs, saved.text, text))
+                    summaryMatches += keptEdits.size
+                    saved.copy(text = text)
+                }
+            }
+            if (kept.isNotEmpty()) meeting.summaries = keptAfter.toMutableList()
         }
 
         val items = mutableListOf<ItemChange>()
@@ -272,28 +325,64 @@ object FindReplace {
             }
         }
 
-        if (lines.isEmpty() && notes == null && summary == null && items.isEmpty()) return null
-        val staleBefore = meeting.summaryStale
+        if (lines.isEmpty() && notes == null && summary == null && kept.isEmpty() && items.isEmpty()) {
+            return null
+        }
         // The summary was written from the old wording; fixing its own text
-        // too does not cover what it paraphrased.
-        if (lines.isNotEmpty() && meeting.summary.isNotBlank()) meeting.summaryStale = true
+        // too does not cover what it paraphrased. The same goes for every
+        // summary kept from another template. Recorded by which summary, not
+        // by place: the one shown can change before Undo.
+        val markedStale = if (lines.isNotEmpty()) {
+            val fresh = (listOfNotNull(SummaryAlternatives.active(meeting)) + meeting.summaries)
+                .filter { !it.stale }
+                .map { idOf(it) }
+            SummaryAlternatives.markStale(meeting)
+            fresh
+        } else {
+            emptyList()
+        }
         return Snapshot(
             query = query,
             lines = lines,
             notes = notes,
             summary = summary,
             actionItems = items,
-            staleBefore = staleBefore,
-            staleAfter = meeting.summaryStale,
-            counts = Counts(lineMatches, lines.size, notesMatches, summaryMatches, itemMatches)
+            counts = Counts(lineMatches, lines.size, notesMatches, summaryMatches, itemMatches),
+            kept = kept,
+            summaryId = if (summary != null) summaryId else null,
+            markedStale = markedStale
         )
+    }
+
+    private fun idOf(saved: SavedSummary) =
+        SummaryId(SummaryAlternatives.key(saved.template), saved.createdAtMs)
+
+    /** Which summary [meeting]'s top-level summary fields hold, even while its text is blank. */
+    private fun shownId(meeting: Meeting) =
+        SummaryId(SummaryAlternatives.key(meeting.summaryTemplate), meeting.summaryAtMs)
+
+    /**
+     * Puts [before] back as the text of summary [id], wherever it is now
+     * (shown or kept), if it still reads [after]. Returns false when it is
+     * gone, was written again, or was edited since.
+     */
+    private fun restoreSummaryText(meeting: Meeting, id: SummaryId, before: String, after: String): Boolean {
+        if (shownId(meeting) == id && meeting.summary == after) {
+            meeting.summary = before
+            return true
+        }
+        val at = meeting.summaries.indexOfFirst { idOf(it) == id && it.text == after }
+        if (at < 0) return false
+        meeting.summaries[at] = meeting.summaries[at].copy(text = before)
+        return true
     }
 
     /**
      * Puts back what [snapshot] changed in [meeting], in place, wherever it
      * still reads as the replace left it. A line, note, summary or item
      * edited since is left as it is now and counted as skipped. The stale
-     * mark goes back only when every line did and nothing else changed it.
+     * marks the replace added go back only when every line did, and only on
+     * the summaries it marked.
      */
     fun undo(meeting: Meeting, snapshot: Snapshot): UndoResult {
         var restored = 0
@@ -331,9 +420,20 @@ object FindReplace {
                 skipped++
             }
         }
+        // Each summary by which one it is, shown or kept: a switch since
+        // moves it, and is not an edit. One written again since, deleted, or
+        // edited counts as edited and stays.
         snapshot.summary?.let { change ->
-            if (meeting.summary == change.after) {
-                meeting.summary = change.before
+            val id = snapshot.summaryId
+            if (id != null && restoreSummaryText(meeting, id, change.before, change.after)) {
+                restored++
+            } else {
+                skipped++
+            }
+        }
+        for (change in snapshot.kept) {
+            val id = SummaryId(SummaryAlternatives.key(change.template), change.createdAtMs)
+            if (restoreSummaryText(meeting, id, change.before, change.after)) {
                 restored++
             } else {
                 skipped++
@@ -358,10 +458,18 @@ object FindReplace {
             restored++
         }
 
-        if (snapshot.lines.isNotEmpty() && allLinesBack &&
-            meeting.summaryStale == snapshot.staleAfter
-        ) {
-            meeting.summaryStale = snapshot.staleBefore
+        // Every line went back, so the summaries this replace marked out of
+        // date are up to date again: those, by which summary they are,
+        // wherever they sit now. One written since is another summary and
+        // keeps its own mark.
+        if (snapshot.lines.isNotEmpty() && allLinesBack && snapshot.markedStale.isNotEmpty()) {
+            val marked = snapshot.markedStale.toSet()
+            if (meeting.summaryStale && shownId(meeting) in marked) meeting.summaryStale = false
+            if (meeting.summaries.any { it.stale && idOf(it) in marked }) {
+                meeting.summaries = meeting.summaries.map {
+                    if (it.stale && idOf(it) in marked) it.copy(stale = false) else it
+                }.toMutableList()
+            }
         }
         return UndoResult(restored, skipped)
     }

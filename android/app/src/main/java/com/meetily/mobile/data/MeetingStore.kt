@@ -501,11 +501,14 @@ class MeetingStore(context: Context) {
         val ACTION_FIELDS = HEADER_FIELDS + "actionItems"
 
         /**
-         * What AiDisclaimers needs to decide a summary's fixed notice: the
-         * summary (for ones saved before the template was recorded) and the
-         * template and model that wrote it.
+         * What AiDisclaimers needs to decide the fixed notices of a summary
+         * and its action items: the summary (for ones saved before the
+         * template was recorded), the template and model that wrote it, and
+         * those of the run that wrote the action items.
          */
-        val NOTICE_FIELDS = setOf("summary", "summaryTemplate", "summaryModel")
+        val NOTICE_FIELDS = setOf(
+            "summary", "summaryTemplate", "summaryModel", "actionItemsTemplate", "actionItemsModel"
+        )
 
         // Process-wide, like the write lock that guards both: every caller
         // builds its own MeetingStore over the same directory.

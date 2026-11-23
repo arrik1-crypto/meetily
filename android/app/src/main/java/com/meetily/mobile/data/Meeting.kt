@@ -154,7 +154,34 @@ data class Meeting(
      * playable only while it still belongs to [audioFile]
      * (ClearVoice.copyOf); the recording itself is never replaced.
      */
-    var clearVoiceFile: String? = null
+    var clearVoiceFile: String? = null,
+    /**
+     * When the active summary ([summary]) was written, 0 when unknown (saved
+     * before this field), and the language its run asked for
+     * (OutputLanguage.target), null when the run left it to the model or
+     * nobody knows. They travel with the summary, like [summaryTemplate].
+     */
+    var summaryAtMs: Long = 0L,
+    var summaryLanguage: String? = null,
+    /**
+     * Summaries made with other templates, kept so the user can switch back
+     * without running a model again: at most one per template, never one
+     * for the active summary's template (SummaryAlternatives). The active
+     * summary stays in the top-level fields, so every reader, and an older
+     * app restoring a backup, sees the one shown.
+     */
+    var summaries: MutableList<SavedSummary> = mutableListOf(),
+    /**
+     * The template key and the engine and model of the summary run that
+     * wrote [actionItems]. Every run writes the items with its summary, but
+     * switching the summary shown leaves the items as they are, so the items
+     * keep their own record: a clinical run's drugs and doses keep the
+     * clinical notice (AiDisclaimers) after a switch to plain minutes. Both
+     * null for items saved before this was recorded, which the run that
+     * wrote the summary shown wrote too.
+     */
+    var actionItemsTemplate: String? = null,
+    var actionItemsModel: String? = null
 ) {
     /**
      * True for a copy read by MeetingStore's light listings, which leave out
@@ -278,6 +305,21 @@ data class Meeting(
         }
         if (!summaryModel.isNullOrBlank()) {
             obj.put("summaryModel", summaryModel)
+        }
+        if (summaryAtMs > 0L) {
+            obj.put("summaryAtMs", summaryAtMs)
+        }
+        if (!summaryLanguage.isNullOrBlank()) {
+            obj.put("summaryLanguage", summaryLanguage)
+        }
+        if (summaries.isNotEmpty()) {
+            obj.put("summaries", SummaryAlternatives.toJson(summaries))
+        }
+        if (!actionItemsTemplate.isNullOrBlank()) {
+            obj.put("actionItemsTemplate", actionItemsTemplate)
+        }
+        if (!actionItemsModel.isNullOrBlank()) {
+            obj.put("actionItemsModel", actionItemsModel)
         }
         if (highlightMarksMs.isNotEmpty()) {
             val marksArr = JSONArray()
@@ -462,6 +504,17 @@ data class Meeting(
             meeting.summaryStale = obj.optBoolean("summaryStale", false)
             meeting.summaryTemplate = obj.optString("summaryTemplate", "").ifBlank { null }
             meeting.summaryModel = obj.optString("summaryModel", "").ifBlank { null }
+            // Absent before several summaries were kept: one summary, of
+            // unknown age and language, and nothing kept beside it.
+            meeting.summaryAtMs = obj.optLong("summaryAtMs", 0L).coerceAtLeast(0L)
+            meeting.summaryLanguage = MeetingLanguage.normalize(obj.optString("summaryLanguage", ""))
+            meeting.summaries = SummaryAlternatives.fromJson(
+                obj.optJSONArray("summaries"), SummaryAlternatives.active(meeting)
+            )
+            // Absent before the items kept their own record: the run that
+            // wrote the summary shown wrote them (AiDisclaimers falls back).
+            meeting.actionItemsTemplate = obj.optString("actionItemsTemplate", "").ifBlank { null }
+            meeting.actionItemsModel = obj.optString("actionItemsModel", "").ifBlank { null }
             // Through normalize, so a hand-edited or future value that is
             // not a language code reads as unknown rather than reaching a
             // prompt or the engine.

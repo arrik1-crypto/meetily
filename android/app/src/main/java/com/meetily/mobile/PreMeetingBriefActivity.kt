@@ -158,7 +158,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                 getString(R.string.pre_brief_no_summary)
             } else {
                 AiDisclaimers.prependTo(
-                    body, AiDisclaimers.texts(this, AiDisclaimers.categories(last))
+                    body, AiDisclaimers.texts(this, AiDisclaimers.summaryCategories(last))
                 )
             }
         card.setOnClickListener {

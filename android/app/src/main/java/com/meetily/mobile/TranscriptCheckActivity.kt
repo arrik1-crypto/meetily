@@ -416,7 +416,8 @@ class TranscriptCheckActivity : AppCompatActivity() {
                     onDisk.translated = pending.translated
                 }
                 val hadSummary = onDisk.summary.isNotBlank()
-                if (hadSummary) onDisk.summaryStale = true
+                // The summaries kept from other templates too.
+                com.meetily.mobile.data.SummaryAlternatives.markStale(onDisk)
                 // The check covered the whole recording and the user chose
                 // what to keep from it: an unfinished first pass's resume
                 // point no longer describes this transcript, and continuing

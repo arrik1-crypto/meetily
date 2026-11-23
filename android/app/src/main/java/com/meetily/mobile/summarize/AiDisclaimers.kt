@@ -3,6 +3,7 @@ package com.meetily.mobile.summarize
 import android.content.Context
 import com.meetily.mobile.R
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.data.SummaryAlternatives
 
 /**
  * Fixed disclaimers for summaries in regulated domains: clinical notes and
@@ -12,10 +13,12 @@ import com.meetily.mobile.data.Meeting
  * as a draft, but that is only a request, and small on-device models drop it
  * routinely. These are the authoritative notices: fixed strings from
  * resources, never generated, decided by which template and model actually
- * wrote the summary ([Meeting.summaryTemplate], [Meeting.summaryModel]).
- * They are shown beside the summary and added to every output that carries
- * it (share, copy, Markdown and PDF export, the pre-meeting brief, the
- * digest and Ask Library answers built from it).
+ * wrote the summary ([Meeting.summaryTemplate], [Meeting.summaryModel]) and
+ * the action items ([Meeting.actionItemsTemplate], [Meeting.actionItemsModel]),
+ * which differ once the user switches to a summary kept from another run.
+ * They are shown beside the summary and the items and added to every output
+ * that carries either (share, copy, Markdown and PDF export, follow-ups, the
+ * pre-meeting brief, the digest and Ask Library answers built from them).
  *
  * The classification is pure Kotlin and unit-tested; only [text] needs a
  * Context.
@@ -139,15 +142,53 @@ object AiDisclaimers {
         return Category.values().filter { it in found }.toCollection(LinkedHashSet())
     }
 
-    fun categories(meeting: Meeting): Set<Category> =
+    /** The notices of the summary shown on [meeting] alone: beside it on screen, and with it in a share. */
+    fun summaryCategories(meeting: Meeting): Set<Category> =
         categories(meeting.summary, meeting.summaryTemplate, meeting.summaryModel)
 
-    /** Every notice any of [meetings]' summaries needs, for multi-meeting outputs. */
+    /**
+     * The notices [meeting]'s action items need, decided by the run that
+     * wrote them (SummaryAlternatives.actionItemsRun). After a switch that
+     * is not the run that wrote the summary shown, and a clinical run's
+     * drugs and doses keep the clinical notice. Items from before the run
+     * was recorded take the summary shown's notices, as they always did.
+     * None without items.
+     */
+    fun actionItemCategories(meeting: Meeting): Set<Category> {
+        if (meeting.actionItems.isEmpty()) return emptySet()
+        if (!SummaryAlternatives.actionItemsFromAnotherRun(meeting)) return summaryCategories(meeting)
+        val run = SummaryAlternatives.actionItemsRun(meeting)
+        val found = HashSet<Category>()
+        forTemplate(run.template)?.let { found.add(it) }
+        forModel(run.model)?.let { found.add(it) }
+        return ordered(found)
+    }
+
+    /**
+     * Every notice what [meeting] carries needs: the summary shown and the
+     * action items, for an output with both (exports, the digest, the brief,
+     * Ask Library).
+     */
+    fun categories(meeting: Meeting): Set<Category> =
+        ordered(summaryCategories(meeting) + actionItemCategories(meeting))
+
+    /** Every notice any of [meetings] needs ([categories]), for multi-meeting outputs. */
     fun union(meetings: Iterable<Meeting>): Set<Category> {
         val found = HashSet<Category>()
         for (meeting in meetings) found.addAll(categories(meeting))
-        return Category.values().filter { it in found }.toCollection(LinkedHashSet())
+        return ordered(found)
     }
+
+    /** Every notice the action items of [meetings] need, for a list of tasks alone. */
+    fun unionActionItems(meetings: Iterable<Meeting>): Set<Category> {
+        val found = HashSet<Category>()
+        for (meeting in meetings) found.addAll(actionItemCategories(meeting))
+        return ordered(found)
+    }
+
+    /** [found] in the stable order notices are shown in (clinical first). */
+    private fun ordered(found: Set<Category>): Set<Category> =
+        Category.values().filter { it in found }.toCollection(LinkedHashSet())
 
     /**
      * [text] with each of [notices] appended as a closing paragraph, except
