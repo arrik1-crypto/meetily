@@ -144,7 +144,11 @@ class ImportService : Service() {
      */
     private var userStarted = false
 
-    /** The user swiped this run's Live Update away; see [ACTION_LIVE_DISMISSED]. */
+    /**
+     * The user swiped this run's Live Update away, or that of the batch it
+     * is a later file of (LiveUpdates.startsDismissed); see
+     * [ACTION_LIVE_DISMISSED].
+     */
     private var liveUpdateDismissed = false
 
     /** The charger came out mid-run, so this pass is being put back. */
@@ -190,8 +194,14 @@ class ImportService : Service() {
             }
             ACTION_LIVE_DISMISSED -> {
                 // Posted as an ordinary notification from now on, never
-                // promoted again in this run (LiveUpdates).
-                if (isRunning) liveUpdateDismissed = true else stopSelfResult(startId)
+                // promoted again in this run, nor in the rest of the batch
+                // its bar spans (LiveUpdates).
+                if (isRunning) {
+                    liveUpdateDismissed = true
+                    dismissedBatchFile = batchIndex to batchSize
+                } else {
+                    stopSelfResult(startId)
+                }
                 return START_NOT_STICKY
             }
             ACTION_START -> {
@@ -250,10 +260,15 @@ class ImportService : Service() {
                 clearVoice = recheckMeetingId != null && intent.getBooleanExtra(EXTRA_CLEAR_VOICE, false)
                 userStarted = LiveUpdates.transcriptionUserStarted(
                     passOverMeeting = recheckMeetingId != null,
-                    fromScreen = intent.getBooleanExtra(EXTRA_USER_STARTED, false),
+                    byHand = intent.getBooleanExtra(EXTRA_USER_STARTED, false),
                     chargingOnly = chargingOnly
                 )
-                liveUpdateDismissed = false
+                // A later file of a batch whose Live Update the user swiped
+                // away stays an ordinary notification, carried on to the
+                // file after it; anything else asks afresh.
+                liveUpdateDismissed =
+                    LiveUpdates.startsDismissed(dismissedBatchFile, batchIndex, batchSize)
+                dismissedBatchFile = if (liveUpdateDismissed) batchIndex to batchSize else null
                 createChannel()
                 startForegroundCompat(buildNotification(0))
                 // Whisper or NeMo is about to load. An idle on-device LLM from
@@ -993,6 +1008,16 @@ class ImportService : Service() {
         @Volatile var isFirstTranscript = false
             private set
 
+        /**
+         * The batch file (index to size) whose Live Update the user swiped
+         * away, moved on to each later file of that batch as it starts
+         * (LiveUpdates.startsDismissed); null once a run that is not one
+         * starts. Here rather than on the instance: when the next file is
+         * still being copied the service stops between files, and that
+         * file arrives on a new one. Main thread.
+         */
+        private var dismissedBatchFile: Pair<Int, Int>? = null
+
         const val ACTION_START = "com.meetily.mobile.import.START"
         const val ACTION_CANCEL = "com.meetily.mobile.import.CANCEL"
 
@@ -1023,10 +1048,13 @@ class ImportService : Service() {
          */
         const val EXTRA_CLEAR_VOICE = "clear_voice"
         /**
-         * Passes over a meeting's audio only: the meeting screen started this
-         * one at the user's tap, rather than the job queue, so it is a Live
-         * Update on Android 16 (LiveUpdates.transcriptionUserStarted). A
-         * picked file needs no flag; it is always the user's.
+         * Passes over a meeting's audio only: the user started this one, so
+         * it is a Live Update on Android 16 (LiveUpdates.transcriptionUserStarted).
+         * Set by the meeting screen at the user's tap, and by JobGate for a
+         * pass the user asked for by hand that ran off the job queue
+         * (LiveUpdates.queuedPassUserStarted). Absent on the automatic check
+         * and an audio-only recording's transcript. A picked file needs no
+         * flag; it is always the user's.
          */
         const val EXTRA_USER_STARTED = "user_started"
         /**

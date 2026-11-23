@@ -3,6 +3,7 @@ package com.meetily.mobile
 import com.meetily.mobile.DeviceAudioLock.NotificationLine
 import com.meetily.mobile.LiveUpdates.Job
 import com.meetily.mobile.LiveUpdates.RecordingChip
+import com.meetily.mobile.data.JobQueue
 import java.io.File
 import java.util.Locale
 import javax.xml.parsers.DocumentBuilderFactory
@@ -66,22 +67,79 @@ class LiveUpdatesTest {
     @Test
     fun aPickedFileIsAlwaysUserStarted() {
         // Started at once, or off the import queue as one of a batch.
-        assertTrue(LiveUpdates.transcriptionUserStarted(false, fromScreen = true, chargingOnly = false))
-        assertTrue(LiveUpdates.transcriptionUserStarted(false, fromScreen = false, chargingOnly = false))
+        assertTrue(LiveUpdates.transcriptionUserStarted(false, byHand = true, chargingOnly = false))
+        assertTrue(LiveUpdates.transcriptionUserStarted(false, byHand = false, chargingOnly = false))
         assertEquals(Job.IMPORT, LiveUpdates.transcriptionJob(passOverMeeting = false))
     }
 
     @Test
-    fun aPassOverAMeetingIsUserStartedOnlyFromTheMeetingScreen() {
-        // Re-transcribe or Continue tapped now.
-        assertTrue(LiveUpdates.transcriptionUserStarted(true, fromScreen = true, chargingOnly = false))
-        // Off the job queue: the automatic check, an audio-only recording's
-        // transcript, or work that waited for something.
-        assertFalse(LiveUpdates.transcriptionUserStarted(true, fromScreen = false, chargingOnly = false))
+    fun aPassOverAMeetingIsUserStartedOnlyWhenItsStartSaysSo() {
+        // Re-transcribe or Continue tapped now, or a hand-requested pass off
+        // the queue (EXTRA_USER_STARTED).
+        assertTrue(LiveUpdates.transcriptionUserStarted(true, byHand = true, chargingOnly = false))
+        // The automatic check, or an audio-only recording's transcript.
+        assertFalse(LiveUpdates.transcriptionUserStarted(true, byHand = false, chargingOnly = false))
         // Waiting for a charger is background work, whoever asked for it.
-        assertFalse(LiveUpdates.transcriptionUserStarted(true, fromScreen = false, chargingOnly = true))
-        assertFalse(LiveUpdates.transcriptionUserStarted(true, fromScreen = true, chargingOnly = true))
+        assertFalse(LiveUpdates.transcriptionUserStarted(true, byHand = false, chargingOnly = true))
+        assertFalse(LiveUpdates.transcriptionUserStarted(true, byHand = true, chargingOnly = true))
         assertEquals(Job.TRANSCRIPTION, LiveUpdates.transcriptionJob(passOverMeeting = true))
+    }
+
+    @Test
+    fun aPassTheUserAskedForByHandIsTheirsOffTheQueueToo() {
+        // Yes to the interrupted-work prompt (Continue from where the words
+        // stop), or Re-transcribe or Continue tapped while other work ran.
+        assertTrue(LiveUpdates.queuedPassUserStarted(required = true, chargingOnly = false))
+        // The automatic check and an audio-only recording's transcript are
+        // never required.
+        assertFalse(LiveUpdates.queuedPassUserStarted(required = false, chargingOnly = false))
+        // The requeue of a pass the charger stopped, required or not.
+        assertFalse(LiveUpdates.queuedPassUserStarted(required = true, chargingOnly = true))
+        assertFalse(LiveUpdates.queuedPassUserStarted(required = false, chargingOnly = true))
+    }
+
+    @Test
+    fun aQueuedPassIsPromotedOnlyWhenTheUserAskedForIt() {
+        // The jobs the app queues, through to the service's decision.
+        fun promoted(job: JobQueue.Job): Boolean =
+            LiveUpdates.requestsPromotion(
+                Job.TRANSCRIPTION,
+                LiveUpdates.transcriptionUserStarted(
+                    passOverMeeting = true,
+                    byHand = LiveUpdates.queuedPassUserStarted(job.required, job.chargingOnly),
+                    chargingOnly = job.chargingOnly
+                ),
+                36
+            )
+        val check = JobQueue.KIND_CHECK
+        // MainActivity's interrupted-work Yes, MeetingDetailActivity's and
+        // ContinueTranscription's queued passes.
+        assertTrue(
+            promoted(
+                JobQueue.Job(
+                    check, "m", "base", 1L, required = true, firstTranscript = true,
+                    resumeFromMs = 2_520_000L
+                )
+            )
+        )
+        assertTrue(promoted(JobQueue.Job(check, "m", "base", 1L, required = true)))
+        // RecordingService: an audio-only recording's transcript, the
+        // automatic check, and either waiting for a charger.
+        assertFalse(
+            promoted(JobQueue.Job(check, "m", "base", 1L, firstTranscript = true))
+        )
+        assertFalse(promoted(JobQueue.Job(check, "m", "base", 1L)))
+        assertFalse(
+            promoted(JobQueue.Job(check, "m", "base", 1L, chargingOnly = true))
+        )
+        // ImportService's requeue after an unplug: required, on a charger.
+        assertFalse(
+            promoted(
+                JobQueue.chargingRequeue(
+                    "m", "base", 1L, firstTranscript = true, language = "", resumeFromMs = 60_000L
+                )
+            )
+        )
     }
 
     @Test
@@ -133,6 +191,76 @@ class LiveUpdatesTest {
         val last = LiveUpdates.progress(100, batchIndex = 3, batchSize = 3)
         assertEquals(last.max, last.value)
         assertEquals(100, last.percent)
+    }
+
+    @Test
+    fun aBatchOfTenStillGetsOneSegmentPerFile() {
+        val p = LiveUpdates.progress(50, batchIndex = 10, batchSize = LiveUpdates.MAX_SEGMENTS)
+        assertEquals(LiveUpdates.MAX_SEGMENTS, p.segments.size)
+        assertEquals(1000, p.max)
+        assertEquals(p.max, p.segments.sum())
+        assertEquals(950, p.value)
+    }
+
+    @Test
+    fun aBatchOfMoreThanTenIsOneUndividedSegmentOfTheSameLength() {
+        // The platform merges more than ten into one anyway, logging a
+        // warning per extra segment on every update; the max must stay the
+        // batch's, which an empty list would turn into 100.
+        for (size in listOf(11, 15, JobQueue.MAX_IMPORTS)) {
+            val p = LiveUpdates.progress(40, batchIndex = 3, batchSize = size)
+            assertEquals("$size", listOf(size * LiveUpdates.SEGMENT_LENGTH), p.segments)
+            assertEquals("$size", size * LiveUpdates.SEGMENT_LENGTH, p.max)
+            assertEquals("$size", p.max, p.segments.sum())
+            assertEquals("$size", 240, p.value)
+            assertTrue("$size", p.segments.size <= LiveUpdates.MAX_SEGMENTS)
+        }
+        val last = LiveUpdates.progress(100, batchIndex = 20, batchSize = 20)
+        assertEquals(last.max, last.value)
+        assertEquals(100, last.percent)
+        assertEquals(12, LiveUpdates.progress(40, batchIndex = 3, batchSize = 20).percent)
+    }
+
+    @Test
+    fun noBarHasMoreSegmentsThanThePlatformDraws() {
+        for (size in 0..JobQueue.MAX_IMPORTS) {
+            for (index in 0..size) {
+                val p = LiveUpdates.progress(30, index, size)
+                assertTrue("$index of $size", p.segments.size <= LiveUpdates.MAX_SEGMENTS)
+                if (p.segments.isNotEmpty()) assertEquals("$index of $size", p.max, p.segments.sum())
+                assertTrue("$index of $size", p.value <= p.max)
+            }
+        }
+    }
+
+    @Test
+    fun aDismissedBatchStaysDismissedForItsLaterFiles() {
+        // Swiped away during file 1 of 5: files 2 to 5 stay ordinary.
+        assertTrue(LiveUpdates.startsDismissed(1 to 5, batchIndex = 2, batchSize = 5))
+        // Carried on file by file (ImportService moves the record along).
+        assertTrue(LiveUpdates.startsDismissed(2 to 5, batchIndex = 3, batchSize = 5))
+        // A file that could not be staged is skipped; the next one still is.
+        assertTrue(LiveUpdates.startsDismissed(2 to 5, batchIndex = 4, batchSize = 5))
+        assertTrue(LiveUpdates.startsDismissed(4 to 5, batchIndex = 5, batchSize = 5))
+        assertTrue(LiveUpdates.startsDismissed(1 to 20, batchIndex = 20, batchSize = 20))
+    }
+
+    @Test
+    fun anythingButALaterFileOfThatBatchAsksAfresh() {
+        // Nothing dismissed.
+        assertFalse(LiveUpdates.startsDismissed(null, batchIndex = 2, batchSize = 5))
+        // A new batch starts over at 1, of any size.
+        assertFalse(LiveUpdates.startsDismissed(3 to 5, batchIndex = 1, batchSize = 5))
+        assertFalse(LiveUpdates.startsDismissed(3 to 5, batchIndex = 1, batchSize = 3))
+        // Another batch's file, or the same file again.
+        assertFalse(LiveUpdates.startsDismissed(1 to 5, batchIndex = 2, batchSize = 4))
+        assertFalse(LiveUpdates.startsDismissed(2 to 5, batchIndex = 2, batchSize = 5))
+        // A file on its own, or a pass over a meeting (no position).
+        assertFalse(LiveUpdates.startsDismissed(1 to 5, batchIndex = 0, batchSize = 0))
+        // Dismissed on a run that was not one of a batch.
+        assertFalse(LiveUpdates.startsDismissed(0 to 0, batchIndex = 2, batchSize = 5))
+        assertFalse(LiveUpdates.startsDismissed(0 to 0, batchIndex = 0, batchSize = 0))
+        assertFalse(LiveUpdates.startsDismissed(1 to 1, batchIndex = 2, batchSize = 1))
     }
 
     @Test

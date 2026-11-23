@@ -94,10 +94,13 @@ class ModelDownloadService : Service() {
                 cancelled = true
                 dropQueue()
                 publishQueue()
-                if (!isRunning) stopSelf()
+                // With this start's id: a bare stopSelf() would also drop a
+                // start still on its way (a model picked as the last one
+                // ended), which then never reaches startForeground.
+                if (!isRunning) stopSelfResult(startId)
             }
             ACTION_LIVE_DISMISSED -> {
-                if (isRunning) liveUpdateDismissed = true else stopSelf()
+                if (isRunning) liveUpdateDismissed = true else stopSelfResult(startId)
             }
             ACTION_START -> {
                 val kind = intent.getStringExtra(EXTRA_KIND).orEmpty()

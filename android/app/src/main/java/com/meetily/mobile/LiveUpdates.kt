@@ -37,12 +37,18 @@ import com.meetily.mobile.data.ImportBatch
  *  - The status-bar chip shows setShortCriticalText first (whole when under
  *    7 characters, cut or dropped when it cannot fit 96 dp), else a running
  *    chronometer, else only the small icon.
+ *  - ProgressStyle draws at most 10 segments (MAX_PROGRESS_SEGMENT_LIMIT):
+ *    with more, the platform merges them all into one and logs a warning
+ *    for each one added past the tenth. Its max is the segments' total
+ *    length, or 100 when there are none.
  *  - Below API 36 NotificationCompat 1.17 keeps the request and the short
  *    text as extras nothing reads; the bar there stays the plain one.
  *  - Policy: only for activities that are ongoing, user-initiated and
  *    time-sensitive. Work waiting for a charger, automatic clean-up and
  *    other background work are not promoted, and a Live Update the user
- *    dismissed is not posted as one again (setDeleteIntent).
+ *    dismissed is not posted as one again (setDeleteIntent) for as long as
+ *    it lasts: the run, the download queue, or the import batch its bar
+ *    spans ([startsDismissed]).
  *
  * Pure decisions only, so they can be unit tested; the notifications are
  * built in the services, the bar in LiveUpdateBar.
@@ -52,8 +58,14 @@ object LiveUpdates {
     /** Android 16, the first release with promoted notifications. */
     const val MIN_SDK = 36
 
-    /** Bar units per file of a batch: one segment each. */
+    /** Bar units per file of a batch: one segment each, up to [MAX_SEGMENTS] files. */
     const val SEGMENT_LENGTH = 100
+
+    /**
+     * The most segments ProgressStyle draws; see the rules above. A bigger
+     * batch (up to JobQueue.MAX_IMPORTS files) gets one undivided segment.
+     */
+    const val MAX_SEGMENTS = 10
 
     /** The app's long-running work, and whether it can be a Live Update at all. */
     enum class Job(val promotable: Boolean) {
@@ -92,19 +104,33 @@ object LiveUpdates {
     ): Boolean = sdkInt >= MIN_SDK && job.promotable && userStarted && !dismissed
 
     /**
-     * Whether an ImportService run is work the user started now. A file the
+     * Whether an ImportService run is work the user started. A file the
      * user picked always is: started at once, or off the import queue once
      * the job ahead of it ends (a batch runs that way), and never held for a
-     * charger. A pass over a meeting's audio is only when the meeting screen
-     * started it there and then ([fromScreen]): one off the job queue is the
-     * automatic check after a recording, the transcript of an audio-only
-     * recording, or work that waited for a charger or for other work to end.
+     * charger. A pass over a meeting's audio is only when its start says so
+     * ([byHand], ImportService.EXTRA_USER_STARTED): the meeting screen
+     * started it at the user's tap, or JobGate started one the user asked
+     * for by hand off the job queue ([queuedPassUserStarted]). Any other is
+     * the automatic check after a recording or the transcript of an
+     * audio-only recording; anything that waited for a charger is
+     * background work, whoever asked for it.
      */
     fun transcriptionUserStarted(
         passOverMeeting: Boolean,
-        fromScreen: Boolean,
+        byHand: Boolean,
         chargingOnly: Boolean
-    ): Boolean = !chargingOnly && (!passOverMeeting || fromScreen)
+    ): Boolean = !chargingOnly && (!passOverMeeting || byHand)
+
+    /**
+     * Whether a pass over a meeting that JobGate starts off the job queue is
+     * one the user asked for by hand (JobQueue.Job.required): Yes to the
+     * interrupted-work prompt, which starts it at once, or Re-transcribe or
+     * Continue tapped while other work was running, as a file picked then
+     * is. Not one that waits for a charger: the requeue of a pass the
+     * charger stopped is required too, but is background work by then.
+     */
+    fun queuedPassUserStarted(required: Boolean, chargingOnly: Boolean): Boolean =
+        required && !chargingOnly
 
     /** The import's job kind, for [requestsPromotion]. */
     fun transcriptionJob(passOverMeeting: Boolean): Job =
@@ -112,7 +138,9 @@ object LiveUpdates {
 
     /**
      * A ProgressStyle bar: [value] of [max], one [segments] entry per file of
-     * a batch (empty for one file, which leaves the platform's default of 100).
+     * a batch of up to [MAX_SEGMENTS], one spanning the whole of a bigger
+     * batch (so [max] stays theirs), and none for one file, which leaves the
+     * platform's default of 100.
      */
     data class Progress(
         val value: Int,
@@ -129,9 +157,9 @@ object LiveUpdates {
      * The bar for a job at [percent] of its current file. One of a batch
      * (ImportBatch.showsPosition, the rule its "File 2 of 5" line follows)
      * spans the whole batch, file [batchIndex] of [batchSize], so the bar
-     * moves on from file to file instead of starting over. Indeterminate
-     * only before anything is done: 0 percent of the first or only file,
-     * the plain bar's rule.
+     * moves on from file to file instead of starting over; a segment per
+     * file up to [MAX_SEGMENTS] files. Indeterminate only before anything
+     * is done: 0 percent of the first or only file, the plain bar's rule.
      */
     fun progress(percent: Int, batchIndex: Int = 0, batchSize: Int = 0): Progress {
         val p = percent.coerceIn(0, 100)
@@ -143,9 +171,32 @@ object LiveUpdates {
             value = value,
             max = batchSize * SEGMENT_LENGTH,
             indeterminate = value == 0,
-            segments = List(batchSize) { SEGMENT_LENGTH }
+            // Never an empty list here: with no segments the platform's max
+            // falls back to 100 and the batch's value would overrun it.
+            segments = if (batchSize <= MAX_SEGMENTS) {
+                List(batchSize) { SEGMENT_LENGTH }
+            } else {
+                listOf(batchSize * SEGMENT_LENGTH)
+            }
         )
     }
+
+    /**
+     * Whether an import run starts with its Live Update already dismissed.
+     * The bar spans a whole batch ([progress]), so swiping it away dismisses
+     * the batch, not one file: a later file of the batch whose file
+     * [dismissedAt] (index to size, as ImportBatch.showsPosition reads them)
+     * was running then stays an ordinary notification. The queue runs a
+     * batch's files in order, so a later index of the same size is that
+     * batch; a file on its own, the first file of a new batch or a pass over
+     * a meeting asks afresh.
+     */
+    fun startsDismissed(dismissedAt: Pair<Int, Int>?, batchIndex: Int, batchSize: Int): Boolean =
+        dismissedAt != null &&
+            ImportBatch.showsPosition(dismissedAt.first, dismissedAt.second) &&
+            ImportBatch.showsPosition(batchIndex, batchSize) &&
+            batchSize == dismissedAt.second &&
+            batchIndex > dismissedAt.first
 
     /** What the recording's chip says in place of its running time. */
     enum class RecordingChip {
