@@ -407,7 +407,8 @@ The console will ask about these (all have in-app justifications):
   permissions: each grant covers only the files the user shares or
   picks, and Recap still holds no storage permission. The library export
   takes a persistable grant on the folder the user picked for the length
-  of the run and gives it back when the run ends.
+  of the run and gives it back when the run ends, or, if Android stops
+  Recap mid-run, the next time Recap starts.
 - **3.18.0-beta1** adds no permission and no foreground service. The daily
   automatic clean-up (RetentionJobService, only while a rule is on) is a
   JobScheduler job with no network requirement, persisted across reboots
@@ -463,7 +464,7 @@ The console will ask about these (all have in-app justifications):
   same. The recording screen shows live words only with Transcribe live on.
   Worth adding from 3.18.0-beta1: a home search showing match snippets,
   and the Storage screen. From 3.19.0-beta1: the player with the Clear
-  voice chip, a meeting's "Transcription stopped at …" card with
+  voice chip, a meeting's "This transcript is unfinished" card with
   Continue transcription, and the Export dialog listing Word and
   subtitles.
 - **Category**: Productivity. **Tags**: note-taking, transcription.
@@ -1757,18 +1758,34 @@ Continuing interrupted transcriptions (3.19.0-beta1):
 - [ ] Force-stop the app mid-import, once for a file import and once for
   an audio-only recording's transcription, then reopen: "Resume
   interrupted work?" offers to carry on from a time. Resume continues;
-  Discard leaves the meeting with its partial words and the "Transcription
-  stopped at …" card.
+  Discard leaves the meeting with its partial words and the "This
+  transcript is unfinished" card.
 - [ ] Cancel mid-run: the meeting shows the card, the ⋮ menu item and the
   home card's option ("From …"). Continue transcription picks up, and the
   progress reads "Continuing from … · …" (with speaker detection on,
   "matching voices so far" first).
+- [ ] Import a long recording over steady background noise (a fan, an
+  air conditioner) and Cancel well into it: the card's point lags behind
+  the last line. Edit a line past the point, then Continue: a question
+  says how many lines from the point on are transcribed again. Accept,
+  then Cancel again soon after: the lines past where the new pass got,
+  the edited one among them, are still there, and none appears twice.
+- [ ] Run an accuracy check on an unfinished meeting and let it finish
+  without reviewing it: Continue says to review the check first. Review
+  it while a continuation of the same meeting runs (start the
+  continuation first): Apply says the meeting is still being
+  transcribed, and the check is still offered once the run ends.
+- [ ] Queue an accuracy check on an unfinished meeting while a recording
+  runs, stop the recording and go back to that meeting without opening
+  the home screen: Continue says a check is waiting and starts it; the
+  check is not lost.
 - [ ] Change the transcription model in Settings, then Continue: it
   continues with the original model. Delete that model and Continue
   again: "Start this transcript over?" appears, and accepting replaces the
   lines.
 - [ ] Remove the audio of a half-done meeting from its menu: the warning
-  names the time and says the transcription can never be completed;
+  names the time and says the transcription can never be completed (for
+  one that stopped before any pause it names no time);
   afterwards Continue disappears and the words stay. Multi-select Remove
   audio and the automatic "Remove old audio" leave it out, and their notes
   now read "(no audio, no transcript yet or an unfinished one, or …)"
@@ -1787,7 +1804,8 @@ Continuing interrupted transcriptions (3.19.0-beta1):
   in the meeting, stop the transcription before it reaches that moment,
   and open the meeting: no line is starred for it yet. Continue: the star
   lands on the right line. Save something on the meeting screen in
-  between (rename, a note): the mark is not lost.
+  between (rename, a note): the mark is not lost. Un-star a line starred
+  by an earlier mark before continuing: it stays un-starred.
 
 Exports (3.19.0-beta1):
 
@@ -1815,6 +1833,10 @@ Exports (3.19.0-beta1):
   and no later file failed for lost folder access.
 - [ ] Start a library export while a recording runs: that meeting is left
   out and counted.
+- [ ] Start a library export of a large library, then force-stop Recap
+  mid-run (Settings → Apps → Recap → Force stop) and open it again:
+  `adb shell dumpsys activity permissions` lists no persisted grant on
+  that folder for the app any more.
 - [ ] On Android 11+, the folder picker refuses the root of internal
   storage and Download; a subfolder works.
 - [ ] With TalkBack on, the export progress and the final count are read

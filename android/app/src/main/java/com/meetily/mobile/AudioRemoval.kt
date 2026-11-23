@@ -97,7 +97,8 @@ object AudioRemoval {
      * one meeting with no transcript yet, whose recording is all it holds:
      * the question then says so instead of promising a transcript is kept.
      * [unfinishedAtMs] is where one meeting's unfinished transcript stops:
-     * the question adds that it can then never be completed. (Multi-select
+     * the question adds that it can then never be completed, naming that
+     * point unless it is 0 (stopped before any pause). (Multi-select
      * and the automatic clean-up leave both kinds of meeting out.)
      * [clearVoiceCopies] of the meetings have a clear-voice copy, which goes
      * with the recording and is counted in [bytes]; the question says so.
@@ -127,10 +128,16 @@ object AudioRemoval {
             size
         )
         if (unfinishedAtMs != null && count == 1 && !untranscribed) {
-            message += "\n\n" + activity.getString(
-                R.string.resume_remove_audio_warning,
-                com.meetily.mobile.data.TranscriptResume.clock(unfinishedAtMs)
-            )
+            message += "\n\n" + if (com.meetily.mobile.data.TranscriptResume.canContinue(unfinishedAtMs)) {
+                activity.getString(
+                    R.string.resume_remove_audio_warning,
+                    com.meetily.mobile.data.TranscriptResume.clock(unfinishedAtMs)
+                )
+            } else {
+                // Stopped before any pause it could carry on from (resume
+                // point 0): its lines run past 0:00, so name no time.
+                activity.getString(R.string.resume_remove_audio_warning_restart)
+            }
         }
         if (clearVoiceCopies > 0) {
             message += "\n\n" + activity.resources.getQuantityString(

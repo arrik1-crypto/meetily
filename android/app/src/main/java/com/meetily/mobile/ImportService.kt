@@ -520,7 +520,12 @@ class ImportService : Service() {
         // reached a pause to carry on from would only start over: its draft
         // goes, as before.
         val keepsDraft = stoppedByUnplug && (stoppedAtMs ?: 0L) > 0L && !wasFirstTranscript
-        if (recheckId != null && (cancelled || error != null || warning != null) && !keepsDraft) {
+        // A first transcript (or a continuation of one) writes the meeting,
+        // never a draft: a draft there is a finished accuracy check the user
+        // has not reviewed yet, and is not this run's to throw away.
+        if (recheckId != null && !wasFirstTranscript &&
+            (cancelled || error != null || warning != null) && !keepsDraft
+        ) {
             // Nothing was written to the meeting, and a partial draft would
             // produce a comparison where the whole uncovered tail reads as
             // "the new model went silent here" — which, accepted, would cut

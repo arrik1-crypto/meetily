@@ -12,6 +12,7 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.data.TranscriptDraft
 import com.meetily.mobile.data.TranscriptResume
 import com.meetily.mobile.whisper.TranscriptionModels
 
@@ -28,7 +29,11 @@ import com.meetily.mobile.whisper.TranscriptionModels
  * model is gone it can only start over with the current one, which is
  * asked first because its lines replace the ones there. So is a transcript
  * that stopped before it reached any pause to carry on from (its resume
- * point is 0:00): it, too, can only start over.
+ * point is 0:00): it, too, can only start over. A continuation is asked
+ * first too when the transcript already has lines from its resume point
+ * on: the point is the last pause everything before was finished up to,
+ * and lines can run well past it, which the pass makes again and replaces
+ * as it reaches them (one that stops again keeps those it never reached).
  *
  * While it waits for the user, the meeting is not busy: it can be opened,
  * edited, summarised or deleted. Its audio is kept from the automatic
@@ -49,7 +54,9 @@ object ContinueTranscription {
      * A run is writing [meetingId], or its transcription is queued (a
      * continuation, an unplugged pass waiting for a charger): another now
      * would only run behind or beside it. A queued accuracy check is not
-     * one: it stages a draft and leaves the transcript as it is.
+     * one: it stages a draft and leaves the transcript as it is. A finished
+     * check waiting for review does not hide Continue either, but [start]
+     * refuses until it has been reviewed (see [checkPending]).
      */
     fun busy(context: Context, meetingId: String): Boolean =
         AudioRemoval.isWriting(context, meetingId) ||
@@ -67,6 +74,16 @@ object ContinueTranscription {
             it.kind == JobQueue.KIND_CHECK && it.meetingId == meetingId &&
                 !it.interrupted && !it.firstTranscript
         }
+
+    /**
+     * A finished accuracy check of [meetingId] waiting for review. It was
+     * compared against the transcript as it is now, and an apply that lands
+     * while a continuation runs is undone by the continuation's next save,
+     * so the check is reviewed (or discarded) first. The same rule Check
+     * accuracy and Re-transcribe as follow.
+     */
+    private fun checkPending(context: Context, meetingId: String): Boolean =
+        TranscriptDraft.isPending(context, meetingId)
 
     /**
      * "From 42:10" for a transcript whose words stop at [at], or "From the
@@ -113,6 +130,10 @@ object ContinueTranscription {
             Toast.makeText(activity, R.string.resume_busy, Toast.LENGTH_LONG).show()
             return
         }
+        if (checkPending(activity, m.id)) {
+            Toast.makeText(activity, R.string.resume_check_pending, Toast.LENGTH_LONG).show()
+            return
+        }
         val stored = m.transcriptModel
         val current = AppSettings(activity).whisperModel
         val plan = TranscriptResume.plan(
@@ -134,8 +155,30 @@ object ContinueTranscription {
             return
         }
         when {
-            plan.action == TranscriptResume.Action.CONTINUE && TranscriptResume.canContinue(at) ->
-                launch(activity, m, key, at, onStarted)
+            plan.action == TranscriptResume.Action.CONTINUE && TranscriptResume.canContinue(at) -> {
+                // The resume point can lag far behind the last line (a
+                // background that never stays quiet is cut only at the length
+                // limit), and the pass replaces every line from it on, edits
+                // included: say how many before it starts.
+                val redone = TranscriptResume.redoneCount(m.segments, at, m.createdAtMs)
+                if (redone == 0) {
+                    launch(activity, m, key, at, onStarted)
+                } else {
+                    AlertDialog.Builder(activity)
+                        .setTitle(R.string.resume_continue)
+                        .setMessage(
+                            activity.resources.getQuantityString(
+                                R.plurals.resume_redo_message, redone, redone, TranscriptResume.clock(at)
+                            )
+                        )
+                        .setPositiveButton(R.string.resume_continue) { _, _ ->
+                            // Asked again: a run may have started meanwhile.
+                            if (!refused(activity, m.id)) launch(activity, m, key, at, onStarted)
+                        }
+                        .setNegativeButton(android.R.string.cancel, null)
+                        .showSecure()
+                }
+            }
             // Nothing there for a start-over to replace.
             m.segments.isEmpty() -> launch(activity, m, key, 0L, onStarted)
             // Stopped before any pause to carry on from: the pass can only
@@ -173,14 +216,25 @@ object ContinueTranscription {
             .setMessage(message)
             .setPositiveButton(R.string.resume_start_over) { _, _ ->
                 // Asked again: a run may have started meanwhile.
-                if (busy(activity, m.id)) {
-                    Toast.makeText(activity, R.string.resume_busy, Toast.LENGTH_LONG).show()
-                } else {
-                    launch(activity, m, modelKey, 0L, onStarted)
-                }
+                if (!refused(activity, m.id)) launch(activity, m, modelKey, 0L, onStarted)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .showSecure()
+    }
+
+    /**
+     * Re-checked once a question has been answered, since a run may have
+     * started, or a check finished, while it was up: true, with a toast
+     * saying why, when [meetingId] may not be continued now.
+     */
+    private fun refused(activity: Activity, meetingId: String): Boolean {
+        val reason = when {
+            busy(activity, meetingId) -> R.string.resume_busy
+            checkPending(activity, meetingId) -> R.string.resume_check_pending
+            else -> return false
+        }
+        Toast.makeText(activity, reason, Toast.LENGTH_LONG).show()
+        return true
     }
 
     /**
@@ -202,13 +256,20 @@ object ContinueTranscription {
             return
         }
         val clock = TranscriptResume.clock(fromMs)
+        // The queue holds one check per meeting, and a run started now would
+        // supersede it too (JobQueue.add drops deferred work for the same
+        // meeting when ImportService.markRunning adds its marker): either way
+        // the accuracy check the user asked for would vanish.
+        if (checkQueued(activity, m.id)) {
+            // Nothing may be running yet with the check still not started (no
+            // drain since a recording ended, or after a timed-out job): start
+            // it now rather than at the next home-screen resume. A no-op when
+            // something is running, or when the check waits for a charger.
+            JobGate.drain(activity)
+            Toast.makeText(activity, R.string.resume_check_queued, Toast.LENGTH_LONG).show()
+            return
+        }
         fun queue() {
-            // The queue holds one check per meeting: queued now, this would
-            // silently replace an accuracy check the user asked for.
-            if (checkQueued(activity, m.id)) {
-                Toast.makeText(activity, R.string.resume_check_queued, Toast.LENGTH_LONG).show()
-                return
-            }
             JobGate.requestCheck(
                 activity, m.id, modelKey, whenCharging = false, required = true,
                 firstTranscript = true, resumeFromMs = fromMs

@@ -230,7 +230,8 @@ class MeetingStore(context: Context) {
      * lines before it are not the pass's to write back. They are shown and
      * editable for the whole run, so what is stored before the seam is
      * kept, with only the pass's speaker relabelling applied, and the
-     * pass's own lines follow it (TranscriptResume.continued).
+     * pass's own lines follow it (TranscriptResume.continued). Stored lines
+     * past where an unfinished pass has got stay after them.
      */
     fun saveTranscription(meeting: Meeting, seam: TranscriptResume.Seam? = null): Boolean {
         return AtomicJson.exclusive {
@@ -260,7 +261,8 @@ class MeetingStore(context: Context) {
             }
             val segments = if (seam != null) {
                 TranscriptResume.continued(
-                    onDisk.segments, meeting.segments, seam.resumeMs, seam.baseMs, seam.relabel
+                    onDisk.segments, meeting.segments, seam.resumeMs, seam.baseMs, seam.relabel,
+                    seam.reachedMs
                 )
             } else {
                 meeting.segments
@@ -279,10 +281,16 @@ class MeetingStore(context: Context) {
             onDisk.transcriptResumeMs = meeting.transcriptResumeMs
             // Highlights tapped while an audio-only recording had no lines to
             // star land on the lines this pass just produced; a mark past
-            // where the words stop waits for the pass that reaches it.
+            // where the words stop waits for the pass that reaches it. An
+            // earlier pass already placed every mark before the seam (its own
+            // resume point), and the kept lines are the user's to edit, so a
+            // continuing pass places only the marks it is the first to reach.
+            // Otherwise a star the user removed comes back at every batch.
             HighlightMarks.apply(
                 onDisk.segments,
-                TranscriptResume.marksReached(onDisk.highlightMarksMs, onDisk.transcriptResumeMs)
+                TranscriptResume.marksToPlace(
+                    onDisk.highlightMarksMs, onDisk.transcriptResumeMs, seam?.resumeMs
+                )
             )
             val saved = save(onDisk)
             lastTranscribed = if (saved) {

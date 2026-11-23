@@ -132,8 +132,9 @@ object LibraryExportRunner {
      * so the export stays one-shot. Called while the picker's grant is
      * still held (from its result). A grant the app already held for the
      * folder is left alone and not given back; one left by a run the
-     * process did not live to finish is given back first. True when the
-     * grant was taken here.
+     * process did not live to finish is given back first (normally already
+     * at app start, by [releaseLeftover]). True when the grant was taken
+     * here.
      */
     @MainThread
     private fun holdFolder(app: Context, tree: Uri): Boolean {
@@ -148,14 +149,35 @@ object LibraryExportRunner {
         }
         if (heldAlready) return false
         return try {
+            // Recorded first, and on disk before the grant is taken: a
+            // process that dies right after taking it still leaves the folder
+            // named for [releaseLeftover]. Giving back a grant never taken
+            // is harmless.
+            prefs.edit().putString(KEY_HELD_FOLDER, tree.toString()).commit()
             resolver.takePersistableUriPermission(tree, FOLDER_ACCESS)
-            prefs.edit().putString(KEY_HELD_FOLDER, tree.toString()).apply()
             true
         } catch (_: Exception) {
             // Not persistable: the run goes on with the picker's grant,
             // which lasts while Settings stays open.
+            prefs.edit().remove(KEY_HELD_FOLDER).apply()
             false
         }
+    }
+
+    /**
+     * Gives back a folder grant left by a run the process did not live to
+     * finish (Android stopped it in the background, or it was swiped away or
+     * force-stopped mid-run), so the access lasts no longer than the run
+     * even then. Called when the app starts (RecapApp), on the main thread,
+     * where no run can be going yet; a run that is going keeps its grant.
+     */
+    @MainThread
+    fun releaseLeftover(context: Context) {
+        if (state.running) return
+        val app = context.applicationContext
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString(KEY_HELD_FOLDER, null)
+            ?.let { releaseFolder(app, Uri.parse(it)) }
     }
 
     /** Gives back the grant [holdFolder] took for [tree]. */

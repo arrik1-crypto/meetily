@@ -273,10 +273,101 @@ class TranscriptResumeTest {
     }
 
     @Test
+    fun aContinuationThatStopsAgainKeepsTheStoredLinesItNeverReached() {
+        val resumeMs = 60_000L
+        // The stopped pass's lines run far past its resume point, one of
+        // them edited since.
+        val stored = listOf(
+            seg(0L, "a"),
+            seg(65_000L, "old 65"),
+            seg(95_000L, "old 95"),
+            seg(130_000L, "old 130, fixed by hand", cluster = 7, speaker = "Bo"),
+            seg(170_000L, "old 170", cluster = 1)
+        )
+        // This pass has got to 120 s: its own lines all start before that.
+        val ours = listOf(seg(0L, "a"), seg(60_000L, "new 60"), seg(100_000L, "new 100"))
+        val saved = TranscriptResume.continued(
+            stored, ours, resumeMs, base, reachedMs = 120_000L
+        )
+        assertEquals(
+            listOf("a", "new 60", "new 100", "old 130, fixed by hand", "old 170"),
+            saved.map { it.text }
+        )
+        // Kept as they are: the stopped pass's clusters and names.
+        assertEquals("Bo", saved[3].speaker)
+        assertEquals(7, saved[3].clusterId)
+        // Nothing it has not reached is lost, and nothing appears twice.
+        assertEquals(saved.size, saved.map { it.text }.toSet().size)
+    }
+
+    @Test
+    fun aCompleteContinuationReplacesEveryStoredLineFromTheSeamOn() {
+        val resumeMs = 60_000L
+        val stored = listOf(seg(0L, "a"), seg(65_000L, "old 65"), seg(170_000L, "old 170"))
+        val ours = listOf(seg(60_000L, "new 60"), seg(100_000L, "new 100"))
+        val complete = TranscriptResume.continued(stored, ours, resumeMs, base)
+        assertEquals(listOf("a", "new 60", "new 100"), complete.map { it.text })
+        // Saved before it has got anywhere: the stored transcript as it was.
+        val notYet = TranscriptResume.continued(
+            stored, emptyList(), resumeMs, base, reachedMs = resumeMs
+        )
+        assertEquals(stored, notYet)
+    }
+
+    @Test
+    fun aNameCarriedOverTheSeamIsNotGivenToStoredLinesThePassHasNotReached() {
+        val resumeMs = 60_000L
+        val stored = listOf(
+            seg(0L, "a", cluster = 1, speaker = "Ana"),
+            // The stopped pass's voice 1 need not be this pass's.
+            seg(150_000L, "old", cluster = 1)
+        )
+        val ours = listOf(seg(70_000L, "x", cluster = 1))
+        val saved = TranscriptResume.continued(stored, ours, resumeMs, base, reachedMs = 100_000L)
+        assertEquals(listOf("Ana", "Ana", null), saved.map { it.speaker })
+    }
+
+    @Test
+    fun continuingSaysHowManyLinesFromItsPointOnAreMadeAgain() {
+        val lines = listOf(seg(0L, "a"), seg(59_999L, "b"), seg(60_000L, "c"), seg(3_000_000L, "d"))
+        assertEquals(2, TranscriptResume.redoneCount(lines, 60_000L, base))
+        assertEquals(0, TranscriptResume.redoneCount(lines.take(2), 60_000L, base))
+        // The clock the importer uses: a line with both stamps, so a line
+        // with no audio offset is placed by its timestamp on that clock.
+        val created = base + 5_000L
+        val untimed = TranscriptSegment(timestampMs = base + 61_000L, text = "e")
+        assertEquals(base, TranscriptResume.baseFor(lines + untimed, created))
+        assertEquals(3, TranscriptResume.redoneCount(lines + untimed, 60_000L, created))
+        // None with an offset: the meeting's start is the clock.
+        assertEquals(created, TranscriptResume.baseFor(listOf(untimed), created))
+        assertEquals(0, TranscriptResume.redoneCount(listOf(untimed), 60_000L, created))
+    }
+
+    @Test
     fun aMarkPastWhereTheWordsStopWaitsForThePassThatReachesIt() {
         val marks = listOf(5_000L, 59_999L, 60_000L, 90_000L)
         assertEquals(listOf(5_000L, 59_999L), TranscriptResume.marksReached(marks, 60_000L))
         assertEquals(marks, TranscriptResume.marksReached(marks, null))
+    }
+
+    @Test
+    fun aContinuationPlacesOnlyTheMarksNoEarlierPassCouldPlace() {
+        val marks = listOf(5_000L, 59_999L, 60_000L, 90_000L, 200_000L)
+        // Continuing at 60 s, now stopped at 120 s: the marks before the seam
+        // were placed by the pass that stopped there, and its lines may have
+        // been un-starred since.
+        assertEquals(
+            listOf(60_000L, 90_000L),
+            TranscriptResume.marksToPlace(marks, 120_000L, 60_000L)
+        )
+        // Complete: every mark from the seam on.
+        assertEquals(
+            listOf(60_000L, 90_000L, 200_000L),
+            TranscriptResume.marksToPlace(marks, null, 60_000L)
+        )
+        // Not a continuation: as before.
+        assertEquals(marks.take(4), TranscriptResume.marksToPlace(marks, 120_000L, null))
+        assertEquals(marks, TranscriptResume.marksToPlace(marks, null, null))
     }
 
     // --- Whether a pass carries on ----------------------------------------------

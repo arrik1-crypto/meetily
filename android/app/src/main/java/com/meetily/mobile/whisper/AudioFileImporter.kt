@@ -343,9 +343,11 @@ class AudioFileImporter(
         var persisted = false
         var lastPersistAt = 0L
         // Where the words stop while this pass is unfinished, for the next
-        // one to continue from. Replaced below once the chunker it reads
-        // from exists.
+        // one to continue from, and how far this pass has got (its own lines
+        // all start before that): a continuation keeps stored lines from
+        // there on. Replaced below once the chunker they read from exists.
         var resumePointMs: () -> Long = { startMs }
+        var reachedUpToMs: () -> Long = { startMs }
         // What the last save recorded as that point; null once complete.
         var savedResumeMs: Long? = continueFromMs
         // How this pass relabels the speakers of the lines before its seam,
@@ -379,7 +381,17 @@ class AudioFileImporter(
                 // stays, edits included, and only this pass's lines replace.
                 store.saveTranscription(
                     meeting,
-                    if (seamSample > 0L) TranscriptResume.Seam(startMs, baseMs, relabel) else null
+                    if (seamSample > 0L) {
+                        // Stored lines past where an unfinished pass has got
+                        // stay, so one that stops again never leaves the
+                        // transcript shorter than it found it.
+                        TranscriptResume.Seam(
+                            startMs, baseMs, relabel,
+                            reachedMs = if (complete) null else reachedUpToMs()
+                        )
+                    } else {
+                        null
+                    }
                 )
             }
         }
@@ -511,15 +523,24 @@ class AudioFileImporter(
         fun abandon(from: Long) {
             abandonedFrom = minOf(abandonedFrom ?: from, from)
         }
-        resumePointMs = {
-            val frontier = TranscriptResume.frontier(
-                listOf(
-                    batch.firstOrNull()?.startSample, heldSkip?.startSample,
-                    inFlightFrom, flushingFrom, abandonedFrom
-                ),
-                if (chunkLen > 0) chunkStartSample else consumedSamples
-            )
-            TranscriptResume.msAt(cuts.pointFor(frontier), sampleRate)
+        // The end of the furthest chunk the engine has been through. A line
+        // is saved as soon as its chunk is, while the frontier can still sit
+        // at that chunk's start (it is in flight until transcribeChunk
+        // returns), so how far this pass has got is the later of the two.
+        var transcribedThrough = seamSample
+        fun transcribed(startSample: Long, size: Int) {
+            transcribedThrough = maxOf(transcribedThrough, startSample + size)
+        }
+        fun frontierSample(): Long = TranscriptResume.frontier(
+            listOf(
+                batch.firstOrNull()?.startSample, heldSkip?.startSample,
+                inFlightFrom, flushingFrom, abandonedFrom
+            ),
+            if (chunkLen > 0) chunkStartSample else consumedSamples
+        )
+        resumePointMs = { TranscriptResume.msAt(cuts.pointFor(frontierSample()), sampleRate) }
+        reachedUpToMs = {
+            TranscriptResume.msAt(maxOf(frontierSample(), transcribedThrough), sampleRate)
         }
         // Lines this pass added (a continuation keeps others from before).
         var added = 0
@@ -676,9 +697,13 @@ class AudioFileImporter(
                         partWords,
                         parts[i].clusterId
                     )
+                    // Also when a stop cut the call short: this part's line
+                    // is in.
+                    transcribed(parts[i].startSample, parts[i].audio.size)
                 }
             } else if (words.isNotEmpty()) {
                 addSegment(text, parts.first().startSample, words, parts.first().clusterId)
+                transcribed(parts.first().startSample, parts.first().audio.size)
             } else if (!cancelled()) {
                 // An aborted call also lands here with nothing, and must not
                 // be retried: that would spend the window the stop just saved.
@@ -697,6 +722,8 @@ class AudioFileImporter(
                     addSegment(plain, parts.first().startSample, emptyList(), parts.first().clusterId)
                 }
             }
+            // Not cut short by a stop: the whole batch has been through.
+            if (!cancelled()) transcribed(parts.last().startSample, parts.last().audio.size)
             flushingFrom = null
             persistProgress()
             reportProgress()
@@ -725,6 +752,7 @@ class AudioFileImporter(
             }
             val (text, words) = engine.transcribe(padded) ?: ("" to emptyList())
             addSegment(text, startSample, words, clusterId)
+            transcribed(startSample, audio.size)
             persistProgress()
             reportProgress()
         }

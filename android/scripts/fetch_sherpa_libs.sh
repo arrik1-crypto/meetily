@@ -26,13 +26,21 @@ if [ -f "$DEST/arm64-v8a/libsherpa-onnx-jni.so" ] && [ -f "$DEST/x86_64/libsherp
   # Older copies of this script installed the unused C/C++ API libraries
   # too; clear them so they are not packaged.
   rm -f "$DEST"/*/libsherpa-onnx-c-api.so "$DEST"/*/libsherpa-onnx-cxx-api.so
-  if [ "$have_stamp" = "$WANT" ]; then
+  # Present only when the onnxruntime each JNI library NEEDs is there too:
+  # otherwise check_sherpa_jni.py sends the developer back here, and this
+  # must then fetch the pair again rather than report it present.
+  if [ "$have_stamp" = "$WANT" ] &&
+    [ -f "$DEST/arm64-v8a/libonnxruntime.so" ] && [ -f "$DEST/x86_64/libonnxruntime.so" ]; then
     echo "sherpa-onnx $VER jniLibs already present"
     exit 0
   fi
-  # Libraries from another version (or from before the stamp existed) would
-  # pair the wrong native code with the vendored Kotlin classes.
-  echo "Replacing sherpa-onnx jniLibs (installed: ${have_stamp:-unknown}, wanted: $WANT)"
+  if [ "$have_stamp" = "$WANT" ]; then
+    echo "sherpa-onnx $VER jniLibs incomplete (libonnxruntime.so missing); fetching them again"
+  else
+    # Libraries from another version (or from before the stamp existed)
+    # would pair the wrong native code with the vendored Kotlin classes.
+    echo "Replacing sherpa-onnx jniLibs (installed: ${have_stamp:-unknown}, wanted: $WANT)"
+  fi
   rm -f "$DEST"/*/libsherpa-onnx-jni.so "$DEST"/*/libonnxruntime.so "$STAMP"
 fi
 

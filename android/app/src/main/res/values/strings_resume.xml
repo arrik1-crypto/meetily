@@ -8,8 +8,10 @@
          time ("42:10", "1:05:00") is a position in the recording. -->
 
     <!-- Meeting screen card, shown while a transcript is unfinished and its
-         audio is still here. %1$s is where the words stop. -->
-    <string name="resume_card_text">Transcription stopped at %1$s. The rest of the recording hasn\'t been transcribed yet.</string>
+         audio is still here. %1$s is where it can carry on from: the last
+         pause everything before was finished up to, so lines can run past
+         it. -->
+    <string name="resume_card_text">This transcript is unfinished. Transcription can carry on from %1$s.</string>
     <!-- The card when the transcription stopped before it reached any pause
          it could carry on from (its button then reads "Start over"). -->
     <string name="resume_card_text_restart">Transcription stopped part-way, before it reached a pause it could carry on from, so it can only start again from the beginning.</string>
@@ -26,9 +28,22 @@
     <string name="resume_restarted">Transcribing again from the beginning with %1$s.</string>
     <string name="resume_restart_queued">Queued — the transcript will start over when the current job finishes.</string>
     <string name="resume_busy">This transcript is already being continued, or is waiting in the queue.</string>
-    <!-- Something else is running, so the continuation would have to wait in
-         the queue, which holds one transcription or check per meeting. -->
-    <string name="resume_check_queued">An accuracy check for this meeting is already waiting in the queue, and only one can wait at a time. Try again when nothing else is running.</string>
+    <!-- An accuracy check of this meeting waits in the queue, which holds
+         one transcription or check per meeting: a continuation started or
+         queued now would replace it. The check is started at the same time
+         when nothing else is running. -->
+    <string name="resume_check_queued">An accuracy check for this meeting is waiting in the queue, and only one can wait at a time. Continue the transcription once it has run.</string>
+    <!-- A finished accuracy check of this meeting is waiting for review; a
+         continuation would change the transcript it was compared against. -->
+    <string name="resume_check_pending">Review this meeting\'s accuracy check first: it was made from the transcript as it is now.</string>
+
+    <!-- Asked before a continuation replaces lines the transcript already
+         has from where it carries on. %1$d is how many, %2$s where it
+         carries on from. -->
+    <plurals name="resume_redo_message">
+        <item quantity="one">%1$d line from %2$s on is transcribed again and replaced as the transcription reaches it, including any edits made to it.</item>
+        <item quantity="other">%1$d lines from %2$s on are transcribed again and replaced as the transcription reaches them, including any edits made to them.</item>
+    </plurals>
 
     <!-- The model that made the words is gone, another one is ready. %1$s is
          the model that made them, %2$s where they stop, %3$s the model that
@@ -64,4 +79,7 @@
     <!-- Added to "Remove audio" for a meeting whose transcript is
          unfinished. %1$s is where its words stop. -->
     <string name="resume_remove_audio_warning">Its transcription stopped at %1$s and is unfinished. Without the audio it can never be completed: the rest of the recording will never be transcribed.</string>
+    <!-- The same, for a transcript that stopped before it reached any pause
+         it could carry on from. -->
+    <string name="resume_remove_audio_warning_restart">Its transcription stopped part-way and is unfinished. Without the audio it can never be completed: the rest of the recording will never be transcribed.</string>
 </resources>

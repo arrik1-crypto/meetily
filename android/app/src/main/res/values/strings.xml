@@ -832,6 +832,9 @@
     <string name="check_queued">Queued \u2014 the check will start when the current job finishes.</string>
     <string name="summary_queued">Queued \u2014 the summary will start when the current job finishes.</string>
     <string name="check_already_running">This meeting is already being checked. Review that result first.</string>
+    <!-- Applying a finished accuracy check while the meeting's transcript is
+         still being written (a continuation, a recording, a summary). -->
+    <string name="check_wait_transcribing">This meeting is still being transcribed or summarized. Apply the check once that finishes; it is kept until then.</string>
     <string name="busy_heavy_job">Recap is busy with a recording, import or summary. Try again when it finishes.</string>
 
     <!-- Model time estimates: measured on this device, not guessed. -->

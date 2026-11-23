@@ -410,7 +410,9 @@ class ClearVoiceService : Service() {
         const val EXTRA_MEETING_ID = "meeting_id"
 
         private const val CHANNEL_ID = "clear_voice"
-        private const val NOTIF_ID = 47
+        // 47 is ModelDownloadService's "downloaded" notice: sharing it would
+        // let either service replace or remove the other's notification.
+        private const val NOTIF_ID = 49
         private const val NOTIF_DONE_ID = 48
 
         /**

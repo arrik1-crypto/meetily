@@ -105,6 +105,23 @@ object TranscriptResume {
     fun wordAt(segment: TranscriptSegment, word: WordStamp): Long? =
         segment.audioMs?.let { it + word.ms }
 
+    /**
+     * The clock a continuation of [segments] places lines on, as the importer
+     * derives it: from a line that carries both stamps, else the meeting's
+     * [createdAtMs].
+     */
+    fun baseFor(segments: List<TranscriptSegment>, createdAtMs: Long): Long =
+        segments.firstOrNull { it.audioMs != null }?.let { it.timestampMs - it.audioMs!! } ?: createdAtMs
+
+    /**
+     * How many of [segments] a pass that continues at [resumeMs] makes again
+     * and replaces: the lines at or after it, placed as [prefix] places them.
+     */
+    fun redoneCount(segments: List<TranscriptSegment>, resumeMs: Long, createdAtMs: Long): Int {
+        val base = baseFor(segments, createdAtMs)
+        return segments.count { offsetOf(it, base) >= resumeMs }
+    }
+
     /** The transcript a pass that continues at [resumeMs] keeps: the lines before it. */
     fun prefix(existing: List<TranscriptSegment>, resumeMs: Long, baseMs: Long): List<TranscriptSegment> =
         existing.filter { offsetOf(it, baseMs) < resumeMs }
@@ -191,20 +208,40 @@ object TranscriptResume {
      * The pass read the kept lines once, when it started, and a run can
      * take hours; writing that copy back with every save undid every edit
      * made to them meanwhile.
+     *
+     * [reachedMs], while the pass is unfinished, is how far it has got: its
+     * own lines all start before it. Stored lines from there on are kept as
+     * they are, after the pass's, so a pass that stops again never leaves
+     * the transcript shorter than it found it. Null once the pass is
+     * complete: then every stored line from the seam on is replaced.
      */
     fun continued(
         stored: List<TranscriptSegment>,
         ours: List<TranscriptSegment>,
         resumeMs: Long,
         baseMs: Long,
-        relabel: Relabel = Relabel()
+        relabel: Relabel = Relabel(),
+        reachedMs: Long? = null
     ): List<TranscriptSegment> {
         val kept = prefix(stored, resumeMs, baseMs).map { relabel.apply(it) }
-        return carryNames(kept + ours.filter { after(it, resumeMs, baseMs) }, resumeMs, baseMs)
+        val made = carryNames(kept + ours.filter { after(it, resumeMs, baseMs) }, resumeMs, baseMs)
+        if (reachedMs == null) return made
+        // Untouched: their clusters are the stopped pass's, so neither this
+        // pass's relabelling nor its carried names apply to them.
+        val from = maxOf(reachedMs, resumeMs)
+        return made + stored.filter { offsetOf(it, baseMs) >= from }
     }
 
-    /** A continuing pass's save: where its seam is, and what it changes before it. See [continued]. */
-    data class Seam(val resumeMs: Long, val baseMs: Long, val relabel: Relabel = Relabel())
+    /**
+     * A continuing pass's save: where its seam is, what it changes before
+     * it, and while it is unfinished how far it has got. See [continued].
+     */
+    data class Seam(
+        val resumeMs: Long,
+        val baseMs: Long,
+        val relabel: Relabel = Relabel(),
+        val reachedMs: Long? = null
+    )
 
     /**
      * The highlight marks a transcript that stops at [resumeMs] can place.
@@ -214,6 +251,18 @@ object TranscriptResume {
      */
     fun marksReached(marks: List<Long>, resumeMs: Long?): List<Long> =
         if (resumeMs == null) marks else marks.filter { it < resumeMs }
+
+    /**
+     * The marks a save places: those [marksReached] for [resumeMs], less,
+     * for a pass that continues at [seamMs], the ones before its seam. An
+     * earlier pass placed those (its own resume point was this seam), and
+     * the lines it starred are the user's to edit: placing them again would
+     * star a line the user un-starred, at every save.
+     */
+    fun marksToPlace(marks: List<Long>, resumeMs: Long?, seamMs: Long?): List<Long> {
+        val reached = marksReached(marks, resumeMs)
+        return if (seamMs == null) reached else reached.filter { it >= seamMs }
+    }
 
     /**
      * Whether a pass asked to run in [requested] ("auto", a code, or blank

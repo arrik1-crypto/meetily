@@ -310,6 +310,10 @@ class TranscriptCheckActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.check_save_failed, Toast.LENGTH_LONG).show()
                 if (!canReview) finish()
             }
+            is Applied.Busy -> {
+                Toast.makeText(this, R.string.check_wait_transcribing, Toast.LENGTH_LONG).show()
+                if (!canReview) finish()
+            }
             is Applied.Done -> {
                 meeting = outcome.meeting
                 if (outcome.hadSummary) offerRegenerate(outcome.meeting)
@@ -348,6 +352,12 @@ class TranscriptCheckActivity : AppCompatActivity() {
         object Nothing : Applied
         /** The merge was built but never reached disk — nothing was deleted. */
         object SaveFailed : Applied
+        /**
+         * Something is writing the meeting's content (a continuation of its
+         * transcript, say), whose next save would undo the apply: nothing
+         * was written, and the draft is kept.
+         */
+        object Busy : Applied
         class Done(val meeting: Meeting, val hadSummary: Boolean) : Applied
     }
 
@@ -374,9 +384,20 @@ class TranscriptCheckActivity : AppCompatActivity() {
         // is built outside it and only committed if the transcript it was
         // built from is still the one on disk; otherwise it is rebuilt.
         repeat(APPLY_ATTEMPTS) {
+            // Answered before the seconds-long alignment, too; the check
+            // under the lock below is the one that matters.
+            if (AudioRemoval.isWritingContent(this, meetingId)) return Applied.Busy
             val built = buildMerge(meetingId, pending, wholesale, acceptedStartMs)
             if (built !is Built.Ready) return built.outcome()
             val committed = com.meetily.mobile.data.AtomicJson.exclusive<Applied?> {
+                // A run writing this meeting (a continuation of its
+                // transcript, a recording, a summary) saves over whatever is
+                // applied now: a continuation drops the accepted lines after
+                // its seam for its own, and marks the transcript unfinished
+                // again. So nothing is written, and the draft stays.
+                if (AudioRemoval.isWritingContent(this@TranscriptCheckActivity, meetingId)) {
+                    return@exclusive Applied.Busy
+                }
                 val onDisk = store.load(meetingId) ?: return@exclusive Applied.Gone
                 val merge = com.meetily.mobile.data.MeetingMerge
                 if (merge.transcriptFingerprint(onDisk.segments) != built.fingerprint) {
