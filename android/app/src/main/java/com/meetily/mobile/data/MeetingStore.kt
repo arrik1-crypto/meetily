@@ -404,6 +404,42 @@ class MeetingStore(context: Context) {
         }
     }
 
+    /**
+     * Moves the meeting's file, whole and unchanged, to [target] in
+     * Recently deleted (MeetingTrash), and remembers the id as [delete]
+     * does, so a job still holding the meeting cannot write it back into
+     * the library. False, with nothing changed, when there is no such
+     * meeting or the move failed.
+     */
+    internal fun moveOut(id: String, target: File): Boolean {
+        val file = fileFor(id) ?: return false
+        return AtomicJson.exclusive {
+            if (!file.isFile || !file.renameTo(target)) return@exclusive false
+            tombstones.add(id)
+            if (lastTranscribed?.id == id) lastTranscribed = null
+            true
+        }
+    }
+
+    /**
+     * Puts [source], a file [moveOut] moved away, back as the meeting [id],
+     * which may then be saved again. Its file time becomes now, which the
+     * automatic clean-up reads as changed recently (Retention.RECENT_MS):
+     * a meeting restored from Recently deleted is not taken again the next
+     * day. False, with nothing changed, when a meeting with that id is in
+     * the library already or the move failed.
+     */
+    internal fun moveIn(source: File, id: String): Boolean {
+        val file = fileFor(id) ?: return false
+        return AtomicJson.exclusive {
+            if (file.exists() || !source.renameTo(file)) return@exclusive false
+            tombstones.remove(id)
+            if (lastTranscribed?.id == id) lastTranscribed = null
+            file.setLastModified(System.currentTimeMillis())
+            true
+        }
+    }
+
     // --- Active-recording marker, for crash recovery ---------------------
     // The recording service writes the in-progress meeting id here and saves
     // the meeting incrementally. If the process dies mid-recording the marker

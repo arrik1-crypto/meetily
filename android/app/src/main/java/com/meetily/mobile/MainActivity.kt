@@ -1244,12 +1244,20 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, busyDeleteText(meeting.id), Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
-                // The stored copy, not the list's: it names every photo and
-                // attachment added since the library was loaded.
-                val current = store.load(meeting.id) ?: meeting
-                com.meetily.mobile.data.MeetingAssets.deleteAll(this, current)
-                store.delete(meeting.id)
-                refresh()
+                // Into Recently deleted with its files, on a worker; the
+                // busy rule is asked once more there (TrashUi).
+                val app = applicationContext
+                TrashUi.execute {
+                    val batch = TrashUi.moveToTrash(app, listOf(meeting.id))
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        if (batch.busy > 0) {
+                            Toast.makeText(this, busyDeleteText(meeting.id), Toast.LENGTH_LONG).show()
+                        }
+                        refresh()
+                        TrashUi.showUndo(this, batch, findViewById(R.id.importButton)) { refresh() }
+                    }
+                }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .showSecure()

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Recently deleted (MeetingTrash, TrashActivity, TrashUi): deleted
+         meetings are kept for 30 days, then erased. The Storage screen's
+         card, the Settings entry, the undo after a delete and the backup
+         restore note are here too. -->
+
+    <string name="trash_title">Recently deleted</string>
+    <string name="trash_intro">Meetings you delete stay here for 30 days, then they\'re erased for good. Until then they\'re not in your library, search, Ask, digests, reminders, exports or backups, but they still take space on this phone.</string>
+    <string name="trash_loading">Reading Recently deleted…</string>
+    <string name="trash_load_failed">Couldn\'t read Recently deleted. Try again in a moment.</string>
+    <string name="trash_none">Nothing in Recently deleted.</string>
+    <!-- %1$d meetings, %2$s the space they take, such as "120 MB". -->
+    <plurals name="trash_summary">
+        <item quantity="one">%1$d meeting, %2$s</item>
+        <item quantity="other">%1$d meetings, %2$s</item>
+    </plurals>
+    <!-- One row: %1$s when it was deleted (a date), %2$s the time left
+         (trash_days_left or trash_due), %3$s its size. -->
+    <string name="trash_item_detail">Deleted %1$s · %2$s · %3$s</string>
+    <plurals name="trash_days_left">
+        <item quantity="one">erased in %1$d day</item>
+        <item quantity="other">erased in %1$d days</item>
+    </plurals>
+    <string name="trash_due">erased today</string>
+    <!-- A deleted meeting whose file could not be read. -->
+    <string name="trash_untitled">Meeting that can\'t be read</string>
+
+    <string name="trash_restore">Restore</string>
+    <!-- %1$s is the meeting's title. -->
+    <string name="trash_restore_desc">Restore %1$s</string>
+    <string name="trash_delete_forever">Delete permanently</string>
+    <string name="trash_delete_forever_desc">Delete %1$s permanently</string>
+    <string name="trash_empty">Empty</string>
+    <string name="trash_empty_desc">Empty Recently deleted</string>
+
+    <!-- %1$s is the meeting's title. -->
+    <string name="trash_restored">Restored \"%1$s\".</string>
+    <!-- %1$s is the title, %2$d the clean-up rule's number of days. -->
+    <string name="trash_restored_retake">Restored \"%1$s\". Automatic clean-up deletes meetings older than %2$d days, so it moves this one back here after a week unless you star it.</string>
+    <string name="trash_restore_in_library">\"%1$s\" is already in your library, so this copy was left here.</string>
+    <string name="trash_restore_failed">Couldn\'t restore \"%1$s\". Try again.</string>
+    <string name="trash_gone">That meeting is no longer in Recently deleted.</string>
+    <string name="trash_deleted_forever">Deleted \"%1$s\" permanently.</string>
+    <plurals name="trash_emptied">
+        <item quantity="one">Erased %1$d meeting for good.</item>
+        <item quantity="other">Erased %1$d meetings for good.</item>
+    </plurals>
+
+    <!-- Confirmations. %1$s is the meeting's title in the title, the
+         space it frees in the message. -->
+    <string name="trash_delete_forever_title">Delete \"%1$s\" permanently?</string>
+    <string name="trash_delete_forever_message">Its transcript, summary, notes, photos, attachments and audio are erased from this phone, freeing %1$s. This can\'t be undone.</string>
+    <string name="trash_empty_title">Empty Recently deleted?</string>
+    <!-- %1$d meetings, %2$s the space they free. -->
+    <plurals name="trash_empty_message">
+        <item quantity="one">%1$d meeting is erased from this phone for good, with its transcript, summary, notes, photos, attachments and audio, freeing %2$s. This can\'t be undone.</item>
+        <item quantity="other">%1$d meetings are erased from this phone for good, with their transcripts, summaries, notes, photos, attachments and audio, freeing %2$s. This can\'t be undone.</item>
+    </plurals>
+
+    <!-- After a delete on the home screen: a snackbar with Undo. -->
+    <string name="trash_moved_one">Moved to Recently deleted</string>
+    <string name="trash_undo">Undo</string>
+    <plurals name="trash_undone">
+        <item quantity="one">Restored %1$d meeting.</item>
+        <item quantity="other">Restored %1$d meetings.</item>
+    </plurals>
+
+    <!-- Storage screen card. %1$d meetings, %2$s the space they take. -->
+    <string name="trash_storage_section">Recently deleted</string>
+    <plurals name="trash_storage_summary">
+        <item quantity="one">%1$d deleted meeting takes %2$s until it\'s erased, 30 days after it was deleted.</item>
+        <item quantity="other">%1$d deleted meetings take %2$s until they\'re erased, 30 days after each was deleted.</item>
+    </plurals>
+    <string name="trash_storage_open">Open</string>
+    <string name="trash_storage_open_desc">Open Recently deleted</string>
+    <string name="trash_storage_empty">Empty now</string>
+
+    <!-- Settings, Data. -->
+    <string name="trash_settings_desc">Deleted meetings stay in Recently deleted for 30 days. Restore them, or erase them sooner.</string>
+
+    <!-- Added to a backup restore's result. -->
+    <plurals name="trash_restore_left">
+        <item quantity="one">%1$d meeting in the backup is in Recently deleted on this phone and was left there. Restore it from Recently deleted to get it back.</item>
+        <item quantity="other">%1$d meetings in the backup are in Recently deleted on this phone and were left there. Restore them from Recently deleted to get them back.</item>
+    </plurals>
+</resources>

@@ -10,7 +10,7 @@
     <string name="new_meeting">New meeting</string>
     <string name="no_content_yet">No content yet</string>
     <string name="delete_meeting_title">Delete meeting?</string>
-    <string name="delete_meeting_message">Delete \"%1$s\"? This cannot be undone.</string>
+    <string name="delete_meeting_message">\"%1$s\" moves to Recently deleted with its transcript, summary, notes, photos, attachments and audio. You can restore it from there for 30 days; after that it\'s erased for good.</string>
     <string name="meeting_busy_delete">Available once this meeting has finished recording, transcribing or summarizing.</string>
     <string name="meeting_busy_flag">Flag this meeting once the recording has stopped.</string>
     <string name="delete">Delete</string>

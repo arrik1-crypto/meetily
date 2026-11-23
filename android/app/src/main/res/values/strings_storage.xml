@@ -103,7 +103,7 @@
         <item quantity="one">Delete %1$d meeting?</item>
         <item quantity="other">Delete %1$d meetings?</item>
     </plurals>
-    <string name="storage_bulk_delete_message">Their transcripts, summaries, notes, photos, attachments and audio are removed from this phone. This can\'t be undone.</string>
+    <string name="storage_bulk_delete_message">They move to Recently deleted with their transcripts, summaries, notes, photos, attachments and audio. You can restore them from there for 30 days; after that they\'re erased for good.</string>
     <!-- Added under a bulk confirmation when part of the selection is left out. -->
     <plurals name="storage_bulk_skipped">
         <item quantity="one">%1$d selected meeting is left out: this doesn\'t apply to it right now (no audio, no transcript yet or an unfinished one, or it is being recorded or has work in progress).</item>
@@ -115,9 +115,10 @@
         <item quantity="other">%1$d selected meetings are left out: they are being recorded or something is working on them right now.</item>
     </plurals>
     <string name="storage_bulk_none">This doesn\'t apply to any of the selected meetings right now.</string>
+    <!-- The undo snackbar after deleting several (TrashUi). -->
     <plurals name="storage_bulk_deleted">
-        <item quantity="one">Deleted %1$d meeting</item>
-        <item quantity="other">Deleted %1$d meetings</item>
+        <item quantity="one">Moved %1$d meeting to Recently deleted</item>
+        <item quantity="other">Moved %1$d meetings to Recently deleted</item>
     </plurals>
     <plurals name="storage_tag_title">
         <item quantity="one">Add a tag to %1$d meeting</item>
@@ -159,15 +160,16 @@
         <item quantity="other">Now: the audio of %1$d meetings is removed (%2$s). Their transcripts, summaries, notes, photos and attachments stay.</item>
     </plurals>
     <plurals name="storage_retention_now_meetings">
-        <item quantity="one">Now: %1$d meeting is deleted, with its transcript, summary, notes, photos, attachments and audio.</item>
-        <item quantity="other">Now: %1$d meetings are deleted, with their transcripts, summaries, notes, photos, attachments and audio.</item>
+        <item quantity="one">Now: %1$d meeting is deleted, with its transcript, summary, notes, photos, attachments and audio. It stays in Recently deleted for 30 days before it\'s erased.</item>
+        <item quantity="other">Now: %1$d meetings are deleted, with their transcripts, summaries, notes, photos, attachments and audio. They stay in Recently deleted for 30 days before they\'re erased.</item>
     </plurals>
     <string name="storage_retention_now_none">Now: nothing is old enough yet.</string>
     <!-- %1$d is the rule's number of days. -->
     <string name="storage_retention_later_audio">After that, Recap checks once a day and removes the audio of meetings as they pass %1$d days. A quiet notification says when it has removed something.\n\nRemoved audio can\'t be recovered. Those meetings can no longer be played or followed along, shared as audio or clips, checked for accuracy, used to learn a voice, or transcribed again.</string>
-    <string name="storage_retention_later_meetings">After that, Recap checks once a day and deletes meetings as they pass %1$d days. A quiet notification says when it has deleted something. Deleted meetings can\'t be recovered.</string>
-    <!-- Added to the review of a clean-up the daily run left for the user to confirm. -->
-    <string name="storage_retention_irreversible">This can\'t be undone.</string>
+    <string name="storage_retention_later_meetings">After that, Recap checks once a day and deletes meetings as they pass %1$d days. A quiet notification says when it has deleted something. Deleted meetings can be restored from Recently deleted for 30 days; after that they\'re erased for good.</string>
+    <!-- Added to the review of a clean-up the daily run left for the user
+         to confirm, which is always of whole meetings. -->
+    <string name="storage_retention_irreversible">They can be restored from Recently deleted for 30 days; after that they\'re erased for good.</string>
     <string name="storage_retention_kept">Never touched: starred meetings, meetings changed in the last week, meetings with a reminder still to come, and meetings being recorded, transcribed or summarised or with a job waiting. Removing old audio also skips recordings that have no transcript yet, or whose transcription is unfinished.</string>
     <plurals name="storage_retention_more">
         <item quantity="one">…and %1$d more</item>
@@ -186,15 +188,15 @@
         <item quantity="other">Removed the audio of %1$d meetings and freed %2$s</item>
     </plurals>
     <plurals name="storage_retention_done_meetings">
-        <item quantity="one">Deleted %1$d old meeting</item>
-        <item quantity="other">Deleted %1$d old meetings</item>
+        <item quantity="one">Moved %1$d old meeting to Recently deleted</item>
+        <item quantity="other">Moved %1$d old meetings to Recently deleted</item>
     </plurals>
 
     <!-- Clean-up notifications (quiet channel). -->
     <string name="storage_notif_channel">Storage clean-up</string>
     <!-- %1$d is the rule's number of days. -->
     <string name="storage_notif_audio_text">Meetings older than %1$d days. Their transcripts are kept.</string>
-    <string name="storage_notif_meetings_text">Meetings older than %1$d days, as set in Settings → Data → Storage and clean-up.</string>
+    <string name="storage_notif_meetings_text">Meetings older than %1$d days, as set in Settings → Data → Storage and clean-up. They can be restored from Recently deleted for 30 days.</string>
     <plurals name="storage_notif_review_title">
         <item quantity="one">%1$d old meeting is due for clean-up</item>
         <item quantity="other">%1$d old meetings are due for clean-up</item>

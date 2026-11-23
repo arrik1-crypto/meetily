@@ -496,6 +496,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.settingsStorageButton).setOnClickListener {
             startActivity(Intent(this, StorageActivity::class.java))
         }
+        findViewById<View>(R.id.settingsTrashButton).setOnClickListener {
+            startActivity(Intent(this, TrashActivity::class.java))
+        }
         findViewById<View>(R.id.settingsRetentionButton).setOnClickListener {
             RetentionUi.choose(this) { if (!isFinishing && !isDestroyed) renderRetentionSummary() }
         }
@@ -1228,7 +1231,24 @@ class SettingsActivity : AppCompatActivity() {
                     } else {
                         getString(R.string.restore_done, result.meetings)
                     }
-                    Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    if (result.leftInTrash > 0) {
+                        // Deleted here since the backup was made, and left
+                        // in Recently deleted (BackupManager): too much for
+                        // a toast, and the place to restore them from.
+                        AlertDialog.Builder(this)
+                            .setMessage(
+                                message + "\n\n" + resources.getQuantityString(
+                                    R.plurals.trash_restore_left, result.leftInTrash, result.leftInTrash
+                                )
+                            )
+                            .setPositiveButton(android.R.string.ok, null)
+                            .setNeutralButton(R.string.trash_storage_open_desc) { _, _ ->
+                                startActivity(Intent(this, TrashActivity::class.java))
+                            }
+                            .show()
+                    } else {
+                        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+                    }
                 } else {
                     Toast.makeText(
                         this, getString(R.string.restore_failed, error), Toast.LENGTH_LONG

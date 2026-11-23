@@ -16,7 +16,6 @@ import androidx.appcompat.app.AppCompatActivity
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.BulkActions
 import com.meetily.mobile.data.Meeting
-import com.meetily.mobile.data.MeetingAssets
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.export.MeetingExporter
 import com.meetily.mobile.summarize.AiDisclaimers
@@ -281,20 +280,21 @@ class HomeSelection(
                     val app = activity.applicationContext
                     val ids = eligible.map { it.id }
                     worker.execute {
-                        val store = MeetingStore(app)
-                        var deleted = 0
-                        for (id in ids) {
-                            // Checked again: a job may have started on it
-                            // while the question was up (MainActivity.confirmDelete).
-                            if (AudioRemoval.isWriting(app, id)) continue
-                            // The stored copy names every photo and attachment.
-                            val current = store.load(id) ?: continue
-                            MeetingAssets.deleteAll(app, current)
-                            store.delete(id)
-                            deleted++
+                        // Into Recently deleted with their files. A job may
+                        // have started on one while the question was up:
+                        // that one stays (TrashUi, as MainActivity.confirmDelete).
+                        val batch = TrashUi.moveToTrash(app, ids)
+                        activity.runOnUiThread {
+                            if (batch.moved.isEmpty()) {
+                                Toast.makeText(app, R.string.storage_bulk_none, Toast.LENGTH_LONG).show()
+                            }
+                            if (!live()) return@runOnUiThread
+                            exit()
+                            refreshLibrary()
+                            TrashUi.showUndo(activity, batch, activity.findViewById(R.id.importButton)) {
+                                refreshLibrary()
+                            }
                         }
-                        val text = app.resources.getQuantityString(R.plurals.storage_bulk_deleted, deleted, deleted)
-                        activity.runOnUiThread { finish(text) }
                     }
                 }
                 .setNegativeButton(android.R.string.cancel, null)
