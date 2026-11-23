@@ -1,21 +1,28 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Current release:
-**3.18.0-beta1** (versionCode 113), targetSdk 36 (Android 16): Batch 4
-(meetings read off the main thread, home search that lands on the moment
-and Find in meeting, Find & replace that keeps word timings, the Storage
-screen with Remove audio, automatic clean-up and multi-select on the home
-list, and the meeting's spoken and summary language). The previous
-release, **3.17.0-beta1** (versionCode 112), was Batch 3 (llama.cpp v1.0.0
-and whisper.cpp b5907 on ggml 1.0.0, Arm KleidiAI on arm64,
+App ID: **com.recap.mobile** (permanent). Next release:
+**3.19.0-beta1** (versionCode 114), targetSdk 36 (Android 16): Batch 5
+(sherpa-onnx v2.0.3 with ONNX Runtime 1.28.2 and the re-keyed CAM++
+speaker model, interrupted transcriptions that carry on from where they
+stopped, SRT/VTT subtitle and Word export plus the library as Markdown,
+one native library per CPU level, Clear voice, and importing video,
+several files at once and Zoom/Teams transcripts). Until the version
+bump, which the maintainer makes in a separate commit right after this
+documentation update, `android/app/build.gradle.kts` still reads
+**3.18.0-beta1** (versionCode 113), the Batch 4 release (meetings read off
+the main thread, home search that lands on the moment and Find in
+meeting, Find & replace that keeps word timings, the Storage screen with
+Remove audio, automatic clean-up and multi-select on the home list, and
+the meeting's spoken and summary language). The release before it,
+**3.17.0-beta1** (versionCode 112), was Batch 3 (llama.cpp v1.0.0 and
+whisper.cpp b5907 on ggml 1.0.0, Arm KleidiAI on arm64,
 control-token-safe prompts, the Silero speech gate in front of every
 on-device recogniser, an 8K window for the small on-device LLMs, and the
 opt-in Parakeet Ultra, Gemma 4 E2B/E4B QAT and Qwen 3.5 2B/4B models).
-The release before it, **3.16.0-beta1** (versionCode 111), was Batch 2
-(device-fit model setup, Mark moment on the notification, wider home
-search, exit-record crash reports, mediaProcessing for ImportService,
-JNI-only native exports).
+**3.16.0-beta1** (versionCode 111) was Batch 2 (device-fit model setup,
+Mark moment on the notification, wider home search, exit-record crash
+reports, mediaProcessing for ImportService, JNI-only native exports).
 
 Before the first submission, work through the **owner checklist in
 section 11**: the Play Console declarations, placeholders, legal reviews
@@ -150,7 +157,26 @@ developer receives nothing from the app. "No data collected" is still not
 the right answer: the bundled Google ML Kit text-recognition SDK, which
 reads text in photos, sends Google diagnostics. The answers below match the
 code on this branch; re-check them whenever an SDK or a network path
-changes. Re-checked for 3.18.0-beta1: no change. It adds no permission
+changes. Re-checked for 3.19.0-beta1: no change; owner to confirm
+against the merged build. It adds no permission, no foreground service
+type and no network path. Imported video has its sound extracted on the
+phone (MediaExtractor and MediaMuxer, platform APIs), WebVTT and SRT
+transcripts are read on the phone, and the share, Open with and picker
+grants cover only the files chosen. Continuing an interrupted
+transcription stores one number with the meeting (`transcriptResumeMs`
+in its JSON file, so in backups like any other meeting field) and in the
+local job queue. Clear voice runs the bundled GTCRN model through
+sherpa-onnx on the phone and writes the copy beside the recording; it is
+left out of backups. Every export, Markdown, PDF, Word, subtitles and the
+library as Markdown, is written only to a file or folder the user picks
+in the system picker (action items as text go to the share sheet the
+user opens), like the existing exports; the library export holds the
+folder grant only while it runs. sherpa-onnx v2.0.3 and ONNX Runtime
+1.28.2 are prebuilt native code fetched by the build machine, not the
+app, and make no network requests of their own. The new `meetily_native`
+log lines, and whisper.cpp's warnings now under `meetily_ggml`, carry no
+meeting, prompt, reply or transcript text and stay on the phone.
+Re-checked for 3.18.0-beta1: no change. It adds no permission
 and no network path, and nothing in it sends data off the phone. The
 Storage screen measures files on the phone. Remove audio, Delete unused
 models and automatic clean-up delete files on the phone; clean-up is off
@@ -193,12 +219,13 @@ collection or a user-initiated transfer:
 |---|---|---|
 | ML Kit text recognition (`com.google.mlkit:text-recognition`, bundled Latin model) | Device, app and performance diagnostics and per-installation identifiers, to Google over HTTPS. ML Kit initialises with the app, so this happens even if no photo is ever attached. Photos and their text are not sent. | Declare (below) |
 | On-device transcription (the default for new installs), its speech detector (bundled Silero VAD) and the on-device AI engine | Nothing | Not collected |
+| Imports (audio, video with only its sound kept, WebVTT/SRT transcripts), continued transcriptions and Clear voice (bundled GTCRN) | Nothing: read, processed and stored on the phone | Not collected |
 | Android speech service engine (opt-in; switching to it asks for confirmation; installs upgraded from earlier versions keep it until they switch) | Meeting audio, captured by the system recognition service itself (Google's on most phones), which Android documents as likely to send it to remote servers. Recap hands it no audio and gets text back. | Not collected by Recap (note below) |
 | User-configured AI endpoint (off by default; Local-only AI on by default) | Transcript, notes, title, attendee names, photo text, the user's name if entered and the template instructions, to the address the user typed, with their API key | User-initiated, not shared; collection: note below |
 | Model downloads (only when the user picks a model) | An ordinary HTTPS request to Hugging Face or GitHub (IP address, file requested, user agent); no meeting data | Not collected |
 | Crash reports | Saved on the phone; a report leaves it only if the user shares it through the share sheet | Not collected (user-initiated) |
 | Report AI output | An email draft in the user's own email app; the generated text only if the user ticks the box; sent only if the user sends it | Not collected (user-initiated) |
-| Share, export (one meeting, or several as a zip from multi-select), backup | Wherever the user sends them | Not collected (user-initiated) |
+| Share, export (Markdown, PDF, Word, subtitles and action items for one meeting; several as a zip from multi-select; the whole library as Markdown files into a folder), backup | Wherever the user sends them: a file or folder picked in the system picker, or an app picked in the share sheet | Not collected (user-initiated) |
 | Calendar | Read on the phone; event title and attendee names leave only inside a meeting the user sends to an AI endpoint | Not collected |
 
 **ML Kit, mapped to Play's data types** — owner to confirm against
@@ -263,7 +290,8 @@ parties. Text recognition collects nothing feature-specific on top.
   which EndpointGuard allows (and refuses for any public address).
 - **Do you provide a way for users to request that their data is
   deleted?** Everything Recap keeps is on the phone and is deleted in the
-  app (meetings, a meeting's audio on its own, voice profiles, models, and
+  app (meetings, a meeting's audio on its own, a clear-voice copy on its
+  own or with the audio, voice profiles, models, and
   old meetings or their audio automatically if the user turns clean-up on)
   or by uninstalling. From 3.18.0-beta1, Android's storage button for
   Recap reads Manage space and opens Recap's Storage screen instead of
@@ -325,11 +353,36 @@ The console will ask about these (all have in-app justifications):
   notification with Cancel, lock the screen and show it keeps going, then
   show the finished transcript. Optionally also show Import audio file →
   the import progress notification → the finished meeting.
+  **From 3.19.0-beta1 ClearVoiceService uses this type too** (declared
+  `dataSync|mediaProcessing` like ImportService and started through
+  ImportFgsType, so mediaProcessing on Android 15+ and dataSync below).
+  It makes a denoised copy of a recorded meeting's audio that the user
+  asked for, on the phone. Update the declaration to name both services;
+  suggested addition to the wording above: "Recap also offers Clear
+  voice: when the user taps it in a meeting's player and confirms, a
+  foreground service decodes that meeting's recorded audio, removes
+  background noise from it with a small on-device model, and encodes the
+  result as a separate audio file beside the original, which is not
+  changed. A long meeting can take many minutes, so the work must
+  continue while the screen is off or the user leaves the meeting. It
+  runs only when the user starts it, never during a recording, shows an
+  ongoing progress notification with Stop, and keeps nothing if it is
+  stopped." The six-hour mediaProcessing allowance is per app and per
+  type, so ImportService and ClearVoiceService now share it (the "own
+  allowance" in ImportFgsType's KDoc means separate from dataSync's, not
+  the importer's alone).
+  A short demo video may be needed: open a meeting with audio, tap Clear
+  voice, confirm, pull down the shade to show "Preparing clear voice"
+  with Stop, lock the screen, unlock, and switch between the copy and the
+  original in the player. Video import is not a new use: it runs inside
+  the existing import job, which extracts the sound on the phone before
+  transcribing it.
 - **FOREGROUND_SERVICE_DATA_SYNC**: model downloads, summary generation
-  (also enhanced notes and AI speaker suggestions); file import and
-  transcription on Android 14 and lower (Android 15+ uses mediaProcessing
-  for those) — long-running user-initiated work. Keep this declaration:
-  dataSync is still declared and used.
+  (also enhanced notes and AI speaker suggestions); file import,
+  transcription and, from 3.19.0-beta1, Clear voice copies on Android 14
+  and lower (Android 15+ uses mediaProcessing for those) — long-running
+  user-initiated work. Keep this declaration: dataSync is still declared
+  and used.
 - **SCHEDULE_EXACT_ALARM**: user-set action-item reminders and calendar
   nudges (falls back to inexact windows when not permitted). This is an
   allowed use case (user-facing alarms/reminders).
@@ -345,6 +398,16 @@ The console will ask about these (all have in-app justifications):
   before a large model download over a metered connection and to say so
   when the phone is offline. Recap's own use keeps and sends nothing
   about the network. The privacy policy's PERMISSIONS list names it.
+- **3.19.0-beta1** adds no permission and no foreground service type. Its
+  one new service, ClearVoiceService, uses the existing mediaProcessing
+  and dataSync types and permissions (above), and posts its progress
+  through POST_NOTIFICATIONS like the others. The import screen's new
+  intent filters (SEND_MULTIPLE, and VIEW for "Open with" on content
+  URIs, for audio, video, `text/vtt` and `application/x-subrip`) are not
+  permissions: each grant covers only the files the user shares or
+  picks, and Recap still holds no storage permission. The library export
+  takes a persistable grant on the folder the user picked for the length
+  of the run and gives it back when the run ends.
 - **3.18.0-beta1** adds no permission and no foreground service. The daily
   automatic clean-up (RetentionJobService, only while a rule is on) is a
   JobScheduler job with no network requirement, persisted across reboots
@@ -377,7 +440,18 @@ The console will ask about these (all have in-app justifications):
   audio with optional clean-up) and a line on the meeting's language,
   and trims a few older lines to stay under 4,000 characters (3,930 now);
   the DEVICE REQUIREMENTS figures are unchanged. It does not mention the
-  faster meeting opening or multi-select, and adds no privacy claim.
+  faster meeting opening or multi-select, and adds no privacy claim. For
+  3.19.0-beta1, RECORD ANYWHERE becomes RECORD AND IMPORT (importing
+  video with only its sound kept, several files at once, Zoom and Teams
+  VTT/SRT transcripts as meetings, and an interrupted transcription that
+  carries on where it stopped), Clear voice gets a line, and the export
+  line names Word, SRT/VTT subtitles and the library as Markdown; older
+  lines are merged or trimmed to stay under 4,000 characters (3,960
+  now). The DEVICE REQUIREMENTS figures are unchanged (the new CAM++, 27
+  MB, falls inside "Speaker detection: 1–2 GB"), and there is no new
+  privacy claim. The listing names Zoom, Teams and Obsidian only to say
+  which files Recap reads or writes; owner to confirm that this sits
+  within Play's metadata policy on third-party names.
 - **App icon**: `play-icon-512.png` (512×512, delivered separately).
 - **Feature graphic**: `play-feature-1024x500.png` (1024×500).
 - **Screenshots**: at least 2 phone screenshots (take from your device:
@@ -388,7 +462,10 @@ The console will ask about these (all have in-app justifications):
   3-button navigation). Older screenshots with solid bars look nearly the
   same. The recording screen shows live words only with Transcribe live on.
   Worth adding from 3.18.0-beta1: a home search showing match snippets,
-  and the Storage screen.
+  and the Storage screen. From 3.19.0-beta1: the player with the Clear
+  voice chip, a meeting's "Transcription stopped at …" card with
+  Continue transcription, and the Export dialog listing Word and
+  subtitles.
 - **Category**: Productivity. **Tags**: note-taking, transcription.
 - **Contact email**: required — the support address. Use the same address
   as `support_email` in the app (section 11): in-app AI output reports and
@@ -429,9 +506,17 @@ closed track and production checks).
    access to raw.githubusercontent.com (it fetches licence texts from
    meta-llama/llama-models, aboutcode-org/scancode-toolkit,
    microsoft/onnxruntime, k2-fsa/sherpa-onnx, ggml-org/whisper.cpp,
-   openai/whisper and snakers4/silero-vad) and commit
+   openai/whisper, snakers4/silero-vad and Xiaobin-Rong/gtcrn) and commit
    `app/src/main/assets/notices.txt`. Also run it when the bundled
-   Silero model changes (`SILERO_VER` in the script). Its ONNX Runtime
+   Silero model changes (`SILERO_VER` in the script) or the bundled GTCRN
+   model does (`GTCRN_REV`), and keep `ORT_VER` in step with `SHERPA_VER`
+   (it is the ONNX Runtime version the sherpa-onnx release bundles). For
+   3.19.0-beta1, `notices.txt` was edited by hand to match the script
+   (sherpa-onnx v2.0.3, ONNX Runtime 1.28.2, the merged native library and
+   the GTCRN entry with its MIT text); the sherpa-onnx Apache-2.0 text and
+   the ONNX Runtime MIT text are unchanged (sherpa-onnx's LICENSE is
+   byte-identical between v1.13.4 and v2.0.3), so a full run should change
+   nothing; check that it does not. Its ONNX Runtime
    source (`mit_ort`,
    `raw.githubusercontent.com/microsoft/onnxruntime/main/LICENSE`) returns
    404 as of Batch 3, so the script fails as written: the 3.17.0-beta1
@@ -450,6 +535,20 @@ closed track and production checks).
 5. Play Console → the track → Create new release → upload AAB → release
    notes → roll out (after the accessibility pass in section 7 for
    anything beyond internal testing).
+
+Draft release notes for 3.19.0-beta1 (Play allows 500 characters per
+language; this is about 380):
+
+```
+• Clear voice: remove background noise from a recording, on your phone
+• Interrupted transcriptions carry on where they stopped
+• Import video (only the sound is kept), several files at once, and Zoom/Teams transcripts (VTT/SRT)
+• Export Word documents and SRT/VTT subtitles, or your whole library as Markdown
+• Updated speech engine (sherpa-onnx) and a refreshed CAM++ speaker model
+```
+
+If 3.18.0-beta1 never reached a track, fold its notes (below) into these
+and keep the total under 500 characters.
 
 Draft release notes for 3.18.0-beta1 (Play allows 500 characters per
 language; this is about 450):
@@ -525,10 +624,11 @@ strongest conversion line this app has.
   is the aggregate crash feed — automatic for Play installs, no SDK. The
   release build packs native symbol tables into the AAB
   (`debugSymbolLevel = SYMBOL_TABLE`), so native crashes in the
-  whisper/llama/sherpa libraries arrive symbolicated. The whisper/llama
-  JNI libraries export only their `Java_` entry points
-  (`app/src/main/cpp/jni_exports.map`). Vitals symbolication is
-  unaffected, because the hidden symbols stay in the symbol tables packed
+  whisper/llama/sherpa libraries arrive symbolicated. Since 3.19.0-beta1
+  whisper.cpp and llama.cpp share one JNI library per CPU level,
+  `libmeetily_native.so` and `libmeetily_native_v82.so`, which export only
+  their `Java_` entry points (`app/src/main/cpp/jni_exports.map`). Vitals
+  symbolication is unaffected, because the hidden symbols stay in the symbol tables packed
   into the AAB. But traces captured on the phone, and so the app's own
   shared crash reports, show engine frames as build ID + offset only.
   Keep each release's native debug symbols to symbolise those with
@@ -556,21 +656,34 @@ strongest conversion line this app has.
   appcompat pulls in, asks Google Play services on the phone for an emoji
   font at startup; that is a request to another app on the device and
   carries no user data. The on-device engines (whisper.cpp, llama.cpp
-  built without curl, sherpa-onnx/onnxruntime, Arm KleidiAI and the
-  Silero speech detector run through whisper.cpp) make no network
-  requests of their own.
-- **Logcat for support** (3.17.0-beta1; shape only, never prompt, reply
-  or transcript text): `adb logcat -s meetily_ggml meetily_llama
-  meetily_whisper meetily_vad`. `meetily_ggml` carries llama.cpp's
-  warnings, errors and load-time buffer lines: `load_tensors:
+  built without curl, sherpa-onnx/onnxruntime, Arm KleidiAI, the Silero
+  speech detector run through whisper.cpp and the GTCRN speech enhancer
+  run through sherpa-onnx) make no network requests of their own.
+- **Logcat for support** (3.17.0-beta1, widened in 3.19.0-beta1; shape
+  only, never prompt, reply or transcript text): `adb logcat -s
+  meetily_native meetily_ggml meetily_llama meetily_whisper meetily_vad
+  meetily_clearvoice SherpaEmbedder`.
+  `meetily_native` (3.19.0-beta1) logs `loaded libmeetily_native_v82.so`
+  (or `libmeetily_native.so`) once per process, `libmeetily_native_v82.so
+  did not load: ...` when the fast build is skipped, and `native engines
+  unavailable: ...` once if neither loads. `meetily_ggml` carries
+  llama.cpp's warnings, errors and load-time buffer lines: `load_tensors:
   CPU_KLEIDIAI model buffer size = ... MiB`, the KV and compute buffer
   sizes, `llama_kv_cache: size = ...`, `creating ... SWA KV cache, size =
   N cells`, and KleidiAI's kernel choice (`kleidiai: primary q8 kernel
   feature DOTPROD` or `I8MM`, `kleidiai: SME disabled`; the q4_k line
   reads `kleidiai: no compatible q4_k kernels found ...`, which is
-  expected). Only the llama library forwards these: the whisper library's
-  ggml lines, the speech detector's included, still go to stderr, which
-  Android discards. `meetily_llama` logs `local model loaded (n_ctx=...,
+  expected). Since 3.19.0-beta1 the two engines share one ggml and both
+  install the same log forwarder, so `meetily_ggml` also carries
+  whisper.cpp's own warnings and errors (model file problems, a prompt
+  trimmed to fit, a language code), and KleidiAI's kernel-choice line
+  appears once per process at whichever engine's first model or
+  speech-gate load comes first, which may be a Whisper or speech-gate
+  load rather than the LLM's. `SherpaEmbedder` logs `speaker model <key>
+  rejected: ...` when a speaker model fails Recap's ONNX structure check,
+  and `meetily_clearvoice` one `clear voice: ...` warning per kind of
+  problem when a clear-voice copy cannot be made (no path, name or meeting
+  text). `meetily_llama` logs `local model loaded (n_ctx=...,
   requested ..., trained ...; n_swa=..., full/small/no SWA cache)`, each
   prompt's `prompt: ... bytes, ... msgs, jinja=1, spans=..., guarded=...`,
   `prompt: N message span(s) spelled a control token; tokenised them as
@@ -591,10 +704,48 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [x] Bump `versionCode` to 113 and `versionName` to `3.18.0-beta1` in
-  `android/app/build.gradle.kts` (done; 112 / 3.17.0-beta1 before it,
+- [ ] Bump `versionCode` to 114 and `versionName` to `3.19.0-beta1` in
+  `android/app/build.gradle.kts`. The maintainer makes this bump in a
+  separate commit right after the Batch 5 documentation update; until
+  then the build reads 113 / 3.18.0-beta1 (112 / 3.17.0-beta1 and
   111 / 3.16.0-beta1 before that). Bump both again for every later
   upload: Play rejects a versionCode it has already seen.
+- [ ] Run CI on the merged Batch 5 branch (`b5/integration`), not only on
+  the six group branches: `scripts/fetch_sherpa_libs.sh` (now checks the
+  v2.0.3 tarball's pinned SHA-256) and `scripts/check_sherpa_jni.py`
+  right after it, `testReleaseUnitTest` (new ClearVoice,
+  DiarizationModels, DocxExport, EnhanceBlocks, ImportBatch,
+  LibraryExport, NativeEngines, OnnxSanity, SherpaConfigs, SherpaNatives,
+  SpeechEnhanceAsset, SubtitleExport, SubtitleImport and TranscriptResume
+  tests, plus changes to ModelLicencesTest and NativeExportsTest), then
+  `assembleRelease` with `lintVital` and the native export check. The
+  groups were compiled and type-checked locally against AndroidX stubs,
+  not the real classpath, so fix anything the real build turns up.
+  Several groups edited MeetingDetailActivity, ImportService, JobQueue,
+  AudioRemoval and the storage strings; the integration commit resolved
+  those, so lint must pass on the merged tree.
+- [ ] After that first run, read the "Check native library exports" step
+  log. Expect arm64-v8a to have 2 engine libraries, `libmeetily_native.so`
+  and `libmeetily_native_v82.so`, each with 18 exports, all 18 `Java_`
+  (x86_64 has only `libmeetily_native.so`); the "before
+  (meetily-android.apk): 4 libraries" totals line with its file and zipped
+  change per ABI; and the native debug symbols list. If that list warns
+  that `libmeetily_native_v82.so` has no symbol file, the `:native-v82`
+  module's symbols are not reaching the AAB and the symbols zip and need
+  wiring (for example `debugSymbolLevel` in `native-v82/build.gradle.kts`).
+  Record the size saving of the merge in `ACCELERATION_FINDINGS.md` from
+  that log; expect roughly the ggml, KleidiAI and libc++ copy the whisper
+  library carried, about 1 MB uncompressed per CPU level on arm64 and less
+  zipped, but quote nothing until it is measured.
+- [ ] Watch sherpa-onnx v2.0.3 (published 2026-11-22) for early
+  regressions. If one appears, fall back to v2.0.2: change `VER` and
+  `SHA256` in `scripts/fetch_sherpa_libs.sh` (take the digest from
+  https://github.com/k2-fsa/sherpa-onnx/releases/expanded_assets/v2.0.2),
+  re-vendor the Kotlin API from that tag, regenerate
+  `scripts/sherpa_jni_natives.txt` with `check_sherpa_jni.py
+  --print-natives`, run `check_sherpa_jni.py --jni-src` against that
+  tag's JNI sources, and set `SHERPA_VER` and `ORT_VER` in
+  `build_notices.py` to match.
 - [ ] Run CI on the merged Batch 4 branch (`b4/integration`), not only on
   the five group branches: `testReleaseUnitTest` (new BulkActions,
   FindReplace, MeetingLanguage, MeetingLoad, MomentSearch, OpenMeetings,
@@ -651,7 +802,10 @@ Work through it before the first targetSdk 36 upload to any track.
   library: Android Studio's APK Analyzer, or `zipalign -c -P 16 -v 4`. On
   Android 16 a 4 KB-aligned app runs in compatibility mode and shows the
   user a dialog. AGP 8.10 adds an Aligned16KB lint warning for
-  dependencies.
+  dependencies. From Batch 5, CI's `check_sherpa_jni.py` step already
+  fails the build if a LOAD segment of `libsherpa-onnx-jni.so` or
+  `libonnxruntime.so` is aligned below 16 KB; the check here still
+  covers the packaged APK/AAB and ML Kit's library.
 - [ ] Fill the model pins (roadmap item B55, not part of this batch):
   every `sha256` and `revision` in WhisperModels, NemoModels,
   DiarizationModels and LocalLlmModels is still null. Run
@@ -661,6 +815,38 @@ Work through it before the first targetSdk 36 upload to any track.
   `gemma4-e2b-qat`, `gemma4-e4b-qat`, `qwen35-2b`, `qwen35-4b`); the
   script's parser already finds them. Pin `parakeet-ultra` only after the
   decision on its pre-#4179 files (Product decisions below).
+  For the same pass, the digests Batch 5 collected (confirm each
+  independently before pinning):
+  - `campplus-zh-en-v2`: sha256
+    `53cab20ba8f2eb2f6e2d89ecc18e88ef3222169b61b4419cbc13666744a4574b`
+    (28,281,165 bytes, uploaded 2026-11-19T07:54:51Z to the
+    speaker-recongition-models release, matching that release's
+    `checksum.txt`). Leave the legacy `campplus-zh-en` entry unpinned: its
+    original bytes are no longer published.
+  - `wespeaker_en_voxceleb_resnet34_LM.onnx`
+    `e9848563da86f263117134dfd7ad63c92355b37de492b55e325400c9d9c39012`;
+    `resnet152_LM`
+    `3e1c2c7a02097bdddc27c1cf7382237399abdc3b5b682e59455830673c6686e7`;
+    `resnet293_LM`
+    `f65dbc820e534eef64ae12d1e289e20244d60e60f7f00d7b092092b1c458be2e`;
+    `nemo_en_titanet_small`
+    `ad4a1802485d8b34c722d2a9d04249662f2ece5d28a7a039063ca22f515a789e`;
+    `nemo_en_titanet_large`
+    `d51abcf31717ef28162f26acb9d44dd4127c3d44c9b8624f699f3425daca8e77`.
+    The TitaNet files (uploaded 2024-10-14) are unchanged since Recap
+    first offered them. The WeSpeaker files were re-uploaded on
+    2026-11-19, and sherpa-onnx PR #4241 says the ResNet outputs are
+    byte-identical.
+  - `parakeet-ultra` (csukuangfj/sherpa-onnx-nemo-parakeet-tdt-0.6b-ultra-int8,
+    commit 402e1190ce85b9793118ee223db21fb0d12f52db, lastModified
+    2026-11-07T05:51:08Z): LFS sha256 `encoder.int8.onnx`
+    `b43072e1b721f18a3df03fcfeb763ff7c4debdf29843598a3aba2f703e2780a3`
+    (652,282,345 bytes), `decoder.int8.onnx`
+    `1fab98fe6c12aded87d2da66272cc9e148d0a0044ce3850a12fe56302ec4a922`
+    (11,845,274), `joiner.int8.onnx`
+    `8a71aaccfdba3d451775507a889afd2257d2e754463fd81095a8c8f290f924c2`
+    (6,355,277); `tokens.txt` is 93,939 bytes. These are the pre-#4179
+    files: pinning them now pins the pre-fix int8.
 
 ### Play Console declarations
 
@@ -669,10 +855,13 @@ Work through it before the first targetSdk 36 upload to any track.
   on tablet devices.
 - [ ] **Data safety**: file the answers in section 4 (unchanged by
   3.16.0-beta1, by 3.17.0-beta1, whose speech detector, new models and
-  KleidiAI send nothing off the phone, and by 3.18.0-beta1, whose storage
+  KleidiAI send nothing off the phone, by 3.18.0-beta1, whose storage
   clean-up, multi-select export, search and language settings work on the
-  phone or go only where the user sends them). "No data collected" is no
-  longer accurate. Re-read
+  phone or go only where the user sends them, and by 3.19.0-beta1, whose
+  video, batch and caption imports, continued transcriptions and Clear
+  voice work on the phone and whose new exports go only to a file or
+  folder the user picks; confirm this on the merged build). "No data
+  collected" is no longer accurate. Re-read
   Google's ML Kit Android data disclosure
   (https://developers.google.com/ml-kit/android-data-disclosure) and
   declare what it lists for the bundled text-recognition SDK: App info and
@@ -717,6 +906,12 @@ Work through it before the first targetSdk 36 upload to any track.
   declaration. Optional: re-record the microphone video to show the
   notification's Mark moment action. 3.18.0-beta1 changes nothing here:
   the daily clean-up is a JobScheduler job, not a foreground service.
+  3.19.0-beta1 does: update the mediaProcessing declaration (and the
+  dataSync description for Android 14 and lower) to say they are now also
+  used by ClearVoiceService, to make a denoised copy of a recorded meeting
+  that the user asked for, with the wording and optional demo video in
+  section 5. No new type, and the library export runs without a
+  foreground service.
 - [ ] **Network state**: ACCESS_NETWORK_STATE (Play shows "view network
   connections") was already in the merged manifest through ML Kit's
   datatransport, so Play shows no new permission. Recap now also reads it
@@ -755,7 +950,18 @@ Work through it before the first targetSdk 36 upload to any track.
   button for Recap opens that screen rather than clearing everything, so
   uninstalling removes everything; Permissions adds clean-up
   notifications and the once-a-day clean-up run. Nothing new leaves the
-  phone.
+  phone. 3.19.0-beta1 changes it again, in both copies together (same
+  headings, so PrivacyPolicyDriftTest still passes): What is stored on
+  your phone adds clear-voice copies and imported files (audio, only the
+  sound of a video, or a WebVTT/SRT transcript); Transcription says
+  imports and continued transcriptions work on the phone; Backups says
+  clear-voice copies are left out; Sharing and export says every export
+  (Markdown, PDF, Word, subtitles, the library folder) is written only to
+  a file or folder the user picks, and that a cloud-backed location's
+  provider terms then apply; Permissions names Clear voice among the
+  background work and its notifications; Deleting your data says the copy
+  goes with the meeting or its audio and can be deleted on its own.
+  Nothing new leaves the phone.
 - [ ] Set up a way to triage the "Recap AI output report" emails that
   arrive at the support address, and decide on a response time.
 
@@ -837,6 +1043,47 @@ Work through it before the first targetSdk 36 upload to any track.
   built into it", and the date reads 22 November 2026. Tick this once the
   reviewing lawyer approves that wording; set "Last updated" to the
   release date if the terms change again before then.
+- [ ] Batch 5 licence and notices changes (3.19.0-beta1), to check
+  against the publishers' pages and in Settings → Open-source licences on
+  a device:
+  - **sherpa-onnx v2.0.3** (was v1.13.4) and **ONNX Runtime 1.28.2** (was
+    1.27.0, unversioned in the notices before), both prebuilt in
+    `libsherpa-onnx-jni.so` and `libonnxruntime.so`. Their licence texts
+    are unchanged: sherpa-onnx's Apache-2.0 LICENSE is byte-identical
+    between the two tags, and the ONNX Runtime MIT text is the one already
+    committed. `build_notices.py` has a new `ORT_VER` to keep in step with
+    `SHERPA_VER`.
+  - **GTCRN** (`gtcrn_simple.onnx`), a new model **bundled in the APK**
+    for Clear voice: MIT License, Copyright (c) 2024 Rong Xiaobin
+    (https://github.com/Xiaobin-Rong/gtcrn, LICENSE at commit `faf210c`,
+    `GTCRN_REV` in the script), with the metadata sherpa-onnx adds, as
+    published in sherpa-onnx's speech-enhancement-models release. Its MIT
+    notice must ship with the app: `notices.txt` part one has its entry
+    and the full MIT text, and the introduction now names three bundled
+    models (the Silero speech detector, the GTCRN speech enhancer and ML
+    Kit's text model). The file is 535,638 bytes, SHA-256
+    `e77603ac0c23dac3227dd2d7135b3a585cbee2679048aecfa886657d3ae1b534`
+    (the digest in that release's `checksum.txt`; GitHub shows none for
+    this 2025 asset), pinned by SpeechEnhanceAssetTest and checked by the
+    app before sherpa-onnx loads it.
+  - whisper.cpp, llama.cpp, ggml and KleidiAI now name the one native
+    library, `libmeetily_native.so` (`libmeetily_native_v82.so` on arm64
+    phones with dot-product and half-precision instructions), instead of
+    `libmeetily_whisper.so` and `libmeetily_llama.so`.
+  - The new CAM++ catalogue key (`campplus-zh-en-v2`) has the same
+    Apache 2.0 label as the earlier one (3D-Speaker's README), in
+    `ModelLicences.kt`.
+- [ ] `terms_of_use.txt` now also names the bundled speech enhancer:
+  section 4 reads "Apart from a small speech detector and a small speech
+  enhancer built into the app (Silero VAD and GTCRN, both MIT License,
+  listed under Settings > Open-source licences)", and section 8's "as is"
+  disclaimer covers "the speech detector and speech enhancer built into
+  it". "Last updated" still reads 22 November 2026; set it to the release
+  date when the reviewing lawyer approves the change.
+- [ ] Optional: `build_notices.py` fetches ONNX Runtime's LICENSE from
+  microsoft/onnxruntime `main` (`mit_ort`). Consider pinning it to the
+  `v1.28.2` tag once that URL is confirmed reachable (see the ONNX
+  Runtime licence-source item below).
 - [ ] Pre-existing licence gap, not caused by Batch 3: llama-common has
   compiled in nlohmann/json (MIT) and cpp-httplib (MIT) since llama.cpp
   b10089, and neither has its own entry or copyright line in
@@ -875,7 +1122,12 @@ Work through it before the first targetSdk 36 upload to any track.
   re-upload it with the #4179 encoder, or decide to ship the pre-fix
   files. With no revision pinned, new downloads get whatever is uploaded
   under the same file names; installs that already have the old files
-  keep them.
+  keep them. Checked again for Batch 5 (2026-11-23): the repository is
+  still at commit 402e1190 (lastModified 2026-11-07), and a Hugging Face
+  search found no newer csukuangfj export. Before recommending Ultra,
+  wait for a re-export (or check the asr-models GitHub release tarball),
+  then pin that revision (the current files' digests are under Version
+  and build).
 - [ ] *Decision*, after the KleidiAI device checks below: keep KleidiAI
   on, restrict it to `:native-v82`, or turn it off on arm64
   (`GGML_CPU_KLEIDIAI` in `CMakeLists.txt`). It requantises Q6_K weights
@@ -922,6 +1174,44 @@ Work through it before the first targetSdk 36 upload to any track.
   "Same as meeting", consider asking the map-reduce condense prompt to
   keep the transcript's language. Today only the final summary prompt
   names the output language; the condensed section notes do not.
+- [ ] *Decision* (3.19.0-beta1): CAM++ was re-keyed, not migrated.
+  Upstream replaced its file in place on 2026-11-19, so an install that
+  downloaded CAM++ on or after that time already has the re-export under
+  the old name; that is why the legacy entry reads "earlier download", not
+  "earlier export". Recap does not switch anyone automatically while the
+  old file is present, because profiles without banked audio would stop
+  matching; a missing old file moves the selection to the new entry at
+  launch. Decide whether to nudge CAM++ users towards the new entry (for
+  example a one-time notice), or leave it to them.
+- [ ] *Decision*: should a clear-voice copy also be offered from
+  "Re-transcribe as…"? Today only the accuracy-check dialog offers
+  "Transcribe the clear-voice copy instead" (off unless ticked, and only
+  when a copy exists).
+- [ ] *Decision*: "Export library as Markdown" runs as plain background
+  work in the app's process, like the backup export, not as a foreground
+  service (no new service type, no notification). On a large library with
+  Recap in the background, Android may pause it until the user comes
+  back; files already written stay, and nothing is overwritten on a second
+  run. Confirm this is acceptable after the 200-meeting device check
+  below, or move it to a foreground job (dataSync).
+- [ ] *Decision*: Clear voice is user-started from the player and never
+  queued for a charger (ClearVoiceService's KDoc gives the reasons: a copy
+  made hours later would arrive unannounced and spend storage the user
+  may no longer want). Confirm, after the 2-hour battery check below.
+- [ ] Review the wording of Batch 5's new strings on a device:
+  `strings_resume.xml`, `strings_clearvoice.xml`, `strings_export.xml`
+  and `strings_import.xml`, and the two storage strings edited in place,
+  `storage_bulk_skipped` (now "(no audio, no transcript yet or an
+  unfinished one, or …)") and `storage_retention_kept` (now ending "…
+  recordings that have no transcript yet, or whose transcription is
+  unfinished.").
+- [x] Integration fixes from the group owners' lists, done in the Batch 5
+  integration: an accuracy check on the clear-voice copy keeps that
+  choice when it is stopped part-way (`Job.clearVoice` carried on
+  `JobQueue.markRunning` and the charger requeue), and
+  `MeetingMerge.mergeScreenEdits` keeps `highlightMarksMs`, so marks a
+  stopped transcription had not reached yet survive a save from the
+  meeting screen.
 - [x] Per-import language with one downloaded model: settled in the
   language review fixes. The import model sheet now appears whenever the
   only downloaded model can take a language, so its Spoken language row is
@@ -1125,8 +1415,9 @@ Exit-record crash reports (Android 11+):
 
 JNI-only native exports (3.16.0-beta1):
 
-- [ ] Smoke-test on a dotprod/fp16 phone (loads the `_v82` libraries) and
-  an older one (loads the baseline): live transcription, importing a
+- [ ] Smoke-test on a dotprod/fp16 phone (loads libmeetily_native_v82.so;
+  check `adb logcat -s meetily_native`) and an older one (loads the
+  baseline libmeetily_native.so): live transcription, importing a
   file, an on-device LLM summary, and Ask. An UnsatisfiedLinkError or a
   crash at load would point to the export map.
 
@@ -1152,7 +1443,8 @@ Engines, prompts and KleidiAI (3.17.0-beta1):
   `prompt: N message span(s) spelled a control token; tokenised them as
   plain text`. A remote AI endpoint is not covered by this.
 - [ ] KleidiAI on arm64: `adb logcat -s meetily_ggml` while a Q4_K_M model
-  loads, on a dotprod phone (it loads the `_v82` libraries) and, if
+  loads, on a dotprod phone (it loads libmeetily_native_v82.so; check
+  `adb logcat -s meetily_native`) and, if
   available, an i8mm/SVE phone. Expect a `load_tensors: CPU_KLEIDIAI model
   buffer size = ... MiB` line, `kleidiai: primary q8 kernel feature
   DOTPROD` (or `I8MM`), `kleidiai: SME disabled`, and `kleidiai: no
@@ -1215,12 +1507,13 @@ silence with speech detection" on unless noted:
   shows the same in the process state summary.
 - [ ] On an SME2 phone, with the default build (`MEETILY_KLEIDIAI_SME`
   OFF), a Parakeet import with the gate on completes and transcribes as
-  with the gate off. Logcat cannot show KleidiAI's choice here: the
-  whisper library, which runs the detector, does not forward ggml's log
-  lines. `kleidiai_env.h` sets `GGML_KLEIDIAI_SME=0` in `vadInit` before
-  the load; if an on-device LLM is loaded in the same process,
-  `meetily_ggml` showing `kleidiai: SME disabled` confirms the
-  process-wide setting, and `kleidiai: SME enabled` must never appear.
+  with the gate off. `kleidiai_env.h` sets `GGML_KLEIDIAI_SME=0` in
+  `vadInit` before the load. Before 3.19.0-beta1 logcat could not show
+  KleidiAI's choice here, because the whisper library did not forward
+  ggml's log lines; from 3.19.0-beta1 both engines share one ggml and one
+  log forwarder, so the speech-gate load itself should log `kleidiai: SME
+  disabled` under `meetily_ggml` (once per process, at whichever load
+  comes first), and `kleidiai: SME enabled` must never appear.
 
 Longer window for small models and the leaner Gemma cache (3.17.0-beta1):
 
@@ -1427,12 +1720,211 @@ Find & replace (3.18.0-beta1):
 - [ ] Accept the vocabulary offer: the term appears in Settings → Custom
   vocabulary. Not now is not asked again for that term on the same screen.
 
+sherpa-onnx v2.0.3 and speaker models (3.19.0-beta1), on an arm64 phone
+with the release APK unless noted:
+
+- [ ] Import a meeting with Parakeet TDT v2, v3 and Ultra: each finishes
+  with a sane transcript and word tap-to-seek.
+- [ ] Live recording with Nemotron 3.5, with Transcribe live on, both on
+  auto and with a pinned spoken language.
+- [ ] Speaker detection with WeSpeaker ResNet34, TitaNet small and the new
+  CAM++ ("CAM++ (English + Chinese)"): voices are told apart and labelled.
+- [ ] Upgrade from 3.18.0-beta1 with the old CAM++ selected and saved
+  voice profiles: Settings lists "CAM++ (English + Chinese, earlier
+  download)" next to the new entry, and the next recording still names
+  the saved voices. Switch to the new CAM++: the warning says which
+  profiles convert, and profiles with banked audio convert on the next
+  recording or import and keep matching. On a fresh install only the new
+  entry is listed. With the old file deleted (debug build: remove it
+  under `files/diarization-models` with `adb shell run-as`), the next
+  launch selects the new entry and asks for its 27 MB download.
+- [ ] Replace a downloaded speaker model with a truncated copy (debug
+  build, `adb shell run-as`): speaker detection is skipped without a
+  crash, and `adb logcat -s SherpaEmbedder` shows `speaker model <key>
+  rejected: ...`. Do the same with a NeMo `encoder.int8.onnx`: an import
+  shows "Could not load the … model" instead of the app closing.
+- [ ] On a 16 KB-page device (Android 15+ with 16 KB pages, or its
+  emulator), Parakeet and a speaker model load and run.
+
+Continuing interrupted transcriptions (3.19.0-beta1):
+
+- [ ] Turn on "only while charging" and start a long transcription on
+  the charger. Unplug at about 50%: the notification says "“Title” will
+  carry on from <time> next time you charge". Plug in again: it continues
+  from that point, not from 0:00, with no repeated or missing lines
+  around it, and tapping lines just before and after it seeks to the
+  right audio.
+- [ ] Force-stop the app mid-import, once for a file import and once for
+  an audio-only recording's transcription, then reopen: "Resume
+  interrupted work?" offers to carry on from a time. Resume continues;
+  Discard leaves the meeting with its partial words and the "Transcription
+  stopped at …" card.
+- [ ] Cancel mid-run: the meeting shows the card, the ⋮ menu item and the
+  home card's option ("From …"). Continue transcription picks up, and the
+  progress reads "Continuing from … · …" (with speaker detection on,
+  "matching voices so far" first).
+- [ ] Change the transcription model in Settings, then Continue: it
+  continues with the original model. Delete that model and Continue
+  again: "Start this transcript over?" appears, and accepting replaces the
+  lines.
+- [ ] Remove the audio of a half-done meeting from its menu: the warning
+  names the time and says the transcription can never be completed;
+  afterwards Continue disappears and the words stay. Multi-select Remove
+  audio and the automatic "Remove old audio" leave it out, and their notes
+  now read "(no audio, no transcript yet or an unfinished one, or …)"
+  (`storage_bulk_skipped`) and "… recordings that have no transcript yet,
+  or whose transcription is unfinished." (`storage_retention_kept`).
+- [ ] With speaker detection on, name a speaker in the partial
+  transcript, then Continue: the same voice after the continuation point
+  gets that name.
+- [ ] Summarise the partial transcript, then Continue to the end: the
+  summary shows the out-of-date hint and no automatic summary replaces it.
+- [ ] Unplug an automatic accuracy check halfway, then plug in again: it
+  carries on and the review opens normally.
+- [ ] An MP3 import stopped part-way continues correctly (it decodes from
+  the top to the resume point first, so it starts a little later).
+- [ ] Highlights: record audio only, tap the star (or Mark moment) late
+  in the meeting, stop the transcription before it reaches that moment,
+  and open the meeting: no line is starred for it yet. Continue: the star
+  lands on the right line. Save something on the meeting screen in
+  between (rename, a note): the mark is not lost.
+
+Exports (3.19.0-beta1):
+
+- [ ] Export a meeting with a summary, action items, notes and speakers
+  as Word. Open the .docx in Microsoft Word (desktop and mobile), Google
+  Docs and LibreOffice: no "unreadable content" prompt in Word, and the
+  headings, bullets, numbered lists and the clinical or legal notice line
+  look right. The document properties name no author.
+- [ ] Export .srt and .vtt and load each in VLC against the recording,
+  and against an imported Zoom MP4: speakers ("Name: " in SRT, voice tags
+  in VTT), timing and line wrapping are right, with no cue longer than two
+  rows. A meeting with typed lines: the toast counts the lines left out. A
+  meeting made with Android's speech service: one "Subtitles (not
+  available for this meeting)" entry, which explains why.
+- [ ] Settings → Data → Export library as Markdown on a library of about
+  200 meetings, into a folder on internal storage and into one on an SD
+  card: check the count, the "yyyy-MM-dd Title.md" names and the YAML
+  front matter (open a few in Obsidian or another Markdown notes app).
+  Run it again into the same folder: names gain " (2)", nothing is
+  overwritten.
+- [ ] Tap Stop mid-export: the files written so far stay, and the message
+  says how many.
+- [ ] Rotate, then leave Settings with Back mid-export, and come back: the
+  progress or the final count is shown (or a toast appeared meanwhile),
+  and no later file failed for lost folder access.
+- [ ] Start a library export while a recording runs: that meeting is left
+  out and counted.
+- [ ] On Android 11+, the folder picker refuses the root of internal
+  storage and Download; a subfolder works.
+- [ ] With TalkBack on, the export progress and the final count are read
+  out politely, without interrupting.
+
+One native library per CPU level (3.19.0-beta1), each with a fresh install
+on an Armv8.2 phone (dotprod+fp16), an Armv8.0 phone or arm64 emulator
+without dotprod, and an x86_64 emulator:
+
+- [ ] `adb logcat -s meetily_native` shows `loaded libmeetily_native_v82.so`
+  on the Armv8.2 phone and `loaded libmeetily_native.so` elsewhere, with no
+  SIGILL and no `did not load` warning on the Armv8.2 phone.
+- [ ] Whisper import of an audio file finishes, with `whisper_full: N
+  encoder pass(es)` under `meetily_whisper`.
+- [ ] Live Whisper transcription while recording.
+- [ ] Local LLM summary of a 30-minute meeting: `meetily_llama` shows
+  `local model loaded`, `meetily_ggml` the model buffer size and, on arm64
+  with dotprod, the `kleidiai:` kernel line once per process (it may come
+  with an earlier Whisper or speech-gate load instead).
+- [ ] Speech gate on, for both a Whisper run and a Parakeet run (which
+  loads the merged library just for the gate): `VAD model loaded` under
+  `meetily_whisper`, and no `speech gate off` warning.
+- [ ] An LLM summary started while a live recording is transcribing (both
+  engines in the process at once) finishes, and so does the recording.
+- [ ] On the slowest phone, turn Whisper on in Settings and open the
+  recording screen: no visible jank from the first library load (it now
+  runs off the main thread).
+- [ ] A crash-free cold start, and Settings → on-device AI still reports
+  the runtime available.
+
+Clear voice (3.19.0-beta1):
+
+- [ ] Make a copy of a 2-hour meeting on a mid-range phone, screen off and
+  unplugged: note the time it takes and the battery used. While it runs,
+  start a recording: the recording works and the copy keeps going at
+  background priority.
+- [ ] The question before starting shows the size, and for a meeting of 30
+  minutes or more its length and the battery note. Stop part-way, from the
+  player and from the notification: no `.clear.m4a` or `.part` file is
+  left under `files/audio` (debug build, `adb shell run-as`).
+- [ ] Rotate while it is preparing, leave the meeting screen and come
+  back: the progress is shown and it finishes. It cannot start while a
+  recording runs.
+- [ ] Switch between the copy and the original both ways, while playing
+  and while paused: the position is kept.
+- [ ] Share a clip while playing the copy and while playing the original:
+  each comes from the one playing.
+- [ ] Remove audio from the meeting menu, the Storage screen, multi-select
+  and automatic clean-up: each removes both files, and the question
+  mentions the copy. Deleting the meeting removes both.
+- [ ] The Storage screen counts the copy as meeting audio, with its
+  recording in the largest list.
+- [ ] A backup leaves out `*.clear.m4a`; after restoring it, the meeting
+  plays its recording and the chip offers to make the copy again.
+- [ ] With a copy, the accuracy check offers "Transcribe the clear-voice
+  copy instead", off by default; ticked, the result is reviewed as usual.
+  Unplug such a check under "only while charging" and plug in: it carries
+  on with the copy.
+- [ ] TalkBack reads the chip's label, its on/off state and the progress
+  steps (0, 25, 50 and 75%).
+- [ ] Android 15+: shorten the limit (`adb shell device_config put
+  activity_manager media_processing_fgs_timeout_duration 60000`) and make
+  a copy: it stops with the daily-limit message, keeps nothing, and is not
+  killed with ForegroundServiceDidNotStopInTimeException. While a copy
+  runs, `adb shell dumpsys activity services com.recap.mobile` lists
+  ClearVoiceService as a mediaProcessing foreground service (dataSync on
+  Android 14 and lower).
+
+Importing video, several files and transcripts (3.19.0-beta1):
+
+- [ ] Share an MP4 from the Files app: "Extracting the sound from the
+  video…", then transcription. On the Storage screen the meeting's audio
+  is a small .m4a, not the size of the video.
+- [ ] Share a recording from the Zoom app (if it offers one), and a Zoom
+  cloud MP4 downloaded in a browser.
+- [ ] A 2-hour 1080p MP4: note how long the extraction takes and the .m4a
+  size (roughly 50 to 120 MB). Playback, word tap and Continue
+  transcription work on it.
+- [ ] A WebM screen recording with Opus sound on Android 10 or later
+  (becomes an audio-only .webm) and on Android 8 or 9 (the whole file is
+  copied). A WebM or MP4 with no sound is refused with "That file has no
+  sound to transcribe."
+- [ ] Pick several files at once from the in-app Import audio button, and
+  share several from Files. Include at least 21 files to see the cap
+  note, plus a .vtt, a .srt, a PDF and a video with no sound. Check the
+  summary wording, "File 2 of 5 · …" in the notification and on the home
+  card, and that the files are transcribed one after another.
+- [ ] During "Adding 2 of 5", press Back (it explains and stays), rotate an
+  unfolded foldable or tablet (it keeps adding), and press Cancel (the
+  rest are not added, and a toast says what was).
+- [ ] A Zoom .transcript.vtt and a Teams .vtt: check the speakers, line
+  times, attendees and meeting length, and that Share audio, Check
+  accuracy, Remove audio, the Audio tab and the player are absent.
+  Summarise, search, edit and export it.
+- [ ] A malformed .srt (bad timestamps, plain text renamed .srt, an empty
+  file) shows a clear reason and never crashes. Also an SRT in
+  Windows-1252 with accented letters.
+- [ ] "Open with" Recap from a file manager for an MP4, an M4A and a .vtt.
+- [ ] Imported meetings are named from the file name, without the
+  extension or Zoom's ".transcript", with underscores as spaces.
+
 Accessibility:
 
 - [ ] Run Accessibility Scanner on the home, recording, meeting detail
   (Summary, Transcript and Audio tabs), settings, import and
   accuracy-check screens, and from 3.18.0-beta1 on the Storage screen,
-  the home selection bar, the find bar and the Find & replace dialog.
+  the home selection bar, the find bar and the Find & replace dialog;
+  from 3.19.0-beta1 also the player's Clear voice row, the "Transcription
+  stopped at …" card, the import screen while a batch is being added, and
+  Settings → Data during a library export.
   Check touch targets, missing labels and contrast (contrast was not part
   of this change).
 - [ ] TalkBack pass on a real device: start/pause/resume/stop a recording
@@ -1455,7 +1947,14 @@ Accessibility:
   per-device. 3.17.0-beta1 adds about 0.9 MB for the bundled Silero
   speech detector, 48 KB for its self-test clip, a few KB of native code,
   and an as yet unmeasured amount for KleidiAI in the arm64 libraries
-  (section 11 has the CI comparison). Every other speech/AI model is
+  (section 11 has the CI comparison). 3.19.0-beta1 adds about 1.2 MB of
+  uncompressed arm64 native code for sherpa-onnx v2.0.3 and ONNX Runtime
+  1.28.2 (`libsherpa-onnx-jni.so` 4,710,728 → 5,386,920 bytes,
+  `libonnxruntime.so` 21,688,912 → 22,249,560) and 535,638 bytes for the
+  bundled GTCRN model, and saves an as yet unmeasured amount by linking
+  whisper.cpp and llama.cpp into one library per CPU level (one ggml,
+  KleidiAI and libc++ copy instead of two; section 11 says where to read
+  the figure). Every other speech/AI model is
   downloaded in-app at runtime, so Play's size limits are a non-issue —
   but the listing should mention large optional downloads.
 - **Native engines**: llama.cpp v1.0.0 and whisper.cpp b5907 (from
@@ -1465,7 +1964,13 @@ Accessibility:
   the fallback pair (llama.cpp v0.6.0 + whisper.cpp v1.9.5) is ever
   needed, `chat_render.cpp`'s parts API (`common_chat_prompt` with
   `is_input`) may not exist there, and the control-token guard would then
-  need its neutralise-everything path for Jinja prompts too.
+  need its neutralise-everything path for Jinja prompts too. From
+  3.19.0-beta1 the two are linked into one library per CPU level,
+  `libmeetily_native.so` and (arm64) `libmeetily_native_v82.so`, over that
+  one ggml; CMake fails the configure if ggml ever comes from anywhere
+  else, so a future bump must keep the two projects on the same ggml or
+  split the library again. sherpa-onnx is a prebuilt: v2.0.3 (ONNX Runtime 1.28.2) from
+  3.19.0-beta1, v1.13.4 before.
 - **Target API level**: Play has required new apps and app updates to
   target Android 16 (API 36) since Aug 31, 2026; extensions ran only to
   Nov 1, 2026, so a targetSdk 35 bundle can no longer be uploaded. Recap

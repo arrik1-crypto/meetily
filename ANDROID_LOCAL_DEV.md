@@ -120,9 +120,11 @@ else means the debug fallback was used.
 ## 6. What this buys you that CI cannot
 
 - **Run on a real device**: `./gradlew installDebug`, then
-  `adb logcat -s meetily` (or `adb logcat --pid=$(adb shell pidof com.recap.mobile)`).
-  Whisper's encoder-pass counter and the audio pipeline log here — the only
-  way to see them.
+  `adb logcat -s meetily_native meetily_ggml meetily_llama meetily_whisper
+  meetily_vad meetily_clearvoice SherpaEmbedder` (or `adb logcat
+  --pid=$(adb shell pidof com.recap.mobile)` for everything). Whisper's
+  encoder-pass counter, which native library loaded and the audio pipeline
+  log here — the only way to see them.
 - **Screenshots**: `adb exec-out screencap -p > screen.png`.
 - **Profiling**: Android Studio's profiler for the ANR-prone paths.
 - **Fast iteration**: no push, no CI wait, no APK download.

@@ -8,23 +8,28 @@ default. No account, no subscription, and your meetings go to no cloud
 service unless you turn one on.
 
 PAY ONCE, OWN IT
-Meeting AI assistants typically cost $100–200 every year, forever, and
-send your conversations to their servers to earn it. Recap is a single
-one-time purchase: everything below is included and works offline. No
-tiers, no upsells.
+Meeting AI assistants typically cost $100–200 every year and send your
+conversations to their servers. Recap is a single one-time purchase:
+everything below is included and works offline. No tiers, no upsells.
 
-RECORD ANYWHERE
+RECORD AND IMPORT
 • One-tap recording, transcribed on your phone
 • Record device audio from webinars and videos (audio only, with your
-  consent; keep the screen unlocked while recording)
-• Import existing recordings and transcribe them in the background
-• Crash-safe: recordings save as you go
+  consent; keep the screen unlocked)
+• Import recordings or videos (only the sound is kept), several at
+  once, transcribed on your phone
+• Import Zoom and Teams transcripts (VTT/SRT) as meetings to search
+  and summarize
+• Crash-safe: recordings save as you go, and an interrupted
+  transcription carries on where it stopped
 
 TRANSCRIPTION THAT RESPECTS PRIVACY
 • On-device Whisper models — from 75 MB Tiny to Large v3 Turbo
 • NVIDIA Parakeet (25 languages) and Nemotron engines, also on-device
 • Speaker detection with reusable voice profiles
 • Custom vocabulary so your names and jargon come out right
+• Clear voice: remove background noise from a recording on your
+  phone; switch back to the original at any moment
 • Spoken language detected or chosen; AI summaries follow it, or
   translate speech to English
 
@@ -34,32 +39,28 @@ AI SUMMARIES — EVEN OFFLINE
 • Llama models: Built with Llama. Models download on demand under their
   publishers' licences, shown in the app.
 • Or connect your own endpoint (Ollama on your PC, Groq, OpenRouter)
-• Enhance rough notes into complete minutes using the transcript
-• "Catch me up" mid-meeting recap when you join late
+• Turn rough notes into complete minutes
 • Clinical and legal summaries are drafts for professional review, not
   medical records or legal advice.
 • Report problematic AI output from inside the app
 
 FIND IT, FIX IT
-• Search shows the words around each match and jumps to that moment,
-  photo text included; find in meeting with next/previous
-• Find & replace across a meeting, with undo, keeping tap-to-seek
-• Free up space: remove old audio, keep transcripts; optional
-  automatic clean-up
+• Search that jumps to the moment, photo text included; find in
+  meeting; find & replace with undo
+• Free up space: remove old audio, keep transcripts
 
 STAY ON TOP OF FOLLOW-UPS
-• Action items with reminders, a cross-meeting follow-ups list, and
-  export to your task app
-• Pre-meeting briefs for recurring meetings, from the calendar nudge
-• Weekly digest, tags, recurring-meeting grouping
+• Action items with reminders and a follow-ups list; export to your
+  task app
+• Pre-meeting briefs for recurring meetings; weekly digest, tags
 
 BUILT FOR REAL WORK
 • Word-level tap-to-seek playback, speed control, skip-silence
-• Conversation insights: talk-time balance, questions, pace
 • Rich notes with checklists, photos, whiteboard OCR, file attachments
 • Share audio clips of key moments; mark one from the notification
-• Markdown/PDF export, encrypted backups
-• Biometric app lock and screenshot blocking
+• Export Markdown, PDF, Word or subtitles (SRT/VTT), or your whole
+  library as Markdown for Obsidian and other notes apps
+• Encrypted backups, biometric app lock, screenshot blocking
 
 DEVICE REQUIREMENTS (estimates)
 64-bit Android 8.0+ (arm64 or x86_64). Recommended: 4 GB RAM or more;
@@ -87,4 +88,4 @@ consent.
 
 Recap is open source.
 ----------------------------------------------------------------
-(char count 3,930, counting line breaks — under the 4,000 limit)
+(char count 3,960, counting line breaks — under the 4,000 limit)

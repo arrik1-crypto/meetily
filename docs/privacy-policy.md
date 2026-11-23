@@ -27,9 +27,15 @@ how to delete it.
 All of this is kept in Recap's private storage, which other apps cannot read:
 
 - Meetings: title, date, transcript with timings and speaker names, the
-  language it was spoken in (when known), your notes, summaries, action
-  items and reminders, highlights, topics, tags and attendee names.
+  language it was spoken in (when known), where an unfinished transcription
+  stopped, your notes, summaries, action items and reminders, highlights,
+  topics, tags and attendee names.
 - Meeting audio, when kept. On-device transcription keeps it by default.
+- Files you import: a recording, the sound of a video (only the sound is
+  kept when it can be taken out on the phone; otherwise the whole file),
+  or a WebVTT or SRT transcript, which becomes a meeting without audio.
+- A clear-voice copy of a meeting's audio, if you make one: the audio with
+  background noise removed on the phone. Nothing is sent anywhere.
 - Photos you attach, the text read from them, and files you attach.
 - Voice profiles you save: a voiceprint (numbers describing how a person
   sounds, used to recognise them in later meetings) and the short recordings
@@ -48,6 +54,8 @@ Android does not copy any of this off the phone. The in-app backup
 (Settings → Data) writes a file to a place you choose. It contains meetings,
 audio, photos, attached files and voice profiles, can be encrypted with a
 passphrase (AES-256), and never includes settings or API keys.
+Clear-voice copies are not included; they can be made again from the
+recording.
 
 ## Transcription
 
@@ -55,7 +63,12 @@ By default Recap transcribes on the phone with a model you download once
 (Whisper, Parakeet or Nemotron). Until a model is downloaded, meetings are
 recorded as audio only and can be transcribed later. Neither the audio nor the
 words leave the phone. Speaker detection and voice profiles also work entirely
-on the phone.
+on the phone. Imported recordings and videos are transcribed the same way;
+the sound of a video is taken out on the phone, and an imported WebVTT or SRT
+transcript is read on the phone. A transcription that stops part-way can be
+continued later from where it stopped, also on the phone. Clear voice, which
+removes background noise from a recording, uses a small model built into the
+app and runs on the phone too.
 
 If you turn off on-device transcription in Settings, Recap uses Android's
 speech service instead. On most phones that service is Google's, and Android
@@ -137,6 +150,13 @@ When you share or export a meeting, audio, a clip, action items, a digest or a
 backup, it goes where you choose and is then outside Recap's control. Recap
 never shares your content on its own.
 
+Exports of every kind (Markdown, PDF, Word, subtitles, and your whole library
+as Markdown files in a folder) are written only to a file or folder you pick
+in Android's picker, and Recap sends them nowhere. If you pick a location
+backed by a cloud service, that provider's own terms apply. For a library
+export, Recap keeps access to the folder you picked only while the export
+runs.
+
 ## No analytics, ads or accounts
 
 Recap has no sign-in, shows no ads, and contains no analytics or tracking of
@@ -153,9 +173,9 @@ reports or messages you choose to send.
   as a webinar. Android asks each time, and only the audio is captured, never
   the screen.
 - **Calendar (optional):** read-only, as described below.
-- **Notifications:** recording, transcription and download progress,
-  reminders, meeting nudges, and storage clean-up notices if you turn
-  automatic clean-up on.
+- **Notifications:** recording, transcription, clear-voice and download
+  progress, reminders, meeting nudges, and storage clean-up notices if you
+  turn automatic clean-up on.
 - **Internet:** model downloads, your AI endpoint if you set one up, and ML Kit
   diagnostics.
 - **Network state:** Recap uses it only to warn before a large model download
@@ -163,12 +183,14 @@ reports or messages you choose to send.
   Kit also uses it, and its diagnostics include the type of connection (see
   Reading text in photos).
 - **Running in the background, starting after a restart, exact alarms and
-  keeping the phone awake:** so recordings, transcriptions and downloads
-  finish with the screen off, reminders arrive on time, and automatic
-  clean-up, if you turn it on, runs once a day.
+  keeping the phone awake:** so recordings, transcriptions, clear-voice
+  copies and downloads finish with the screen off, reminders arrive on
+  time, and automatic clean-up, if you turn it on, runs once a day.
 
 Photos come from your camera app or the system picker; Recap has no camera or
-photo-library permission.
+photo-library permission. Files you import come from the share sheet, "Open
+with" or the system picker, which give Recap access to those files only;
+Recap has no storage permission.
 
 ## Calendar
 
@@ -188,7 +210,9 @@ clean-up. That Storage screen also deletes downloaded models you no longer
 use, and can turn on automatic clean-up: once a day, on the phone, it
 removes the audio of meetings, or the meetings themselves, once they are
 older than a number of days you choose. Automatic clean-up is off unless you
-turn it on, and leaves starred and recently changed meetings alone. Saved
+turn it on, and leaves starred and recently changed meetings alone.
+Deleting a meeting or removing its audio also deletes its clear-voice copy,
+and the copy can be deleted on its own from the player. Saved
 voices are deleted under Settings → Voice profiles, and downloaded models
 also from their lists in Settings. To remove everything, uninstall the app:
 Android's Manage space button for Recap opens Recap's Storage screen rather

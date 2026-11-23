@@ -13,7 +13,10 @@ Baseline, verified in this repo:
   which embed the same released ggml, 1.0.0; before that it was b10089
   (ggml 0.17.0) and v1.8.6 (ggml 0.13.1).
 - `llama_jni.c` never sets `mparams.n_gpu_layers`.
-- sherpa-onnx runs `provider = "cpu"` (`NemoEngine.kt`, `SherpaEmbedder.kt`).
+- sherpa-onnx runs `provider = "cpu"` (`SherpaConfigs.kt`, which builds the
+  configs `NemoEngine.kt`, `SherpaEmbedder.kt` and, since Batch 5, the Clear
+  voice denoiser use). Since Batch 5 it is v2.0.3, bundling ONNX Runtime
+  1.28.2 (v1.13.4 with 1.27.0 before).
 - The only acceleration in the app today is CPU-side: arm64 NEON, 2–6
   threads, quantized weights, the q8_0 KV cache + flash attention added
   in v2.9.0-beta3, and, since Batch 3, Arm KleidiAI's runtime-dispatched
@@ -35,11 +38,14 @@ Baseline, verified in this repo:
   `armv8-a`: emulated SDOT for every quantized dot product, F16 maths
   converted through f32, and the dotprod/i8mm repack GEMMs compiled out
   (ggml checks these features at compile time only). There are now two
-  builds of the JNI pair. The baseline stays `armv8-a`, because minSdk 26
-  still admits Cortex-A53/A73 phones, which would SIGILL on anything newer.
-  `:native-v82` builds `armv8.2-a+dotprod+fp16`, and `CpuFeatures.kt` loads
-  that pair only when every core lists `asimddp`, `asimdhp` and `fphp` in
-  `/proc/cpuinfo`. In ggml's own kernels, i8mm/SVE (armv8.6+) still take
+  builds of the JNI code: until Batch 5 a whisper/llama pair per level,
+  since Batch 5 one library per level (below). The baseline stays
+  `armv8-a`, because minSdk 26 still admits Cortex-A53/A73 phones, which
+  would SIGILL on anything newer. `:native-v82` builds
+  `armv8.2-a+dotprod+fp16`, and `NativeEngines.kt` loads that build only
+  when `CpuFeatures.kt` finds that every core lists `asimddp`, `asimdhp`
+  and `fphp` in `/proc/cpuinfo`, falling back to the baseline if it does
+  not load. In ggml's own kernels, i8mm/SVE (armv8.6+) still take
   the dotprod path. Getting those means runtime variants (`GGML_BACKEND_DL`
   + `GGML_CPU_ALL_VARIANTS`), which needs ggml, whisper and llama built as
   shared libraries and the variant MODULE libraries packaged. Not
@@ -120,7 +126,12 @@ Baseline, verified in this repo:
     tag `meetily_ggml` (they went to stderr, which an app discards), so a
     phone shows whether it engaged: `load_tensors: CPU_KLEIDIAI model
     buffer size = ...`, and once per process `kleidiai: primary q8 kernel
-    feature DOTPROD` (or `I8MM`) and `kleidiai: SME disabled`. The q4_k
+    feature DOTPROD` (or `I8MM`) and `kleidiai: SME disabled`. Since
+    Batch 5 whisper.cpp installs the same forwarder before every model and
+    speech-gate load (they share one ggml, whose log callback is
+    process-wide), so whisper.cpp's warnings reach `meetily_ggml` too, and
+    the kernel line comes at whichever engine's first load is first: it
+    may come with a Whisper or speech-gate load, not the LLM's. The q4_k
     line reads `kleidiai: no compatible q4_k kernels found for CPU features
     mask ...`, which is expected, not a failure.
   - **Device check before keeping it on:** on one dotprod phone, summarise
@@ -153,7 +164,82 @@ Baseline, verified in this repo:
   SIGILL tiering is unaffected. After-sizes: see the "Check native
   library exports" step of the first CI run, which prints the previous
   published APK beside the new build. Step 2 of the roadmap's export item,
-  merging the two libraries into one per CPU level (E27), is still open.
+  merging the two libraries into one per CPU level (E27), was done in
+  Batch 5 (next bullet), so these two libraries no longer exist; the
+  9,465 and 3,654 figures stay as the "before" history.
+- **One native library per CPU level (2026-11, Batch 5, E27):**
+  `libmeetily_native.so` (plain `armv8-a` on arm64, and x86_64) and
+  `libmeetily_native_v82.so` (`armv8.2-a+dotprod+fp16`, arm64 only) replace
+  `libmeetily_whisper`/`libmeetily_llama` and their `_v82` builds. Each
+  holds whisper.cpp, llama.cpp, llama-common, the Silero speech gate, one
+  ggml (with KleidiAI on arm64) and one static libc++, and exports 18
+  `Java_` entry points. llama.cpp v1.0.0 and whisper.cpp b5907 carry
+  byte-identical ggml (all 22 public headers and the CMake files match),
+  and CMake now fails the configure if ggml comes from anywhere else.
+  Compile flags per level are unchanged, so the SIGILL tiering is the same.
+  `engine_log.c` holds the log forwarder both engines install.
+  `NativeEngines.kt` loads the library once per process (warmed off the
+  main thread on the recording screen and the Settings switch, since the
+  first load now maps llama.cpp too) and logs under `meetily_native`.
+  *Size saving:* expected to be roughly the ggml, KleidiAI and libc++ copy
+  the whisper library carried, about 1 MB uncompressed per CPU level on
+  arm64 and less zipped, but not measured yet: take it from the "Check
+  native library exports" CI log ("change: file ..., zipped ..." per ABI,
+  against the previous dist APK, whose four engine libraries count as the
+  "before"), and record it here. For scale, the 3.18.0-beta1 arm64 APK
+  held `libmeetily_llama.so` 7,144,736 bytes and `libmeetily_whisper.so`
+  1,876,496 (`_v82`: 7,150,464 and 1,881,008).
+- **sherpa-onnx v2.0.3 (2026-11, Batch 5):** from v1.13.4, with ONNX
+  Runtime 1.28.2 (was 1.27.0). arm64 native code grows by about 1.2 MB
+  uncompressed: `libsherpa-onnx-jni.so` 4,710,728 → 5,386,920 bytes and
+  `libonnxruntime.so` 21,688,912 → 22,249,560; x86_64 is 5,913,864 +
+  25,581,120. The fetch now checks a pinned SHA-256, and CI runs
+  `scripts/check_sherpa_jni.py` after it (every native of the vendored
+  Kotlin API exported on both ABIs, 16 KB alignment, NEEDED libraries,
+  version stamp). The CPU provider and thread counts are unchanged.
+  - *Robustness:* since v2.0.0 the recognizer constructors turn
+    onnxruntime errors into Java exceptions, so a corrupt Parakeet or
+    Nemotron file fails cleanly ("Could not load the … model" on import).
+    The speaker-embedding extractor's constructor still does not (v2.0.3):
+    a file onnxruntime rejects aborts the process, and one without the
+    metadata its model class reads crashes on first use. So Recap checks a
+    speaker model's ONNX structure and metadata first (`OnnxSanity.kt`) and
+    skips speaker detection when it fails.
+  - *Speech detection, decision: keep the whisper.cpp Silero v6.2 gate
+    (`SileroVad`/`SpeechGate`); do not move to sherpa-onnx's own Silero
+    VAD.* It was re-evaluated after the bump, since its long-stream
+    SIGSEGV (#4079, fixed in 2.0.0) and its Flush sample drop (#4147,
+    fixed in 2.0.2) are gone. (a) The current design's only cost to the
+    NeMo paths (Parakeet and Nemotron, import and live) is loading the
+    whisper.cpp code just for the gate: before the merge,
+    `libmeetily_whisper.so`, 1,876,496 bytes on arm64 (1,881,008 for the
+    v8.2 build) of file-backed code, plus an 885,098-byte model copied once
+    to `noBackupFilesDir`. Summaries load the ggml stack in the same
+    process anyway, and since the merge the gate and the engines share one
+    library. (b) sherpa-onnx's `Vad` would fit the `SpeechDetector`
+    interface (`Vad.compute` returns one probability per window, and all 12
+    `Vad` natives are exported in v2.0.3), but it needs `Vad.kt` vendored,
+    a new bundled model (the asr-models `silero_vad.onnx`, 643,854 bytes,
+    or `silero_vad_v5.onnx`, 2,313,101 bytes; Silero is MIT), recalibrated
+    thresholds and a new self-test, and it is a different Silero export
+    from the v6.2 the gate was tuned on. (c) The shipped gate has no known
+    field failures. Its known limits are by design: music and tones can
+    score as speech and are kept, it fails open on any load or self-test
+    failure, and it has not been measured on a phone. No concrete benefit
+    was found, so nothing changed. Revisit if loading the merged library
+    on NeMo-only paths shows up in startup or memory measurements.
+- **Clear voice, GTCRN (2026-11, Batch 5):** the bundled `gtcrn_simple.onnx`
+  (535,638 bytes, MIT) runs through sherpa-onnx's offline speech denoiser
+  on one thread at background priority. On a host CPU it ran at a real-time
+  factor of 0.042 with one thread and 0.048 with two or four, so more
+  threads do not help and Recap uses one; not measured on a phone (the
+  2-hour device check in PLAY_RELEASE.md records that). It works in 30 s
+  blocks (`EnhanceBlocks.kt`) so a long meeting is never in memory whole;
+  each block also runs a 2 s warm-up, a 0.25 s cross-fade and a 64 ms
+  run-out it does not keep, which costs about 7.7% extra work: (2 s +
+  0.25 s + 64 ms) / 30 s. On Android 15+ it runs as a mediaProcessing
+  foreground service and shares that type's six-hour daily allowance with
+  transcription.
 
 ---
 
@@ -314,8 +400,9 @@ a multi-minute job on a phone.
    instead of `"cpu"`. sherpa-onnx falls back to CPU with a log line if the
    EP is absent, so it cannot break anything. Note that NNAPI is a dead end
    twice over — deprecated by Google in Android 15 and by ONNX Runtime, and
-   the prebuilt sherpa-onnx Android libraries are built at `android-21`,
-   which compiles the NNAPI EP out entirely. Setting `provider = "nnapi"`
+   the prebuilt sherpa-onnx Android libraries were built at `android-21`,
+   which compiles the NNAPI EP out entirely (checked for v1.13.4; not
+   re-checked for v2.0.3). Setting `provider = "nnapi"`
    today silently gives you CPU. There is no QNN provider in sherpa-onnx at
    all, and it would be Qualcomm-only regardless.
 
