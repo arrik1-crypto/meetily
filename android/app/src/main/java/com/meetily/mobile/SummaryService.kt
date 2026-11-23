@@ -129,6 +129,7 @@ class SummaryService : Service() {
         lastStopped = false
         lastFailure = null
         lastFailureHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
+        lastLocalNetworkText = null
         // finishRun clears the abort flag when a stopped run ends; clearing it
         // here as well means nothing left over can kill this run's first
         // decode.
@@ -352,6 +353,7 @@ class SummaryService : Service() {
             var parsedItems: List<com.meetily.mobile.data.ActionItem>? = null
             var generationFailed = false
             var llmFailure: String? = null
+            var localNetworkText: String? = null
             var localNetworkHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
             val result = try {
                 if (useLlm) {
@@ -374,16 +376,22 @@ class SummaryService : Service() {
                 // A local AI server never reached is said plainly; on Android
                 // 17 with a build targeting it, that can be the permission.
                 localNetworkHint = LocalNetworkUi.hint(this, e)
-                llmFailure = LocalNetworkUi.failureText(this, e)
+                localNetworkText = LocalNetworkUi.failureText(this, e)
+                llmFailure = localNetworkText
                     ?: e.message ?: getString(R.string.platform_error_unknown)
                 val fallback = ExtractiveSummarizer.summarize(
                     rawTranscript, notes, highlights, template.extractiveActionsOnly,
                     englishHeuristics
                 )
-                getString(
+                // The hint is a whole sentence, so it heads the fallback on
+                // its own rather than inside the usual parentheses.
+                val header = localNetworkText?.let {
+                    getString(R.string.platform_lan_fallback_header, it)
+                } ?: getString(
                     R.string.llm_failed_fallback,
                     e.message ?: getString(R.string.platform_error_unknown)
-                ) + "\n\n" + fallback
+                )
+                header + "\n\n" + fallback
             } finally {
                 // Only our own: a timed-out worker finishing late must not
                 // wipe the listener of a newer run waiting on the model.
@@ -407,6 +415,11 @@ class SummaryService : Service() {
                 return@Thread
             }
             if (llmFailure != null) {
+                // Whichever way this ends, kept or written as the on-device
+                // fallback, the screens and the notification say a local
+                // server was out of reach, with the way to the permission.
+                lastLocalNetworkText = localNetworkText
+                lastFailureHint = localNetworkHint
                 // A failed regeneration must not cost the user what they had.
                 // Saving the fallback here replaced a good summary with an
                 // error line and swapped curated action items for regex
@@ -418,7 +431,6 @@ class SummaryService : Service() {
                     current.actionItems.isNotEmpty()
                 ) {
                     lastFailure = llmFailure
-                    lastFailureHint = localNetworkHint
                     main.post { finishRun(meetingId, failed = true) }
                     return@Thread
                 }
@@ -505,6 +517,9 @@ class SummaryService : Service() {
                     "summary for $meetingId could not be written to disk"
                 )
                 lastFailure = getString(R.string.summary_save_failed)
+                // Nothing was written, so that is the news, not the server.
+                lastLocalNetworkText = null
+                lastFailureHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
             }
 
             main.post { finishRun(meetingId, failed = !saved) }
@@ -746,10 +761,19 @@ class SummaryService : Service() {
             failed -> getString(R.string.summary_failed_notif)
             else -> getString(R.string.summary_done_notif)
         }
+        val text = when {
+            currentMode != MODE_SUMMARY -> null
+            failed -> lastFailure
+            // Written on the phone because a local server was out of reach:
+            // "Summary ready" alone would hide that.
+            else -> lastLocalNetworkText
+        }
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_sparkle)
             .setContentTitle(title)
-            .setContentText(if (failed && currentMode == MODE_SUMMARY) lastFailure else null)
+            .setContentText(text)
+            // The local network hints run to two sentences.
+            .setStyle(text?.let { NotificationCompat.BigTextStyle().bigText(it) })
             .setAutoCancel(true)
             .setSilent(true)
             .setContentIntent(openMeetingIntent(meetingId, 7))
@@ -924,6 +948,17 @@ class SummaryService : Service() {
          */
         @Volatile
         var lastFailureHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
+            internal set
+
+        /**
+         * What to say about the local AI server the summary run observers
+         * were just told about could not reach (LocalNetworkUi.failureText),
+         * for a failed run and for one that wrote the on-device fallback
+         * instead; null when the local network was not why. [lastFailureHint]
+         * says whether the permission is the way out.
+         */
+        @Volatile
+        var lastLocalNetworkText: String? = null
             internal set
         private const val CHANNEL_ID = "summary"
         private const val NOTIF_ID = 50

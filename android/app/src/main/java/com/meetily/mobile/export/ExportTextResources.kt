@@ -19,6 +19,10 @@ object ExportTextResources {
         // Read without arguments, so the %1$d stays for ExportText.count.
         photosMarkdown = context.getString(R.string.exporttext_photos_markdown),
         photosWord = context.getString(R.string.exporttext_photos_word),
-        fromMeeting = context.getString(R.string.exporttext_from_meeting)
+        fromMeeting = context.getString(R.string.exporttext_from_meeting),
+        shareAttendees = context.getString(R.string.exporttext_share_attendees),
+        shareSummary = context.getString(R.string.exporttext_share_summary),
+        shareNotes = context.getString(R.string.exporttext_share_notes),
+        shareTranscript = context.getString(R.string.exporttext_share_transcript)
     )
 }

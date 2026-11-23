@@ -163,13 +163,23 @@ class MeetingDetailActivity : AppCompatActivity() {
                 else -> {
                     // The summarizing UI comes down whatever the run saved.
                     requestSync(summaryDone = true)
-                    // The meeting was left as it was; say why nothing changed.
-                    if (failed) {
-                        val why = getString(
+                    // A failed run left the meeting as it was; say why nothing
+                    // changed. A local AI server out of reach is said either
+                    // way, also when the on-device fallback was written
+                    // instead. Its hint is a whole sentence, so it gets its
+                    // own wording rather than summary_failed_kept's brackets.
+                    val lan = SummaryService.lastLocalNetworkText
+                    val why = when {
+                        lan != null && failed -> getString(R.string.platform_lan_summary_kept, lan)
+                        lan != null -> getString(R.string.platform_lan_summary_fallback, lan)
+                        failed -> getString(
                             R.string.summary_failed_kept,
                             SummaryService.lastFailure ?: getString(R.string.platform_error_unknown)
                         )
-                        if (SummaryService.lastFailureHint ==
+                        else -> null
+                    }
+                    if (why != null) {
+                        if (lan != null && SummaryService.lastFailureHint ==
                             com.meetily.mobile.security.LocalNetworkAccess.Hint.ALLOW_ACCESS
                         ) {
                             // The fix is a permission: offer the way to it.
@@ -1298,12 +1308,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         val inflater = LayoutInflater.from(this)
         for (share in stats.shares.take(8)) {
             val row = inflater.inflate(R.layout.item_stat_speaker, list, false)
-            row.findViewById<TextView>(R.id.statSpeakerName).text =
-                if (share.name == com.meetily.mobile.summarize.MeetingStats.UNATTRIBUTED) {
+            val cluster = share.clusterId
+            row.findViewById<TextView>(R.id.statSpeakerName).text = when {
+                // An unnamed voice, labelled as the transcript labels it.
+                cluster != null -> getString(R.string.speaker_cluster_label, cluster)
+                share.name == com.meetily.mobile.summarize.MeetingStats.UNATTRIBUTED ->
                     getString(R.string.stats_unattributed)
-                } else {
-                    share.name
-                }
+                else -> share.name
+            }
             row.findViewById<TextView>(R.id.statSpeakerDetail).text = getString(
                 R.string.stats_share_detail,
                 share.percent, formatClock(share.ms.toInt()), share.turns
@@ -1315,7 +1327,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             list.addView(row)
         }
         footer.text = buildString {
-            val monologue = stats.longestMonologueSpeaker
+            val monologue = stats.longestMonologueCluster
+                ?.let { getString(R.string.speaker_cluster_label, it) }
+                ?: stats.longestMonologueSpeaker
             if (monologue != null) {
                 append(
                     getString(
@@ -2885,24 +2899,9 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun shareMeeting() {
         val m = meeting ?: return
         saveEdits()
-        val text = buildString {
-            append(m.title).append('\n')
-            append(
-                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                    .format(Date(m.createdAtMs))
-            ).append("\n\n")
-            if (m.attendees.isNotEmpty()) {
-                append("ATTENDEES\n").append(m.attendeesText()).append("\n\n")
-            }
-            if (m.summary.isNotBlank()) {
-                append("SUMMARY\n")
-                append(AiDisclaimers.prependTo(m.summary, summaryNotices())).append("\n\n")
-            }
-            if (m.notes.isNotBlank()) {
-                append("NOTES\n").append(m.notes).append("\n\n")
-            }
-            append("TRANSCRIPT\n").append(m.transcriptTextWithSpeakers())
-        }
+        val text = MeetingExporter.shareText(
+            m, summaryNotices(), com.meetily.mobile.export.ExportTextResources.load(this)
+        )
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, m.title)

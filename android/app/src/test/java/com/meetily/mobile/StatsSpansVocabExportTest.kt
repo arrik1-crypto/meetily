@@ -84,6 +84,42 @@ class StatsSpansVocabExportTest {
         assertNull(stats.longestMonologueSpeaker) // longest run is unattributed
     }
 
+    @Test
+    fun statsKeepUnnamedClustersApartFromNames() {
+        val text = "word ".repeat(60).trim()
+        fun cluster(id: Int) = TranscriptSegment(timestampMs = 0L, text = text, clusterId = id)
+        val segments = listOf(
+            cluster(2), cluster(2), cluster(2),
+            seg(text, "Ana"),
+            // A person who happens to be named like a cluster label.
+            seg(text, "Speaker 2")
+        )
+        val stats = MeetingStats.compute(segments, minSegments = 3, minTotalMs = 1_000L)!!
+        // The screen labels the cluster from its id (speaker_cluster_label);
+        // the name is an internal key, never "Speaker 2".
+        val unnamed = stats.shares.first { it.clusterId != null }
+        assertEquals(2, unnamed.clusterId)
+        assertFalse(unnamed.name == "Speaker 2")
+        assertEquals(3, stats.shares.size)
+        assertNull(stats.shares.first { it.name == "Speaker 2" }.clusterId)
+        assertNull(stats.shares.first { it.name == "Ana" }.clusterId)
+        // The longest run is the cluster's: reported by id, not as a name.
+        assertEquals(2, stats.longestMonologueCluster)
+        assertNull(stats.longestMonologueSpeaker)
+    }
+
+    @Test
+    fun statsNameTheLongestRunOfANamedSpeaker() {
+        val text = "word ".repeat(60).trim()
+        val segments = listOf(
+            TranscriptSegment(timestampMs = 0L, text = text, clusterId = 1),
+            seg(text, "Ana"), seg(text, "Ana"), seg(text, "Ana")
+        )
+        val stats = MeetingStats.compute(segments, minSegments = 3, minTotalMs = 1_000L)!!
+        assertEquals("Ana", stats.longestMonologueSpeaker)
+        assertNull(stats.longestMonologueCluster)
+    }
+
     // --- SpeechSpans --------------------------------------------------------
 
     @Test

@@ -88,6 +88,34 @@ object MeetingExporter {
         }
     }
 
+    /**
+     * The meeting as the plain text Share sends: title, date, then each part
+     * the meeting has under a capitalised heading, the transcript last.
+     * [notices] and [text] as in [markdown], [text]'s share headings here.
+     */
+    fun shareText(
+        meeting: Meeting,
+        notices: List<String> = emptyList(),
+        text: ExportText = ExportText()
+    ): String = buildString {
+        append(meeting.title).append('\n')
+        append(
+            DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+                .format(Date(meeting.createdAtMs))
+        ).append("\n\n")
+        if (meeting.attendees.isNotEmpty()) {
+            append(text.shareAttendees).append('\n').append(meeting.attendeesText()).append("\n\n")
+        }
+        if (meeting.summary.isNotBlank()) {
+            append(text.shareSummary).append('\n')
+            append(AiDisclaimers.prependTo(meeting.summary, notices)).append("\n\n")
+        }
+        if (meeting.notes.isNotBlank()) {
+            append(text.shareNotes).append('\n').append(meeting.notes).append("\n\n")
+        }
+        append(text.shareTranscript).append('\n').append(meeting.transcriptTextWithSpeakers())
+    }
+
     /** [notices] and [text] as in [markdown]. */
     fun writePdf(
         meeting: Meeting,

@@ -54,8 +54,10 @@ class LocalNetworkAccessTest {
     fun sharedAddressSpaceAndLinkLocal() {
         // 100.64.0.0/10, which the platform lists as local (Tailscale lives here).
         assertEquals(Kind.OTHER, kind("100.63.255.255"))
-        assertEquals(Kind.LOCAL_NETWORK, kind("100.64.0.0"))
-        assertEquals(Kind.LOCAL_NETWORK, kind("100.127.255.255"))
+        // Local to the platform on Wi-Fi, but Tailscale's range too.
+        assertEquals(Kind.LOCAL_OR_VPN, kind("100.64.0.0"))
+        assertEquals(Kind.LOCAL_OR_VPN, kind("100.101.102.103"))
+        assertEquals(Kind.LOCAL_OR_VPN, kind("100.127.255.255"))
         assertEquals(Kind.OTHER, kind("100.128.0.0"))
 
         assertEquals(Kind.OTHER, kind("169.253.255.255"))
@@ -95,9 +97,13 @@ class LocalNetworkAccessTest {
     fun ipv6RangesAndTheirEdges() {
         // Unique local fc00::/7.
         assertEquals(Kind.OTHER, kind("fbff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"))
-        assertEquals(Kind.LOCAL_NETWORK, kind("fc00::"))
-        assertEquals(Kind.LOCAL_NETWORK, kind("fd12:3456:789a::1"))
-        assertEquals(Kind.LOCAL_NETWORK, kind("fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"))
+        // Unique local: a home prefix, or a VPN's.
+        assertEquals(Kind.LOCAL_OR_VPN, kind("fc00::"))
+        assertEquals(Kind.LOCAL_OR_VPN, kind("fd12:3456:789a::1"))
+        assertEquals(Kind.LOCAL_OR_VPN, kind("fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff"))
+        // Tailscale's own IPv6 range.
+        assertEquals(Kind.LOCAL_OR_VPN, kind("fd7a:115c:a1e0::1"))
+        assertEquals(Kind.LOCAL_OR_VPN, kind("[fd7a:115c:a1e0:ab12:4843:cd96:6258:b240]"))
         assertEquals(Kind.OTHER, kind("fe00::"))
         // Link-local fe80::/10.
         assertEquals(Kind.OTHER, kind("fe7f:ffff:ffff:ffff:ffff:ffff:ffff:ffff"))
@@ -117,8 +123,8 @@ class LocalNetworkAccessTest {
         // A zone, as a URL may carry one for a link-local server.
         assertEquals(Kind.LOCAL_NETWORK, kind("[fe80::1%wlan0]"))
         assertEquals(Kind.LOCAL_NETWORK, kind("fe80::1%25wlan0"))
-        assertEquals(Kind.LOCAL_NETWORK, kind("fd00:0:0:0:0:0:0:1"))
-        assertEquals(Kind.LOCAL_NETWORK, kind("[FD00::ABCD]"))
+        assertEquals(Kind.LOCAL_OR_VPN, kind("fd00:0:0:0:0:0:0:1"))
+        assertEquals(Kind.LOCAL_OR_VPN, kind("[FD00::ABCD]"))
     }
 
     @Test
@@ -127,6 +133,8 @@ class LocalNetworkAccessTest {
         assertEquals(Kind.LOCAL_NETWORK, kind("[::ffff:10.0.0.1]"))
         assertEquals(Kind.LOCAL_NETWORK, kind("::ffff:c0a8:0114"))
         assertEquals(Kind.LOOPBACK, kind("::ffff:127.0.0.1"))
+        assertEquals(Kind.LOCAL_OR_VPN, kind("::ffff:100.64.0.1"))
+        assertEquals(Kind.OTHER, kind("::ffff:100.128.0.1"))
         assertEquals(Kind.OTHER, kind("::ffff:8.8.8.8"))
         // The raw 16 bytes, as a resolver may hand them over.
         val mapped = ByteArray(16).also {
@@ -173,6 +181,12 @@ class LocalNetworkAccessTest {
         assertEquals(Kind.OTHER, LocalNetworkAccess.hostKind("example.com", listOf(public)))
         assertEquals(Kind.LOOPBACK, LocalNetworkAccess.hostKind("me.internal", listOf(loop)))
         assertEquals(Kind.OTHER, LocalNetworkAccess.hostKind("mixed.internal", listOf(loop, public)))
+        // A MagicDNS name resolving to a Tailscale address.
+        val tailnet = InetAddress.getByAddress(v4(100, 101, 102, 103))
+        assertEquals(Kind.LOCAL_OR_VPN, LocalNetworkAccess.hostKind("box.tail1234.ts.net", listOf(tailnet)))
+        // Plainly local ahead of maybe-VPN, whatever the order.
+        assertEquals(Kind.LOCAL_NETWORK, LocalNetworkAccess.hostKind("both.example", listOf(tailnet, lan)))
+        assertEquals(Kind.LOCAL_OR_VPN, LocalNetworkAccess.hostKind("vpn.example", listOf(public, tailnet)))
         // A literal is its own answer, whatever a resolver said.
         assertEquals(Kind.OTHER, LocalNetworkAccess.hostKind("8.8.8.8", listOf(lan)))
     }
@@ -191,6 +205,10 @@ class LocalNetworkAccessTest {
     @Test
     fun askOnlyForALocalHostWhenItApplies() {
         assertTrue(LocalNetworkAccess.shouldRequest(true, false, Kind.LOCAL_NETWORK))
+        // Erring towards local: a maybe-VPN host is asked for too.
+        assertTrue(LocalNetworkAccess.shouldRequest(true, false, Kind.LOCAL_OR_VPN))
+        assertFalse(LocalNetworkAccess.shouldRequest(true, true, Kind.LOCAL_OR_VPN))
+        assertFalse(LocalNetworkAccess.shouldRequest(false, false, Kind.LOCAL_OR_VPN))
         assertFalse(LocalNetworkAccess.shouldRequest(true, true, Kind.LOCAL_NETWORK))
         assertFalse(LocalNetworkAccess.shouldRequest(false, false, Kind.LOCAL_NETWORK))
         assertFalse(LocalNetworkAccess.shouldRequest(true, false, Kind.LOOPBACK))
@@ -237,6 +255,16 @@ class LocalNetworkAccessTest {
         val wrapped = RuntimeException("summary failed", lan)
         assertEquals(Hint.ALLOW_ACCESS, LocalNetworkAccess.hintFor(wrapped, applies = true, granted = false))
         assertSame(lan, LocalNetworkAccess.unreachableIn(wrapped))
+
+        // A Tailscale or ULA host: the network hint whatever the permission,
+        // never the permission dialog (a VPN is not what it covers).
+        val vpn = EndpointUnreachableException("100.101.102.103", Kind.LOCAL_OR_VPN, cause)
+        assertEquals(Hint.CHECK_NETWORK, LocalNetworkAccess.hintFor(vpn, applies = false, granted = false))
+        assertEquals(Hint.CHECK_NETWORK, LocalNetworkAccess.hintFor(vpn, applies = true, granted = false))
+        assertEquals(Hint.CHECK_NETWORK, LocalNetworkAccess.hintFor(vpn, applies = true, granted = true))
+        val ulaHost = "[fd7a:115c:a1e0::1]"
+        val ula = EndpointUnreachableException(ulaHost, LocalNetworkAccess.hostKind(ulaHost), cause)
+        assertEquals(Hint.CHECK_NETWORK, LocalNetworkAccess.hintFor(ula, applies = true, granted = false))
 
         val cloud = EndpointUnreachableException("api.example.com", Kind.OTHER, cause)
         assertEquals(Hint.NONE, LocalNetworkAccess.hintFor(cloud, applies = true, granted = false))

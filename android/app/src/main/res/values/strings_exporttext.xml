@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- The words the exports write into the files around a meeting's own
-         content (ExportText): Markdown, PDF, Word and the action items'
-         calendar file. They must stay identical to ExportText's defaults
-         (ExportTextTest checks it); a translation goes in values-xx. -->
+         content (ExportText): Markdown, PDF, Word, the action items'
+         calendar file and the plain-text share. They must stay identical to
+         ExportText's defaults (ExportTextTest checks it); a translation goes
+         in values-xx. -->
 
     <!-- Section headings, in the order the exports write them. -->
     <string name="exporttext_summary">Summary</string>
@@ -30,4 +31,12 @@
     <!-- A task's description in the exported calendar file, followed by a
          space and the meeting's title. -->
     <string name="exporttext_from_meeting">From meeting:</string>
+
+    <!-- The section headings of a meeting shared as plain text (Share), each
+         on a line of its own above the attendees, summary, notes and
+         transcript. Capitals, as they have always been. -->
+    <string name="exporttext_share_attendees">ATTENDEES</string>
+    <string name="exporttext_share_summary">SUMMARY</string>
+    <string name="exporttext_share_notes">NOTES</string>
+    <string name="exporttext_share_transcript">TRANSCRIPT</string>
 </resources>

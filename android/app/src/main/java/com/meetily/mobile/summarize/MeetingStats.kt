@@ -22,20 +22,39 @@ object MeetingStats {
 
     const val UNATTRIBUTED = " unattributed"
 
+    /**
+     * The key of an unnamed diarization cluster, before its number. A leading
+     * space, like [UNATTRIBUTED], so no speaker's name can be taken for it;
+     * the screen shows the cluster as its own "Speaker N" label.
+     */
+    private const val CLUSTER_KEY = " cluster "
+
+    /**
+     * [name] is the speaker's name, [UNATTRIBUTED], or for an unnamed
+     * diarization cluster an internal key not meant for display: [clusterId]
+     * is set then, and the screen labels it (speaker_cluster_label).
+     */
     data class SpeakerShare(
         val name: String,
         val ms: Long,
         val percent: Int,
-        val turns: Int
+        val turns: Int,
+        val clusterId: Int? = null
     )
 
+    /**
+     * [longestMonologueSpeaker] is a named speaker; an unnamed cluster's
+     * run is [longestMonologueCluster] instead. Both null when the longest
+     * run is unattributed.
+     */
     data class Stats(
         val totalSpeechMs: Long,
         val shares: List<SpeakerShare>,
         val longestMonologueMs: Long,
         val longestMonologueSpeaker: String?,
         val questionCount: Int,
-        val wordsPerMinute: Int
+        val wordsPerMinute: Int,
+        val longestMonologueCluster: Int? = null
     )
 
     /**
@@ -72,9 +91,13 @@ object MeetingStats {
         val speaker = segment.speaker
         if (!speaker.isNullOrBlank()) return speaker
         val cluster = segment.clusterId
-        if (cluster != null) return "Speaker $cluster"
+        if (cluster != null) return CLUSTER_KEY + cluster
         return UNATTRIBUTED
     }
+
+    /** The cluster [key] stands for, when it is an unnamed cluster's. */
+    fun clusterOf(key: String): Int? =
+        if (key.startsWith(CLUSTER_KEY)) key.removePrefix(CLUSTER_KEY).toIntOrNull() else null
 
     /**
      * Returns null when there isn't enough conversation to be worth showing:
@@ -128,7 +151,8 @@ object MeetingStats {
                     name = key,
                     ms = ms,
                     percent = (ms * 100 / totalMs).toInt().coerceIn(0, 100),
-                    turns = turnsBySpeaker[key] ?: 0
+                    turns = turnsBySpeaker[key] ?: 0,
+                    clusterId = clusterOf(key)
                 )
             }
             // Named speakers by share first; the unattributed bucket last.
@@ -146,9 +170,10 @@ object MeetingStats {
             shares = shares,
             longestMonologueMs = longestMs,
             longestMonologueSpeaker =
-                longestKey?.takeIf { it != UNATTRIBUTED },
+                longestKey?.takeIf { it != UNATTRIBUTED && clusterOf(it) == null },
             questionCount = questions,
-            wordsPerMinute = wpm
+            wordsPerMinute = wpm,
+            longestMonologueCluster = longestKey?.let(::clusterOf)
         )
     }
 }

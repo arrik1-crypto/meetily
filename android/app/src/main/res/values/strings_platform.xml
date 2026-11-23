@@ -4,16 +4,28 @@
          a user runs on their own network, for example an Ollama box at
          192.168.1.20. Android files the permission under "Nearby devices". -->
 
-    <!-- A summary or answer failed because a server on the local network
-         could not be reached at all. %1$s is the server's host, as typed in
-         Settings (an address such as 192.168.1.20, or a name). -->
-    <string name="platform_lan_unreachable">Couldn\'t reach %1$s on your local network. Check that this phone is on the same Wi-Fi as the AI server and that the server is running.</string>
+    <!-- A summary or answer failed because a server on the local network,
+         or behind a VPN such as Tailscale, could not be reached at all. %1$s
+         is the server's host, as typed in Settings (an address such as
+         192.168.1.20, or a name). A whole sentence: never put it inside
+         another message's parentheses. -->
+    <string name="platform_lan_unreachable">Couldn\'t reach the AI server at %1$s. Check that it\'s running and that this phone can reach it: on the same Wi-Fi, or with your VPN connected if you reach it through one.</string>
     <!-- As above, when Recap lacks the permission to reach the local network.
          %1$s is the server's host. -->
     <string name="platform_lan_needs_permission">Recap isn\'t allowed to reach devices on your local network, so it couldn\'t connect to %1$s. Allow Nearby devices for Recap in its app settings.</string>
     <!-- After saving settings: the user declined the permission. %1$s is the
-         AI endpoint's host. -->
-    <string name="platform_lan_denied">Without access to your local network, Recap can\'t reach the AI endpoint at %1$s, so summaries and answers from it will fail. You can allow Nearby devices for Recap in its app settings.</string>
+         AI endpoint's host. The permission covers Wi-Fi and Ethernet only; a
+         VPN still reaches the endpoint, hence "over Wi-Fi or Ethernet". -->
+    <string name="platform_lan_denied">Without access to your local network, Recap can\'t reach the AI endpoint at %1$s over Wi-Fi or Ethernet, so summaries and answers from it will fail there. You can allow Nearby devices for Recap in its app settings.</string>
+    <!-- After a summary run that could not reach a local AI server. %1$s is
+         one of the two messages above, a whole sentence. First when a
+         regeneration failed and the meeting kept what it had; second when a
+         first summary was made on the phone instead. -->
+    <string name="platform_lan_summary_kept">%1$s Your previous summary and action items were kept.</string>
+    <string name="platform_lan_summary_fallback">%1$s This summary was made on the phone instead.</string>
+    <!-- The first line of such an on-device summary, saved with the meeting.
+         %1$s is one of the two messages above. -->
+    <string name="platform_lan_fallback_header">%1$s Showing on-device summary instead:</string>
     <!-- Title of the dialog that explains the permission. -->
     <string name="platform_lan_permission_title">Local network access</string>
     <!-- Button: opens the system's settings page for Recap. -->

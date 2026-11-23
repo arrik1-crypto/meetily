@@ -47,7 +47,7 @@ class ExportTextTest {
         val nodes = doc.getElementsByTagName("string")
         val s = (0 until nodes.length).map { nodes.item(it) as Element }
             .associate { it.getAttribute("name") to it.textContent }
-        assertEquals(12, s.size)
+        assertEquals(16, s.size)
         return ExportText(
             summary = s.getValue("exporttext_summary"),
             actionItems = s.getValue("exporttext_action_items"),
@@ -60,7 +60,11 @@ class ExportTextTest {
             untitled = s.getValue("exporttext_untitled"),
             photosMarkdown = s.getValue("exporttext_photos_markdown"),
             photosWord = s.getValue("exporttext_photos_word"),
-            fromMeeting = s.getValue("exporttext_from_meeting")
+            fromMeeting = s.getValue("exporttext_from_meeting"),
+            shareAttendees = s.getValue("exporttext_share_attendees"),
+            shareSummary = s.getValue("exporttext_share_summary"),
+            shareNotes = s.getValue("exporttext_share_notes"),
+            shareTranscript = s.getValue("exporttext_share_transcript")
         )
     }
 
@@ -149,6 +153,33 @@ class ExportTextTest {
         assertEquals("Meeting", docxTexts(meeting(title = "")).first())
     }
 
+    /** What Share sent before the headings moved into ExportText. */
+    @Test
+    fun shareTextIsByteIdenticalInEnglish() {
+        val m = meeting()
+        val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+            .format(Date(m.createdAtMs))
+        val expected = "Team Sync\n" +
+            date + "\n\n" +
+            "ATTENDEES\nAl, Bo\n\n" +
+            "SUMMARY\nA notice\n\nthe summary\n\n" +
+            "NOTES\nsome notes\n\n" +
+            "TRANSCRIPT\nAl: hello\nnoted"
+        assertEquals(expected, MeetingExporter.shareText(m, listOf("A notice")))
+        assertEquals(expected, MeetingExporter.shareText(m, listOf("A notice"), fromResources()))
+        // A meeting with nothing but a transcript keeps only its heading.
+        val bare = Meeting(
+            id = "m2", title = "Solo", createdAtMs = 1_700_000_000_000L,
+            segments = mutableListOf(TranscriptSegment(1_700_000_001_000L, "only line"))
+        )
+        val bareDate = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
+            .format(Date(bare.createdAtMs))
+        assertEquals(
+            "Solo\n$bareDate\n\nTRANSCRIPT\nonly line",
+            MeetingExporter.shareText(bare, listOf("A notice"), fromResources())
+        )
+    }
+
     @Test
     fun calendarFileIsByteIdenticalInEnglish() {
         val items = listOf(TaskExport.Item("Send deck", "Ana", null, "Weekly sync"))
@@ -164,7 +195,8 @@ class ExportTextTest {
             transcript = "Mitschrift", date = "Datum:", duration = "Dauer:",
             attendees = "Teilnehmende:", tags = "Schlagwörter:", untitled = "Besprechung",
             photosMarkdown = "%1\$d Fotos (Markdown)", photosWord = "%1\$d Fotos (Word)",
-            fromMeeting = "Aus der Besprechung:"
+            fromMeeting = "Aus der Besprechung:", shareAttendees = "TEILNEHMENDE",
+            shareSummary = "ZUSAMMENFASSUNG", shareNotes = "NOTIZEN", shareTranscript = "MITSCHRIFT"
         )
         val md = MeetingExporter.markdown(meeting(), emptyList(), other)
         for (word in listOf(
@@ -186,6 +218,13 @@ class ExportTextTest {
         assertEquals("Besprechung", docxTexts(meeting(title = ""), other).first())
         val ics = TaskExport.ics(listOf(TaskExport.Item("T", null, null, "M")), 0L, other)
         assertTrue(ics.contains("DESCRIPTION:Aus der Besprechung: M"))
+        val shared = MeetingExporter.shareText(meeting(), emptyList(), other)
+        for (heading in listOf("TEILNEHMENDE\n", "ZUSAMMENFASSUNG\n", "NOTIZEN\n", "MITSCHRIFT\n")) {
+            assertTrue(heading, shared.contains(heading))
+        }
+        for (english in listOf("ATTENDEES", "SUMMARY", "NOTES", "TRANSCRIPT")) {
+            assertFalse(english, shared.contains(english))
+        }
     }
 
     @Test

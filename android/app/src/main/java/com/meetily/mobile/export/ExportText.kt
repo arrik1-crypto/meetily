@@ -4,7 +4,8 @@ import java.util.Locale
 
 /**
  * The words the exports write around a meeting's own content: section
- * headings, field labels and the photo line.
+ * headings, field labels and the photo line, and the headings of the
+ * meeting shared as plain text.
  *
  * The defaults are the English every export has always written, byte for
  * byte (ExportTextTest). The screens that export build one from string
@@ -36,7 +37,12 @@ data class ExportText(
     /** The Word export's last line; %1$d is how many photos. */
     val photosWord: String = "%1\$d photo attachment(s) stored in the Recap app.",
     /** A task's description in the calendar file, before the meeting's title. */
-    val fromMeeting: String = "From meeting:"
+    val fromMeeting: String = "From meeting:",
+    /** The plain-text share's section headings (MeetingExporter.shareText). */
+    val shareAttendees: String = "ATTENDEES",
+    val shareSummary: String = "SUMMARY",
+    val shareNotes: String = "NOTES",
+    val shareTranscript: String = "TRANSCRIPT"
 ) {
     /**
      * [template] with [count] in it. ASCII digits whatever the phone's

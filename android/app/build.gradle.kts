@@ -152,17 +152,15 @@ android {
         jvmTarget = "17"
     }
 
-    // Per-app language (Android 13+): AGP writes the locale list from
-    // res/resources.properties (en-US: the unqualified strings) and the
-    // app's values-xx folders, and adds android:localeConfig to the merged
-    // manifest. It also unions in every library's translations (AppCompat
-    // and Material carry dozens), which would offer languages the app is not
-    // written in; the filter keeps only what the app has. A translation adds
-    // its resource qualifier here along with its values-xx folder.
-    androidResources {
-        generateLocaleConfig = true
-        localeFilters += listOf("en-rUS")
-    }
+    // Per-app language (Android 13+) comes from the hand-written
+    // res/xml/locale_config.xml, not from androidResources.generateLocaleConfig.
+    // From AGP 8.8 the generated list carries android:defaultLocale (read from
+    // res/resources.properties), and that attribute crashes Android 15 and
+    // some Android 16 builds at every activity launch for a user whose system
+    // languages are all ones the app lacks (issuetracker b/399131926; AGP
+    // only stops writing it in 9.0.0-beta04). LocaleConfigTest keeps the
+    // generation off until then. A translation adds its <locale> to that file
+    // along with its values-xx folder.
 }
 
 dependencies {

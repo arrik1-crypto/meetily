@@ -32,45 +32,57 @@ object SystemSoundsGuard {
         false
     }
 
-    /** RecordingService has just muted [streams], each one unmuted before. */
-    fun remember(context: Context, streams: List<Int>) {
+    /**
+     * RecordingService has just muted [streams], each one unmuted before.
+     * [ringerBefore] and [ringerAfter] are the ringer mode before and right
+     * after (-1 when no ring-aliased stream was muted), so a ringer the mute
+     * moved can be put back too.
+     */
+    fun remember(context: Context, streams: List<Int>, ringerBefore: Int, ringerAfter: Int) {
         if (streams.isEmpty()) return
         synchronized(lock) {
-            prefs(context).edit()
-                .putString(
-                    KEY_RECORD,
-                    MutedStreams.encode(MutedStreams.Record(System.currentTimeMillis(), streams))
-                )
-                .apply()
+            val prefs = prefs(context)
+            val record = MutedStreams.adding(
+                MutedStreams.decode(prefs.getString(KEY_RECORD, null)),
+                MutedStreams.record(System.currentTimeMillis(), streams, ringerBefore, ringerAfter)
+            )
+            prefs.edit().putString(KEY_RECORD, MutedStreams.encode(record)).apply()
         }
     }
 
     /**
-     * RecordingService has just unmuted [streams]: what is still muted (an
-     * unmute Android ignored) stays recorded, and the record goes once
-     * nothing is.
+     * RecordingService has just unmuted [streams] and put the ringer back:
+     * what is still muted (an unmute Android ignored) stays recorded, with
+     * the ringer move while the ringer is still where the mute left it, and
+     * the record goes once nothing is.
      */
     fun settle(context: Context, am: AudioManager, streams: List<Int>) {
         synchronized(lock) {
             val prefs = prefs(context)
-            val left = MutedStreams.remaining(streams) { isMuted(am, it) }
-            if (left.isEmpty()) {
+            val ringerMode = try {
+                am.ringerMode
+            } catch (_: Exception) {
+                -1
+            }
+            val record = MutedStreams.settled(
+                MutedStreams.decode(prefs.getString(KEY_RECORD, null)),
+                streams, { isMuted(am, it) }, ringerMode, System.currentTimeMillis()
+            )
+            if (record == null) {
                 prefs.edit().remove(KEY_RECORD).apply()
             } else {
-                val at = MutedStreams.decode(prefs.getString(KEY_RECORD, null))?.mutedAtMs
-                    ?: System.currentTimeMillis()
-                prefs.edit()
-                    .putString(KEY_RECORD, MutedStreams.encode(MutedStreams.Record(at, left)))
-                    .apply()
+                prefs.edit().putString(KEY_RECORD, MutedStreams.encode(record)).apply()
             }
         }
     }
 
     /**
-     * Unmutes what an earlier session left muted, once, and forgets it.
-     * [duringRecording] is false when called from the app's own start: a
-     * session already running in this process owns the record then, and it
-     * is left alone.
+     * Unmutes what an earlier session left muted, once: the ringer first
+     * when that session moved it and nobody has since, then the streams
+     * (MutedStreams.toRestore). What has to wait for the ringer to be on
+     * normal stays recorded; the rest is forgotten. [duringRecording] is
+     * false when called from the app's own start: a session already running
+     * in this process owns the record then, and it is left alone.
      */
     fun restoreLeftover(context: Context, duringRecording: Boolean) {
         synchronized(lock) {
@@ -78,24 +90,36 @@ object SystemSoundsGuard {
             val prefs = prefs(context)
             val record = MutedStreams.decode(prefs.getString(KEY_RECORD, null)) ?: return
             val am = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager
+            var keep: MutedStreams.Record? = null
             if (am != null) {
-                val ringerNormal = try {
-                    am.ringerMode == AudioManager.RINGER_MODE_NORMAL
+                val ringerMode = try {
+                    am.ringerMode
                 } catch (_: Exception) {
-                    false
+                    -1
                 }
-                val streams = MutedStreams.toRestore(
-                    record, System.currentTimeMillis(), { isMuted(am, it) }, ringerNormal,
+                val restore = MutedStreams.toRestore(
+                    record, System.currentTimeMillis(), { isMuted(am, it) }, ringerMode,
                     { it != AudioManager.STREAM_MUSIC }
                 )
-                for (stream in streams) {
+                restore.ringer?.let { mode ->
+                    try {
+                        am.ringerMode = mode
+                    } catch (_: Exception) {
+                    }
+                }
+                for (stream in restore.unmute) {
                     try {
                         am.adjustStreamVolume(stream, AudioManager.ADJUST_UNMUTE, 0)
                     } catch (_: Exception) {
                     }
                 }
+                keep = restore.keep
             }
-            prefs.edit().remove(KEY_RECORD).apply()
+            if (keep == null) {
+                prefs.edit().remove(KEY_RECORD).apply()
+            } else {
+                prefs.edit().putString(KEY_RECORD, MutedStreams.encode(keep)).apply()
+            }
         }
     }
 
@@ -105,6 +129,11 @@ object SystemSoundsGuard {
      * a few binder calls), while that activity is on screen.
      */
     fun install(app: Application) {
+        // Starts reading the small preferences file on Android's own loader
+        // thread now, so the recording service's restoreLeftover, on the
+        // main thread at a session's start, finds it loaded instead of
+        // waiting on the disk (a quick-tile cold start reaches it first).
+        prefs(app)
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 app.unregisterActivityLifecycleCallbacks(this)

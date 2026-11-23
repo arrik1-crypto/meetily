@@ -834,9 +834,20 @@ class RecordingService : Service() {
             } catch (_: Exception) {
             }
         }
+        // Muting a ring-aliased stream can move the ringer to vibrate or
+        // silent; where it landed is written down with the streams.
+        val ringerAfter = if (savedRingerMode >= 0) {
+            try {
+                am.ringerMode
+            } catch (_: Exception) {
+                -1
+            }
+        } else {
+            -1
+        }
         // Written down, so a session that dies muted, or a restore Android 17
         // ignores, is put right at the next start (SystemSoundsGuard).
-        SystemSoundsGuard.remember(this, mutedStreams)
+        SystemSoundsGuard.remember(this, mutedStreams, savedRingerMode, ringerAfter)
     }
 
     private fun restoreSystemSounds() {

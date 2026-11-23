@@ -38,6 +38,11 @@ import javax.net.ssl.SSLException
  *
  * The classifier errs towards "local": the cost of a wrong yes is one
  * permission prompt, of a wrong no a connection that silently times out.
+ * Two ranges are local to the platform only when they are on the Wi-Fi or
+ * Ethernet itself: 100.64/10 and fc00::/7 are also what overlay VPNs hand
+ * out (Tailscale's 100.x addresses and fd7a:115c:a1e0::/48), and a VPN is
+ * not the local network. Those are [Kind.LOCAL_OR_VPN]: asked for like any
+ * local address, but a failure to reach one never blames the permission.
  * Pure Kotlin, unit-tested.
  */
 object LocalNetworkAccess {
@@ -56,7 +61,26 @@ object LocalNetworkAccess {
         sdkInt >= FIRST_API && targetSdk >= FIRST_API
 
     /** Where a connection to an address goes, as the permission sees it. */
-    enum class Kind { LOOPBACK, LOCAL_NETWORK, OTHER }
+    enum class Kind {
+        LOOPBACK,
+
+        /** A local network address, and only that: RFC 1918, link-local, multicast, .local. */
+        LOCAL_NETWORK,
+
+        /**
+         * Local when it is on the Wi-Fi or Ethernet, but just as often a VPN
+         * address (CGNAT 100.64/10 and unique local fc00::/7, the ranges
+         * Tailscale and many WireGuard setups use), which the permission
+         * does not cover.
+         */
+        LOCAL_OR_VPN,
+
+        OTHER;
+
+        /** Whether reaching it may need [PERMISSION]. */
+        val mayNeedPermission: Boolean
+            get() = this == LOCAL_NETWORK || this == LOCAL_OR_VPN
+    }
 
     /** [address] as 4 (IPv4) or 16 (IPv6) bytes in network order. */
     fun kindOf(address: ByteArray): Kind {
@@ -81,8 +105,9 @@ object LocalNetworkAccess {
             a0 == 172 && a1 in 16..31 -> Kind.LOCAL_NETWORK
             a0 == 192 && a1 == 168 -> Kind.LOCAL_NETWORK
             a0 == 169 && a1 == 254 -> Kind.LOCAL_NETWORK
-            // Shared address space (CGNAT), listed by the platform as local.
-            a0 == 100 && a1 in 64..127 -> Kind.LOCAL_NETWORK
+            // Shared address space (CGNAT), listed by the platform as local,
+            // and Tailscale's own range.
+            a0 == 100 && a1 in 64..127 -> Kind.LOCAL_OR_VPN
             // Multicast 224.0.0.0/4.
             a0 in 224..239 -> Kind.LOCAL_NETWORK
             all -> Kind.LOCAL_NETWORK
@@ -98,9 +123,9 @@ object LocalNetworkAccess {
             loopback -> Kind.LOOPBACK
             // Link-local fe80::/10.
             b0 == 0xFE && (b1 and 0xC0) == 0x80 -> Kind.LOCAL_NETWORK
-            // Unique local fc00::/7: in practice the home network's own
-            // prefix, so a directly connected route.
-            (b0 and 0xFE) == 0xFC -> Kind.LOCAL_NETWORK
+            // Unique local fc00::/7: the home network's own prefix (a
+            // directly connected route), or a VPN's (Tailscale's fd7a::).
+            (b0 and 0xFE) == 0xFC -> Kind.LOCAL_OR_VPN
             // Multicast ff00::/8.
             b0 == 0xFF -> Kind.LOCAL_NETWORK
             else -> Kind.OTHER
@@ -187,7 +212,8 @@ object LocalNetworkAccess {
      * Where [host] leads: "localhost", an IP literal or a ".local" name on
      * their own; any other name by the addresses it [resolved] to, where the
      * caller has them (EndpointGuard resolves constrained endpoints already).
-     * Local when ANY address is: the connection may use any of them.
+     * Local when ANY address is: the connection may use any of them; plainly
+     * local ahead of [Kind.LOCAL_OR_VPN].
      */
     fun hostKind(host: String, resolved: List<InetAddress> = emptyList()): Kind {
         val name = host.trim().trimEnd('.')
@@ -197,6 +223,7 @@ object LocalNetworkAccess {
         val kinds = resolved.map(::kindOf)
         return when {
             Kind.LOCAL_NETWORK in kinds -> Kind.LOCAL_NETWORK
+            Kind.LOCAL_OR_VPN in kinds -> Kind.LOCAL_OR_VPN
             kinds.isNotEmpty() && kinds.all { it == Kind.LOOPBACK } -> Kind.LOOPBACK
             else -> Kind.OTHER
         }
@@ -204,7 +231,7 @@ object LocalNetworkAccess {
 
     /** Whether saving an endpoint on a [kind] host should ask for [PERMISSION] now. */
     fun shouldRequest(applies: Boolean, granted: Boolean, kind: Kind): Boolean =
-        applies && !granted && kind == Kind.LOCAL_NETWORK
+        applies && !granted && kind.mayNeedPermission
 
     /**
      * True for a failure to reach the server at all: a connect that timed
@@ -250,17 +277,29 @@ object LocalNetworkAccess {
         /** Nothing about the local network: the failure's own message stands. */
         NONE,
 
-        /** A local server could not be reached: same network? server running? */
+        /**
+         * A local or VPN server could not be reached: same Wi-Fi, or VPN
+         * connected? Server running?
+         */
         CHECK_NETWORK,
 
         /** A local server, and the permission is what stands in the way. */
         ALLOW_ACCESS
     }
 
+    /**
+     * What [error] says about the local network. A [Kind.LOCAL_OR_VPN] host
+     * is never [Hint.ALLOW_ACCESS]: over a VPN the permission is not what
+     * stopped it, and the network check covers both cases.
+     */
     fun hintFor(error: Throwable, applies: Boolean, granted: Boolean): Hint {
         val unreachable = unreachableIn(error) ?: return Hint.NONE
-        if (unreachable.kind != Kind.LOCAL_NETWORK) return Hint.NONE
-        return if (applies && !granted) Hint.ALLOW_ACCESS else Hint.CHECK_NETWORK
+        return when (unreachable.kind) {
+            Kind.LOCAL_NETWORK ->
+                if (applies && !granted) Hint.ALLOW_ACCESS else Hint.CHECK_NETWORK
+            Kind.LOCAL_OR_VPN -> Hint.CHECK_NETWORK
+            Kind.LOOPBACK, Kind.OTHER -> Hint.NONE
+        }
     }
 
     private const val MAX_CAUSES = 8
