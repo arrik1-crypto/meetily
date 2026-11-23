@@ -99,9 +99,16 @@ class AlignModelRow(
         progress.isIndeterminate = percent <= 0
         progress.progress = percent.coerceIn(0, 100)
         button.isEnabled = false
+        // From the download's share on, the archive is being unpacked
+        // (all of it, when a kept download is unpacked).
+        val text = if (percent >= AlignerModels.DOWNLOAD_SHARE) {
+            R.string.align_model_unpacking
+        } else {
+            R.string.align_model_downloading
+        }
         A11y.setStatusText(
             status,
-            activity.getString(R.string.align_model_downloading, percent.coerceIn(0, 100)),
+            activity.getString(text, percent.coerceIn(0, 100)),
             announcer.shouldAnnounce(percent)
         )
     }

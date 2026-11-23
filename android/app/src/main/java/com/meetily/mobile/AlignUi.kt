@@ -246,8 +246,10 @@ class AlignUi(
                 DeviceProbe.verdict(activity, AlignerModels.need(model)),
                 alreadyActive = false
             ) {
+                // A kept download is only unpacked: say so, not downloading.
+                val kept = AlignerModels.hasKeptArchive(activity, model)
                 if (ModelDownloadService.start(activity, ModelDownloadService.KIND_ALIGN, model.key)) {
-                    toast(R.string.align_download_started)
+                    toast(if (kept) R.string.align_unpack_started else R.string.align_download_started)
                 } else {
                     toast(R.string.devicefit_download_not_started)
                 }

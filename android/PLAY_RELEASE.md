@@ -963,7 +963,7 @@ Work through it before the first targetSdk 36 upload to any track.
   InterruptedOffer, LocalNetworkAccess, LocaleConfig, ModelReadyOrder,
   MutedStreams, TakePictureGrant, TarExtract, WordAlign and WordTimes
   tests, plus changes to ModelLicencesTest and StatsSpansVocabExportTest;
-  1,440 JVM tests passed locally), then `assembleRelease` with
+  1,470 JVM tests passed locally), then `assembleRelease` with
   `lintVital`, the native export check and the new "Check baseline
   profile" step (`check_baseline_profile.py --self-test`, then the
   release APKs). Gradle needs no change for the new tests
@@ -2823,16 +2823,19 @@ kept its audio:
   (unpacking). Without leaving Settings, the row stops reading
   "Downloading…" and reads "Downloaded, not unpacked yet: … on this
   phone" with Unpack or delete… enabled, and the Storage screen's "Word
-  re-timing model" row counts the archive (about 46 MB). Re-time words
+  re-timing model" row counts the archive (about 49 MB). Re-time words
   on an edited line then offers Unpack, not the download. The row's
   dialog says that after Delete download, re-timing needs the model
   downloaded again (about 49 MB); Delete download frees the space (the
   row offers Download model again and the Storage row goes); download
   and cancel again, then choose Unpack: the free-space check asks only
   for the unpacked files (with about 80 MB free, no space warning
-  appears), nothing is downloaded (progress starts at 90%), and the row
-  then reads downloaded, again without leaving Settings. With its
-  download queued behind another model's, Delete download is refused.
+  appears), nothing is downloaded (the row reads "Unpacking the word
+  re-timing model…" from 90%), and the row then reads downloaded, again
+  without leaving Settings. Unpack from a meeting's Re-time words: its
+  toast says the model is being unpacked, not downloaded. With the
+  unpack queued behind another model's download, the row's Unpack or
+  delete… button stays disabled until it runs.
 - [ ] Remove the meeting's audio (the confirmation lists re-timing
   edited words among what stops working), then Re-time words on an
   edited line: it explains there is no recording. A meeting imported
@@ -2846,8 +2849,11 @@ kept its audio:
   message says how many were re-timed.
 - [ ] Edit a line while a run is going: the edit is kept, and the
   result says that line kept your edit.
-- [ ] Several passes: Re-time edited lines on a meeting whose edited
-  lines are more than 30 s apart. Tap Hide; once the notification's
+- [ ] Several passes: Re-time edited lines on a meeting with two edited
+  lines at least a minute of recording apart, each followed closely by
+  an unedited line (a new pass starts when an edited line begins more
+  than 30 s after the end of the previous one's clip, which runs to the
+  start of the line after it). Tap Hide; once the notification's
   count has moved, highlight or edit another line, then press Back
   before the run ends. Reopen the meeting after the done notification: every line the
   notification counts is re-timed (none of them offers Re-time words

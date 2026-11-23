@@ -542,4 +542,23 @@ object WordAlign {
         }
         return applied
     }
+
+    /**
+     * How many of [results] [segments] hold now: lines that still read as
+     * they did when the run began and carry their result's words, marked
+     * ALIGNED. Matched as [apply] matches, so after a run's last save it
+     * counts the lines re-timed, whichever save wrote each one.
+     */
+    fun holding(segments: List<TranscriptSegment>, results: List<Retimed>): Int {
+        val taken = HashSet<Int>()
+        var held = 0
+        for (result in results) {
+            val at = segments.indices.firstOrNull { it !in taken && result.target.matches(segments[it]) }
+                ?: continue
+            taken.add(at)
+            val words = result.words.ifEmpty { null } ?: continue
+            if (segments[at].words == words && segments[at].wordTimes == WordTimes.ALIGNED) held++
+        }
+        return held
+    }
 }

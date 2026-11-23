@@ -522,6 +522,33 @@ class WordAlignTest {
     }
 
     @Test
+    fun holdingCountsTheLinesThatCarryTheirResultWhoeverWroteThem() {
+        val segments = mutableListOf(
+            line("first line", audioMs = 0L, stamp = 10),
+            line("second line", audioMs = 3_000L, stamp = 20),
+            line("third line", audioMs = 6_000L, stamp = 30)
+        )
+        val targets = segments.map { WordAlign.target(it)!! }
+        val results = targets.map {
+            WordAlign.Retimed(it, listOf(WordStamp(100, it.text.substringBefore(' ')), WordStamp(700, "line")))
+        }
+        assertEquals(0, WordAlign.holding(segments, results))
+        // A pass saves all three.
+        assertEquals(3, WordAlign.apply(segments, results))
+        assertEquals(3, WordAlign.holding(segments, results))
+        // A screen's save puts the first back; the second is edited.
+        segments[0] = segments[0].copy(words = null, wordTimes = null)
+        segments[1] = segments[1].copy(text = "second line, edited")
+        assertEquals(1, WordAlign.holding(segments, results))
+        // The end-of-run save puts the first back again: two hold, the
+        // edited line keeps its edit, and nothing is counted twice.
+        assertEquals(1, WordAlign.apply(segments, results))
+        assertEquals(2, WordAlign.holding(segments, results))
+        // An empty result is never held.
+        assertEquals(0, WordAlign.holding(segments, listOf(WordAlign.Retimed(targets[2], emptyList()))))
+    }
+
+    @Test
     fun aDeletedOrMovedLineTakesNothing() {
         val segments = mutableListOf(line("only line", audioMs = 0L, stamp = 10))
         val target = WordAlign.target(segments[0])!!

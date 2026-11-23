@@ -352,10 +352,18 @@ class AlignService : Service() {
         // Every result once more, as a backstop: a line a screen's save put
         // back to the timings it had is measured again; a line edited
         // meanwhile is left alone (WordAlign.apply), and nothing is written
-        // when every line already holds its result. Not counted again.
+        // when every line already holds its result. The count then becomes
+        // what the meeting holds, so a line this put back reads as
+        // re-timed, not as edited meanwhile, and none is counted twice.
         if (retimed.isNotEmpty()) {
             try {
-                save(store, meetingId, retimed)
+                var held = -1
+                store.mutateIf(meetingId) { stored ->
+                    val changed = WordAlign.apply(stored.segments, retimed)
+                    held = WordAlign.holding(stored.segments, retimed)
+                    changed > 0
+                }
+                if (held >= 0) saved = held
             } catch (_: Throwable) {
             }
         }

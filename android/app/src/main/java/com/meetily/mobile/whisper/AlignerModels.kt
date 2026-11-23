@@ -102,8 +102,8 @@ object AlignerModels {
     /** Trailing archive padding read past the last file, at most; more is refused. */
     private const val MAX_TRAILER_BYTES = 4L * MB
 
-    /** Download share of the progress; unpacking takes the rest. */
-    private const val DOWNLOAD_SHARE = 90
+    /** Download share of the progress; unpacking takes the rest, so progress from here on is the unpack. */
+    const val DOWNLOAD_SHARE = 90
 
     /** Room a download needs: the archive and the unpacked files side by side. */
     fun spaceNeededMb(model: AlignerModel): Int = model.approxSizeMb + model.unpackedMb
