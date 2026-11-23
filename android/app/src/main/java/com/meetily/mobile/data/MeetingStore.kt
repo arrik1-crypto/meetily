@@ -58,6 +58,18 @@ class MeetingStore(context: Context) {
     fun exists(id: String): Boolean = fileFor(id)?.isFile == true
 
     /**
+     * The newest file time in the library: each meeting's last save, and
+     * the directory's own time, which a meeting written, moved out or
+     * deleted sets. A stat per meeting, no reads. MeetingTrash dates a
+     * deletion no earlier (Trash.stampFor).
+     */
+    internal fun newestFileTimeMs(): Long {
+        var newest = dir.lastModified()
+        for (file in dir.listFiles() ?: return newest) newest = maxOf(newest, file.lastModified())
+        return newest
+    }
+
+    /**
      * The file for [id], or null when the id is not a plain file name — which
      * only a crafted backup can produce, and which must never be joined onto
      * this directory (see SafeFiles).

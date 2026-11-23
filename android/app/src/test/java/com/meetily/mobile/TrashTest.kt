@@ -147,6 +147,70 @@ class TrashTest {
     }
 
     @Test
+    fun aClockSetBackAtDeletion_isDatedNoEarlierThanTheLibrary_andNotErasedOnceRight() {
+        // Last edited 60 days ago; another meeting saved yesterday; deleted
+        // under a clock fourteen months behind, which is still after 2025.
+        val behind = now - 425 * day
+        assertTrue(behind >= Trash.PLAUSIBLE_FROM_MS)
+        val lastEdited = now - 60 * day
+        val librarySaved = now - day
+        // Dated by the clock alone it would be due minutes after the clock
+        // is put right: that is what the library's time prevents.
+        assertTrue(Trash.isDue(behind, lastEdited, now + 300_000L))
+        val stamp = Trash.stampFor(behind, librarySaved)
+        assertEquals(librarySaved, stamp)
+        // While the clock is behind, it counts from now.
+        assertEquals(30, Trash.daysLeft(stamp, lastEdited, behind + day))
+        assertFalse(Trash.isDue(stamp, lastEdited, behind + 40 * day))
+        // A day after the clock is right: not due, 28 days left.
+        assertFalse(Trash.isDue(stamp, lastEdited, now + day))
+        assertEquals(28, Trash.daysLeft(stamp, lastEdited, now + day))
+        assertTrue(Trash.isDue(stamp, lastEdited, librarySaved + 30 * day))
+    }
+
+    @Test
+    fun stampFor_isNowUnlessTheLibraryIsAhead_atMostThreeYearsAhead() {
+        assertEquals(now, Trash.stampFor(now, now - day))
+        assertEquals(now, Trash.stampFor(now, now))
+        assertEquals(now, Trash.stampFor(now, 0L))
+        assertEquals(now + day, Trash.stampFor(now, now + day))
+        assertEquals(now + 700 * day, Trash.stampFor(now, now + 700 * day))
+        // One file saved under a clock far ahead keeps a deletion three years longer at most.
+        val capped = Trash.stampFor(now, now + 3000 * day)
+        assertEquals(now + Trash.MAX_AHEAD_MS, capped)
+        assertFalse(Trash.isDue(capped, 0L, now + Trash.MAX_AHEAD_MS + Trash.KEEP_MS - 1))
+        assertTrue(Trash.isDue(capped, 0L, now + Trash.MAX_AHEAD_MS + Trash.KEEP_MS))
+        // An implausible clock leaves the deletion undated, whatever the library says.
+        assertEquals(5_000L, Trash.stampFor(5_000L, now))
+    }
+
+    @Test
+    fun anUndatedEntry_isDatedAsADeletionMadeNowWouldBe() {
+        // Deleted under a 1970 clock; the clock is plausible again but
+        // still behind the library, which was saved yesterday.
+        val behind = now - 425 * day
+        assertEquals(now - day, Trash.redated(5_000L, Trash.stampFor(behind, now - day)))
+        assertEquals(now, Trash.redated(5_000L, Trash.stampFor(now, now - day)))
+        assertNull(Trash.redated(5_000L, Trash.stampFor(9_000L, now)))
+    }
+
+    @Test
+    fun shownDate_isWhenTheDaysCountFrom_orNoneWhenTheClockCannotSay() {
+        assertEquals(now - day, Trash.shownDate(now - day, now - 2 * day, now))
+        // Saved after the date it was deleted on (a clock behind then): the
+        // save is what counts, and the date shown agrees with the days left.
+        assertEquals(now - day, Trash.shownDate(now - 40 * day, now - day, now))
+        assertEquals(29, Trash.daysLeft(now - 40 * day, now - day, now))
+        // Undated, or a date still to come: no date, and 30 days left.
+        assertNull(Trash.shownDate(5_000L, now - day, now))
+        assertNull(Trash.shownDate(now + 10 * day, now, now))
+        assertNull(Trash.shownDate(now, now + 60 * day, now))
+        assertEquals(30, Trash.daysLeft(now, now + 60 * day, now))
+        // A save time from a wrong clock is no date either.
+        assertEquals(now - day, Trash.shownDate(now - day, 5L, now))
+    }
+
+    @Test
     fun newestPerId_keepsOneCopyPerMeeting() {
         val older = Trash.Entry("a", now - 2 * day)
         val newer = Trash.Entry("a", now - day)
@@ -288,5 +352,23 @@ class TrashTest {
         assertFalse(File(dir, undated.fileName).exists())
         assertEquals(listOf(Trash.Entry(id, now)), trash.entries())
         assertEquals("Weekly sync", trash.read(dated!!)!!.title)
+    }
+
+    @Test
+    fun folder_newestTimeIsTheNewestDateOrFileTimeOfItsEntries() {
+        val dir = folder.newFolder("trash")
+        val trash = Trash.Folder(dir)
+        assertTrue(dir.setLastModified(now - 10 * day))
+        assertEquals(now - 10 * day, trash.newestTimeMs())
+        put(dir, Trash.Entry(id, now - 5 * day)).setLastModified(now - 6 * day)
+        put(dir, Trash.Entry("m2", now - 8 * day)).setLastModified(now - 2 * day)
+        // Not an entry: says nothing about the library.
+        File(dir, "notes.txt").apply { writeText("x") }.setLastModified(now + 400 * day)
+        assertTrue(dir.setLastModified(now - 10 * day))
+        assertEquals(now - 2 * day, trash.newestTimeMs())
+        put(dir, Trash.Entry("m3", now - day)).setLastModified(now - 9 * day)
+        assertTrue(dir.setLastModified(now - 10 * day))
+        assertEquals(now - day, trash.newestTimeMs())
+        assertEquals(0L, Trash.Folder(File(dir, "missing")).newestTimeMs())
     }
 }

@@ -35,6 +35,16 @@ object Trash {
      */
     const val PLAUSIBLE_FROM_MS = 1_735_689_600_000L
 
+    /**
+     * How far ahead of the clock [stampFor] lets a known time date a
+     * deletion: three years, more than any plausible clock (one after
+     * [PLAUSIBLE_FROM_MS]) is likely to be behind, such as a phone back at
+     * its build date. A clock set back further still dates it this far
+     * ahead; one file saved under a clock that ran far ahead keeps a later
+     * deletion at most this much longer, the safe way to be wrong.
+     */
+    const val MAX_AHEAD_MS = 3 * 366 * DAY_MS
+
     private const val SUFFIX = ".json"
 
     /** Longest decimal Long: anything longer is not a date this wrote. */
@@ -67,6 +77,29 @@ object Trash {
         val id = fileName.substring(dash + 1, fileName.length - SUFFIX.length)
         if (!SafeFiles.isPlainName(id)) return null
         return Entry(id, deletedAtMs)
+    }
+
+    /**
+     * The date to name a meeting deleted at [nowMs] with, given [knownMs],
+     * the newest time the library is known to have reached (its newest
+     * saved meeting, its newest deletion: MeetingTrash.newestKnownMs).
+     *
+     * A deletion cannot come before anything the library has already seen,
+     * so a clock that is behind (set back by hand, or reset to an old date
+     * and not synced yet) dates it no earlier than that, at most
+     * [MAX_AHEAD_MS] ahead of itself. Otherwise the true date, once the
+     * clock is right, would make a meeting last saved months ago due within
+     * minutes ([countsFrom] can only fall back on that save). The result may
+     * be ahead of [nowMs]; [countsFrom] counts such a date from now until
+     * the clock reaches it, so this can only keep a meeting longer.
+     *
+     * A clock before [PLAUSIBLE_FROM_MS] still leaves the deletion undated,
+     * to be dated by [redated] once the clock is plausible: from then on,
+     * which is later still.
+     */
+    fun stampFor(nowMs: Long, knownMs: Long): Long {
+        if (nowMs < PLAUSIBLE_FROM_MS || knownMs <= nowMs) return nowMs
+        return minOf(knownMs, nowMs + MAX_AHEAD_MS)
     }
 
     /**
@@ -106,9 +139,25 @@ object Trash {
     }
 
     /**
+     * When an entry was deleted, as Recently deleted shows it: the date its
+     * [KEEP_DAYS] count from ([countsFrom]), so the date and the days left
+     * agree. Null when the clock cannot say: an undated entry, or a date
+     * still ahead of [nowMs] (written under a clock that ran ahead, or the
+     * clock is behind now), which counts from now and is shown without a
+     * date rather than as a day that has not come yet.
+     */
+    fun shownDate(deletedAtMs: Long, savedAtMs: Long, nowMs: Long): Long? {
+        if (deletedAtMs < PLAUSIBLE_FROM_MS) return null
+        val known = if (savedAtMs >= PLAUSIBLE_FROM_MS) maxOf(deletedAtMs, savedAtMs) else deletedAtMs
+        return known.takeIf { it <= nowMs }
+    }
+
+    /**
      * The date to write back for an undated entry (see [countsFrom]) once
-     * the clock is plausible: now. Null when the entry needs none. Only
-     * ever moves a date later, which can only keep a meeting longer.
+     * the clock is plausible: [nowMs], which MeetingTrash passes as the
+     * date a deletion made now would get ([stampFor]). Null when the entry
+     * needs none. Only ever moves a date later, which can only keep a
+     * meeting longer.
      */
     fun redated(deletedAtMs: Long, nowMs: Long): Long? =
         if (deletedAtMs < PLAUSIBLE_FROM_MS && nowMs >= PLAUSIBLE_FROM_MS) nowMs else null
@@ -232,6 +281,21 @@ object Trash {
         fun entriesFor(id: String): List<Entry> = all().filter { it.id == id }
 
         fun hasAny(): Boolean = dir.list()?.any { parse(it) != null } == true
+
+        /**
+         * The newest time this directory has seen: its own file time (set
+         * by every move in or out), each entry's date and each entry's file
+         * time (the meeting's last save). Stats only, no reads; 0 when
+         * there is nothing to go by. See [stampFor].
+         */
+        fun newestTimeMs(): Long {
+            var newest = dir.lastModified()
+            for (name in dir.list() ?: return newest) {
+                val entry = parse(name) ?: continue
+                newest = maxOf(newest, entry.deletedAtMs, fileOf(entry).lastModified())
+            }
+            return newest
+        }
 
         fun fileOf(entry: Entry): File = SafeFiles.child(dir, entry.fileName)
 

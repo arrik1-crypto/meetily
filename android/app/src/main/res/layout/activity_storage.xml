@@ -178,7 +178,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="48dp"
                             android:layout_marginStart="8dp"
-                            android:contentDescription="@string/trash_empty_desc"
+                            android:contentDescription="@string/trash_storage_empty_desc"
                             android:enabled="false"
                             android:insetBottom="6dp"
                             android:insetTop="6dp"

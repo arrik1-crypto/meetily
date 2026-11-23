@@ -736,7 +736,12 @@ class MainActivity : AppCompatActivity() {
         if (deadImport != null &&
             !com.meetily.mobile.data.AudioStore.exists(this, deadImport.stagedFile)
         ) {
-            if (deadImport.meetingId.isNotBlank() && !store.exists(deadImport.meetingId)) {
+            // A meeting in Recently deleted is not an orphan: its audio
+            // stays for a restore. Deleting it drops the marker, but that
+            // write may not have reached the disk before the process died.
+            if (deadImport.meetingId.isNotBlank() && !store.exists(deadImport.meetingId) &&
+                deadImport.meetingId !in com.meetily.mobile.data.MeetingTrash(this).ids()
+            ) {
                 // Named as the importer renames it: by the staged file's
                 // extension (a video's sound is staged as .m4a or the like).
                 com.meetily.mobile.data.AudioStore.delete(

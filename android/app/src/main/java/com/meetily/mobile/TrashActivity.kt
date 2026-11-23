@@ -202,10 +202,15 @@ class TrashActivity : AppCompatActivity() {
             } else {
                 getString(R.string.trash_due)
             }
-            detail.text = getString(
-                R.string.trash_item_detail,
-                dateFormat.format(Date(item.entry.deletedAtMs)), left, TrashUi.size(this@TrashActivity, item.bytes)
-            )
+            val size = TrashUi.size(this@TrashActivity, item.bytes)
+            // The date its days count from, so the two agree; none when the
+            // clock cannot say (Trash.shownDate), rather than a day to come.
+            val deletedOn = item.deletedOnMs
+            detail.text = if (deletedOn != null) {
+                getString(R.string.trash_item_detail, dateFormat.format(Date(deletedOn)), left, size)
+            } else {
+                getString(R.string.trash_item_detail_recent, left, size)
+            }
             restoreButton.contentDescription = getString(R.string.trash_restore_desc, name)
             deleteButton.contentDescription = getString(R.string.trash_delete_forever_desc, name)
             // Off until the list is read again, so a second tap cannot act

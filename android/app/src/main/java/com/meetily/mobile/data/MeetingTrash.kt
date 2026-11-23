@@ -46,7 +46,12 @@ class MeetingTrash(private val context: Context) {
         val starred: Boolean,
         /** Its file and every file it names: what erasing it frees. */
         val bytes: Long,
-        val daysLeft: Int
+        val daysLeft: Int,
+        /**
+         * When it was deleted, as shown: the date its days count from
+         * (Trash.shownDate), or null when the clock cannot say.
+         */
+        val deletedOnMs: Long?
     )
 
     enum class Restore { RESTORED, IN_LIBRARY, GONE, FAILED }
@@ -58,27 +63,55 @@ class MeetingTrash(private val context: Context) {
     fun ids(): Set<String> = folder.all().mapTo(HashSet()) { it.id }
 
     /**
-     * Moves meeting [id] here, dated [nowMs], and drops the work queued for
-     * it (an accuracy check, a summary, an import's marker): it would only
-     * wait for a meeting that is not there, and an import's marker would
-     * delete its audio as an orphan (MainActivity.offerInterruptedWork).
-     * Null when there is no such meeting or the move failed. The caller
-     * checks first that nothing is writing the meeting (AudioRemoval.isWriting).
+     * Moves meeting [id] here, dated [nowMs] or, when the clock is behind
+     * what the library has already seen, that (Trash.stampFor), and drops
+     * the work queued for it (an accuracy check, a summary, an import's
+     * marker): it would only wait for a meeting that is not there, and an
+     * import's marker would offer back work for a meeting the user deleted
+     * (MainActivity.offerInterruptedWork, which also leaves a deleted
+     * meeting's audio alone should the marker outlive the move). Null when
+     * there is no such meeting or the move failed. The caller checks first
+     * that nothing is writing the meeting (AudioRemoval.isWriting).
      */
     @WorkerThread
     fun moveToTrash(id: String, nowMs: Long = System.currentTimeMillis()): Moved? {
-        val name = Trash.fileName(id, nowMs) ?: return null
-        synchronized(LOCK) {
+        val entry = synchronized(LOCK) {
+            val known = newestKnownMs()
+            val stamp = Trash.stampFor(nowMs, known)
+            val name = Trash.fileName(id, stamp) ?: return null
             folder.dir.mkdirs()
             val older = folder.entriesFor(id)
             if (!MeetingStore(context).moveOut(id, File(folder.dir, name))) return null
+            // The next move made with this instance (a selection, a clean-up
+            // run) comes after this one, without listing the library again.
+            knownMs = maxOf(known, stamp)
             // Never expected: a meeting is in the library or here, not both.
             // An older copy left here is only a file; the files it names are
             // the ones the meeting just moved here names.
             for (copy in older) folder.fileOf(copy).delete()
+            Trash.Entry(id, stamp)
         }
-        return Moved(Trash.Entry(id, nowMs), dropJobs(id))
+        return Moved(entry, dropJobs(id))
     }
+
+    /**
+     * Read once per instance; see [newestKnownMs]. One instance serves one
+     * delete, selection or clean-up run.
+     */
+    private var knownMs: Long? = null
+
+    /**
+     * The newest time the library is known to have reached: the newest file
+     * time of a meeting or of the library directory (MeetingStore), and the
+     * newest date and file time here (Trash.Folder.newestTimeMs). A clock
+     * that is behind cannot have written them, so Trash.stampFor dates a
+     * deletion no earlier. Stats only; read once per instance, so deleting
+     * a selection does not list the library once per meeting. Caller holds
+     * [LOCK].
+     */
+    private fun newestKnownMs(): Long = knownMs ?: maxOf(
+        MeetingStore(context).newestFileTimeMs(), folder.newestTimeMs()
+    ).also { knownMs = it }
 
     private fun dropJobs(id: String): List<JobQueue.Job> {
         val dropped = JobQueue.load(context).filter { it.meetingId == id }
@@ -119,8 +152,9 @@ class MeetingTrash(private val context: Context) {
 
     /**
      * Erases every meeting kept its [Trash.KEEP_DAYS] (Trash.isDue), and
-     * dates any undated one (Trash.redated). Cheap when nothing is due: a
-     * directory listing and a stat per meeting. Returns how many went.
+     * dates any undated one (Trash.redated) as a deletion made now would be
+     * (Trash.stampFor). Cheap when nothing is due: a directory listing and
+     * a stat per meeting. Returns how many went.
      */
     @WorkerThread
     fun purgeDue(nowMs: Long = System.currentTimeMillis()): Int = synchronized(LOCK) {
@@ -129,7 +163,12 @@ class MeetingTrash(private val context: Context) {
         for (copy in folder.stale()) folder.fileOf(copy).delete()
         var erased = 0
         for (entry in folder.entries()) {
-            val date = Trash.redated(entry.deletedAtMs, nowMs)
+            // The library is listed only when an entry needs a date.
+            val date = if (entry.deletedAtMs < Trash.PLAUSIBLE_FROM_MS) {
+                Trash.redated(entry.deletedAtMs, Trash.stampFor(nowMs, newestKnownMs()))
+            } else {
+                null
+            }
             if (date != null) {
                 folder.redate(entry, date)
                 continue
@@ -170,6 +209,7 @@ class MeetingTrash(private val context: Context) {
         val store = MeetingStore(context)
         return folder.entries().map { entry ->
             val file = folder.fileOf(entry)
+            val savedAt = file.lastModified()
             val meeting = folder.read(entry)
             val held = if (meeting != null && !store.exists(entry.id)) Trash.heldBy(meeting) else Trash.Held()
             Item(
@@ -178,7 +218,8 @@ class MeetingTrash(private val context: Context) {
                 createdAtMs = meeting?.createdAtMs ?: 0L,
                 starred = meeting?.starred == true,
                 bytes = file.length() + bytesOf(held),
-                daysLeft = Trash.daysLeft(entry.deletedAtMs, file.lastModified(), nowMs)
+                daysLeft = Trash.daysLeft(entry.deletedAtMs, savedAt, nowMs),
+                deletedOnMs = Trash.shownDate(entry.deletedAtMs, savedAt, nowMs)
             )
         }
     }

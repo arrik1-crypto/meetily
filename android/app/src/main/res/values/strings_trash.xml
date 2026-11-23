@@ -18,6 +18,9 @@
     <!-- One row: %1$s when it was deleted (a date), %2$s the time left
          (trash_days_left or trash_due), %3$s its size. -->
     <string name="trash_item_detail">Deleted %1$s · %2$s · %3$s</string>
+    <!-- The same row when the phone's clock can't say when it was deleted
+         (it was wrong then, or is now): %1$s the time left, %2$s its size. -->
+    <string name="trash_item_detail_recent">Deleted recently · %1$s · %2$s</string>
     <plurals name="trash_days_left">
         <item quantity="one">erased in %1$d day</item>
         <item quantity="other">erased in %1$d days</item>
@@ -27,10 +30,11 @@
     <string name="trash_untitled">Meeting that can\'t be read</string>
 
     <string name="trash_restore">Restore</string>
-    <!-- %1$s is the meeting's title. -->
+    <!-- %1$s is the meeting's title. Each description starts with its
+         button's visible label, so a voice command naming it still works. -->
     <string name="trash_restore_desc">Restore %1$s</string>
     <string name="trash_delete_forever">Delete permanently</string>
-    <string name="trash_delete_forever_desc">Delete %1$s permanently</string>
+    <string name="trash_delete_forever_desc">Delete permanently: %1$s</string>
     <string name="trash_empty">Empty</string>
     <string name="trash_empty_desc">Empty Recently deleted</string>
 
@@ -75,6 +79,7 @@
     <string name="trash_storage_open">Open</string>
     <string name="trash_storage_open_desc">Open Recently deleted</string>
     <string name="trash_storage_empty">Empty now</string>
+    <string name="trash_storage_empty_desc">Empty now: Recently deleted</string>
 
     <!-- Settings, Data. -->
     <string name="trash_settings_desc">Deleted meetings stay in Recently deleted for 30 days. Restore them, or erase them sooner.</string>
