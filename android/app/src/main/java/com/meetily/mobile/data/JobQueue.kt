@@ -107,7 +107,15 @@ object JobQueue {
          * queue and its notices show, and how JobGate tells a continuation
          * whose transcript has been finished since. See TranscriptResume.
          */
-        val resumeFromMs: Long = 0L
+        val resumeFromMs: Long = 0L,
+        /**
+         * Import only: this file is number [batchIndex] (from 1) of
+         * [batchSize] handed over together (ImportQueue.stageBatch), so its
+         * run's progress says "File 2 of 5". 0 for a file on its own, which
+         * is what every job queued before these fields was.
+         */
+        val batchIndex: Int = 0,
+        val batchSize: Int = 0
     )
 
     /**
@@ -271,7 +279,10 @@ object JobQueue {
             // is what every run did before the choice existed.
             language = o.optString("language"),
             // Absent in older rows: 0, from the beginning, as they ran.
-            resumeFromMs = o.optLong("resumeFromMs").coerceAtLeast(0L)
+            resumeFromMs = o.optLong("resumeFromMs").coerceAtLeast(0L),
+            // Absent in older rows: 0, not part of a batch.
+            batchIndex = o.optInt("batchIndex").coerceAtLeast(0),
+            batchSize = o.optInt("batchSize").coerceAtLeast(0)
         )
     }
 
@@ -290,6 +301,10 @@ object JobQueue {
             .put("auto", job.auto)
             .put("language", job.language)
         if (job.resumeFromMs > 0L) o.put("resumeFromMs", job.resumeFromMs)
+        if (job.batchSize > 0) {
+            o.put("batchIndex", job.batchIndex)
+            o.put("batchSize", job.batchSize)
+        }
         return o
     }
 

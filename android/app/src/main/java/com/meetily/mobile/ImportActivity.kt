@@ -12,15 +12,19 @@ import android.provider.OpenableColumns
 import android.view.View
 import android.widget.TextView
 import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.ImportBatch
 
 /**
  * Thin observer over ImportService: starts an import for a shared or picked
- * audio file, shows progress, and opens the meeting when done. The service
- * keeps working if this screen (or the whole app UI) goes away.
+ * audio or video file, shows progress, and opens the meeting when done. The
+ * service keeps working if this screen (or the whole app UI) goes away.
+ * Several files at once are each queued as their own import, and caption
+ * files (WebVTT, SRT) become meetings without audio; see [startBatch].
  */
 class ImportActivity : AppCompatActivity() {
 
@@ -113,6 +117,15 @@ class ImportActivity : AppCompatActivity() {
                     }
                     openDetail(meetingId)
                 }
+                // Cancelled before any meeting existed (a video's sound was
+                // still being extracted): nothing failed, and nothing is kept.
+                wasCancelled -> {
+                    Toast.makeText(
+                        this@ImportActivity, R.string.import_cancelled_nothing_kept,
+                        Toast.LENGTH_LONG
+                    ).show()
+                    finish()
+                }
                 else -> {
                     Toast.makeText(
                         this@ImportActivity,
@@ -148,8 +161,13 @@ class ImportActivity : AppCompatActivity() {
         EdgeToEdge.setUp(this) { root() }
 
         findViewById<MaterialToolbar>(R.id.importToolbar).setNavigationOnClickListener {
-            finish() // import keeps running in the service
+            if (stayWhileAdding.isEnabled) {
+                stayWhileAdding.handleOnBackPressed()
+            } else {
+                finish() // import keeps running in the service
+            }
         }
+        onBackPressedDispatcher.addCallback(this, stayWhileAdding)
         statusView = findViewById(R.id.importStatus)
         progress = findViewById(R.id.importProgress)
         fileNameView = findViewById(R.id.importFileName)
@@ -180,7 +198,14 @@ class ImportActivity : AppCompatActivity() {
                 getString(R.string.check_accuracy_title)
         }
 
-        val uri = incomingUri()
+        // A batch's summary was up: the batch is done, so show it again.
+        savedInstanceState?.getString(STATE_SUMMARY)?.let {
+            showSummary(it, savedInstanceState.getBoolean(STATE_SUMMARY_SETTINGS, false))
+            return
+        }
+        // Several when shared or picked together: each becomes its own import.
+        val uris = incomingUris()
+        val uri = uris.firstOrNull()
         // A re-created Activity still carries its original intent, so reading
         // the uri again would start the SAME file a second time — JobGate
         // would find an import running, stage another copy and queue it, and
@@ -199,11 +224,25 @@ class ImportActivity : AppCompatActivity() {
         val handedOn = savedInstanceState?.getBoolean(STATE_STARTED, true) ?: false
         if (uri != null && savedInstanceState != null && !handedOn) {
             if (savedInstanceState.getBoolean(STATE_QUEUEING, false)) {
+                if (batchScreen != null) {
+                    // A batch is still being added: this screen takes it over
+                    // and stays, so the files not yet read keep their grant.
+                    batchScreen = this
+                    started = true
+                    queueing = true
+                    stayWhileAdding.isEnabled = true
+                    A11y.setStatusText(
+                        statusView, getString(R.string.import_batch_stay), announce = false
+                    )
+                    return
+                }
                 // The old instance's copy thread carries on and reports.
                 finish()
                 return
             }
-            resumePreStart(uri, savedInstanceState.getBoolean(STATE_AWAITING_PERMISSION, false))
+            classifyAndStart(
+                uris, savedInstanceState.getBoolean(STATE_AWAITING_PERMISSION, false)
+            )
             return
         }
         if (uri == null || savedInstanceState != null) {
@@ -227,7 +266,7 @@ class ImportActivity : AppCompatActivity() {
             }
             return
         }
-        resumePreStart(uri, permissionRequested = false)
+        classifyAndStart(uris, permissionRequested = false)
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
@@ -236,10 +275,57 @@ class ImportActivity : AppCompatActivity() {
         outState.putBoolean(STATE_QUEUEING, queueing)
         outState.putBoolean(STATE_AWAITING_PERMISSION, awaitingPermission)
         outState.putString(STATE_LANGUAGE, importLanguage)
+        summary?.let {
+            outState.putString(STATE_SUMMARY, it)
+            outState.putBoolean(STATE_SUMMARY_SETTINGS, summaryOffersSettings)
+        }
     }
+
+    /** The batch summary while it is up, so a re-created screen shows it again. */
+    private var summary: String? = null
+    private var summaryOffersSettings = false
 
     /** Copying into the queue; nothing was handed to the service. */
     private var queueing = false
+
+    /** One shared or picked file: its name and what it is (ImportBatch.kindOf). */
+    private class Picked(val uri: Uri, val name: String, val kind: ImportBatch.Kind)
+
+    /**
+     * What each file is comes first, off the main thread: its name and type
+     * are provider round trips. A single recording then goes the way one
+     * always has (resumePreStart); caption files need no model and no
+     * notification, and several files at once are a batch (startBatch).
+     */
+    private fun classifyAndStart(uris: List<Uri>, permissionRequested: Boolean) {
+        // The sender's type: what a provider that reports none was shared as.
+        val sharedType = intent?.type
+        // Still due from the registry; kept across another re-creation.
+        if (permissionRequested) awaitingPermission = true
+        Thread {
+            val files = uris.map { u ->
+                val name = displayName(u)
+                val type = try {
+                    contentResolver.getType(u)
+                } catch (_: Exception) {
+                    null
+                } ?: sharedType
+                Picked(u, name, ImportBatch.kindOf(type, name))
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                val only = files.singleOrNull()
+                if (only != null && only.kind == ImportBatch.Kind.MEDIA) {
+                    resumePreStart(only.uri, permissionRequested)
+                } else {
+                    startBatch(files, permissionRequested)
+                }
+            }
+        }.apply {
+            name = "import-classify"
+            start()
+        }
+    }
 
     /**
      * Everything before the file is handed on. [permissionRequested]: the
@@ -275,6 +361,12 @@ class ImportActivity : AppCompatActivity() {
                 this, android.Manifest.permission.POST_NOTIFICATIONS
             ) != android.content.pm.PackageManager.PERMISSION_GRANTED
         ) {
+            // Answered while this screen was still working out what the file
+            // is (a re-created screen asks nothing again): carry on as asked.
+            if (permissionAnswered) {
+                beginImport(uri, downloaded)
+                return
+            }
             pendingStart = { beginImport(uri, downloaded) }
             awaitingPermission = true
             if (!permissionRequested) {
@@ -288,6 +380,13 @@ class ImportActivity : AppCompatActivity() {
     /** Set while the notification-permission dialog is up. */
     private var pendingStart: (() -> Unit)? = null
 
+    /**
+     * The dialog's answer arrived. A re-created screen gets it from the
+     * activity-result registry, possibly before it has worked out what the
+     * file is and set [pendingStart]; that step then goes on by itself.
+     */
+    private var permissionAnswered = false
+
     private val notificationPermission =
         registerForActivityResult(
             androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
@@ -297,6 +396,7 @@ class ImportActivity : AppCompatActivity() {
             val start = pendingStart
             pendingStart = null
             awaitingPermission = false
+            permissionAnswered = true
             if (!isFinishing && !isDestroyed) start?.invoke()
         }
 
@@ -325,7 +425,9 @@ class ImportActivity : AppCompatActivity() {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 fileNameView.text = fileName
                 if (ask) {
-                    showModelPicker(uri, fileName, downloaded, durationMs)
+                    showModelPicker(downloaded, durationMs) { key ->
+                        startImport(uri, fileName, key)
+                    }
                 } else {
                     startImport(uri, fileName, downloaded.first())
                 }
@@ -336,16 +438,20 @@ class ImportActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The model (and spoken language) sheet. [durationMs] is the file's
+     * length for the time estimate, 0 for none (a batch).
+     */
     private fun showModelPicker(
-        uri: Uri,
-        name: String,
         downloaded: List<String>,
-        durationMs: Long
+        durationMs: Long,
+        title: String = getString(R.string.import_choose_model),
+        onPick: (String) -> Unit
     ) {
         val settings = AppSettings(this)
         ModelPickerSheet.show(
             this,
-            getString(R.string.import_choose_model),
+            title,
             entriesProvider = {
                 downloaded.map { key ->
                     ModelPickerSheet.Entry(
@@ -366,7 +472,7 @@ class ImportActivity : AppCompatActivity() {
                     )
                 }
             },
-            onPick = { key -> startImport(uri, name, key) },
+            onPick = onPick,
             onDismissed = { finish() }, // no pick, nothing to import
             // Only when one of the models can be told the language at all.
             header = if (downloaded.any {
@@ -445,6 +551,9 @@ class ImportActivity : AppCompatActivity() {
                 ImportQueue.Result.FAILED -> Toast.makeText(
                     this, R.string.import_queue_failed, Toast.LENGTH_LONG
                 ).show()
+                ImportQueue.Result.NO_SOUND -> Toast.makeText(
+                    this, R.string.import_video_no_sound, Toast.LENGTH_LONG
+                ).show()
                 // The user dropped it; nothing to say.
                 ImportQueue.Result.CANCELLED -> Unit
             }
@@ -472,6 +581,335 @@ class ImportActivity : AppCompatActivity() {
         bound = true
     }
 
+    // --- Several files at once, and caption files ----------------------------
+
+    /**
+     * On while a batch is being added. The read grant for shared files
+     * belongs to this screen, so leaving it would stop the files not yet
+     * copied from being read; back says so instead, and Cancel stops adding.
+     */
+    private val stayWhileAdding = object : androidx.activity.OnBackPressedCallback(false) {
+        override fun handleOnBackPressed() {
+            A11y.setStatusText(statusView, getString(R.string.import_batch_stay), announce = true)
+        }
+    }
+
+    /** What became of one file of a batch. */
+    private sealed class Outcome {
+        class Queued(val result: ImportQueue.Result) : Outcome()
+        class Caption(val result: SubtitleFiles.Outcome) : Outcome()
+    }
+
+    /**
+     * Files shared or picked together, or caption files, which need no
+     * model. Each recording becomes its own queued import, staged now while
+     * this screen holds the read grant, and they run one after another; each
+     * caption file becomes a meeting straight away. The model, and the
+     * spoken language, are asked for once for all of them.
+     */
+    private fun startBatch(files: List<Picked>, permissionRequested: Boolean) {
+        fileNameView.text = files.singleOrNull()?.name
+            ?: resources.getQuantityString(R.plurals.import_batch_files, files.size, files.size)
+        val media = files.count { it.kind == ImportBatch.Kind.MEDIA }
+        val downloaded = com.meetily.mobile.whisper.TranscriptionModels.downloadedKeys(this)
+        // Captions only, or no model to transcribe with: the caption files
+        // come in all the same, and the summary says what the rest need.
+        if (media == 0 || downloaded.isEmpty()) {
+            runBatch(files, null)
+            return
+        }
+        // As for one file: asked before anything starts, then on either way.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this, android.Manifest.permission.POST_NOTIFICATIONS
+            ) != android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            !permissionAnswered
+        ) {
+            pendingStart = { chooseBatchModel(files, downloaded) }
+            awaitingPermission = true
+            if (!permissionRequested) {
+                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            }
+            return
+        }
+        chooseBatchModel(files, downloaded)
+    }
+
+    private fun chooseBatchModel(files: List<Picked>, downloaded: List<String>) {
+        val ask = downloaded.size > 1 ||
+            com.meetily.mobile.whisper.TranscriptionModels.acceptsLanguage(downloaded.first())
+        if (!ask) {
+            runBatch(files, downloaded.first())
+            return
+        }
+        val media = files.count { it.kind == ImportBatch.Kind.MEDIA }
+        showModelPicker(
+            downloaded, 0L,
+            resources.getQuantityString(R.plurals.import_batch_choose_model, media, media)
+        ) { key -> runBatch(files, key) }
+    }
+
+    /**
+     * Reads the caption files, then stages the recordings into the queue
+     * ([modelKey] null: there is no model, so none are). A worker thread
+     * throughout; the summary comes at the end.
+     */
+    private fun runBatch(files: List<Picked>, modelKey: String?) {
+        if (abandoned) return
+        started = true
+        queueing = true
+        stayWhileAdding.isEnabled = true
+        batchScreen = this
+        val app = applicationContext
+        val outcomes = arrayOfNulls<Outcome>(files.size)
+        progress.isIndeterminate = false
+        progress.progress = 0
+        Thread {
+            // Caption files first: each takes a moment and needs nothing else.
+            for ((i, file) in files.withIndex()) {
+                if (file.kind != ImportBatch.Kind.SUBTITLE) continue
+                if (batchCancelled()) break
+                runOnUiThread { batchUi().showBatchStep(i, files) }
+                outcomes[i] = Outcome.Caption(SubtitleFiles.import(app, file.uri, file.name))
+            }
+            runOnUiThread { batchUi().queueBatchMedia(files, modelKey, outcomes) }
+        }.apply {
+            name = "import-captions"
+            start()
+        }
+    }
+
+    /**
+     * The screen showing this batch: a re-created one takes it over (onCreate),
+     * and this one is gone by then. Main thread.
+     */
+    private fun batchUi(): ImportActivity = batchScreen ?: this
+
+    /** Cancel was pressed, on this screen or the one that took the batch over. */
+    private fun batchCancelled(): Boolean = abandoned || batchScreen?.abandoned == true
+
+    private fun queueBatchMedia(files: List<Picked>, modelKey: String?, outcomes: Array<Outcome?>) {
+        val media = files.indices.filter { files[it].kind == ImportBatch.Kind.MEDIA }
+        if (media.isEmpty() || modelKey == null || batchCancelled()) {
+            finishBatch(files, outcomes, needsModel = modelKey == null && media.isNotEmpty())
+            return
+        }
+        // The queue's room, in the order the files came; the rest are left
+        // out and listed, never dropped later without a word.
+        val admission = ImportBatch.admit(
+            media.size, com.meetily.mobile.data.JobQueue.importCount(
+                com.meetily.mobile.data.JobQueue.load(this)
+            )
+        )
+        for (k in admission.leftOut) {
+            outcomes[media[k]] = Outcome.Queued(ImportQueue.Result.TOO_MANY)
+        }
+        val admitted = admission.admitted.map { media[it] }
+        if (admitted.isEmpty()) {
+            finishBatch(files, outcomes, needsModel = false)
+            return
+        }
+        ImportQueue.stageBatch(
+            this,
+            admitted.map { ImportQueue.BatchFile(files[it].uri, files[it].name) },
+            modelKey,
+            importLanguage.orEmpty(),
+            cancelled = { batchCancelled() },
+            onFile = { k -> batchUi().showBatchStep(admitted[k], files) },
+            onResults = { results ->
+                for ((k, result) in results.withIndex()) {
+                    outcomes[admitted[k]] = Outcome.Queued(result)
+                }
+                batchUi().finishBatch(files, outcomes, needsModel = false)
+            }
+        )
+    }
+
+    /** "Adding 2 of 5: Team sync.mp4", read out as each file starts. */
+    private fun showBatchStep(index: Int, files: List<Picked>) {
+        if (isFinishing || isDestroyed) return
+        progress.isIndeterminate = false
+        progress.progress = index * 100 / files.size.coerceAtLeast(1)
+        A11y.setStatusText(
+            statusView,
+            getString(R.string.import_batch_step, index + 1, files.size, files[index].name),
+            announce = true
+        )
+    }
+
+    /**
+     * Says what became of every file. One caption file on its own opens its
+     * meeting, as an import does; one file that could not be used says why
+     * in a toast; anything more is a summary that names the files left out
+     * and why.
+     */
+    private fun finishBatch(files: List<Picked>, outcomes: Array<Outcome?>, needsModel: Boolean) {
+        queueing = false
+        stayWhileAdding.isEnabled = false
+        batchScreen = null
+        val gone = isFinishing || isDestroyed
+        val only = files.singleOrNull()
+        if (only != null) {
+            val message = when (val outcome = outcomes[0]) {
+                is Outcome.Caption -> when (val r = outcome.result) {
+                    is SubtitleFiles.Outcome.Imported -> {
+                        if (r.skipped > 0) {
+                            Toast.makeText(
+                                applicationContext,
+                                resources.getQuantityString(
+                                    R.plurals.import_sub_skipped, r.skipped, r.title, r.skipped
+                                ),
+                                Toast.LENGTH_LONG
+                            ).show()
+                        }
+                        if (!gone) {
+                            openDetail(r.meetingId)
+                            return
+                        }
+                        getString(R.string.import_sub_done, r.title)
+                    }
+                    is SubtitleFiles.Outcome.Failed ->
+                        getString(R.string.import_sub_failed_one, only.name, r.reason)
+                }
+                // Cancelled before it was read: nothing to say.
+                null -> if (only.kind == ImportBatch.Kind.UNSUPPORTED) {
+                    getString(R.string.import_batch_unsupported_one)
+                } else {
+                    null
+                }
+                is Outcome.Queued -> null
+            }
+            message?.let { Toast.makeText(applicationContext, it, Toast.LENGTH_LONG).show() }
+            if (!gone) finish()
+            return
+        }
+        val lines = batchSummary(files, outcomes, needsModel)
+        if (gone) {
+            // This screen was closed or re-created meanwhile: no dialog to
+            // show it in, so the first lines go in a toast.
+            lines.firstOrNull()?.let {
+                Toast.makeText(applicationContext, it, Toast.LENGTH_LONG).show()
+            }
+            return
+        }
+        showSummary(lines.joinToString("\n\n"), needsModel)
+    }
+
+    /** The batch summary; closing it closes this screen. */
+    private fun showSummary(text: String, offerSettings: Boolean) {
+        summary = text
+        summaryOffersSettings = offerSettings
+        A11y.setStatusText(statusView, getString(R.string.import_batch_summary_title), announce = false)
+        progress.isIndeterminate = false
+        progress.progress = 100
+        AlertDialog.Builder(this)
+            .setTitle(R.string.import_batch_summary_title)
+            .setMessage(text)
+            .setPositiveButton(android.R.string.ok, null)
+            .apply {
+                if (offerSettings) {
+                    setNeutralButton(R.string.import_batch_open_settings) { _, _ ->
+                        startActivity(Intent(this@ImportActivity, SettingsActivity::class.java))
+                    }
+                }
+            }
+            .setOnDismissListener {
+                // Not when the screen is only being re-created: it shows the
+                // summary again (onCreate).
+                if (!isChangingConfigurations) {
+                    summary = null
+                    finish()
+                }
+            }
+            .showSecure()
+            .also { summaryDialog = it }
+    }
+
+    private var summaryDialog: AlertDialog? = null
+
+    /** The summary's paragraphs: what came in first, then what was left out and why. */
+    private fun batchSummary(
+        files: List<Picked>,
+        outcomes: Array<Outcome?>,
+        needsModel: Boolean
+    ): List<String> {
+        val queued = mutableListOf<String>()
+        val transcripts = mutableListOf<String>()
+        val notes = mutableListOf<String>()
+        val full = mutableListOf<String>()
+        val noSound = mutableListOf<String>()
+        val unreadable = mutableListOf<String>()
+        val unsupported = mutableListOf<String>()
+        val noModel = mutableListOf<String>()
+        val cancelled = mutableListOf<String>()
+        for ((i, file) in files.withIndex()) {
+            when (val outcome = outcomes[i]) {
+                is Outcome.Caption -> when (val r = outcome.result) {
+                    is SubtitleFiles.Outcome.Imported -> {
+                        transcripts.add(r.title)
+                        if (r.skipped > 0) {
+                            notes.add(
+                                resources.getQuantityString(
+                                    R.plurals.import_sub_skipped, r.skipped, r.title, r.skipped
+                                )
+                            )
+                        }
+                    }
+                    is SubtitleFiles.Outcome.Failed ->
+                        notes.add(getString(R.string.import_sub_failed_one, file.name, r.reason))
+                }
+                is Outcome.Queued -> when (outcome.result) {
+                    ImportQueue.Result.QUEUED -> queued.add(file.name)
+                    ImportQueue.Result.TOO_MANY -> full.add(file.name)
+                    ImportQueue.Result.NO_SOUND -> noSound.add(file.name)
+                    ImportQueue.Result.FAILED -> unreadable.add(file.name)
+                    ImportQueue.Result.CANCELLED -> cancelled.add(file.name)
+                }
+                null -> when {
+                    file.kind == ImportBatch.Kind.UNSUPPORTED -> unsupported.add(file.name)
+                    file.kind == ImportBatch.Kind.MEDIA && needsModel -> noModel.add(file.name)
+                    else -> cancelled.add(file.name)
+                }
+            }
+        }
+        fun names(list: List<String>): String {
+            val (shown, more) = ImportBatch.nameList(list)
+            return if (more > 0) getString(R.string.import_batch_names_more, shown, more) else shown
+        }
+        val lines = mutableListOf<String>()
+        if (queued.isNotEmpty()) {
+            lines.add(resources.getQuantityString(R.plurals.import_batch_queued, queued.size, queued.size))
+        }
+        if (transcripts.isNotEmpty()) {
+            lines.add(
+                resources.getQuantityString(
+                    R.plurals.import_batch_transcripts, transcripts.size, transcripts.size
+                )
+            )
+        }
+        lines.addAll(notes)
+        if (full.isNotEmpty()) {
+            lines.add(
+                getString(
+                    R.string.import_batch_left_full,
+                    com.meetily.mobile.data.JobQueue.MAX_IMPORTS, names(full)
+                )
+            )
+        }
+        if (noSound.isNotEmpty()) lines.add(getString(R.string.import_batch_left_no_sound, names(noSound)))
+        if (unreadable.isNotEmpty()) {
+            lines.add(getString(R.string.import_batch_left_unreadable, names(unreadable)))
+        }
+        if (unsupported.isNotEmpty()) {
+            lines.add(getString(R.string.import_batch_left_unsupported, names(unsupported)))
+        }
+        if (noModel.isNotEmpty()) lines.add(getString(R.string.import_batch_left_needs_model, names(noModel)))
+        if (cancelled.isNotEmpty()) {
+            lines.add(getString(R.string.import_batch_left_cancelled, names(cancelled)))
+        }
+        return lines
+    }
+
     /**
      * Container-reported length of the file being imported, for the model
      * picker's time estimate. Best-effort: a source that will not report a
@@ -491,17 +929,36 @@ class ImportActivity : AppCompatActivity() {
         0L
     }
 
-    private fun incomingUri(): Uri? {
-        intent?.data?.let { return it }
-        if (intent?.action == Intent.ACTION_SEND) {
-            return if (Build.VERSION.SDK_INT >= 33) {
-                intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
-            } else {
-                @Suppress("DEPRECATION")
-                intent.getParcelableExtra(Intent.EXTRA_STREAM)
+    /**
+     * Every file this screen was handed, in order and once each: an "Open
+     * with" or a single pick (the data), a share (one stream), or a share
+     * or pick of several (a list of streams).
+     */
+    private fun incomingUris(): List<Uri> {
+        val incoming = intent ?: return emptyList()
+        val found = LinkedHashSet<Uri>()
+        incoming.data?.let { found.add(it) }
+        when (incoming.action) {
+            Intent.ACTION_SEND -> {
+                val stream = if (Build.VERSION.SDK_INT >= 33) {
+                    incoming.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    incoming.getParcelableExtra(Intent.EXTRA_STREAM)
+                }
+                stream?.let { found.add(it) }
+            }
+            Intent.ACTION_SEND_MULTIPLE -> {
+                val streams = if (Build.VERSION.SDK_INT >= 33) {
+                    incoming.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                } else {
+                    @Suppress("DEPRECATION")
+                    incoming.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+                }
+                streams?.let { list -> list.filterNotNull().forEach { found.add(it) } }
             }
         }
-        return null
+        return found.toList()
     }
 
     private fun displayName(uri: Uri): String {
@@ -543,9 +1000,27 @@ class ImportActivity : AppCompatActivity() {
         const val STATE_QUEUEING = "import_queueing"
         const val STATE_AWAITING_PERMISSION = "import_awaiting_permission"
         const val STATE_LANGUAGE = "import_language"
+        const val STATE_SUMMARY = "import_batch_summary"
+        const val STATE_SUMMARY_SETTINGS = "import_batch_summary_settings"
+
+        /**
+         * The screen a batch is being added on, while it is: a screen
+         * re-created meanwhile takes the batch over instead of closing
+         * (onCreate). Main thread only; cleared when the batch is done. Held
+         * weakly: the batch's own threads keep the screen they report to.
+         */
+        var batchScreen: ImportActivity?
+            get() = batchScreenRef?.get()
+            set(value) {
+                batchScreenRef = value?.let { java.lang.ref.WeakReference(it) }
+            }
+        private var batchScreenRef: java.lang.ref.WeakReference<ImportActivity>? = null
     }
 
     override fun onDestroy() {
+        // Re-created: the next instance shows the summary again.
+        summaryDialog?.dismiss()
+        summaryDialog = null
         service?.removeObserver(observer)
         if (bound) {
             try {

@@ -101,8 +101,18 @@ class ImportService : Service() {
      */
     private var timedOut = false
 
-    /** Staged copy this run adopts, when it came off the import queue. */
+    /**
+     * Staged copy this run adopts, when it came off the import queue, or the
+     * sound remuxed out of a video picked straight away (runImport).
+     */
     private var adoptFile: String? = null
+
+    /**
+     * Which file of a batch this run is ([EXTRA_BATCH_INDEX], from 1) and how
+     * many came together; 0 for a file on its own. See JobQueue.Job.batchIndex.
+     */
+    private var batchIndex = 0
+    private var batchSize = 0
 
     /**
      * A file the user picked and started straight away (ImportActivity),
@@ -209,6 +219,8 @@ class ImportService : Service() {
                 } ?: false
                 adoptFile = intent.getStringExtra(EXTRA_ADOPT_FILE)
                 directImport = recheckMeetingId == null && adoptFile == null
+                batchIndex = intent.getIntExtra(EXTRA_BATCH_INDEX, 0)
+                batchSize = intent.getIntExtra(EXTRA_BATCH_SIZE, 0)
                 resumeFromMs = intent.getLongExtra(EXTRA_RESUME_FROM_MS, 0L).coerceAtLeast(0L)
                 isRecheck = recheckMeetingId != null
                 isFirstTranscript = firstTranscript
@@ -316,9 +328,20 @@ class ImportService : Service() {
             var result: AudioFileImporter.Result? = null
             var error: String? = null
             try {
+                // A video keeps only its sound, remuxed before the importer
+                // loads a model and then adopted like a queued file's staged
+                // copy, so finishRun deletes it if the run never gets there.
+                if (directImport) {
+                    extractSound(uri)?.let {
+                        adoptFile = it
+                        // The model's speed is timed from here: the remux
+                        // is no part of it.
+                        runStartedMs = System.currentTimeMillis()
+                    }
+                }
                 result = AudioFileImporter(this, settings).import(
                     uri = uri,
-                    title = sourceName.substringBeforeLast('.').ifBlank { sourceName },
+                    title = com.meetily.mobile.data.ImportBatch.titleFor(sourceName),
                     sourceName = sourceName,
                     modelKey = modelKey,
                     recheckMeetingId = recheckMeetingId,
@@ -356,18 +379,7 @@ class ImportService : Service() {
                             }
                         }
                     },
-                    onProgress = { p, text ->
-                        percent = p
-                        detail = text
-                        renewWakeLockIfStale()
-                        main.post {
-                            if (isRunning) {
-                                val id = currentMeetingId
-                                observers.forEach { it.onImportProgress(id, p, text) }
-                                updateNotification(p, text)
-                            }
-                        }
-                    },
+                    onProgress = { p, text -> reportProgress(p, text) },
                     recordingActive = { RecordingService.isRunning },
                     cancelled = { cancelled }
                 )
@@ -417,6 +429,59 @@ class ImportService : Service() {
             name = "import-service"
             start()
         }
+    }
+
+    /**
+     * Progress from the worker, to the observers and the notification. One of
+     * a batch says which file it is: "File 2 of 5 · 12/40 min".
+     */
+    private fun reportProgress(p: Int, text: String) {
+        val line = if (com.meetily.mobile.data.ImportBatch.showsPosition(batchIndex, batchSize)) {
+            if (text.isBlank()) {
+                getString(R.string.import_batch_position, batchIndex, batchSize)
+            } else {
+                getString(R.string.import_batch_position_detail, batchIndex, batchSize, text)
+            }
+        } else {
+            text
+        }
+        percent = p
+        detail = line
+        renewWakeLockIfStale()
+        main.post {
+            if (isRunning) {
+                val id = currentMeetingId
+                observers.forEach { it.onImportProgress(id, p, line) }
+                updateNotification(p, line)
+            }
+        }
+    }
+
+    /**
+     * For a video picked straight away: its sound remuxed into AudioStore
+     * (VideoAudioExtractor), the name of that file; null when [uri] is not a
+     * video, or its sound cannot be remuxed, and the importer copies the
+     * file as before. Throws for a file with no sound to transcribe, and
+     * when cancelled, before anything is loaded or saved.
+     */
+    private fun extractSound(uri: Uri): String? {
+        val extractor = com.meetily.mobile.whisper.VideoAudioExtractor
+        val keep = extractor.planFor(this, uri)
+        if (keep == com.meetily.mobile.whisper.VideoAudio.Keep.NO_SOUND) {
+            throw AudioFileImporter.ImportException(getString(R.string.import_video_no_sound))
+        }
+        if (!keep.remuxes) return null
+        val line = getString(R.string.import_video_extracting)
+        reportProgress(0, line)
+        val out = extractor.newExtractFile(this, sourceName, keep)
+        val kept = extractor.extract(this, uri, keep, out, { cancelled }) { p ->
+            reportProgress(p, line)
+        }
+        if (cancelled) {
+            out.delete()
+            throw AudioFileImporter.ImportException(getString(R.string.import_cancelled_nothing_kept))
+        }
+        return if (kept) out.name else null
     }
 
     /**
@@ -883,6 +948,12 @@ class ImportService : Service() {
          * the same model is asked for (TranscriptResume.continueFrom).
          */
         const val EXTRA_RESUME_FROM_MS = "resume_from_ms"
+        /**
+         * Ints: this file is number EXTRA_BATCH_INDEX (from 1) of the
+         * EXTRA_BATCH_SIZE handed over together; see JobQueue.Job.batchIndex.
+         */
+        const val EXTRA_BATCH_INDEX = "batch_index"
+        const val EXTRA_BATCH_SIZE = "batch_size"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45
