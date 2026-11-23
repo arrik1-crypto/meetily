@@ -152,7 +152,10 @@ class FollowUpsActivity : AppCompatActivity() {
                     } catch (e: Exception) {
                         Toast.makeText(
                             this,
-                            getString(R.string.export_failed, e.message ?: "no file picker"),
+                            getString(
+                                R.string.export_failed,
+                                e.message ?: getString(R.string.platform_error_no_picker)
+                            ),
                             Toast.LENGTH_LONG
                         ).show()
                     }
@@ -177,16 +180,19 @@ class FollowUpsActivity : AppCompatActivity() {
     }
 
     private fun writeIcs(uri: android.net.Uri) {
-        val ics = TaskExport.ics(openItems(), System.currentTimeMillis())
+        val ics = TaskExport.ics(
+            openItems(), System.currentTimeMillis(),
+            com.meetily.mobile.export.ExportTextResources.load(this)
+        )
         // The destination is often a cloud provider; its stream can block.
         loader.execute {
             val error = try {
                 contentResolver.openOutputStream(uri)?.use { out ->
                     out.write(ics.toByteArray(Charsets.UTF_8))
-                } ?: throw RuntimeException("could not open destination")
+                } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
                 null
             } catch (e: Exception) {
-                e.message ?: "unknown error"
+                e.message ?: getString(R.string.platform_error_unknown)
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread

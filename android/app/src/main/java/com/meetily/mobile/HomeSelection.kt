@@ -401,7 +401,11 @@ class HomeSelection(
             } catch (e: Exception) {
                 pendingExportIds = null
                 Toast.makeText(
-                    activity, activity.getString(R.string.export_failed, e.message ?: "no file picker"),
+                    activity,
+                    activity.getString(
+                        R.string.export_failed,
+                        e.message ?: activity.getString(R.string.platform_error_no_picker)
+                    ),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -422,7 +426,8 @@ class HomeSelection(
                 val store = MeetingStore(app)
                 var written = 0
                 val raw = app.contentResolver.openOutputStream(uri)
-                    ?: throw java.io.IOException("could not open destination")
+                    ?: throw java.io.IOException(app.getString(R.string.platform_error_no_destination))
+                val text = com.meetily.mobile.export.ExportTextResources.load(app)
                 java.util.zip.ZipOutputStream(java.io.BufferedOutputStream(raw)).use { zip ->
                     val taken = HashSet<String>()
                     val day = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
@@ -436,14 +441,18 @@ class HomeSelection(
                         )
                         taken.add(name)
                         zip.putNextEntry(java.util.zip.ZipEntry(name))
-                        zip.write(MeetingExporter.markdown(meeting, notices).toByteArray(Charsets.UTF_8))
+                        zip.write(
+                            MeetingExporter.markdown(meeting, notices, text).toByteArray(Charsets.UTF_8)
+                        )
                         zip.closeEntry()
                         written++
                     }
                 }
                 app.resources.getQuantityString(R.plurals.storage_exported, written, written) to true
             } catch (e: Exception) {
-                app.getString(R.string.export_failed, e.message ?: "unknown error") to false
+                app.getString(
+                    R.string.export_failed, e.message ?: app.getString(R.string.platform_error_unknown)
+                ) to false
             }
             activity.runOnUiThread {
                 if (result.second) {

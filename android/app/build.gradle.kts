@@ -151,6 +151,16 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    // Per-app language (Android 13+) comes from the hand-written
+    // res/xml/locale_config.xml, not from androidResources.generateLocaleConfig.
+    // From AGP 8.8 the generated list carries android:defaultLocale (read from
+    // res/resources.properties), and that attribute crashes Android 15 and
+    // some Android 16 builds at every activity launch for a user whose system
+    // languages are all ones the app lacks (issuetracker b/399131926; AGP
+    // only stops writing it in 9.0.0-beta04). LocaleConfigTest keeps the
+    // generation off until then. A translation adds its <locale> to that file
+    // along with its values-xx folder.
 }
 
 dependencies {

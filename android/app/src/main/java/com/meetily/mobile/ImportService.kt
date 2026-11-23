@@ -426,7 +426,7 @@ class ImportService : Service() {
                     cancelled = { cancelled }
                 )
             } catch (e: Exception) {
-                error = e.message ?: "unknown error"
+                error = e.message ?: getString(R.string.platform_error_unknown)
             }
             // What this model actually cost on THIS phone. Every run has
             // always measured it and thrown it away; keeping it is what lets

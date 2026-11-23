@@ -35,9 +35,10 @@ object TaskExport {
 
     /**
      * RFC 5545 VCALENDAR with one VTODO per item. [nowMs] feeds DTSTAMP and
-     * the deterministic UIDs, so callers control time (testable).
+     * the deterministic UIDs, so callers control time (testable). [text]
+     * words each task's description (ExportText).
      */
-    fun ics(items: List<Item>, nowMs: Long): String {
+    fun ics(items: List<Item>, nowMs: Long, text: ExportText = ExportText()): String {
         val stamp = utc(nowMs)
         val lines = mutableListOf(
             "BEGIN:VCALENDAR",
@@ -57,7 +58,7 @@ object TaskExport {
             lines.add(fold("SUMMARY:" + escape(summary)))
             if (!item.meetingTitle.isNullOrBlank()) {
                 lines.add(
-                    fold("DESCRIPTION:" + escape("From meeting: " + item.meetingTitle))
+                    fold("DESCRIPTION:" + escape(text.fromMeeting + " " + item.meetingTitle))
                 )
             }
             if (item.dueMs != null) {

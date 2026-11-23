@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The languages the system's per-app language settings offer for Recap
+     (Android 13+): the ones the app is written in. en-US is the unqualified
+     strings and stays first. No android:defaultLocale: with it, Android 15
+     and some Android 16 builds crash at launch for a user whose system
+     languages are all missing here (issuetracker b/399131926). A translation
+     adds its <locale> with its values-xx folder (LocaleConfigTest). -->
+<locale-config xmlns:android="http://schemas.android.com/apk/res/android">
+    <locale android:name="en-US" />
+</locale-config>

@@ -22,6 +22,8 @@ import java.util.Date
  * whitespace, per the Broadsheet system.
  */
 class MeetingAdapter(
+    /** For the datelines and meta lines, written before any row is bound. */
+    private val context: android.content.Context,
     private val onClick: (Meeting) -> Unit,
     private val onLongClick: (Meeting) -> Unit,
     private val onToggleStar: (Meeting) -> Unit
@@ -188,20 +190,24 @@ class MeetingAdapter(
     }
 
     private fun countLabel(count: Int): String =
-        if (count == 1) "1 meeting" else "$count meetings"
+        context.resources.getQuantityString(R.plurals.platform_home_meetings, count, count)
 
     private fun metaLine(meeting: Meeting): String {
+        val res = context.resources
         val parts = mutableListOf<String>()
         if (meeting.segments.isNotEmpty()) {
-            parts.add("${meeting.segments.size} lines")
+            val lines = meeting.segments.size
+            parts.add(res.getQuantityString(R.plurals.platform_home_lines, lines, lines))
         }
         val speakers = meeting.segments.mapNotNull { it.speaker }.distinct().size
-        if (speakers > 1) parts.add("$speakers speakers")
-        if (meeting.summary.isNotBlank()) parts.add("summary ready")
+        if (speakers > 1) {
+            parts.add(res.getQuantityString(R.plurals.platform_home_speakers, speakers, speakers))
+        }
+        if (meeting.summary.isNotBlank()) parts.add(res.getString(R.string.platform_home_summary_ready))
         if (meeting.tags.isNotEmpty()) {
             parts.add(meeting.tags.joinToString(" ") { "#$it" })
         }
-        if (parts.isEmpty()) parts.add("notes only")
+        if (parts.isEmpty()) parts.add(res.getString(R.string.platform_home_notes_only))
         return parts.joinToString(" · ")
     }
 
@@ -214,8 +220,8 @@ class MeetingAdapter(
         val now = Calendar.getInstance()
         val yesterday = Calendar.getInstance().apply { add(Calendar.DAY_OF_YEAR, -1) }
         return when (dayKey(ms)) {
-            dayKey(now.timeInMillis) -> "Today"
-            dayKey(yesterday.timeInMillis) -> "Yesterday"
+            dayKey(now.timeInMillis) -> context.getString(R.string.platform_home_today)
+            dayKey(yesterday.timeInMillis) -> context.getString(R.string.platform_home_yesterday)
             else -> dateFormat.format(Date(ms))
         }
     }

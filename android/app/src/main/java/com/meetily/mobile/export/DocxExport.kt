@@ -45,15 +45,19 @@ object DocxExport {
     /** The fixed (built-in) numbering definition every bulleted list uses. */
     private const val BULLET_NUM_ID = 1
 
-    /** Writes the .docx for [meeting] to [out]. [notices] are the summary's, as for Markdown. */
+    /**
+     * Writes the .docx for [meeting] to [out]. [notices] are the summary's,
+     * and [text] the headings and labels, as for Markdown.
+     */
     fun write(
         meeting: Meeting,
         out: OutputStream,
         notices: List<String> = emptyList(),
         locale: Locale = Locale.getDefault(),
-        timeZone: TimeZone = TimeZone.getDefault()
+        timeZone: TimeZone = TimeZone.getDefault(),
+        text: ExportText = ExportText()
     ) {
-        val parts = parts(meeting, notices, dateText(meeting, locale, timeZone))
+        val parts = parts(meeting, notices, dateText(meeting, locale, timeZone), text)
         // Closing the zip closes [out] too, once everything is written.
         ZipOutputStream(BufferedOutputStream(out)).use { zip ->
             for ((name, xml) in parts) {
@@ -78,9 +82,14 @@ object DocxExport {
      * Every part of the package, by its path inside the zip, in writing
      * order ([Content_Types].xml first, as Office writes it).
      */
-    fun parts(meeting: Meeting, notices: List<String>, dateText: String): LinkedHashMap<String, String> {
+    fun parts(
+        meeting: Meeting,
+        notices: List<String>,
+        dateText: String,
+        text: ExportText = ExportText()
+    ): LinkedHashMap<String, String> {
         val body = Body()
-        writeBody(body, meeting, notices, dateText)
+        writeBody(body, meeting, notices, dateText, text)
         val parts = LinkedHashMap<String, String>()
         parts["[Content_Types].xml"] = CONTENT_TYPES
         parts["_rels/.rels"] = PACKAGE_RELS
@@ -342,21 +351,35 @@ object DocxExport {
         }
     }
 
-    private fun writeBody(body: Body, meeting: Meeting, notices: List<String>, dateText: String) {
-        body.text("Title", meeting.title.ifBlank { "Meeting" })
+    private fun writeBody(
+        body: Body,
+        meeting: Meeting,
+        notices: List<String>,
+        dateText: String,
+        text: ExportText
+    ) {
+        body.text("Title", meeting.title.ifBlank { text.untitled })
         val meta = ArrayList<String>()
-        meta.add("Date: $dateText")
-        ExportFacts.durationMs(meeting)?.let { meta.add("Duration: " + ExportFacts.durationLabel(it)) }
+        meta.add(text.date + " " + dateText)
+        ExportFacts.durationMs(meeting)?.let {
+            meta.add(text.duration + " " + ExportFacts.durationLabel(it))
+        }
         for (line in meta) body.text("Meta", line)
         if (meeting.attendees.isNotEmpty()) {
-            body.paragraph("Meta", listOf(Run("Attendees: ", bold = true), Run(meeting.attendeesText())))
+            body.paragraph(
+                "Meta",
+                listOf(Run(text.attendees + " ", bold = true), Run(meeting.attendeesText()))
+            )
         }
         if (meeting.tags.isNotEmpty()) {
-            body.paragraph("Meta", listOf(Run("Tags: ", bold = true), Run(meeting.tags.joinToString(", "))))
+            body.paragraph(
+                "Meta",
+                listOf(Run(text.tags + " ", bold = true), Run(meeting.tags.joinToString(", ")))
+            )
         }
 
         if (meeting.summary.isNotBlank()) {
-            body.text("Heading1", "Summary")
+            body.text("Heading1", text.summary)
             // The fixed notices go first, as on screen and in every other
             // export, except one the summary already carries word for word.
             val missing = notices.filter {
@@ -366,7 +389,7 @@ object DocxExport {
             markdown(body, meeting.summary)
         }
         if (meeting.actionItems.isNotEmpty()) {
-            body.text("Heading1", "Action items")
+            body.text("Heading1", text.actionItems)
             for (item in meeting.actionItems) {
                 val runs = ArrayList<Run>()
                 runs.add(Run(if (item.done) "☑ " else "☐ "))
@@ -376,11 +399,11 @@ object DocxExport {
             }
         }
         if (meeting.notes.isNotBlank()) {
-            body.text("Heading1", "Notes")
+            body.text("Heading1", text.notes)
             markdown(body, meeting.notes)
         }
         if (meeting.segments.isNotEmpty()) {
-            body.text("Heading1", "Transcript")
+            body.text("Heading1", text.transcript)
             for (segment in meeting.segments) {
                 val runs = ArrayList<Run>()
                 if (segment.highlighted) runs.add(Run("★ "))
@@ -397,7 +420,7 @@ object DocxExport {
         if (meeting.photos.isNotEmpty()) {
             body.paragraph(
                 "Meta",
-                listOf(Run("${meeting.photos.size} photo attachment(s) stored in the Recap app.", italic = true))
+                listOf(Run(text.count(text.photosWord, meeting.photos.size), italic = true))
             )
         }
     }

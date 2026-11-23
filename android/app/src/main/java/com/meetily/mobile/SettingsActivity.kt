@@ -447,7 +447,11 @@ class SettingsActivity : AppCompatActivity() {
                 importBackup.launch("*/*")
             } catch (e: Exception) {
                 Toast.makeText(
-                    this, getString(R.string.restore_failed, e.message ?: "no file picker"),
+                    this,
+                    getString(
+                        R.string.restore_failed,
+                        e.message ?: getString(R.string.platform_error_no_picker)
+                    ),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -483,8 +487,63 @@ class SettingsActivity : AppCompatActivity() {
             // Nudge/reminder alarms depend on the just-saved settings.
             Thread { Reminders.rescheduleAll(applicationContext) }.start()
             Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
-            finish()
+            if (!askLocalNetworkAfterSave()) finish()
         }
+    }
+
+    /** A local network question is under way; Save waits for it. */
+    private var localNetworkAsking = false
+
+    private val localNetworkPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            localNetworkAsking = false
+            if (granted) {
+                finish()
+            } else {
+                // Saved before the question, so a screen re-created meanwhile
+                // names the same host.
+                val host = LocalNetworkUi.hostOf(settings.llmBaseUrl).orEmpty()
+                LocalNetworkUi.showPermissionDialog(
+                    this, getString(R.string.platform_lan_denied, host)
+                ) { finish() }
+            }
+        }
+
+    /**
+     * Android 17, with a build targeting it: an AI endpoint on the local
+     * network is reachable only with the local network permission, so saving
+     * one asks for it. True when that question took over closing the screen.
+     * Never true while the build targets 36 (LocalNetworkUi.applies).
+     */
+    private fun askLocalNetworkAfterSave(): Boolean {
+        if (localNetworkAsking) return true
+        if (!LocalNetworkUi.applies(this) || LocalNetworkUi.granted(this)) return false
+        if (!settings.useLlm || settings.llmEngine == "local") return false
+        val url = settings.llmBaseUrl
+        if (LocalNetworkUi.hostOf(url) == null) return false
+        localNetworkAsking = true
+        Thread {
+            // A name is looked up, as EndpointGuard does before each request.
+            val kind = LocalNetworkUi.endpointKind(url)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (com.meetily.mobile.security.LocalNetworkAccess.shouldRequest(
+                        applies = true, granted = LocalNetworkUi.granted(this), kind = kind
+                    )
+                ) {
+                    try {
+                        localNetworkPermission.launch(
+                            com.meetily.mobile.security.LocalNetworkAccess.PERMISSION
+                        )
+                        return@runOnUiThread
+                    } catch (_: Exception) {
+                    }
+                }
+                localNetworkAsking = false
+                finish()
+            }
+        }.start()
+        return true
     }
 
     /**
@@ -511,7 +570,11 @@ class SettingsActivity : AppCompatActivity() {
                 exportLibrary.launch(null)
             } catch (e: Exception) {
                 Toast.makeText(
-                    this, getString(R.string.export_failed, e.message ?: "no file picker"),
+                    this,
+                    getString(
+                        R.string.export_failed,
+                        e.message ?: getString(R.string.platform_error_no_picker)
+                    ),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -1060,7 +1123,11 @@ class SettingsActivity : AppCompatActivity() {
                     exportBackupEncrypted.launch(getString(R.string.backup_enc_file_name))
                 } catch (e: Exception) {
                     Toast.makeText(
-                        this, getString(R.string.backup_failed, e.message ?: "no file picker"),
+                        this,
+                        getString(
+                            R.string.backup_failed,
+                            e.message ?: getString(R.string.platform_error_no_picker)
+                        ),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -1070,7 +1137,11 @@ class SettingsActivity : AppCompatActivity() {
                     exportBackup.launch(getString(R.string.backup_file_name))
                 } catch (e: Exception) {
                     Toast.makeText(
-                        this, getString(R.string.backup_failed, e.message ?: "no file picker"),
+                        this,
+                        getString(
+                            R.string.backup_failed,
+                            e.message ?: getString(R.string.platform_error_no_picker)
+                        ),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -1130,10 +1201,10 @@ class SettingsActivity : AppCompatActivity() {
                     } else {
                         BackupManager.export(this, it)
                     }
-                } ?: throw RuntimeException("could not open destination")
+                } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
                 null
             } catch (e: Exception) {
-                e.message ?: "unknown error"
+                e.message ?: getString(R.string.platform_error_unknown)
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1162,7 +1233,7 @@ class SettingsActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 // A file that cannot even be opened is a failure to report,
                 // not a hint that it is unencrypted.
-                error = e.message ?: "unknown error"
+                error = e.message ?: getString(R.string.platform_error_unknown)
                 false
             }
             runOnUiThread {
@@ -1218,7 +1289,7 @@ class SettingsActivity : AppCompatActivity() {
             } catch (e: BackupCrypto.WrongPassphraseException) {
                 getString(R.string.restore_wrong_passphrase)
             } catch (e: Exception) {
-                e.message ?: "unknown error"
+                e.message ?: getString(R.string.platform_error_unknown)
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1714,7 +1785,8 @@ class SettingsActivity : AppCompatActivity() {
                             getString(
                                 R.string.model_card_meta,
                                 model.approxSizeMb,
-                                "Speaker ID", // language is in each model's name
+                                // The language is in each model's name.
+                                getString(R.string.platform_model_speaker_id),
                                 "sherpa-onnx"
                             )
                         ),

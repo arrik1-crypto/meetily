@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 17 local network permission (LocalNetworkUi). The AI endpoint
+         a user runs on their own network, for example an Ollama box at
+         192.168.1.20. Android files the permission under "Nearby devices". -->
+
+    <!-- A summary or answer failed because a server on the local network,
+         or behind a VPN such as Tailscale, could not be reached at all. %1$s
+         is the server's host, as typed in Settings (an address such as
+         192.168.1.20, or a name). A whole sentence: never put it inside
+         another message's parentheses. -->
+    <string name="platform_lan_unreachable">Couldn\'t reach the AI server at %1$s. Check that it\'s running and that this phone can reach it: on the same Wi-Fi, or with your VPN connected if you reach it through one.</string>
+    <!-- As above, when Recap lacks the permission to reach the local network.
+         %1$s is the server's host. -->
+    <string name="platform_lan_needs_permission">Recap isn\'t allowed to reach devices on your local network, so it couldn\'t connect to %1$s. Allow Nearby devices for Recap in its app settings.</string>
+    <!-- After saving settings: the user declined the permission. %1$s is the
+         AI endpoint's host. The permission covers Wi-Fi and Ethernet only; a
+         VPN still reaches the endpoint, hence "over Wi-Fi or Ethernet". -->
+    <string name="platform_lan_denied">Without access to your local network, Recap can\'t reach the AI endpoint at %1$s over Wi-Fi or Ethernet, so summaries and answers from it will fail there. You can allow Nearby devices for Recap in its app settings.</string>
+    <!-- After a summary run that could not reach a local AI server. %1$s is
+         one of the two messages above, a whole sentence. First when a
+         regeneration failed and the meeting kept what it had; second when a
+         first summary was made on the phone instead. -->
+    <string name="platform_lan_summary_kept">%1$s Your previous summary and action items were kept.</string>
+    <string name="platform_lan_summary_fallback">%1$s This summary was made on the phone instead.</string>
+    <!-- The first line of such an on-device summary, saved with the meeting.
+         %1$s is one of the two messages above. -->
+    <string name="platform_lan_fallback_header">%1$s Showing on-device summary instead:</string>
+    <!-- Title of the dialog that explains the permission. -->
+    <string name="platform_lan_permission_title">Local network access</string>
+    <!-- Button: opens the system's settings page for Recap. -->
+    <string name="platform_lan_open_settings">App settings</string>
+    <!-- Button: closes the dialog without changing anything. -->
+    <string name="platform_lan_not_now">Not now</string>
+
+    <!-- Fallbacks shown inside an error message when the error itself gave
+         no reason. They complete sentences such as "Export failed: %1$s". -->
+    <string name="platform_error_unknown">unknown error</string>
+    <!-- No app on the phone could pick a file or folder. -->
+    <string name="platform_error_no_picker">no file picker</string>
+    <!-- The chosen file could not be opened for writing. -->
+    <string name="platform_error_no_destination">could not open destination</string>
+    <!-- A file bundled with the app could not be read. -->
+    <string name="platform_error_read_failed">read failed</string>
+    <!-- A model download stopped without saying why. -->
+    <string name="platform_error_network">network error</string>
+    <!-- Topic detection's request to the AI failed without saying why. -->
+    <string name="platform_error_ai_request">AI request failed</string>
+
+    <!-- The recognizer's error, inside "Recognition error (%1$s), retrying…".
+         The first when it gave no reason; the second with Android's error
+         number, %1$d. -->
+    <string name="platform_status_unknown">unknown</string>
+    <string name="platform_status_code">code %1$d</string>
+
+    <!-- Home list: the dateline over today's and yesterday's meetings
+         (older days show their date). -->
+    <string name="platform_home_today">Today</string>
+    <string name="platform_home_yesterday">Yesterday</string>
+    <!-- Home list: how many meetings a day holds, beside its dateline. -->
+    <plurals name="platform_home_meetings">
+        <item quantity="one">%d meeting</item>
+        <item quantity="other">%d meetings</item>
+    </plurals>
+    <!-- Home list: a meeting's meta line, its parts joined with " · ", for
+         example "42 lines · 3 speakers · summary ready". -->
+    <plurals name="platform_home_lines">
+        <item quantity="one">%d line</item>
+        <item quantity="other">%d lines</item>
+    </plurals>
+    <plurals name="platform_home_speakers">
+        <item quantity="one">%d speaker</item>
+        <item quantity="other">%d speakers</item>
+    </plurals>
+    <string name="platform_home_summary_ready">summary ready</string>
+    <!-- The meta line of a meeting with no transcript, summary or tags. -->
+    <string name="platform_home_notes_only">notes only</string>
+
+    <!-- Settings, a speaker-recognition model's card: what the model does,
+         between its size and its engine ("110 MB · Speaker ID · sherpa-onnx"). -->
+    <string name="platform_model_speaker_id">Speaker ID</string>
+</resources>

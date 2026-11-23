@@ -323,7 +323,9 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                     brief, AiDisclaimers.texts(this, AiDisclaimers.union(fresh.take(4)))
                 )
             } catch (e: Exception) {
-                getString(R.string.brief_failed, e.message ?: "unknown error")
+                getString(
+                    R.string.brief_failed, e.message ?: getString(R.string.platform_error_unknown)
+                )
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread

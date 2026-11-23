@@ -163,16 +163,30 @@ class MeetingDetailActivity : AppCompatActivity() {
                 else -> {
                     // The summarizing UI comes down whatever the run saved.
                     requestSync(summaryDone = true)
-                    // The meeting was left as it was; say why nothing changed.
-                    if (failed) {
-                        Toast.makeText(
-                            this@MeetingDetailActivity,
-                            getString(
-                                R.string.summary_failed_kept,
-                                SummaryService.lastFailure ?: "unknown error"
-                            ),
-                            Toast.LENGTH_LONG
-                        ).show()
+                    // A failed run left the meeting as it was; say why nothing
+                    // changed. A local AI server out of reach is said either
+                    // way, also when the on-device fallback was written
+                    // instead. Its hint is a whole sentence, so it gets its
+                    // own wording rather than summary_failed_kept's brackets.
+                    val lan = SummaryService.lastLocalNetworkText
+                    val why = when {
+                        lan != null && failed -> getString(R.string.platform_lan_summary_kept, lan)
+                        lan != null -> getString(R.string.platform_lan_summary_fallback, lan)
+                        failed -> getString(
+                            R.string.summary_failed_kept,
+                            SummaryService.lastFailure ?: getString(R.string.platform_error_unknown)
+                        )
+                        else -> null
+                    }
+                    if (why != null) {
+                        if (lan != null && SummaryService.lastFailureHint ==
+                            com.meetily.mobile.security.LocalNetworkAccess.Hint.ALLOW_ACCESS
+                        ) {
+                            // The fix is a permission: offer the way to it.
+                            LocalNetworkUi.showPermissionDialog(this@MeetingDetailActivity, why)
+                        } else {
+                            Toast.makeText(this@MeetingDetailActivity, why, Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }
@@ -731,7 +745,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     /** The camera's answer, held while the meeting is read; saved with the state. */
     private var pendingPhotoResult: Boolean? = null
     private val takePicture =
-        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        registerForActivityResult(TakePictureWithGrant()) { success ->
             onPhotoResult(success)
         }
 
@@ -1294,12 +1308,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         val inflater = LayoutInflater.from(this)
         for (share in stats.shares.take(8)) {
             val row = inflater.inflate(R.layout.item_stat_speaker, list, false)
-            row.findViewById<TextView>(R.id.statSpeakerName).text =
-                if (share.name == com.meetily.mobile.summarize.MeetingStats.UNATTRIBUTED) {
+            val cluster = share.clusterId
+            row.findViewById<TextView>(R.id.statSpeakerName).text = when {
+                // An unnamed voice, labelled as the transcript labels it.
+                cluster != null -> getString(R.string.speaker_cluster_label, cluster)
+                share.name == com.meetily.mobile.summarize.MeetingStats.UNATTRIBUTED ->
                     getString(R.string.stats_unattributed)
-                } else {
-                    share.name
-                }
+                else -> share.name
+            }
             row.findViewById<TextView>(R.id.statSpeakerDetail).text = getString(
                 R.string.stats_share_detail,
                 share.percent, formatClock(share.ms.toInt()), share.turns
@@ -1311,7 +1327,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             list.addView(row)
         }
         footer.text = buildString {
-            val monologue = stats.longestMonologueSpeaker
+            val monologue = stats.longestMonologueCluster
+                ?.let { getString(R.string.speaker_cluster_label, it) }
+                ?: stats.longestMonologueSpeaker
             if (monologue != null) {
                 append(
                     getString(
@@ -2320,7 +2338,11 @@ class MeetingDetailActivity : AppCompatActivity() {
                     entries[which].second()
                 } catch (e: Exception) {
                     Toast.makeText(
-                        this, getString(R.string.export_failed, e.message ?: "no file picker"),
+                        this,
+                        getString(
+                            R.string.export_failed,
+                            e.message ?: getString(R.string.platform_error_no_picker)
+                        ),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -2339,12 +2361,13 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun writeActionItemsIcs(uri: Uri) {
         val m = meeting ?: return
         val ics = com.meetily.mobile.export.TaskExport.ics(
-            openActionItems(m), System.currentTimeMillis()
+            openActionItems(m), System.currentTimeMillis(),
+            com.meetily.mobile.export.ExportTextResources.load(this)
         )
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 out.write(ics.toByteArray(Charsets.UTF_8))
-            } ?: throw RuntimeException("could not open destination")
+            } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
         }
     }
 
@@ -2361,7 +2384,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 write()
                 null
             } catch (e: Exception) {
-                e.message ?: "unknown error"
+                e.message ?: getString(R.string.platform_error_unknown)
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -2407,14 +2430,15 @@ class MeetingDetailActivity : AppCompatActivity() {
         // while, and the live meeting keeps changing under it.
         val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
         val notices = meetingNotices(m)
+        val text = com.meetily.mobile.export.ExportTextResources.load(this)
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 if (isPdf) {
-                    MeetingExporter.writePdf(m, out, notices)
+                    MeetingExporter.writePdf(m, out, notices, text)
                 } else {
-                    out.write(MeetingExporter.markdown(m, notices).toByteArray(Charsets.UTF_8))
+                    out.write(MeetingExporter.markdown(m, notices, text).toByteArray(Charsets.UTF_8))
                 }
-            } ?: throw RuntimeException("could not open destination")
+            } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
         }
     }
 
@@ -2422,10 +2446,11 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun writeDocx(uri: Uri) {
         val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
         val notices = meetingNotices(m)
+        val text = com.meetily.mobile.export.ExportTextResources.load(this)
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
-                DocxExport.write(m, out, notices)
-            } ?: throw RuntimeException("could not open destination")
+                DocxExport.write(m, out, notices, text = text)
+            } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
         }
     }
 
@@ -2451,7 +2476,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             val text = if (vtt) SubtitleExport.vtt(cues) else SubtitleExport.srt(cues)
             contentResolver.openOutputStream(uri)?.use { out ->
                 out.write(text.toByteArray(Charsets.UTF_8))
-            } ?: throw RuntimeException("could not open destination")
+            } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
         }
     }
 
@@ -2522,7 +2547,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     attendees, history, question, languageClause
                 )
             } catch (e: Exception) {
-                getString(R.string.ask_failed, e.message ?: "unknown error")
+                getString(R.string.ask_failed, e.message ?: getString(R.string.platform_error_unknown))
             }
             // SAVE FIRST, on this thread, against the stored copy. A local
             // model can take minutes on a long transcript; rotating the phone
@@ -2874,24 +2899,9 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun shareMeeting() {
         val m = meeting ?: return
         saveEdits()
-        val text = buildString {
-            append(m.title).append('\n')
-            append(
-                DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
-                    .format(Date(m.createdAtMs))
-            ).append("\n\n")
-            if (m.attendees.isNotEmpty()) {
-                append("ATTENDEES\n").append(m.attendeesText()).append("\n\n")
-            }
-            if (m.summary.isNotBlank()) {
-                append("SUMMARY\n")
-                append(AiDisclaimers.prependTo(m.summary, summaryNotices())).append("\n\n")
-            }
-            if (m.notes.isNotBlank()) {
-                append("NOTES\n").append(m.notes).append("\n\n")
-            }
-            append("TRANSCRIPT\n").append(m.transcriptTextWithSpeakers())
-        }
+        val text = MeetingExporter.shareText(
+            m, summaryNotices(), com.meetily.mobile.export.ExportTextResources.load(this)
+        )
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_SUBJECT, m.title)
@@ -4987,7 +4997,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                         }
                     if (chapters.size < 2) chapters = emptyList() else usedLlm = true
                 } catch (e: Exception) {
-                    failure = e.message ?: "AI request failed"
+                    failure = e.message ?: getString(R.string.platform_error_ai_request)
                 }
             }
             if (chapters.isEmpty()) {
