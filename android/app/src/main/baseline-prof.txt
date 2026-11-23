@@ -691,7 +691,7 @@ HPLcom/meetily/mobile/data/WordAlign;->alignable(Lcom/meetily/mobile/data/Transc
 HPLcom/meetily/mobile/data/WordAlign;->isApostrophe(I)Z
 HPLcom/meetily/mobile/data/WordAlign;->isWordChar(I)Z
 HPLcom/meetily/mobile/data/WordAlign;->mayRetimeUnknown(ZLcom/meetily/mobile/data/WordAlign$Speech;)Z
-HPLcom/meetily/mobile/data/WordAlign;->offersLine(Lcom/meetily/mobile/data/TranscriptSegment;Z)Z
+HPLcom/meetily/mobile/data/WordAlign;->offersLine(Lcom/meetily/mobile/data/TranscriptSegment;ZZ)Z
 HPLcom/meetily/mobile/data/WordAlign;->speech(Ljava/lang/String;Z)Lcom/meetily/mobile/data/WordAlign$Speech;
 HPLcom/meetily/mobile/data/WordAlign;->tokens(Ljava/lang/String;)Ljava/util/List;
 HPLcom/meetily/mobile/data/WordAlign;->tokens$*(**)**

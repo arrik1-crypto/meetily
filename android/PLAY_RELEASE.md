@@ -189,7 +189,10 @@ the device. androidx.profileinstaller hands the app's own compiled
 profile to ART on the phone and sends nothing. The local network
 classifier parses addresses in code and looks nothing up; the summary
 hint, the restored system sounds and the explicit camera grant change
-nothing that leaves the phone. Batch 7 adds no logcat lines.
+nothing that leaves the phone. Batch 7 adds no logcat lines of its
+own; sherpa-onnx's forced aligner, which Re-time words runs, logs
+warnings under the tag `sherpa-onnx` with counts only ("N of M words
+are out-of-vocabulary"), never words or transcript text.
 Re-checked for 3.20.0-beta1: no change; owner to confirm
 against the merged build. It adds two permissions
 (FOREGROUND_SERVICE_MEDIA_PLAYBACK and POST_PROMOTED_NOTIFICATIONS) and
@@ -426,10 +429,10 @@ The console will ask about these (all have in-app justifications):
   result as a separate audio file beside the original, which is not
   changed. A long meeting can take many minutes, so the work must
   continue while the screen is off or the user leaves the meeting. It
-  runs only when the user starts it, never during a recording, shows an
-  ongoing progress notification with Stop, and keeps nothing if it is
-  stopped." The six-hour mediaProcessing allowance is per app and per
-  type, so ImportService and ClearVoiceService now share it (the "own
+  runs only when the user starts it, does not start while a recording is
+  running, shows an ongoing progress notification with Stop, and keeps
+  nothing if it is stopped." The six-hour mediaProcessing allowance is
+  per app and per type, so ImportService and ClearVoiceService now share it (the "own
   allowance" in ImportFgsType's KDoc means separate from dataSync's, not
   the importer's alone).
   A short demo video may be needed: open a meeting with audio, tap Clear
@@ -450,10 +453,10 @@ The console will ask about these (all have in-app justifications):
   file and puts it in place of the recording, all on the device. A long
   meeting can take minutes, so the work must continue while the screen is
   off or the user leaves the meeting. It runs only when the user starts
-  it, never during a recording, shows an ongoing progress notification
-  with Stop that names no meeting, and changes nothing if it is
-  stopped." Demo video: open a meeting with audio, tap a transcript line
-  → Remove passage…, choose a span, read the confirmation and confirm,
+  it, does not start while a recording is running, shows an ongoing
+  progress notification with Stop that names no meeting, and changes
+  nothing if it is stopped." Demo video: open a meeting with audio, tap a
+  transcript line → Remove passage…, choose a span, read the confirmation and confirm,
   show the progress dialog, pull down the shade to show "Removing a
   passage" with Stop, lock and unlock the phone, then show the transcript
   without the span and play across it.
@@ -472,8 +475,10 @@ The console will ask about these (all have in-app justifications):
   an on-device model, so that tapping a word plays from the right
   moment. A meeting with many edited lines takes minutes, so the work
   must continue while the screen is off or the user leaves the meeting.
-  It runs only when the user starts it, never during a recording, shows
-  an ongoing progress notification with Stop that names no meeting, and
+  It runs only when the user starts it, does not start while a
+  recording is running (it works at background priority, so a recording
+  started during a run takes precedence while the run goes on), shows an
+  ongoing progress notification with Stop that names no meeting, and
   keeps the lines already done if it is stopped." Demo video: open an
   English meeting with audio, edit one word of a line, tap the line →
   Re-time words (download the model if offered, then tap again), show
@@ -720,8 +725,11 @@ closed track and production checks).
    run should change nothing else. For 3.21.0-beta1 both were edited by
    hand again: the MODELS section gains the English MFA acoustic model
    and dictionary v3.0.0 (CC BY 4.0, with the changes sherpa-onnx made
-   and a note that sherpa-onnx does not state the source of
-   `lexicon-en-us.txt`), and the AndroidX line names `profileinstaller`.
+   and a note that `lexicon-en-us.txt`, whose phrase readings the lexicon
+   keeps, was generated from CMUDict and eSpeak NG's en_list, that those
+   readings are eSpeak NG output (GPL-3.0-or-later), and that sherpa-onnx
+   states no licence for it), and the AndroidX line names
+   `profileinstaller`.
    No fetched text changes (the forced aligner is part of the existing
    sherpa-onnx library), so a full run should change nothing else.
 3. When adding a model to any catalogue (WhisperModels, NemoModels,
@@ -738,13 +746,13 @@ closed track and production checks).
    anything beyond internal testing).
 
 Draft release notes for 3.21.0-beta1 (Play allows 500 characters per
-language; this is about 340):
+language; this is about 360):
 
 ```
 • Re-time words: after you edit a transcript, line the edited words up with the recording again, on your phone (English; optional 49 MB model)
-• A clear message when an AI server on your own network can't be reached
-• Recognizer sounds muted for a recording come back even if Recap closed unexpectedly
-• Ready for Android 17 and 18 changes
+• A clear message when an AI endpoint on your own network can't be reached
+• Phone sounds Recap muted during a recording come back even if Recap closed unexpectedly
+• Preparation for upcoming Android 17 and 18 changes
 ```
 
 If 3.20.0-beta1 never reached a track, fold its notes (below) into these
@@ -925,7 +933,10 @@ strongest conversion line this app has.
   (2 on a call that auto-detects the language, the first of a file: the
   pass always existed, b5907 reports it) and `VAD model loaded`;
   `meetily_vad` logs one `speech gate off, transcribing every chunk: ...`
-  warning when the speech detector cannot run.
+  warning when the speech detector cannot run. From 3.21.0-beta1 add
+  `sherpa-onnx` while words are re-timed: the forced aligner's warnings
+  (`N of M words are out-of-vocabulary (mapped to 'spn')`, `ForcedAligner:
+  ... returning an empty result`), counts and reasons only.
 - Check **reviews** weekly early on; reply to bug reports there and point
   users at Settings → Report a bug.
 
@@ -1488,12 +1499,20 @@ Work through it before the first targetSdk 36 upload to any track.
     terms (creator, source, licence, indication of changes).
   - *Decision*: the model's `lexicon.txt` also covers the words of
     sherpa-onnx's `lexicon-en-us.txt` (from its tts-models release) and
-    keeps that file's multi-word phrase readings. sherpa-onnx does not
-    say where `lexicon-en-us.txt` comes from or under what licence, and
-    the notices now say so. Decide whether that is acceptable, or ask
-    the sherpa-onnx maintainers; the alternative is a lexicon built
-    from the CC BY 4.0 MFA dictionary alone (hosted by Recap or built
-    on the phone).
+    keeps that file's 688 multi-word phrase lines (the ` || ` lines, such
+    as `di maggio || d || ɪ m ɑː ʒ ɪ o ʊ`). That file's header says it
+    was "Generated by build_lexicon.py" from "CMUDict + en_list +
+    compounds" and names no licence. Its phrase readings are eSpeak NG
+    output: some are entries of eSpeak NG's English exceptions list
+    `dictsource/en_list` (such as `(Baton rouge)`, `(Des moines)` and
+    `(Di maggio)`), the rest context readings that follow that list's
+    `$noun`/`$verb` flags ("the record", "to record"). eSpeak NG is
+    GPL-3.0-or-later, and the notices now say all of this. Decide
+    whether shipping those readings under the CC BY 4.0 credit is
+    acceptable, or ask the sherpa-onnx maintainers; the alternative is
+    a lexicon built from the CC BY 4.0 MFA dictionary alone, without the
+    688 phrase lines (hosted by Recap, or built on the phone by dropping
+    the ` || ` lines).
   - **androidx.profileinstaller 1.4.1**: Apache 2.0, covered by the
     existing AndroidX entry, whose list now names it.
   - The vendored ForcedAligner Kotlin files are sherpa-onnx v2.0.3's
@@ -2791,14 +2810,20 @@ kept its audio:
   time; ⋮ → Re-time edited lines leaves them out. A line just re-timed
   no longer offers it until it is edited again.
 - [ ] Delete the model in Settings → Transcription → Word re-timing
-  (English): Re-time words offers the download again. In that row:
+  (English): Re-time words offers the download again. The row shows
+  whether On-device transcription is on or off (off: Android's speech
+  service). In that row:
   download with progress, "Waiting for the download in progress to
   finish." when another model download is running, and Delete model
   refused while a run or the download is
   going. The Storage screen shows the "Word re-timing model" row while
   it is on the phone, and Delete unused models leaves it alone.
-- [ ] Remove the meeting's audio, then Re-time words: it explains there
-  is no recording. While a run is going, Remove audio, deleting the
+- [ ] Remove the meeting's audio (the confirmation lists re-timing
+  edited words among what stops working), then Re-time words on an
+  edited line: it explains there is no recording. A meeting imported
+  from a caption file (.srt or .vtt) offers Re-time words on no line,
+  and neither does its ⋮ menu. While a run is going, Remove audio,
+  deleting the
   meeting (home, multi-select) and Remove a passage on it are refused,
   and automatic clean-up skips it.
 - [ ] Stop mid-run, from the dialog and from the notification: lines
@@ -2806,12 +2831,20 @@ kept its audio:
   message says how many were re-timed.
 - [ ] Edit a line while a run is going: the edit is kept, and the
   result says that line kept your edit.
+- [ ] Several passes: Re-time edited lines on a meeting whose edited
+  lines are more than 30 s apart. Tap Hide; once the notification's
+  count has moved, highlight or edit another line, then press Back
+  before the run ends. Reopen the meeting after the done notification: every line the
+  notification counts is re-timed (none of them offers Re-time words
+  again), and the highlight or edit is kept.
 - [ ] Leave the meeting screen mid-run (Hide, then Back): the done
   notification gives the outcome, and reopening the meeting shows the
   new timings. Rotate during a run: the progress dialog comes back.
 - [ ] Start a summary or an import while a run is going: it waits and
   starts when the run ends. During a recording, Re-time words says it
-  waits.
+  can't run until the recording has ended, and nothing starts by itself
+  afterwards. With a finished accuracy check of the meeting waiting for
+  review, Re-time words says to review it first.
 - [ ] An hour-long meeting with 20 or more edited lines on a mid-range
   phone: note how long the run takes, and the peak of `adb shell dumpsys
   meminfo com.recap.mobile` while it runs (estimated: about 200 MB of
@@ -2866,10 +2899,10 @@ Android 17 and 18 readiness (3.21.0-beta1):
 - [ ] Android 16, a LAN endpoint without the permission: `adb shell am
   compat enable RESTRICT_LOCAL_NETWORK com.recap.mobile` and reboot. A
   summary against the LAN endpoint fails with "Couldn't reach the AI
-  server at <host>. Check that it's running…", with no prompt at target
-  36: on a meeting with no summary yet the on-device summary is saved
-  under that sentence and the done notification shows it; on one with a
-  summary the message adds that the previous summary and action items
+  endpoint at <host>. Check that its server is running…", with no
+  prompt at target 36: on a meeting with no summary yet the on-device
+  summary is saved under that sentence and the done notification shows
+  it; on one with a summary the message adds that the previous summary and action items
   were kept. Then `adb shell am compat disable RESTRICT_LOCAL_NETWORK
   com.recap.mobile` and reboot.
 - [ ] An endpoint on a Tailscale address (100.x, or a MagicDNS name that
@@ -2888,7 +2921,9 @@ Android 17 and 18 readiness (3.21.0-beta1):
   come straight back. On Android 17 run `adb shell cmd audio
   set-enable-hardening throw` and repeat: no crash.
 - [ ] Mute after a crash: kill the process mid-recording (`adb shell am
-  kill com.recap.mobile`, or force stop) and reopen the app: the muted
+  crash com.recap.mobile`, or `adb shell am force-stop com.recap.mobile`;
+  `am kill` leaves a process with a foreground service running) and
+  reopen the app: the muted
   streams come back. A stream muted before the recording stays muted,
   and so does a ringer mode changed meanwhile.
 - [ ] Camera: on Android 17, run `adb logcat | grep "Please set the

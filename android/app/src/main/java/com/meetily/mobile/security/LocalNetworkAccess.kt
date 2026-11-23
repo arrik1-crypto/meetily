@@ -33,7 +33,7 @@ import javax.net.ssl.SSLException
  * [applies] is false on every phone, nothing is requested, nothing is
  * declared. [applies] is THE switch for the targetSdk 37 bump. It reads the
  * running app's own target, so it turns on by itself with the bump, and
- * LocalNetworkManifestTest then fails until the manifest declares the
+ * LocalNetworkAccessTest then fails until the manifest declares the
  * permission (and fails now if it is declared early).
  *
  * The classifier errs towards "local": the cost of a wrong yes is one

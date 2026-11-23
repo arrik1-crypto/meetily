@@ -24,8 +24,8 @@ import com.meetily.mobile.whisper.AlignerModels
  * which reaches it through [Host].
  *
  * The screen listens for the whole of its life, not only while started, so
- * a run that ends while it is in the background still has its results
- * taken into the screen's own copy, which the next save writes.
+ * a run that saves a pass or ends while it is in the background still has
+ * its results taken into the screen's own copy, which the next save writes.
  */
 class AlignUi(
     private val activity: AppCompatActivity,
@@ -84,18 +84,21 @@ class AlignUi(
 
     /**
      * True when line [segment] gets the "Re-time words" action
-     * (WordAlign.offersLine): estimated or missing timings always, and
-     * timings of unknown origin in a meeting that keeps its recording and
-     * whose speech is English or not recorded. Asked on every bind: reads
-     * fields only, and splits the line into words only when it qualifies.
+     * (WordAlign.offersLine): estimated timings always, missing ones in a
+     * meeting that keeps its recording (not a caption import's cues, which
+     * never had one), and timings of unknown origin in a meeting that
+     * keeps its recording and whose speech is English or not recorded.
+     * Asked on every bind: reads fields only, and splits the line into
+     * words only when it qualifies.
      */
     fun offers(segment: TranscriptSegment): Boolean {
         val m = host.liveMeeting()
+        val audioKept = m == null || !m.audioFile.isNullOrBlank()
         val unknownOffered = m != null && WordAlign.mayRetimeUnknown(
-            !m.audioFile.isNullOrBlank(),
+            audioKept,
             WordAlign.speech(m.language, m.translated)
         )
-        return WordAlign.offersLine(segment, unknownOffered)
+        return WordAlign.offersLine(segment, unknownOffered, audioKept)
     }
 
     /**
@@ -333,6 +336,14 @@ class AlignUi(
         if (progressDialog?.isShowing == true) renderProgress(done, total)
     }
 
+    override fun onAlignSaved(meetingId: String, results: List<WordAlign.Retimed>) {
+        if (meetingId != this.meetingId || activity.isDestroyed) return
+        // Into this screen's copy as soon as the store has them, so a save
+        // from here (an edit, a highlight) carries them rather than the
+        // timings they replaced.
+        host.retimed(results)
+    }
+
     override fun onAlignDone(meetingId: String, outcome: AlignService.Outcome) {
         if (meetingId != this.meetingId) return
         progressDialog?.dismiss()
@@ -340,6 +351,8 @@ class AlignUi(
         if (activity.isDestroyed) return
         // Into this screen's copy too, by the same rule as the store's, so
         // the next save carries them and a line edited here keeps its edit.
+        // Each pass's came already (onAlignSaved); applying them again
+        // changes nothing (WordAlign.apply skips a line that holds them).
         if (outcome.retimed.isNotEmpty()) host.retimed(outcome.retimed)
         if (!showsMeeting(meetingId)) return
         if (outcome.result == AlignService.Result.NO_MODEL) {

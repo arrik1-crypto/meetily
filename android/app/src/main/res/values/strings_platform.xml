@@ -9,7 +9,7 @@
          is the server's host, as typed in Settings (an address such as
          192.168.1.20, or a name). A whole sentence: never put it inside
          another message's parentheses. -->
-    <string name="platform_lan_unreachable">Couldn\'t reach the AI server at %1$s. Check that it\'s running and that this phone can reach it: on the same Wi-Fi, or with your VPN connected if you reach it through one.</string>
+    <string name="platform_lan_unreachable">Couldn\'t reach the AI endpoint at %1$s. Check that its server is running and that this phone can reach it: on the same Wi-Fi, or with your VPN connected if you reach it through one.</string>
     <!-- As above, when Recap lacks the permission to reach the local network.
          %1$s is the server's host. -->
     <string name="platform_lan_needs_permission">Recap isn\'t allowed to reach devices on your local network, so it couldn\'t connect to %1$s. Allow Nearby devices for Recap in its app settings.</string>

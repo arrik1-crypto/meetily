@@ -57,12 +57,17 @@ import java.util.concurrent.CopyOnWriteArraySet
  *
  * Results are saved through the store's lock onto what is stored, after
  * each pass through the recording (so a run ended part-way keeps what it
- * measured), and all of them are handed to the meeting screen at the end
- * when it shows the meeting, which applies them to its own copy by the
- * same rule and saves through its merge (MeetingDetailActivity.persist),
- * so neither a screen edit nor a result is lost. A trashed or deleted
- * meeting is not in the store, and is not written. The recording is
- * opened once for the whole run (AudioFileDecoder.Reader).
+ * measured), and each pass's are handed at once to a meeting screen that
+ * shows the meeting (Listener.onAlignSaved), which applies them to its own
+ * copy by the same rule and saves through its merge
+ * (MeetingDetailActivity.persist). That merge also keeps timings measured
+ * for a line the screen's copy still reads the same
+ * (MeetingMerge.keepMeasuredTimings), so a screen edit made before a pass
+ * reached it does not put the pass's lines back; at the end every result
+ * is applied to the store once more, as a backstop. So neither a screen
+ * edit nor a result is lost. A trashed or deleted meeting is not in the
+ * store, and is not written. The recording is opened once for the whole
+ * run (AudioFileDecoder.Reader).
  */
 class AlignService : Service() {
 
@@ -91,6 +96,14 @@ class AlignService : Service() {
 
         /** [done] of [total] lines measured; total 0 while the model loads. */
         fun onAlignProgress(meetingId: String, done: Int, total: Int)
+
+        /**
+         * One pass's [results], just saved to the stored meeting. A screen
+         * showing [meetingId] takes them into its own copy at once, so it
+         * shows them and its next save carries them. Always before the
+         * run's [onAlignDone].
+         */
+        fun onAlignSaved(meetingId: String, results: List<WordAlign.Retimed>)
 
         fun onAlignDone(meetingId: String, outcome: Outcome)
     }
@@ -318,6 +331,13 @@ class AlignService : Service() {
                 // code aborts) part-way keeps what it measured before.
                 retimed.addAll(runResults)
                 saved += save(store, meetingId, runResults)
+                if (runResults.isNotEmpty()) {
+                    // To the screen's copy at once: a screen that saved its
+                    // copy whole without them put their old timings back.
+                    // Posted before finishRun is, on the same handler.
+                    val pass = runResults.toList()
+                    main.post { listeners.forEach { it.onAlignSaved(meetingId, pass) } }
+                }
             }
         } finally {
             try {
@@ -326,6 +346,16 @@ class AlignService : Service() {
             }
             try {
                 aligner.release()
+            } catch (_: Throwable) {
+            }
+        }
+        // Every result once more, as a backstop: a line a screen's save put
+        // back to the timings it had is measured again; a line edited
+        // meanwhile is left alone (WordAlign.apply), and nothing is written
+        // when every line already holds its result. Not counted again.
+        if (retimed.isNotEmpty()) {
+            try {
+                save(store, meetingId, retimed)
             } catch (_: Throwable) {
             }
         }
@@ -478,7 +508,9 @@ class AlignService : Service() {
         main.post {
             if (!isRunning || currentMeetingId != meetingId) return@post
             listeners.forEach { it.onAlignProgress(meetingId, measured, of) }
-            updateNotification(meetingId)
+            // Once onTimeout has taken the service out of the foreground, a
+            // progress notification posted now would outlive the run.
+            if (!timedOut) updateNotification(meetingId)
         }
     }
 
@@ -493,6 +525,14 @@ class AlignService : Service() {
         cancelRequested = false
         val watching = listeners.any { it.showsMeeting(meetingId) }
         listeners.forEach { it.onAlignDone(meetingId, outcome) }
+        if (wasTimedOut) {
+            // Out of the foreground since onTimeout, so stopping below does
+            // not remove a progress notification posted meanwhile.
+            try {
+                (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTIF_ID)
+            } catch (_: Exception) {
+            }
+        }
         if (wasTimedOut || (!watching && outcome.result != Result.CANCELLED)) {
             postDoneNotification(meetingId, outcome)
         }
@@ -718,16 +758,24 @@ class AlignService : Service() {
 
         /**
          * Why [meetingId] cannot be re-timed now, as a message, or null when
-         * it can. Reads the job queue: a worker, or a tap.
+         * it can. What waits on the user is named, as Remove a passage
+         * names it: a clear-voice copy being made (stopped from the
+         * player), a finished accuracy check to review, a queued or
+         * interrupted job (answered on the home screen); trying again later
+         * would not help with those. Reads the job queue: a worker, or a tap.
          */
         fun blockReason(context: Context, meetingId: String): Int? = when {
             RecordingService.isRunning -> R.string.align_busy_recording
             aligningId() != null ->
                 if (aligningId() == meetingId) R.string.align_busy_running else R.string.align_busy_other_meeting
+            ClearVoiceService.isPreparing(meetingId) -> R.string.clearvoice_busy
+            com.meetily.mobile.data.TranscriptDraft.isPending(context, meetingId) -> R.string.align_busy_review
             ImportService.isRunning || SummaryService.isRunning || PassageService.isBusy() ->
                 if (AudioRemoval.isWritingContent(context, meetingId)) R.string.align_busy_meeting
                 else R.string.align_busy_batch
-            othersBusy(context, meetingId) -> R.string.align_busy_meeting
+            // What is left: a transcription or accuracy check of this
+            // meeting queued or interrupted (AudioRemoval.waitingForAudio).
+            othersBusy(context, meetingId) -> R.string.align_busy_queued
             else -> null
         }
 

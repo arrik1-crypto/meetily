@@ -15,8 +15,9 @@ import java.text.Normalizer
  *   ([offersLine]): an edit saved before lines carried the flag looks
  *   exactly like the recogniser's timings.
  * - What to decode: the line from its own start to the next line's (or an
- *   estimate of its end), with [MARGIN_MS] either side, clamped to the
- *   recording; nearby lines share one pass through the file ([runs]).
+ *   estimate of its end plus [SLACK_MS]), with [MARGIN_MS] either side,
+ *   clamped to the recording; nearby lines share one pass through the file
+ *   ([runs]).
  * - What the aligner reads: the aligner splits its text on whitespace,
  *   drops punctuation at the edges of each piece and looks pieces up
  *   lower-cased. [tokens] does the same to each transcript word first,
@@ -162,8 +163,12 @@ object WordAlign {
     /**
      * True when line [segment] gets the one-line "Re-time words" action:
      *
-     * - a line that [needsRetime], always (a tap explains anything that
-     *   stops it: no recording, another language, no model);
+     * - a line whose timings an edit estimated, always (a tap explains
+     *   anything that stops it: the recording removed since, another
+     *   language, no model);
+     * - a line with no timings, when the meeting keeps a recording
+     *   ([audioKept], the field). Without one it could only be refused, on
+     *   every line: a caption import's cues, which never had a recording;
      * - a line with timings of unknown origin (words, no
      *   TranscriptSegment.wordTimes) when [unknownOffered]
      *   ([mayRetimeUnknown]). Those are the recogniser's timings, or an
@@ -173,9 +178,10 @@ object WordAlign {
      *   bulk;
      * - not a line re-timed already, until an edit estimates it again.
      */
-    fun offersLine(segment: TranscriptSegment, unknownOffered: Boolean): Boolean = when {
+    fun offersLine(segment: TranscriptSegment, unknownOffered: Boolean, audioKept: Boolean): Boolean = when {
         segment.audioMs == null -> false
-        segment.words.isNullOrEmpty() || segment.wordTimes == WordTimes.ESTIMATED -> alignable(segment)
+        segment.wordTimes == WordTimes.ESTIMATED -> alignable(segment)
+        segment.words.isNullOrEmpty() -> audioKept && alignable(segment)
         segment.wordTimes == null -> unknownOffered && alignable(segment)
         else -> false
     }
@@ -224,10 +230,12 @@ object WordAlign {
     /**
      * The span of line [index] of [segments] in a recording of [durationMs]
      * (null or 0 when unknown). It ends where the next line with a later
-     * start begins, but no later than its own estimated end plus
-     * [SLACK_MS]; a line followed by none ends at that estimate, from its
-     * last word's time or its length. Null when it has no place in the
-     * recording, starts at or past its end, or leaves under [MIN_CLIP_MS].
+     * start begins, but no later than its own estimated end (from its last
+     * word's time or its length) plus [SLACK_MS]; a line followed by none
+     * ends at that estimate plus [SLACK_MS] too, so a slow speaker's last
+     * words are in its clip. Either is clamped to the recording. Null when
+     * it has no place in the recording, starts at or past its end, or
+     * leaves under [MIN_CLIP_MS].
      */
     fun span(segments: List<TranscriptSegment>, index: Int, durationMs: Long?): Span? {
         val segment = segments.getOrNull(index) ?: return null
@@ -249,7 +257,7 @@ object WordAlign {
                 break
             }
         }
-        var end = if (next != null) minOf(next, estimate + SLACK_MS) else estimate
+        var end = if (next != null) minOf(next, estimate + SLACK_MS) else estimate + SLACK_MS
         if (duration != null) end = minOf(end, duration)
         if (end - start < MIN_CLIP_MS) return null
         val clipStart = (start - MARGIN_MS).coerceAtLeast(0L)

@@ -4,9 +4,9 @@
          against the recording again after an edit estimated them. -->
     <string name="align_line_action">Re-time words</string>
     <string name="align_menu_all">Re-time edited lines</string>
-    <string name="align_none_to_retime">No line here has word timings an edit estimated, or none. To re-time another line, tap it and choose Re-time words.</string>
+    <string name="align_none_to_retime">No line here has estimated word timings or is missing them. To re-time another line, tap it and choose Re-time words.</string>
     <string name="align_line_untimed">This line has no place in the recording, so its words can\'t be re-timed.</string>
-    <string name="align_no_audio">Re-timing words needs this meeting\'s recording, and it has none any more.</string>
+    <string name="align_no_audio">Re-timing words needs the meeting\'s recording, and this meeting has none.</string>
     <string name="align_not_english">Re-timing words works for English speech only, and this meeting\'s language is another.</string>
     <string name="align_translated">This transcript is an English translation of speech in another language, so its words can\'t be timed against the recording.</string>
     <string name="align_unknown_title">Is this meeting in English?</string>
@@ -24,14 +24,16 @@
         <item quantity="one">Re-time %1$d line?</item>
         <item quantity="other">Re-time %1$d lines?</item>
     </plurals>
-    <string name="align_confirm_all_message">These lines have word timings an edit estimated, or none. They are measured against the recording again, on this phone. Only the timings change, never the words. A line you edit while this runs keeps your edit.</string>
+    <string name="align_confirm_all_message">These lines have word timings that were estimated when you edited them, or no word timings at all. They are measured against the recording again, on this phone. Only the timings change, never the words. A line you edit while this runs keeps your edit.</string>
     <string name="align_confirm_all_go">Re-time</string>
 
-    <string name="align_busy_recording">Re-timing waits while a recording is running.</string>
+    <string name="align_busy_recording">Words can\'t be re-timed while a recording is running. Try again once it has ended.</string>
     <string name="align_busy_running">Words are being re-timed in this meeting already.</string>
     <string name="align_busy_other_meeting">Words are being re-timed in another meeting. Try again once that has finished.</string>
     <string name="align_busy_meeting">This meeting is being recorded, transcribed, summarized or otherwise changed. Try again once that has finished.</string>
-    <string name="align_busy_batch">Re-timing waits for the transcription, summary or passage removal in progress to finish.</string>
+    <string name="align_busy_batch">Words can\'t be re-timed while a transcription, summary or passage removal is running. Try again once it has finished.</string>
+    <string name="align_busy_review">Review the finished accuracy check of this meeting first (Check transcript accuracy in the menu), then re-time its words.</string>
+    <string name="align_busy_queued">A transcription or accuracy check of this meeting is queued or was interrupted. Re-time its words once that has run, or once you have answered about the interrupted work on the home screen.</string>
 
     <string name="align_progress_title">Re-timing words</string>
     <!-- Counted by the total (%2$d): "1 of 1 line", "1 of 3 lines". -->

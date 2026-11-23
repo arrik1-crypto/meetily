@@ -539,52 +539,6 @@
                             app:cornerRadius="22dp"
                             app:strokeColor="?attr/colorOutline" />
 
-                        <!-- The optional model for "Re-time words" (AlignModelRow). -->
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="18dp"
-                            android:text="@string/align_setting_title"
-                            android:textAppearance="?attr/textAppearanceTitleSmall"
-                            android:textColor="?attr/colorOnSurface" />
-
-                        <TextView
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:text="@string/align_setting_desc"
-                            android:textAppearance="?attr/textAppearanceBodySmall"
-                            android:textColor="?attr/colorOnSurfaceVariant" />
-
-                        <TextView
-                            android:id="@+id/alignModelStatus"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="10dp"
-                            android:textAppearance="?attr/textAppearanceBodyMedium"
-                            android:textColor="?attr/colorOnSurface" />
-
-                        <com.google.android.material.progressindicator.LinearProgressIndicator
-                            android:id="@+id/alignModelProgress"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:visibility="gone"
-                            app:trackCornerRadius="2dp" />
-
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/alignModelButton"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="wrap_content"
-                            android:layout_height="48dp"
-                            android:layout_marginTop="8dp"
-                            android:insetBottom="6dp"
-                            android:insetTop="6dp"
-                            android:text="@string/align_model_download"
-                            android:textColor="?attr/colorOnSurface"
-                            app:cornerRadius="22dp"
-                            app:strokeColor="?attr/colorOutline" />
-
                         <com.google.android.material.materialswitch.MaterialSwitch
                             android:id="@+id/saveAudioSwitch"
                             android:layout_width="match_parent"
@@ -770,6 +724,56 @@
                                 app:strokeColor="?attr/colorOutline" />
                         </LinearLayout>
                     </LinearLayout>
+
+                    <!-- The optional model for "Re-time words" (AlignModelRow). Outside
+                         whisperSection: Re-time words, its download and its deletion
+                         do not depend on the transcription engine (imported and older
+                         meetings keep their audio), and its messages send the user
+                         here. -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="18dp"
+                        android:text="@string/align_setting_title"
+                        android:textAppearance="?attr/textAppearanceTitleSmall"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="@string/align_setting_desc"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <TextView
+                        android:id="@+id/alignModelStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="10dp"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <com.google.android.material.progressindicator.LinearProgressIndicator
+                        android:id="@+id/alignModelProgress"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:visibility="gone"
+                        app:trackCornerRadius="2dp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/alignModelButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="8dp"
+                        android:insetBottom="6dp"
+                        android:insetTop="6dp"
+                        android:text="@string/align_model_download"
+                        android:textColor="?attr/colorOnSurface"
+                        app:cornerRadius="22dp"
+                        app:strokeColor="?attr/colorOutline" />
 
                     <com.google.android.material.materialswitch.MaterialSwitch
                         android:id="@+id/muteSoundsSwitch"

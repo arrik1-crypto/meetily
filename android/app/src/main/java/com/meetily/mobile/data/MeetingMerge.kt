@@ -79,6 +79,40 @@ object MeetingMerge {
     )
 
     /**
+     * A re-timing run (AlignService) saves measured word timings into the
+     * stored lines pass by pass, while a screen's copy of those lines may
+     * still hold the estimated ones; written back whole, it would put them
+     * back. So a line of [out] without measured timings of its own
+     * (WordTimes.ALIGNED) that reads exactly as a stored line whose timings
+     * were measured (same stamp, place in the recording and text: the
+     * run's WordAlign.Target) takes the stored timings, which were measured
+     * for these very words. Everything else the screen set on the line (a
+     * highlight, a speaker) stays; a line whose wording the screen changed
+     * no longer matches and keeps its edit. Returns how many lines took
+     * the stored timings.
+     */
+    fun keepMeasuredTimings(out: MutableList<TranscriptSegment>, disk: List<TranscriptSegment>): Int {
+        val measured = HashMap<WordAlign.Target, List<WordStamp>>()
+        for (stored in disk) {
+            if (stored.wordTimes != WordTimes.ALIGNED) continue
+            val words = stored.words?.takeIf { it.isNotEmpty() } ?: continue
+            val key = WordAlign.target(stored) ?: continue
+            measured.putIfAbsent(key, words)
+        }
+        if (measured.isEmpty()) return 0
+        var kept = 0
+        for (i in out.indices) {
+            val line = out[i]
+            if (line.wordTimes == WordTimes.ALIGNED) continue
+            val key = WordAlign.target(line) ?: continue
+            val words = measured[key] ?: continue
+            out[i] = line.copy(words = words, wordTimes = WordTimes.ALIGNED)
+            kept++
+        }
+        return kept
+    }
+
+    /**
      * A three-way merge of a screen's copy onto the stored one, field by field.
      *
      * [base] is what the screen last knew to be on disk, [ours] its current
@@ -92,8 +126,10 @@ object MeetingMerge {
      * - The transcript. If the screen edited it, its lines win as a whole
      *   (it carries deletions and splits that cannot be merged line by line)
      *   and only segments stamped after [segmentsSeenThroughMs] are folded
-     *   back in, exactly as [foldLateSegments] does. Otherwise the stored
-     *   transcript is taken as it is.
+     *   back in, exactly as [foldLateSegments] does; word timings measured
+     *   in the background for a line the screen still reads the same are
+     *   kept ([keepMeasuredTimings]). Otherwise the stored transcript is
+     *   taken as it is.
      * - The summary. The screen never generates one, so a new summary on disk
      *   takes its action items (with the record of the run that wrote them),
      *   stale flag, template and model with it: a tick made on the old list
@@ -111,6 +147,7 @@ object MeetingMerge {
         fun <T> pick(b: T, o: T, d: T): T = if (o != b) o else d
         val segments = if (ours.segments != base.segments) {
             val out = ours.segments.toMutableList()
+            keepMeasuredTimings(out, disk.segments)
             val late = lateSegments(disk.segments, segmentsSeenThroughMs)
             if (late.isNotEmpty()) {
                 out.addAll(late)

@@ -198,10 +198,18 @@ object AlignerModels {
     }
 
     /**
+     * True when an unpack that failed with [e] keeps its archive: a file it
+     * could not write (a full disk) says nothing about the archive. Any
+     * other failure (damage, an unsafe entry, a file missing) deletes it.
+     */
+    fun keepsArchive(e: IOException): Boolean = e is TarExtract.WriteFailedException
+
+    /**
      * Unpacks [archive] into a staging folder, checks the files the aligner
      * needs are there, and renames it into place; then the archive goes. A
      * damaged or unsafe archive is deleted, so the next attempt downloads it
-     * again; a cancelled unpack keeps it.
+     * again; a cancelled unpack, or one that could not write its files (no
+     * space left, say), keeps it, so the next attempt only unpacks it.
      */
     private fun unpack(
         context: Context,
@@ -253,9 +261,13 @@ object AlignerModels {
             throw e
         } catch (e: IOException) {
             staging.deleteRecursively()
-            // Damaged, unsafe or incomplete: fetched afresh next time.
-            archive.delete()
-            ResumableDownload.discardPartial(archive)
+            // A file that could not be written (a full disk) is not the
+            // archive's fault: it is kept, and download() only unpacks it
+            // next time. Damaged, unsafe or incomplete: fetched afresh.
+            if (!keepsArchive(e)) {
+                archive.delete()
+                ResumableDownload.discardPartial(archive)
+            }
             throw e
         } catch (e: RuntimeException) {
             staging.deleteRecursively()

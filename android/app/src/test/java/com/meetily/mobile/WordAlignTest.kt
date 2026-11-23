@@ -1,5 +1,6 @@
 package com.meetily.mobile
 
+import com.meetily.mobile.data.SubtitleImport
 import com.meetily.mobile.data.TranscriptSegment
 import com.meetily.mobile.data.WordAlign
 import com.meetily.mobile.data.WordAlign.Interval
@@ -108,7 +109,7 @@ class WordAlignTest {
         // menu (AlignUi.offersAll asks needsRetime) nor the run takes it.
         val cue = line("\u266A\u266A")
         assertFalse(WordAlign.needsRetime(cue))
-        assertFalse(WordAlign.offersLine(cue, unknownOffered = true))
+        assertFalse(WordAlign.offersLine(cue, unknownOffered = true, audioKept = true))
         assertEquals(emptyList<Int>(), WordAlign.linesToRetime(listOf(cue, line("— …", stamp = 2))))
     }
 
@@ -119,19 +120,44 @@ class WordAlignTest {
         // saved before lines carried the flag. Offered one line at a time
         // when the meeting could be re-timed, never taken in bulk.
         val unknown = line("Hello John", words = words)
-        assertTrue(WordAlign.offersLine(unknown, unknownOffered = true))
-        assertFalse(WordAlign.offersLine(unknown, unknownOffered = false))
+        assertTrue(WordAlign.offersLine(unknown, unknownOffered = true, audioKept = true))
+        assertFalse(WordAlign.offersLine(unknown, unknownOffered = false, audioKept = true))
         assertFalse(WordAlign.needsRetime(unknown))
         // Estimated or missing: offered whatever the meeting (a tap explains).
         val estimated = line("Hello John", words = words, times = WordTimes.ESTIMATED)
-        assertTrue(WordAlign.offersLine(estimated, unknownOffered = false))
-        assertTrue(WordAlign.offersLine(line("Hello John"), unknownOffered = false))
+        assertTrue(WordAlign.offersLine(estimated, unknownOffered = false, audioKept = true))
+        assertTrue(WordAlign.offersLine(line("Hello John"), unknownOffered = false, audioKept = true))
         // Re-timed already: not offered until an edit estimates it again.
         val aligned = line("Hello John", words = words, times = WordTimes.ALIGNED)
-        assertFalse(WordAlign.offersLine(aligned, unknownOffered = true))
+        assertFalse(WordAlign.offersLine(aligned, unknownOffered = true, audioKept = true))
         // No place in the recording, or nothing to align.
-        assertFalse(WordAlign.offersLine(line("Hello John", audioMs = null, words = words), unknownOffered = true))
-        assertFalse(WordAlign.offersLine(line("— …", words = words), unknownOffered = true))
+        assertFalse(WordAlign.offersLine(line("Hello John", audioMs = null, words = words), unknownOffered = true, audioKept = true))
+        assertFalse(WordAlign.offersLine(line("— …", words = words), unknownOffered = true, audioKept = true))
+    }
+
+    @Test
+    fun aMeetingWithNoRecordingOffersOnlyLinesAnEditEstimated() {
+        // A caption import: every cue has a time but no words, and the
+        // meeting never had a recording, so a tap could only refuse.
+        val parsed = SubtitleImport.parse(
+            "1\n00:00:01,000 --> 00:00:03,000\nHello there\n\n2\n00:00:04,000 --> 00:00:06,000\nGeneral Kenobi\n"
+        ) as SubtitleImport.Result.Ok
+        val captions = SubtitleImport.toMeeting("m-captions", "Captions", parsed.cues, 60_000L)
+        assertEquals(null, captions.audioFile)
+        assertTrue(captions.segments.isNotEmpty())
+        for (cue in captions.segments) {
+            assertTrue(cue.audioMs != null && cue.words.isNullOrEmpty())
+            assertFalse(WordAlign.offersLine(cue, unknownOffered = false, audioKept = false))
+        }
+        // The same line in a meeting that keeps its recording: offered.
+        assertTrue(WordAlign.offersLine(captions.segments[0], unknownOffered = false, audioKept = true))
+        // A line an edit estimated, in a meeting whose audio was removed
+        // since: still offered, and a tap explains there is no recording.
+        val words = listOf(WordStamp(0, "Hello"), WordStamp(300, "John"))
+        val estimated = line("Hello John", words = words, times = WordTimes.ESTIMATED)
+        assertTrue(WordAlign.offersLine(estimated, unknownOffered = false, audioKept = false))
+        // Timings of unknown origin there: not offered (mayRetimeUnknown).
+        assertFalse(WordAlign.offersLine(line("Hello John", words = words), unknownOffered = false, audioKept = false))
     }
 
     @Test
@@ -196,11 +222,28 @@ class WordAlignTest {
     fun theLastLineEndsByItsWordsOrItsLength() {
         val words = listOf(WordStamp(0, "one"), WordStamp(3_000, "two"))
         val last = WordAlign.span(listOf(line("one two", audioMs = 2_000L, words = words)), 0, null)!!
-        assertEquals(2_000L + 3_000L + WordAlign.TAIL_MS, last.endMs)
+        // With the slack every other line gets: a slow speaker's last words
+        // are in the clip, not squeezed into its end.
+        assertEquals(2_000L + 3_000L + WordAlign.TAIL_MS + WordAlign.SLACK_MS, last.endMs)
         val long = "x".repeat(100)
         val byText = WordAlign.span(listOf(line(long, audioMs = 0L)), 0, null)!!
-        assertEquals(100L * 60L, byText.endMs)
+        assertEquals(100L * 60L + WordAlign.SLACK_MS, byText.endMs)
         assertEquals(0L, byText.clipStartMs)
+        // Where the recording is known to end first, there.
+        val clamped = WordAlign.span(listOf(line(long, audioMs = 0L)), 0, 7_845L)!!
+        assertEquals(7_845L, clamped.endMs)
+        assertEquals(7_845L, clamped.clipEndMs)
+    }
+
+    @Test
+    fun theLastLineGetsTheSameRoomAsALineFollowedByAFarOne() {
+        val text = "a line spoken more slowly than its length suggests"
+        val far = WordAlign.span(
+            listOf(line(text, audioMs = 1_000L), line("much later", audioMs = 600_000L)), 0, null
+        )!!
+        val last = WordAlign.span(listOf(line(text, audioMs = 1_000L)), 0, null)!!
+        assertEquals(far.endMs, last.endMs)
+        assertEquals(far.clipEndMs, last.clipEndMs)
     }
 
     @Test

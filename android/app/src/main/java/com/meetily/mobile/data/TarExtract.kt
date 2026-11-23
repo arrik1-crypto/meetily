@@ -31,6 +31,25 @@ object TarExtract {
     /** The archive is not one this reads safely; nothing in it is to be trusted. */
     class UnsafeArchiveException(message: String) : IOException(message)
 
+    /**
+     * A wanted file could not be written: no space left, say, which a
+     * write, its sync or the file's creation reports. The archive is not at
+     * fault, so a caller keeps it for another try. Its message is the
+     * cause's, so what the user is told does not change.
+     */
+    class WriteFailedException(name: String, cause: IOException) :
+        IOException(cause.message ?: "Could not write $name", cause)
+
+    /** Runs [block], one step of writing [name]; its IOException becomes a [WriteFailedException]. */
+    private inline fun <T> writing(name: String, block: () -> T): T =
+        try {
+            block()
+        } catch (e: WriteFailedException) {
+            throw e
+        } catch (e: IOException) {
+            throw WriteFailedException(name, e)
+        }
+
     /** A file to take out: entries whose last path component is [name], at most [maxBytes]. */
     data class Wanted(val name: String, val maxBytes: Long)
 
@@ -142,18 +161,20 @@ object TarExtract {
             }
             if (want.name in written) throw UnsafeArchiveException("${want.name} appears twice")
             if (size > want.maxBytes) throw UnsafeArchiveException("${want.name} is larger than expected")
-            FileOutputStream(File(outDir, want.name)).use { output ->
+            // Only the writing side is wrapped: a read that fails is the
+            // archive's own damage, and is reported as such.
+            writing(want.name) { FileOutputStream(File(outDir, want.name)) }.use { output ->
                 var left = size
                 while (left > 0L) {
                     if (cancelled()) throw InterruptedException("Extraction cancelled")
                     val n = input.read(buffer, 0, minOf(buffer.size.toLong(), left).toInt())
                     if (n < 0) throw EOFException("tar archive ends inside ${want.name}")
-                    output.write(buffer, 0, n)
+                    writing(want.name) { output.write(buffer, 0, n) }
                     left -= n
                     dataBytes += n
                     onEntryBytes(dataBytes)
                 }
-                output.fd.sync()
+                writing(want.name) { output.fd.sync() }
             }
             written.add(want.name)
             skip(input, padded(size) - size, buffer, cancelled)

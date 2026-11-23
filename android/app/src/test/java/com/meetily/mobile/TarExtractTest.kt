@@ -1,6 +1,7 @@
 package com.meetily.mobile
 
 import com.meetily.mobile.data.TarExtract
+import com.meetily.mobile.whisper.AlignerModels
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.EOFException
@@ -14,6 +15,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
+import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 
@@ -198,6 +200,51 @@ class TarExtractTest {
         } catch (e: IOException) {
             assertFalse(e is TarExtract.UnsafeArchiveException)
         }
+    }
+
+    @Test
+    fun aFileThatCannotBeWrittenIsNotTheArchivesFault() {
+        // Where lexicon.txt goes, a full disk: every write fails with ENOSPC.
+        val full = File("/dev/full")
+        assumeTrue(full.exists())
+        Files.createSymbolicLink(File(out, "lexicon.txt").toPath(), full.toPath())
+        val bytes = tar(file("model/meta.json", "{}"), file("model/lexicon.txt", "ask æ s k\n"))
+        val failed = try {
+            extract(bytes)
+            null
+        } catch (e: IOException) {
+            e
+        }
+        assertTrue(failed is TarExtract.WriteFailedException)
+        // The user is told what the write said.
+        assertEquals(failed!!.cause!!.message, failed.message)
+        // So the downloaded archive is kept for another try.
+        assertTrue(AlignerModels.keepsArchive(failed))
+    }
+
+    @Test
+    fun aFileThatCannotBeCreatedIsNotTheArchivesFaultEither() {
+        File(out, "meta.json").mkdirs()
+        try {
+            extract(tar(file("model/meta.json", "{}")))
+            fail("wrote over a directory")
+        } catch (e: TarExtract.WriteFailedException) {
+            assertTrue(AlignerModels.keepsArchive(e))
+        }
+    }
+
+    @Test
+    fun damageAndUnsafeEntriesAreTheArchivesFault() {
+        val whole = tar(file("model/meta.json", "{}"), file("model/lexicon.txt", "x".repeat(700)))
+        try {
+            extract(whole.copyOf(512 + 512 + 512 + 300))
+            fail("read a truncated archive")
+        } catch (e: IOException) {
+            assertFalse(e is TarExtract.WriteFailedException)
+            assertFalse(AlignerModels.keepsArchive(e))
+        }
+        assertFalse(AlignerModels.keepsArchive(TarExtract.UnsafeArchiveException("unsafe")))
+        assertFalse(AlignerModels.keepsArchive(EOFException("short")))
     }
 
     @Test

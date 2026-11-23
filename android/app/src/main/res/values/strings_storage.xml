@@ -67,7 +67,7 @@
         <item quantity="other">Remove the audio of %1$d meetings?</item>
     </plurals>
     <!-- %1$s is the size freed. -->
-    <string name="storage_remove_audio_message">Frees %1$s. The transcript, summary, notes, photos and attachments stay.\n\nWhat stops working:\n• playing the recording and following along\n• sharing the audio or a clip of it\n• checking the transcript\'s accuracy\n• learning a voice from the recording\n• transcribing it again with another model\n\nThis can\'t be undone.</string>
+    <string name="storage_remove_audio_message">Frees %1$s. The transcript, summary, notes, photos and attachments stay.\n\nWhat stops working:\n• playing the recording and following along\n• sharing the audio or a clip of it\n• checking the transcript\'s accuracy\n• learning a voice from the recording\n• transcribing it again with another model\n• re-timing edited words against the recording (Re-time words)\n\nThis can\'t be undone.</string>
     <string name="storage_remove_audio_confirm">Remove audio</string>
     <string name="storage_audio_removed">Audio removed. The transcript is kept.</string>
     <plurals name="storage_audio_removed_many">
