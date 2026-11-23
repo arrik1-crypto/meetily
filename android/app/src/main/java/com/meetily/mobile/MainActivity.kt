@@ -656,9 +656,25 @@ class MainActivity : AppCompatActivity() {
         if (RecordingService.isRunning) return
         val id = store.activeId() ?: return
         store.clearActive()
-        if (store.load(id) != null) {
-            Toast.makeText(this, R.string.recording_recovered, Toast.LENGTH_LONG).show()
-        }
+        // Whether the meeting is still readable decides only the toast, and
+        // finding out parses the whole file, which an hours-long recording
+        // makes megabytes: on its own thread, not in onCreate before the
+        // first frame, and not on libraryLoader ahead of the list. The
+        // marker is still cleared here, so a re-created screen never asks
+        // twice, and the application context lets the toast outlive one.
+        val app = applicationContext
+        Thread({
+            val readable = try {
+                store.load(id) != null
+            } catch (_: Throwable) {
+                false
+            }
+            if (readable) {
+                runOnUiThread {
+                    Toast.makeText(app, R.string.recording_recovered, Toast.LENGTH_LONG).show()
+                }
+            }
+        }, "recording-recover").start()
     }
 
     override fun onResume() {

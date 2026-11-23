@@ -162,6 +162,15 @@ dependencies {
     implementation("androidx.constraintlayout:constraintlayout:2.1.4")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.biometric:biometric:1.1.0")
+    // Hands the Baseline Profile (src/main/baseline-prof.txt, merged with the
+    // AndroidX libraries' own) to ART on the first run of a sideloaded
+    // install, which ART then compiles at its next background optimisation;
+    // Play installs it with the app itself. AndroidX brings 1.3.1 transitively,
+    // which does not install profiles on Android 15 (API 35) and later; 1.4.0
+    // added that. Its manifest entries (an androidx.startup initializer, and
+    // a receiver guarded by the DUMP permission, so adb can reach it and
+    // other apps cannot) merge in on their own.
+    implementation("androidx.profileinstaller:profileinstaller:1.4.1")
     // Bundled on-device Latin OCR for whiteboard/photo text. Photos stay on
     // the phone, but ML Kit sends Google diagnostics (see PhotoOcr and the
     // privacy policy).

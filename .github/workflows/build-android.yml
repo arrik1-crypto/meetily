@@ -120,6 +120,12 @@ jobs:
           python3 android/scripts/check_jni_exports.py "${extra[@]}" \
             android/app/build/outputs/apk/release/*.apk
 
+      # The compiled Baseline Profile (app/src/main/baseline-prof.txt merged
+      # with the AndroidX libraries' own) in every APK: both dexopt files
+      # present, matching the APK's dex, and holding the app's own rules.
+      - name: Check baseline profile
+        run: python3 android/scripts/check_baseline_profile.py android/app/build/outputs/apk/release/*.apk
+
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:

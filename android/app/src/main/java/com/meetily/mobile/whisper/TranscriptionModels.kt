@@ -73,9 +73,22 @@ object TranscriptionModels {
             WhisperModels.isRuntimeAvailable()
         }
 
-    /** Ready to transcribe with [key] right now. */
+    /**
+     * Ready to transcribe with [key] right now.
+     *
+     * The files are looked at before the runtime: the runtime check loads a
+     * native library (whisper.cpp with llama.cpp, or sherpa-onnx with
+     * onnxruntime), and a meeting with audio and no words opened on a phone
+     * with no model asked this of every model on the main thread, loading
+     * both libraries to learn nothing. Same answer either way; a library now
+     * loads only for a model that is on the phone.
+     */
     fun isReady(context: Context, key: String): Boolean =
-        isRuntimeAvailable(key) && isDownloaded(context, key)
+        ready(downloaded = { isDownloaded(context, key) }, runtime = { isRuntimeAvailable(key) })
+
+    /** [isReady]'s order, without a Context so it is unit-tested. */
+    internal fun ready(downloaded: () -> Boolean, runtime: () -> Boolean): Boolean =
+        downloaded() && runtime()
 
     /** "whisper" or "nemo" — see [rankedForCheck]. */
     fun family(key: String): String = if (isNemo(key)) "nemo" else "whisper"
