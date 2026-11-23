@@ -1,22 +1,20 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Next release:
+App ID: **com.recap.mobile** (permanent). Current release:
 **3.20.0-beta1** (versionCode 115), targetSdk 36 (Android 16): Batch 6
 (Android 16 Live Updates for the recording and for long jobs the user
 starts, meeting playback that carries on in the background with
 lock-screen, headset and car controls and 15-second skips, Recently
 deleted with 30 days to restore a deleted meeting, several summaries per
-meeting, one per style, and Remove a passage). Until the version bump,
-which the maintainer makes in a separate commit right after this
-documentation update, `android/app/build.gradle.kts` still reads
-**3.19.0-beta1** (versionCode 114), the Batch 5 release (sherpa-onnx
+meeting, one per style, and Remove a passage). The previous release,
+**3.19.0-beta1** (versionCode 114), was Batch 5 (sherpa-onnx
 v2.0.3 with ONNX Runtime 1.28.2 and the re-keyed CAM++ speaker model,
 interrupted transcriptions that carry on from where they stopped, SRT/VTT
 subtitle and Word export plus the library as Markdown, one native library
 per CPU level, Clear voice, and importing video, several files at once
-and Zoom/Teams transcripts). The release before it,
-**3.18.0-beta1** (versionCode 113), was Batch 4 (meetings read off
+and Zoom/Teams transcripts). **3.18.0-beta1** (versionCode 113) was
+Batch 4 (meetings read off
 the main thread, home search that lands on the moment and Find in
 meeting, Find & replace that keeps word timings, the Storage screen with
 Remove audio, automatic clean-up and multi-select on the home list, and
@@ -841,13 +839,11 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [ ] Bump `versionCode` to 115 and `versionName` to `3.20.0-beta1` in
-  `android/app/build.gradle.kts`. The maintainer makes this bump in a
-  separate commit right after the Batch 6 documentation update; until
-  then the build reads 114 / 3.19.0-beta1 (113 / 3.18.0-beta1,
-  112 / 3.17.0-beta1 and 111 / 3.16.0-beta1 before that). Bump both
-  again for every later upload: Play rejects a versionCode it has
-  already seen.
+- [x] Bump `versionCode` to 115 and `versionName` to `3.20.0-beta1` in
+  `android/app/build.gradle.kts` (done; 114 / 3.19.0-beta1,
+  113 / 3.18.0-beta1, 112 / 3.17.0-beta1 and 111 / 3.16.0-beta1 before
+  it). Bump both again for every later upload: Play rejects a
+  versionCode it has already seen.
 - [ ] Run CI on the merged Batch 6 branch (`b6/integration`), not only on
   the five group branches: `testReleaseUnitTest` (new LiveUpdates,
   PassageAudio, PassagePlan, PlaybackRules, SummaryAlternatives and Trash
