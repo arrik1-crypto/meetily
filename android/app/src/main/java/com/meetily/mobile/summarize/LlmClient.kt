@@ -3,6 +3,8 @@ package com.meetily.mobile.summarize
 import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.llm.PromptShaping
 import com.meetily.mobile.security.EndpointGuard
+import com.meetily.mobile.security.EndpointUnreachableException
+import com.meetily.mobile.security.LocalNetworkAccess
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
@@ -798,6 +800,18 @@ object LlmClient {
             connection.setRequestProperty("Content-Type", "application/json")
             if (apiKey.isNotBlank()) {
                 connection.setRequestProperty("Authorization", "Bearer $apiKey")
+            }
+            // Connected on its own, so a server never reached at all is told
+            // apart from one that answered badly or slowly. On Android 17, for
+            // a build targeting it, a local server can be out of reach for
+            // want of a permission (LocalNetworkAccess); the screens say so.
+            try {
+                connection.connect()
+            } catch (e: java.io.IOException) {
+                if (!LocalNetworkAccess.isReachabilityFailure(e)) throw e
+                throw EndpointUnreachableException(
+                    vetted.host, LocalNetworkAccess.hostKind(vetted.host, vetted.pinned), e
+                )
             }
             connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
 

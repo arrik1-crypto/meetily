@@ -165,14 +165,18 @@ class MeetingDetailActivity : AppCompatActivity() {
                     requestSync(summaryDone = true)
                     // The meeting was left as it was; say why nothing changed.
                     if (failed) {
-                        Toast.makeText(
-                            this@MeetingDetailActivity,
-                            getString(
-                                R.string.summary_failed_kept,
-                                SummaryService.lastFailure ?: "unknown error"
-                            ),
-                            Toast.LENGTH_LONG
-                        ).show()
+                        val why = getString(
+                            R.string.summary_failed_kept,
+                            SummaryService.lastFailure ?: getString(R.string.platform_error_unknown)
+                        )
+                        if (SummaryService.lastFailureHint ==
+                            com.meetily.mobile.security.LocalNetworkAccess.Hint.ALLOW_ACCESS
+                        ) {
+                            // The fix is a permission: offer the way to it.
+                            LocalNetworkUi.showPermissionDialog(this@MeetingDetailActivity, why)
+                        } else {
+                            Toast.makeText(this@MeetingDetailActivity, why, Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }

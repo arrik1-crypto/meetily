@@ -128,6 +128,7 @@ class SummaryService : Service() {
         unplugState.set(RUN_ACTIVE)
         lastStopped = false
         lastFailure = null
+        lastFailureHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
         // finishRun clears the abort flag when a stopped run ends; clearing it
         // here as well means nothing left over can kill this run's first
         // decode.
@@ -351,6 +352,7 @@ class SummaryService : Service() {
             var parsedItems: List<com.meetily.mobile.data.ActionItem>? = null
             var generationFailed = false
             var llmFailure: String? = null
+            var localNetworkHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
             val result = try {
                 if (useLlm) {
                     val raw = LlmClient.summarize(
@@ -369,13 +371,19 @@ class SummaryService : Service() {
                 }
             } catch (e: Exception) {
                 generationFailed = true
-                llmFailure = e.message ?: "unknown error"
+                // A local AI server never reached is said plainly; on Android
+                // 17 with a build targeting it, that can be the permission.
+                localNetworkHint = LocalNetworkUi.hint(this, e)
+                llmFailure = LocalNetworkUi.failureText(this, e)
+                    ?: e.message ?: getString(R.string.platform_error_unknown)
                 val fallback = ExtractiveSummarizer.summarize(
                     rawTranscript, notes, highlights, template.extractiveActionsOnly,
                     englishHeuristics
                 )
-                getString(R.string.llm_failed_fallback, e.message ?: "unknown error") +
-                    "\n\n" + fallback
+                getString(
+                    R.string.llm_failed_fallback,
+                    e.message ?: getString(R.string.platform_error_unknown)
+                ) + "\n\n" + fallback
             } finally {
                 // Only our own: a timed-out worker finishing late must not
                 // wipe the listener of a newer run waiting on the model.
@@ -410,6 +418,7 @@ class SummaryService : Service() {
                     current.actionItems.isNotEmpty()
                 ) {
                     lastFailure = llmFailure
+                    lastFailureHint = localNetworkHint
                     main.post { finishRun(meetingId, failed = true) }
                     return@Thread
                 }
@@ -907,6 +916,14 @@ class SummaryService : Service() {
          */
         @Volatile
         var lastFailure: String? = null
+            internal set
+
+        /**
+         * Whether [lastFailure] is a local AI server out of reach, and the
+         * local network permission the likely reason (LocalNetworkUi).
+         */
+        @Volatile
+        var lastFailureHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
             internal set
         private const val CHANNEL_ID = "summary"
         private const val NOTIF_ID = 50

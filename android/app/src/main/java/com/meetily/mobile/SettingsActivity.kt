@@ -483,8 +483,63 @@ class SettingsActivity : AppCompatActivity() {
             // Nudge/reminder alarms depend on the just-saved settings.
             Thread { Reminders.rescheduleAll(applicationContext) }.start()
             Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
-            finish()
+            if (!askLocalNetworkAfterSave()) finish()
         }
+    }
+
+    /** A local network question is under way; Save waits for it. */
+    private var localNetworkAsking = false
+
+    private val localNetworkPermission =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            localNetworkAsking = false
+            if (granted) {
+                finish()
+            } else {
+                // Saved before the question, so a screen re-created meanwhile
+                // names the same host.
+                val host = LocalNetworkUi.hostOf(settings.llmBaseUrl).orEmpty()
+                LocalNetworkUi.showPermissionDialog(
+                    this, getString(R.string.platform_lan_denied, host)
+                ) { finish() }
+            }
+        }
+
+    /**
+     * Android 17, with a build targeting it: an AI endpoint on the local
+     * network is reachable only with the local network permission, so saving
+     * one asks for it. True when that question took over closing the screen.
+     * Never true while the build targets 36 (LocalNetworkUi.applies).
+     */
+    private fun askLocalNetworkAfterSave(): Boolean {
+        if (localNetworkAsking) return true
+        if (!LocalNetworkUi.applies(this) || LocalNetworkUi.granted(this)) return false
+        if (!settings.useLlm || settings.llmEngine == "local") return false
+        val url = settings.llmBaseUrl
+        if (LocalNetworkUi.hostOf(url) == null) return false
+        localNetworkAsking = true
+        Thread {
+            // A name is looked up, as EndpointGuard does before each request.
+            val kind = LocalNetworkUi.endpointKind(url)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                if (com.meetily.mobile.security.LocalNetworkAccess.shouldRequest(
+                        applies = true, granted = LocalNetworkUi.granted(this), kind = kind
+                    )
+                ) {
+                    try {
+                        localNetworkPermission.launch(
+                            com.meetily.mobile.security.LocalNetworkAccess.PERMISSION
+                        )
+                        return@runOnUiThread
+                    } catch (_: Exception) {
+                    }
+                }
+                localNetworkAsking = false
+                finish()
+            }
+        }.start()
+        return true
     }
 
     /**
