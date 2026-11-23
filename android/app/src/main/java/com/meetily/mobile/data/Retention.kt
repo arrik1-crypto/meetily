@@ -21,7 +21,10 @@ object Retention {
         /** Remove the audio and keep everything else (AudioRemoval). */
         AUDIO("audio"),
 
-        /** Delete the meeting and everything it left on disk (MeetingAssets). */
+        /**
+         * Delete the meeting: into Recently deleted (MeetingTrash), which
+         * erases it and everything it left on disk 30 days later.
+         */
         MEETINGS("meetings")
     }
 

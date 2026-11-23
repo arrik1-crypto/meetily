@@ -45,6 +45,9 @@ class RecapApp : Application() {
             dropRemovedLiteRtModels()
             reselectWithdrawnLlmModel()
             runCatching { com.meetily.mobile.whisper.DiarizationModels.retireLegacySelection(this) }
+            // Meetings deleted 30 days ago are erased now rather than at the
+            // next daily run; cheap when nothing is due (a listing and a stat).
+            runCatching { com.meetily.mobile.data.MeetingTrash(this).purgeDue() }
             // A force-stop cancels the daily clean-up job with every other.
             runCatching { RetentionJobService.ensureScheduled(this) }
             // A video's sound remuxed by a process that died before an import

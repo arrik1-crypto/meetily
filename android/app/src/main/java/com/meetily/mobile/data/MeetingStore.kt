@@ -58,6 +58,18 @@ class MeetingStore(context: Context) {
     fun exists(id: String): Boolean = fileFor(id)?.isFile == true
 
     /**
+     * The newest file time in the library: each meeting's last save, and
+     * the directory's own time, which a meeting written, moved out or
+     * deleted sets. A stat per meeting, no reads. MeetingTrash dates a
+     * deletion no earlier (Trash.stampFor).
+     */
+    internal fun newestFileTimeMs(): Long {
+        var newest = dir.lastModified()
+        for (file in dir.listFiles() ?: return newest) newest = maxOf(newest, file.lastModified())
+        return newest
+    }
+
+    /**
      * The file for [id], or null when the id is not a plain file name — which
      * only a crafted backup can produce, and which must never be joined onto
      * this directory (see SafeFiles).
@@ -401,6 +413,42 @@ class MeetingStore(context: Context) {
             tombstones.add(id)
             if (lastTranscribed?.id == id) lastTranscribed = null
             file.delete()
+        }
+    }
+
+    /**
+     * Moves the meeting's file, whole and unchanged, to [target] in
+     * Recently deleted (MeetingTrash), and remembers the id as [delete]
+     * does, so a job still holding the meeting cannot write it back into
+     * the library. False, with nothing changed, when there is no such
+     * meeting or the move failed.
+     */
+    internal fun moveOut(id: String, target: File): Boolean {
+        val file = fileFor(id) ?: return false
+        return AtomicJson.exclusive {
+            if (!file.isFile || !file.renameTo(target)) return@exclusive false
+            tombstones.add(id)
+            if (lastTranscribed?.id == id) lastTranscribed = null
+            true
+        }
+    }
+
+    /**
+     * Puts [source], a file [moveOut] moved away, back as the meeting [id],
+     * which may then be saved again. Its file time becomes now, which the
+     * automatic clean-up reads as changed recently (Retention.RECENT_MS):
+     * a meeting restored from Recently deleted is not taken again the next
+     * day. False, with nothing changed, when a meeting with that id is in
+     * the library already or the move failed.
+     */
+    internal fun moveIn(source: File, id: String): Boolean {
+        val file = fileFor(id) ?: return false
+        return AtomicJson.exclusive {
+            if (file.exists() || !source.renameTo(file)) return@exclusive false
+            tombstones.remove(id)
+            if (lastTranscribed?.id == id) lastTranscribed = null
+            file.setLastModified(System.currentTimeMillis())
+            true
         }
     }
 

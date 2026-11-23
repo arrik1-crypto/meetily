@@ -167,7 +167,8 @@ object RetentionUi {
                 )
             }
             // A review is always of whole meetings (Retention.needsReview), and
-            // the first-run text that says they can't be recovered is left out.
+            // the first-run text that says how long they can be restored is
+            // left out.
             if (review && count > 0) {
                 append("\n\n")
                 append(activity.getString(R.string.storage_retention_irreversible))

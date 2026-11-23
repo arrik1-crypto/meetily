@@ -59,7 +59,8 @@ object StorageUsage {
                 else -> Area.AUDIO
             }
             "photos", "attachments" -> Area.PHOTOS_ATTACHMENTS
-            "meetings", "transcript-drafts", "speaker-suggestions" -> Area.TRANSCRIPTS
+            // trash: Recently deleted (MeetingTrash), meetings until they are erased.
+            "meetings", "trash", "transcript-drafts", "speaker-suggestions" -> Area.TRANSCRIPTS
             "whisper-models" -> Area.WHISPER_MODELS
             "nemo-models" -> Area.NEMO_MODELS
             "diarization-models" -> Area.SPEAKER_MODELS

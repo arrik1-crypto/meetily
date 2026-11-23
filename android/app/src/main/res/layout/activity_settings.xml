@@ -1226,6 +1226,28 @@
                         app:cornerRadius="22dp"
                         app:strokeColor="?attr/colorOutline" />
 
+                    <!-- Recently deleted: TrashActivity. -->
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="18dp"
+                        android:text="@string/trash_settings_desc"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/settingsTrashButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="8dp"
+                        android:insetBottom="6dp"
+                        android:insetTop="6dp"
+                        android:text="@string/trash_title"
+                        android:textColor="?attr/colorOnSurface"
+                        app:cornerRadius="22dp"
+                        app:strokeColor="?attr/colorOutline" />
+
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"

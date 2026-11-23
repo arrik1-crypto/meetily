@@ -117,6 +117,81 @@
                     android:paddingVertical="8dp" />
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- Recently deleted (MeetingTrash): what it holds, open it,
+                 or empty it now. -->
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:letterSpacing="0.08"
+                android:text="@string/trash_storage_section"
+                android:textAllCaps="true"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                app:cardBackgroundColor="?attr/colorSurface"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="0dp"
+                app:strokeColor="?attr/colorOutlineVariant"
+                app:strokeWidth="1dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:id="@+id/storageTrashSummary"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/trash_none"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/storageTrashOpen"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="48dp"
+                            android:contentDescription="@string/trash_storage_open_desc"
+                            android:insetBottom="6dp"
+                            android:insetTop="6dp"
+                            android:text="@string/trash_storage_open"
+                            android:textColor="?attr/colorOnSurface"
+                            app:cornerRadius="22dp"
+                            app:strokeColor="?attr/colorOutline" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/storageTrashEmpty"
+                            style="@style/Widget.Material3.Button.OutlinedButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="48dp"
+                            android:layout_marginStart="8dp"
+                            android:contentDescription="@string/trash_storage_empty_desc"
+                            android:enabled="false"
+                            android:insetBottom="6dp"
+                            android:insetTop="6dp"
+                            android:text="@string/trash_storage_empty"
+                            android:textColor="?attr/colorOnSurface"
+                            app:cornerRadius="22dp"
+                            app:icon="@drawable/ic_delete"
+                            app:iconTint="?attr/colorOnSurface"
+                            app:strokeColor="?attr/colorOutline" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

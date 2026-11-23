@@ -202,6 +202,13 @@
             android:exported="false"
             android:parentActivityName=".SettingsActivity" />
 
+        <!-- Recently deleted: meetings kept 30 days after a delete
+             (MeetingTrash), opened from Settings and the Storage screen. -->
+        <activity
+            android:name=".TrashActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity" />
+
         <service
             android:name=".RecordingService"
             android:exported="false"

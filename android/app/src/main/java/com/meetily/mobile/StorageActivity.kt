@@ -14,14 +14,16 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.MeetingTrash
 import com.meetily.mobile.data.StorageUsage
 import java.util.concurrent.Executors
 
 /**
  * What Recap keeps on this phone and how to make room: bytes per area and
  * per model family, free space, the meetings with the largest recordings
- * (each can drop its audio and keep its transcript), deleting downloaded
- * models nothing uses, and the automatic clean-up rule.
+ * (each can drop its audio and keep its transcript), what Recently deleted
+ * holds (MeetingTrash), deleting downloaded models nothing uses, and the
+ * automatic clean-up rule.
  *
  * Declared as the application's manageSpaceActivity, so Android's own
  * "Manage space" button for Recap opens this instead of offering to wipe
@@ -37,6 +39,8 @@ class StorageActivity : AppCompatActivity() {
     private lateinit var modelsSummary: TextView
     private lateinit var deleteModels: MaterialButton
     private lateinit var retentionSummary: TextView
+    private lateinit var trashSummary: TextView
+    private lateinit var trashEmpty: MaterialButton
 
     /** One scan at a time, in order; a rescan queued behind a running one simply follows it. */
     private val worker = Executors.newSingleThreadExecutor { Thread(it, "storage-scan") }
@@ -66,6 +70,12 @@ class StorageActivity : AppCompatActivity() {
         deleteModels = findViewById(R.id.storageDeleteModels)
         retentionSummary = findViewById(R.id.storageRetentionSummary)
         deleteModels.setOnClickListener { confirmDeleteModels() }
+        trashSummary = findViewById(R.id.storageTrashSummary)
+        trashEmpty = findViewById(R.id.storageTrashEmpty)
+        trashEmpty.setOnClickListener { confirmEmptyTrash() }
+        findViewById<View>(R.id.storageTrashOpen).setOnClickListener {
+            startActivity(Intent(this, TrashActivity::class.java))
+        }
         findViewById<View>(R.id.storageRetentionButton).apply {
             contentDescription = getString(R.string.storage_cleanup_change_desc)
             setOnClickListener { RetentionUi.choose(this@StorageActivity) { onRetentionChanged() } }
@@ -146,6 +156,17 @@ class StorageActivity : AppCompatActivity() {
                 A11y.labelClick(view, getString(R.string.a11y_meeting_options))
                 largest.addView(view)
             }
+        }
+
+        val trash = report.trash
+        if (trash.isEmpty()) {
+            trashSummary.text = getString(R.string.trash_none)
+            trashEmpty.isEnabled = false
+        } else {
+            trashSummary.text = resources.getQuantityString(
+                R.plurals.trash_storage_summary, trash.size, trash.size, size(report.trashBytes)
+            )
+            trashEmpty.isEnabled = true
         }
 
         val unused = report.unusedModels
@@ -294,6 +315,31 @@ class StorageActivity : AppCompatActivity() {
                 runOnUiThread {
                     Toast.makeText(
                         app, message, if (freed >= 0L) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                    ).show()
+                    if (!isFinishing && !isDestroyed) scan()
+                }
+            }
+        }
+    }
+
+    /**
+     * Erases what Recently deleted held at the last scan, after saying how
+     * many meetings and how much that is. A meeting deleted since is not
+     * part of what was asked about, so it stays.
+     */
+    private fun confirmEmptyTrash() {
+        val trash = report?.trash.orEmpty()
+        if (trash.isEmpty()) return
+        TrashUi.confirmEmpty(this, trash.size, trash.sumOf { it.bytes }) {
+            trashEmpty.isEnabled = false
+            val app = applicationContext
+            val entries = trash.map { it.entry }
+            TrashUi.execute {
+                val erased = MeetingTrash(app).deleteForever(entries)
+                runOnUiThread {
+                    Toast.makeText(
+                        app, app.resources.getQuantityString(R.plurals.trash_emptied, erased, erased),
+                        Toast.LENGTH_SHORT
                     ).show()
                     if (!isFinishing && !isDestroyed) scan()
                 }

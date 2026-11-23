@@ -7,6 +7,7 @@ import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.ClearVoice
 import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.MeetingTrash
 import com.meetily.mobile.data.StorageUsage
 import com.meetily.mobile.data.StorageUsage.Family
 import com.meetily.mobile.data.StorageUsage.Kind
@@ -29,9 +30,14 @@ object StorageScan {
         val totals: Map<StorageUsage.Area, Long>,
         val freeBytes: Long,
         val largest: List<StorageUsage.MeetingAudio>,
-        val unusedModels: List<StorageUsage.ModelOnDisk>
+        val unusedModels: List<StorageUsage.ModelOnDisk>,
+        /** Recently deleted: what each meeting there holds until it is erased. */
+        val trash: List<MeetingTrash.Item> = emptyList()
     ) {
         val totalBytes: Long get() = totals.values.sum()
+
+        /** Counted in [totals] too: the files are on disk until they are erased. */
+        val trashBytes: Long get() = trash.sumOf { it.bytes }
     }
 
     @WorkerThread
@@ -48,7 +54,8 @@ object StorageScan {
             // cannot be queried.
             freeBytes = ModelSpaceCheck.measure(context).availableBytes.coerceAtLeast(0L),
             largest = StorageUsage.largestByAudio(meetingAudio(context)),
-            unusedModels = StorageUsage.unusedModels(modelsOnDisk(context), modelsInUse(context))
+            unusedModels = StorageUsage.unusedModels(modelsOnDisk(context), modelsInUse(context)),
+            trash = MeetingTrash(context).items()
         )
     }
 

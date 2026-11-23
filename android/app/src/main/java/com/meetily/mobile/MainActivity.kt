@@ -736,7 +736,12 @@ class MainActivity : AppCompatActivity() {
         if (deadImport != null &&
             !com.meetily.mobile.data.AudioStore.exists(this, deadImport.stagedFile)
         ) {
-            if (deadImport.meetingId.isNotBlank() && !store.exists(deadImport.meetingId)) {
+            // A meeting in Recently deleted is not an orphan: its audio
+            // stays for a restore. Deleting it drops the marker, but that
+            // write may not have reached the disk before the process died.
+            if (deadImport.meetingId.isNotBlank() && !store.exists(deadImport.meetingId) &&
+                deadImport.meetingId !in com.meetily.mobile.data.MeetingTrash(this).ids()
+            ) {
                 // Named as the importer renames it: by the staged file's
                 // extension (a video's sound is staged as .m4a or the like).
                 com.meetily.mobile.data.AudioStore.delete(
@@ -1244,12 +1249,20 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, busyDeleteText(meeting.id), Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
-                // The stored copy, not the list's: it names every photo and
-                // attachment added since the library was loaded.
-                val current = store.load(meeting.id) ?: meeting
-                com.meetily.mobile.data.MeetingAssets.deleteAll(this, current)
-                store.delete(meeting.id)
-                refresh()
+                // Into Recently deleted with its files, on a worker; the
+                // busy rule is asked once more there (TrashUi).
+                val app = applicationContext
+                TrashUi.execute {
+                    val batch = TrashUi.moveToTrash(app, listOf(meeting.id))
+                    runOnUiThread {
+                        if (isFinishing || isDestroyed) return@runOnUiThread
+                        if (batch.busy > 0) {
+                            Toast.makeText(this, busyDeleteText(meeting.id), Toast.LENGTH_LONG).show()
+                        }
+                        refresh()
+                        TrashUi.showUndo(this, batch, findViewById(R.id.importButton)) { refresh() }
+                    }
+                }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .showSecure()

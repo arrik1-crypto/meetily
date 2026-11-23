@@ -11,8 +11,8 @@ import androidx.annotation.WorkerThread
 import androidx.core.app.NotificationCompat
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.JobQueue
-import com.meetily.mobile.data.MeetingAssets
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.MeetingTrash
 import com.meetily.mobile.data.OpenMeetings
 import com.meetily.mobile.data.Retention
 import com.meetily.mobile.data.SafeFiles
@@ -27,7 +27,10 @@ import java.io.File
  * The rule is saved only once the user has seen what its first run does
  * and said yes (RetentionUi). From then on RetentionJobService runs it once
  * a day, and a run that deleted something says so in a quiet notification.
- * Nothing here sends anything anywhere: it deletes files on this phone.
+ * Meetings it deletes go to Recently deleted (MeetingTrash) like a delete by
+ * hand, and their 30 days start then; the same daily run erases the ones
+ * whose time is up, with or without a rule. Nothing here sends anything
+ * anywhere: it moves and deletes files on this phone.
  */
 object RetentionRunner {
 
@@ -70,6 +73,8 @@ object RetentionRunner {
             RetentionJobService.schedule(context)
         } else {
             RetentionJobService.cancel(context)
+            // Recently deleted still needs its daily purge with the rule off.
+            if (arm) RetentionJobService.ensureScheduled(context)
         }
     }
 
@@ -165,6 +170,7 @@ object RetentionRunner {
         if (!rule.enabled) return Outcome(0, 0L)
         val still = plan(context, rule).selected.mapTo(HashSet()) { it.id }
         val store = MeetingStore(context)
+        val trash = MeetingTrash(context)
         var count = 0
         var bytes = 0L
         for (candidate in approved.selected) {
@@ -182,13 +188,12 @@ object RetentionRunner {
                 }
                 Retention.Mode.MEETINGS -> {
                     if (AudioRemoval.isWriting(context, candidate.id)) continue
-                    // The stored copy names every photo and attachment.
+                    // The stored copy: starred since the plan was made?
                     val meeting = store.load(candidate.id) ?: continue
                     if (meeting.starred) continue
-                    bytes += AudioStore.bytesWithCopy(context, meeting.audioFile)
-                    MeetingAssets.deleteAll(context, meeting)
-                    store.delete(meeting.id)
-                    count++
+                    // Into Recently deleted with its files, as a delete by
+                    // hand; nothing is freed until it is erased there.
+                    if (trash.moveToTrash(meeting.id) != null) count++
                 }
                 Retention.Mode.OFF -> Unit
             }
@@ -211,9 +216,13 @@ object RetentionRunner {
     @Synchronized
     @WorkerThread
     fun runAutomatic(context: Context, cancelled: () -> Boolean = { false }) {
+        // Recently deleted first, whatever the rule: what was deleted 30
+        // days ago goes for good. Only meetings already there are touched.
+        runCatching { MeetingTrash(context).purgeDue() }
         val rule = rule(context)
         if (!rule.enabled) {
-            RetentionJobService.cancel(context)
+            // Still armed while anything waits in Recently deleted.
+            if (!MeetingTrash(context).hasAny()) RetentionJobService.cancel(context)
             return
         }
         if (RecordingService.isRunning || ImportService.isRunning || SummaryService.isRunning) return

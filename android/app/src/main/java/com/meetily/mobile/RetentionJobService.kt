@@ -10,7 +10,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * The daily automatic clean-up (RetentionRunner.runAutomatic), armed only
- * while a rule is on.
+ * while a rule is on or Recently deleted holds a meeting (MeetingTrash),
+ * which the same run erases 30 days after it was deleted.
  *
  * Scheduled the way ChargingJobService is: a JobScheduler job, persisted
  * across reboots (the app already holds RECEIVE_BOOT_COMPLETED). The app's
@@ -93,11 +94,16 @@ class RetentionJobService : JobService() {
         }
 
         /**
-         * Re-arms the run on app start when a rule is on. A force-stop
-         * cancels every job the app had; nothing else would bring it back.
+         * Re-arms the run on app start when a rule is on or anything waits
+         * in Recently deleted. A force-stop cancels every job the app had;
+         * nothing else would bring it back.
          */
         fun ensureScheduled(context: Context) {
-            if (RetentionRunner.rule(context).enabled) schedule(context)
+            if (RetentionRunner.rule(context).enabled ||
+                com.meetily.mobile.data.MeetingTrash(context).hasAny()
+            ) {
+                schedule(context)
+            }
         }
     }
 }

@@ -19,6 +19,12 @@ import java.util.zip.ZipOutputStream
  * photo. Import merges into the current library (existing ids are overwritten).
  * Settings — which can hold LLM API keys — are deliberately excluded.
  *
+ * Recently deleted (MeetingTrash) is neither backed up nor changed by a
+ * restore: its meetings and the files they name are left out of a backup,
+ * and a backup's copy of a meeting that is there now is not restored, so a
+ * restore never brings back or overwrites something the user deleted.
+ * They can restore it from Recently deleted ([Restored.leftInTrash]).
+ *
  * Backups can optionally be passphrase-encrypted ([exportEncrypted]); import
  * sniffs the header and handles both formats.
  */
@@ -35,6 +41,9 @@ object BackupManager {
     private const val VOICES = "voice_profiles.json"
 
     fun export(context: Context, out: OutputStream) {
+        // Files only deleted meetings name (their own JSON is not in
+        // filesDir/meetings at all).
+        val deleted = MeetingTrash(context).held()
         // Buffered: the deflater hands its output on in 512-byte pieces, and
         // unbuffered each one was its own write into the document provider.
         ZipOutputStream(BufferedOutputStream(out, IO_BUFFER)).use { zip ->
@@ -44,13 +53,15 @@ object BackupManager {
             // stored-level), so readers need nothing new and nothing has to
             // be read twice to precompute a CRC.
             zip.setLevel(Deflater.NO_COMPRESSION)
-            addDir(zip, File(context.filesDir, "photos"), PHOTOS) { true }
+            addDir(zip, File(context.filesDir, "photos"), PHOTOS) { it !in deleted.photos }
             // Not the clear-voice copies (ClearVoice): each is made again
             // from its recording, which is in the backup, and would add
             // about 29 MB an hour to it. A restored meeting that names one
             // plays its recording until the copy is made again.
-            addDir(zip, File(context.filesDir, "audio"), AUDIO) { !ClearVoice.isCopyName(it) }
-            addDir(zip, File(context.filesDir, "attachments"), ATTACHMENTS) { true }
+            addDir(zip, File(context.filesDir, "audio"), AUDIO) {
+                !ClearVoice.isCopyName(it) && it !in deleted.audio
+            }
+            addDir(zip, File(context.filesDir, "attachments"), ATTACHMENTS) { it !in deleted.attachments }
             addDir(zip, File(context.filesDir, "voiceprint-audio"), VOICE_AUDIO) { true }
             zip.setLevel(Deflater.DEFAULT_COMPRESSION)
             val voices = File(context.filesDir, VOICES)
@@ -86,7 +97,15 @@ object BackupManager {
      * could not be moved into place. Saying "restored 12" while silently
      * dropping 3 is how a user comes to trust a backup that is not whole.
      */
-    data class Restored(val meetings: Int, val skipped: Int)
+    data class Restored(
+        val meetings: Int,
+        val skipped: Int,
+        /**
+         * Meetings of the backup that are in Recently deleted here, and were
+         * left there with their files rather than restored over.
+         */
+        val leftInTrash: Int = 0
+    )
 
     /**
      * Restores meetings + photos + audio from a backup, plain or encrypted.
@@ -135,6 +154,8 @@ object BackupManager {
         }
         var restored = 0
         var skipped = 0
+        // Recently deleted is left as it is; see the class comment.
+        val trash = MeetingTrash(context).restoreGuard()
         ZipInputStream(input).use { zip ->
             var entry: ZipEntry? = zip.nextEntry
             while (entry != null) {
@@ -142,7 +163,15 @@ object BackupManager {
                     val name = entry.name
                     // File(name).name strips any path components, so a crafted
                     // entry like "../../x" cannot escape the target directory.
+                    val plain = File(name).name
                     val target = when {
+                        name.startsWith(MEETINGS) && name.endsWith(".json") && trash.isTrashed(plain) -> {
+                            trash.skipped(readMeeting(zip))
+                            null
+                        }
+                        name.startsWith(PHOTOS) && trash.keepsPhoto(plain) -> null
+                        name.startsWith(AUDIO) && trash.keepsAudio(plain) -> null
+                        name.startsWith(ATTACHMENTS) && trash.keepsAttachment(plain) -> null
                         name.startsWith(MEETINGS) && name.endsWith(".json") ->
                             File(meetingsDir, File(name).name)
                         name.startsWith(PHOTOS) ->
@@ -184,7 +213,18 @@ object BackupManager {
         VoiceProfileStore.mergeRestored(
             context, File(context.filesDir, "$VOICES.restore"), voiceAudioDir
         )
-        return Restored(restored, skipped)
+        return Restored(restored, skipped, trash.leftInTrash)
+    }
+
+    /**
+     * The meeting in the zip entry [zip] is at, for a backup's copy that is
+     * not restored (only the files it names are read). Null when it does
+     * not parse.
+     */
+    private fun readMeeting(zip: InputStream): Meeting? = try {
+        Meeting.fromJson(org.json.JSONObject(zip.readBytes().toString(Charsets.UTF_8)))
+    } catch (_: Exception) {
+        null
     }
 
     /**
