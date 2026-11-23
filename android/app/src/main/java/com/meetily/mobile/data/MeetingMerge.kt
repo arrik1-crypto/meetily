@@ -95,9 +95,10 @@ object MeetingMerge {
      *   back in, exactly as [foldLateSegments] does. Otherwise the stored
      *   transcript is taken as it is.
      * - The summary. The screen never generates one, so a new summary on disk
-     *   takes its action items, stale flag, template and model with it: a
-     *   tick made on the old list must not bring back items the new summary
-     *   dropped. The summaries kept beside it are merged per template, with
+     *   takes its action items (with the record of the run that wrote them),
+     *   stale flag, template and model with it: a tick made on the old list
+     *   must not bring back items the new summary dropped. The summaries
+     *   kept beside it are merged per template, with
      *   the active one (SummaryAlternatives.merge), so a switch or deletion
      *   made here and a summary a run added meanwhile both survive.
      */
@@ -174,7 +175,18 @@ object MeetingMerge {
             highlightMarksMs = disk.highlightMarksMs.toMutableList(),
             summaryAtMs = summaryFields.atMs,
             summaryLanguage = summaryFields.language,
-            summaries = summaryFields.alternatives.toMutableList()
+            summaries = summaryFields.alternatives.toMutableList(),
+            // Which run wrote the items travels with them.
+            actionItemsTemplate = if (newSummary) {
+                disk.actionItemsTemplate
+            } else {
+                pick(base.actionItemsTemplate, ours.actionItemsTemplate, disk.actionItemsTemplate)
+            },
+            actionItemsModel = if (newSummary) {
+                disk.actionItemsModel
+            } else {
+                pick(base.actionItemsModel, ours.actionItemsModel, disk.actionItemsModel)
+            }
         )
     }
 }

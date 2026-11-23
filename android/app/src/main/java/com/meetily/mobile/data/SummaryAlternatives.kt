@@ -44,7 +44,10 @@ data class SavedSummary(
  * follow-ups screen, reminders, task export and search read them from the
  * meeting. Each run refreshes them as it always has (keeping ticks and
  * reminders on the tasks it finds again); switching never touches them, so
- * a switch can neither drop a reminder nor bring back a ticked task.
+ * a switch can neither drop a reminder nor bring back a ticked task. The run
+ * that wrote them is recorded with them ([Meeting.actionItemsTemplate],
+ * [Meeting.actionItemsModel]; see [actionItemsRun]), because after a switch
+ * it is no longer the one that wrote the summary shown.
  */
 object SummaryAlternatives {
 
@@ -162,6 +165,34 @@ object SummaryAlternatives {
      */
     fun namesLanguages(versions: List<Version>): Boolean =
         versions.mapNotNull { it.language }.distinct().size > 1
+
+    /** A summary run as recorded: its template key and its engine and model (AiProvenance). */
+    data class Run(val template: String?, val model: String?)
+
+    /**
+     * Which run wrote [m]'s action items: as the run recorded it, or, for
+     * items from before that was recorded, the summary shown's template and
+     * model, since one run wrote both then.
+     */
+    fun actionItemsRun(m: Meeting): Run =
+        if (m.actionItemsTemplate.isNullOrBlank() && m.actionItemsModel.isNullOrBlank()) {
+            Run(key(m.summaryTemplate), m.summaryModel?.trim()?.ifEmpty { null })
+        } else {
+            Run(key(m.actionItemsTemplate), m.actionItemsModel?.trim()?.ifEmpty { null })
+        }
+
+    /**
+     * True when [m] has action items that another run wrote than the
+     * summary shown: the user switched since. Such items carry their own
+     * run's notices and are reported under it. One entry per template, so
+     * the run is told apart by its template (and model).
+     */
+    fun actionItemsFromAnotherRun(m: Meeting): Boolean {
+        if (m.actionItems.isEmpty()) return false
+        val run = actionItemsRun(m)
+        return run.template != key(m.summaryTemplate) ||
+            run.model != m.summaryModel?.trim()?.ifEmpty { null }
+    }
 
     // --- Storage -------------------------------------------------------------
 

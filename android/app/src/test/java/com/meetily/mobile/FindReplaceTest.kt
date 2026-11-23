@@ -189,7 +189,8 @@ class FindReplaceTest {
         assertFalse(m.summaryStale)
         val snapshot = FindReplace.apply(m, query("Jon", "John"), all)!!
         assertTrue(m.summaryStale)
-        assertFalse(snapshot.staleBefore)
+        // Recorded by which summary it marked, for Undo.
+        assertEquals(listOf(FindReplace.SummaryId(null, 0L)), snapshot.markedStale)
 
         val notesOnly = meeting()
         FindReplace.apply(notesOnly, query("Jon", "John"), setOf(Area.NOTES, Area.SUMMARY))

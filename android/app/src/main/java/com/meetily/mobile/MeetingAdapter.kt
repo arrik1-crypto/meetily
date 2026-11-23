@@ -397,6 +397,7 @@ class MeetingAdapter(
             when (moment.field) {
                 HomeSearch.Field.NOTES -> R.string.moment_snippet_notes
                 HomeSearch.Field.SUMMARY -> R.string.moment_snippet_summary
+                HomeSearch.Field.OTHER_SUMMARY -> R.string.moment_snippet_other_summary
                 HomeSearch.Field.ACTION_ITEM -> R.string.moment_snippet_action
                 HomeSearch.Field.PHOTO_TEXT -> R.string.moment_snippet_photo
                 else -> R.string.moment_snippet_summary
@@ -426,6 +427,7 @@ class MeetingAdapter(
             context.getString(
                 when (moment.field) {
                     HomeSearch.Field.NOTES -> R.string.moment_snippet_a11y_notes
+                    HomeSearch.Field.OTHER_SUMMARY -> R.string.moment_snippet_a11y_other_summary
                     HomeSearch.Field.ACTION_ITEM -> R.string.moment_snippet_a11y_action
                     HomeSearch.Field.PHOTO_TEXT -> R.string.moment_snippet_a11y_photo
                     else -> R.string.moment_snippet_a11y_summary

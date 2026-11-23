@@ -454,6 +454,12 @@ class SummaryService : Service() {
                     }
                 }
                 target.actionItems = merged.toMutableList()
+                // Which run wrote the items, kept with them: a switch to
+                // another summary later leaves them as this run wrote them,
+                // with this run's notices (AiDisclaimers).
+                target.actionItemsTemplate =
+                    com.meetily.mobile.data.SummaryAlternatives.key(template.key)
+                target.actionItemsModel = wroteModel
                 // The summary shown until now is kept under its template
                 // unless this run made the same template again; the new one
                 // is shown (SummaryAlternatives). Up to date only if the

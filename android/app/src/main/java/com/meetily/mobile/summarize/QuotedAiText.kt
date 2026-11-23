@@ -1,5 +1,8 @@
 package com.meetily.mobile.summarize
 
+import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.data.SummaryAlternatives
+
 /**
  * Whether a saved summary counts as AI output for "Report AI output": on
  * the meeting screen (its summary button and the ⋮ menu), the pre-meeting
@@ -45,5 +48,33 @@ object QuotedAiText {
         val named = keys.map { it?.trim()?.ifBlank { null } }
         if (named.all { it == null }) return null
         return named.map { it ?: UNRECORDED }.distinct().joinToString(", ")
+    }
+
+    /**
+     * True when [m]'s action items are a model's words that another run
+     * wrote than the summary shown (a switch since), so a report of them
+     * names that run rather than the summary's.
+     */
+    fun itemsFromAnotherModelRun(m: Meeting): Boolean =
+        SummaryAlternatives.actionItemsFromAnotherRun(m) &&
+            SummaryAlternatives.actionItemsRun(m).model?.trim() != AiProvenance.EXTRACTIVE
+
+    /**
+     * The runs whose words a listing of [meetings] quotes (each summary's
+     * first line and the open action items): the summary shown, when a
+     * model wrote it, and the run that wrote the open items, when that was
+     * another one and a model. For the template and model lines of a report.
+     */
+    fun quotedRuns(meetings: List<Meeting>): List<SummaryAlternatives.Run> {
+        val out = ArrayList<SummaryAlternatives.Run>()
+        for (m in meetings) {
+            if (modelWrote(m.summary, m.summaryModel)) {
+                out.add(SummaryAlternatives.Run(m.summaryTemplate, m.summaryModel))
+            }
+            if (m.actionItems.any { !it.done } && itemsFromAnotherModelRun(m)) {
+                out.add(SummaryAlternatives.actionItemsRun(m))
+            }
+        }
+        return out
     }
 }

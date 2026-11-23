@@ -161,10 +161,12 @@ class SummaryVersionsBar(
         stylePill(pill, version.active)
         pill.gravity = Gravity.CENTER_VERTICAL
         pill.text = shown
-        pill.contentDescription = activity.getString(
-            if (version.stale) R.string.summaries_pill_desc_stale else R.string.summaries_pill_desc,
+        // The style alone: a style's own name may already end in "Summary".
+        pill.contentDescription = if (version.stale) {
+            activity.getString(R.string.summaries_pill_desc_stale, shown)
+        } else {
             shown
-        )
+        }
         if (version.active) {
             // The summary on screen: nothing to switch to, nothing to delete here.
             A11y.clearClick(pill)

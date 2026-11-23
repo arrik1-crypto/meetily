@@ -170,7 +170,18 @@ data class Meeting(
      * summary stays in the top-level fields, so every reader, and an older
      * app restoring a backup, sees the one shown.
      */
-    var summaries: MutableList<SavedSummary> = mutableListOf()
+    var summaries: MutableList<SavedSummary> = mutableListOf(),
+    /**
+     * The template key and the engine and model of the summary run that
+     * wrote [actionItems]. Every run writes the items with its summary, but
+     * switching the summary shown leaves the items as they are, so the items
+     * keep their own record: a clinical run's drugs and doses keep the
+     * clinical notice (AiDisclaimers) after a switch to plain minutes. Both
+     * null for items saved before this was recorded, which the run that
+     * wrote the summary shown wrote too.
+     */
+    var actionItemsTemplate: String? = null,
+    var actionItemsModel: String? = null
 ) {
     /**
      * True for a copy read by MeetingStore's light listings, which leave out
@@ -303,6 +314,12 @@ data class Meeting(
         }
         if (summaries.isNotEmpty()) {
             obj.put("summaries", SummaryAlternatives.toJson(summaries))
+        }
+        if (!actionItemsTemplate.isNullOrBlank()) {
+            obj.put("actionItemsTemplate", actionItemsTemplate)
+        }
+        if (!actionItemsModel.isNullOrBlank()) {
+            obj.put("actionItemsModel", actionItemsModel)
         }
         if (highlightMarksMs.isNotEmpty()) {
             val marksArr = JSONArray()
@@ -494,6 +511,10 @@ data class Meeting(
             meeting.summaries = SummaryAlternatives.fromJson(
                 obj.optJSONArray("summaries"), SummaryAlternatives.active(meeting)
             )
+            // Absent before the items kept their own record: the run that
+            // wrote the summary shown wrote them (AiDisclaimers falls back).
+            meeting.actionItemsTemplate = obj.optString("actionItemsTemplate", "").ifBlank { null }
+            meeting.actionItemsModel = obj.optString("actionItemsModel", "").ifBlank { null }
             // Through normalize, so a hand-edited or future value that is
             // not a language code reads as unknown rather than reaching a
             // prompt or the engine.

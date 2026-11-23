@@ -381,7 +381,140 @@ class SummaryAlternativesTest {
         val indexed = search.index(light)
         assertTrue(search.matches(indexed.blob, query))
         val moment = search.moment(light, indexed, query)
-        assertEquals(com.meetily.mobile.search.HomeSearch.Field.SUMMARY, moment?.field)
+        // Labelled as another summary: the meeting opens on the standup one.
+        assertEquals(com.meetily.mobile.search.HomeSearch.Field.OTHER_SUMMARY, moment?.field)
+        val shown = search.moment(light, indexed, search.normalizeQuery("review"))
+        assertEquals(com.meetily.mobile.search.HomeSearch.Field.SUMMARY, shown?.field)
+    }
+
+    // --- Action items and their run's notices ------------------------------------
+
+    private val medication = ActionItem(task = "Start amoxicillin 500 mg three times daily")
+
+    /**
+     * General minutes, then a SOAP note whose run wrote the action items, as
+     * SummaryService records them.
+     */
+    private fun generalThenSoap(): Meeting {
+        val m = meeting()
+        SummaryAlternatives.adoptRun(m, run("general", "Minutes", 100L))
+        m.actionItems = mutableListOf(medication)
+        m.actionItemsTemplate = "soap"
+        m.actionItemsModel = "local:qwen"
+        SummaryAlternatives.adoptRun(m, run("soap", "Subjective: cough", 200L))
+        return m
+    }
+
+    @Test
+    fun actionItemsKeepTheirRunsNoticeAfterASwitch() {
+        val clinical = com.meetily.mobile.summarize.AiDisclaimers.Category.CLINICAL
+        val notices = com.meetily.mobile.summarize.AiDisclaimers
+        val m = generalThenSoap()
+        assertFalse(SummaryAlternatives.actionItemsFromAnotherRun(m))
+        assertEquals(setOf(clinical), notices.categories(m))
+
+        SummaryAlternatives.switchTo(m, "general")
+        assertEquals(listOf(medication), m.actionItems)
+        assertTrue(SummaryAlternatives.actionItemsFromAnotherRun(m))
+        // The minutes need no notice; the SOAP run's items still do, in a
+        // share of the items alone, in follow-ups and in whole-meeting outputs.
+        assertTrue(notices.summaryCategories(m).isEmpty())
+        assertEquals(setOf(clinical), notices.actionItemCategories(m))
+        assertEquals(setOf(clinical), notices.categories(m))
+        assertEquals(setOf(clinical), notices.unionActionItems(listOf(m)))
+        assertEquals(setOf(clinical), notices.union(listOf(m)))
+        // Reported under the run that wrote them.
+        assertEquals(SummaryAlternatives.Run("soap", "local:qwen"), SummaryAlternatives.actionItemsRun(m))
+        assertEquals(
+            listOf(SummaryAlternatives.Run("general", "local:qwen"), SummaryAlternatives.Run("soap", "local:qwen")),
+            com.meetily.mobile.summarize.QuotedAiText.quotedRuns(listOf(m))
+        )
+
+        // Deleting the SOAP note does not take the items' notice with it.
+        SummaryAlternatives.delete(m, "soap")
+        assertEquals(setOf(clinical), notices.actionItemCategories(m))
+
+        val back = generalThenSoap()
+        SummaryAlternatives.switchTo(back, "general")
+        SummaryAlternatives.switchTo(back, "soap")
+        assertFalse(SummaryAlternatives.actionItemsFromAnotherRun(back))
+        assertEquals(
+            listOf(SummaryAlternatives.Run("soap", "local:qwen")),
+            com.meetily.mobile.summarize.QuotedAiText.quotedRuns(listOf(back))
+        )
+    }
+
+    @Test
+    fun actionItemsFromBeforeTheRunWasRecordedTakeTheSummarysNotice() {
+        val legacy = meeting().apply {
+            summary = "Plan"
+            summaryTemplate = "soap"
+            actionItems = mutableListOf(medication)
+        }
+        assertFalse(SummaryAlternatives.actionItemsFromAnotherRun(legacy))
+        assertEquals(
+            setOf(com.meetily.mobile.summarize.AiDisclaimers.Category.CLINICAL),
+            com.meetily.mobile.summarize.AiDisclaimers.actionItemCategories(legacy)
+        )
+        // No items, no items' notice.
+        val none = generalThenSoap().apply { actionItems = mutableListOf() }
+        SummaryAlternatives.switchTo(none, "general")
+        assertTrue(com.meetily.mobile.summarize.AiDisclaimers.categories(none).isEmpty())
+    }
+
+    @Test
+    fun json_theItemsRunRoundTripsAndReachesTheNoticeListing() {
+        val m = generalThenSoap()
+        SummaryAlternatives.switchTo(m, "general")
+        val text = m.toJson().toString()
+        val restored = Meeting.fromJson(JSONObject(text))
+        assertEquals("soap", restored.actionItemsTemplate)
+        assertEquals("local:qwen", restored.actionItemsModel)
+        assertEquals(m, restored)
+        // What follow-ups reads (MeetingStore.listPartial).
+        val keep = com.meetily.mobile.data.MeetingStore.ACTION_FIELDS +
+            com.meetily.mobile.data.MeetingStore.NOTICE_FIELDS + "id"
+        val partial = Meeting.fromJson(com.meetily.mobile.data.LightJson.parse(text, keep, setOf("words")))
+        assertEquals(
+            setOf(com.meetily.mobile.summarize.AiDisclaimers.Category.CLINICAL),
+            com.meetily.mobile.summarize.AiDisclaimers.unionActionItems(listOf(partial))
+        )
+        // Nothing new is written for a meeting no run has summarised.
+        val plain = meeting().toJson()
+        assertFalse(plain.has("actionItemsTemplate"))
+        assertFalse(plain.has("actionItemsModel"))
+    }
+
+    @Test
+    fun mergeCarriesTheItemsRunWithTheItems() {
+        // A switch made here while nothing else changed: the items and their
+        // run stay as stored.
+        val base = generalThenSoap()
+        val ours = MeetingMerge.snapshot(base)
+        SummaryAlternatives.switchTo(ours, "general")
+        val merged = MeetingMerge.mergeScreenEdits(base, ours, MeetingMerge.snapshot(base), Long.MIN_VALUE)
+        assertEquals("general", merged.summaryTemplate)
+        assertEquals("soap", merged.actionItemsTemplate)
+        assertEquals("local:qwen", merged.actionItemsModel)
+
+        // A tick made here while a queued run wrote new items: the run's
+        // items and its record win together.
+        val before = meeting()
+        SummaryAlternatives.adoptRun(before, run("general", "Minutes", 100L))
+        before.actionItems = mutableListOf(ActionItem(task = "Send the deck"))
+        before.actionItemsTemplate = "general"
+        before.actionItemsModel = "local:qwen"
+        val screen = MeetingMerge.snapshot(before)
+        screen.actionItems[0] = screen.actionItems[0].copy(done = true)
+        val disk = MeetingMerge.snapshot(before)
+        disk.actionItems = mutableListOf(medication)
+        disk.actionItemsTemplate = "soap"
+        disk.actionItemsModel = "endpoint:gpt"
+        SummaryAlternatives.adoptRun(disk, run("soap", "Subjective: cough", 300L))
+        val after = MeetingMerge.mergeScreenEdits(before, screen, disk, Long.MIN_VALUE)
+        assertEquals(listOf(medication), after.actionItems)
+        assertEquals("soap", after.actionItemsTemplate)
+        assertEquals("endpoint:gpt", after.actionItemsModel)
     }
 
     // --- Find & replace ----------------------------------------------------------
@@ -433,15 +566,83 @@ class SummaryAlternativesTest {
     }
 
     @Test
-    fun undoLeavesAKeptSummarySwitchedToSince() {
+    fun undoFindsEachSummaryAgainAfterASwitch() {
         val m = meetingWithLine()
         val area = setOf(com.meetily.mobile.data.FindReplace.Area.SUMMARY)
         val snapshot = com.meetily.mobile.data.FindReplace.apply(m, replaceQuery("Jon", "John"), area)!!
         SummaryAlternatives.switchTo(m, "standup")
         val undone = com.meetily.mobile.data.FindReplace.undo(m, snapshot)
-        // A switch since moved both: each counts as changed and keeps the fix.
+        // A switch moves a summary without changing it: each is put back
+        // where it now is, the one shown and the one kept.
+        assertEquals(0, undone.skipped)
+        assertEquals(2, undone.restored)
+        assertEquals("standup", m.summaryTemplate)
+        assertEquals("Jon is blocked", m.summary)
+        assertEquals("Jon called", SummaryAlternatives.find(m, "sales")?.text)
+    }
+
+    @Test
+    fun undoLeavesASummaryEditedOrWrittenAgainSince() {
+        val m = meetingWithLine()
+        val area = setOf(com.meetily.mobile.data.FindReplace.Area.SUMMARY)
+        val snapshot = com.meetily.mobile.data.FindReplace.apply(m, replaceQuery("Jon", "John"), area)!!
+        // Standup written again (same text as the fix left it), then the
+        // sales summary edited after a switch back to it.
+        SummaryAlternatives.adoptRun(m, run("standup", "John is blocked", 300L))
+        SummaryAlternatives.switchTo(m, "sales")
+        m.summary = "John called twice"
+        val undone = com.meetily.mobile.data.FindReplace.undo(m, snapshot)
         assertEquals(2, undone.skipped)
-        assertEquals("John is blocked", m.summary)
+        assertEquals("John called twice", m.summary)
+        assertEquals("John is blocked", SummaryAlternatives.find(m, "standup")?.text)
+    }
+
+    @Test
+    fun undoAfterASwitchPutsBackOnlyTheStaleMarksTheReplaceAdded() {
+        // Standup kept and already out of date; sales shown and up to date.
+        val m = withSummaries(run("standup", "Standup", 100L))
+            .apply { segments.add(com.meetily.mobile.data.TranscriptSegment(1_000L, "Jon here")) }
+        SummaryAlternatives.markStale(m)
+        SummaryAlternatives.adoptRun(m, run("sales", "Sales", 200L))
+        assertTrue(SummaryAlternatives.find(m, "standup")!!.stale)
+        assertFalse(m.summaryStale)
+
+        val area = setOf(com.meetily.mobile.data.FindReplace.Area.TRANSCRIPT)
+        val snapshot = com.meetily.mobile.data.FindReplace.apply(m, replaceQuery("Jon", "John"), area)!!
+        assertTrue(m.summaryStale)
+        SummaryAlternatives.switchTo(m, "standup")
+        com.meetily.mobile.data.FindReplace.undo(m, snapshot)
+
+        // Standup was out of date before the replace and stays so; sales,
+        // which the replace marked, is up to date again although kept now.
+        assertEquals("standup", m.summaryTemplate)
+        assertTrue(m.summaryStale)
+        assertFalse(SummaryAlternatives.find(m, "sales")!!.stale)
+    }
+
+    @Test
+    fun undoAfterASwitchUnmarksTheKeptSummaryNowShown() {
+        val m = meetingWithLine()
+        val area = setOf(com.meetily.mobile.data.FindReplace.Area.TRANSCRIPT)
+        val snapshot = com.meetily.mobile.data.FindReplace.apply(m, replaceQuery("Jon", "John"), area)!!
+        assertTrue(m.summaryStale)
+        assertTrue(m.summaries.all { it.stale })
+        SummaryAlternatives.switchTo(m, "standup")
+        com.meetily.mobile.data.FindReplace.undo(m, snapshot)
+        assertFalse(m.summaryStale)
+        assertFalse(m.summaries.any { it.stale })
+    }
+
+    @Test
+    fun undoKeepsTheStaleMarkOfASummaryWrittenSince() {
+        val m = meetingWithLine()
+        val area = setOf(com.meetily.mobile.data.FindReplace.Area.TRANSCRIPT)
+        val snapshot = com.meetily.mobile.data.FindReplace.apply(m, replaceQuery("Jon", "John"), area)!!
+        // A run that started on the old transcript finishes: out of date.
+        SummaryAlternatives.adoptRun(m, run("sales", "Sales again", 500L).copy(stale = true))
+        com.meetily.mobile.data.FindReplace.undo(m, snapshot)
+        assertTrue(m.summaryStale)
+        assertFalse(SummaryAlternatives.find(m, "standup")!!.stale)
     }
 
     @Test

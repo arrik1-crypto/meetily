@@ -82,7 +82,9 @@ class DigestActivity : AppCompatActivity() {
                 }
                 return@Thread
             }
-            // Lines from clinical or legal summaries bring their notices.
+            // Lines from clinical or legal summaries, and action items a
+            // clinical or legal run wrote, bring their notices (the items'
+            // run is not the summary shown's after a switch).
             val notices = AiDisclaimers.texts(this, AiDisclaimers.union(meetings))
             digestNotices = notices
             val listing = WeeklyDigest.buildLocal(
@@ -90,9 +92,9 @@ class DigestActivity : AppCompatActivity() {
             )
             val local = AiDisclaimers.appendTo(listing, notices)
             // The listing itself is fixed code, but it quotes each summary's
-            // first line and the action items from the same run, so it is
-            // reportable when a model wrote any of those summaries.
-            val quoted = meetings.filter { QuotedAiText.modelWrote(it.summary, it.summaryModel) }
+            // first line and the open action items, so it is reportable when
+            // a model wrote any of those, named by the runs that did.
+            val quoted = QuotedAiText.quotedRuns(meetings)
             val offline = if (quoted.isEmpty()) {
                 null
             } else {
@@ -100,9 +102,9 @@ class DigestActivity : AppCompatActivity() {
                     label = getString(R.string.aisafety_report_action),
                     surface = "weekly_digest_offline",
                     text = listing,
-                    templateKey = QuotedAiText.joinKeys(quoted.map { it.summaryTemplate })
+                    templateKey = QuotedAiText.joinKeys(quoted.map { it.template })
                         ?: QuotedAiText.UNRECORDED,
-                    modelKey = QuotedAiText.joinKeys(quoted.map { it.summaryModel })
+                    modelKey = QuotedAiText.joinKeys(quoted.map { it.model })
                 )
             }
             runOnUiThread {

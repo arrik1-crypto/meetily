@@ -107,6 +107,13 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     /** The summary's fixed clinical or legal notice, above it (AiDisclaimers). */
     private lateinit var summaryNoticeView: TextView
+
+    /**
+     * The action items' own notice, above them, when another run wrote them
+     * than the summary shown (a switch) and the summary's notice does not
+     * already cover them.
+     */
+    private lateinit var actionNoticeView: TextView
     private lateinit var reportSummaryButton: MaterialButton
 
     /** The styles the meeting has summaries in, above the summary (SummaryAlternatives). */
@@ -536,8 +543,20 @@ class MeetingDetailActivity : AppCompatActivity() {
             summaryChanged = true
             if (m.summary != summaryBefore) summaryTextChanged = true
         }
-        if (m.actionItems == ours.actionItems && m.actionItems != merged.actionItems) {
+        val itemsEditedHere = m.actionItems != ours.actionItems
+        if (!itemsEditedHere && m.actionItems != merged.actionItems) {
             m.actionItems = merged.actionItems.toMutableList()
+            summaryChanged = true
+        }
+        // Which run wrote the items (it decides their notice) goes with the
+        // items: kept with this screen's own list while that waits to be
+        // saved, taken with the stored one otherwise.
+        if (!itemsEditedHere &&
+            (m.actionItemsTemplate != merged.actionItemsTemplate ||
+                m.actionItemsModel != merged.actionItemsModel)
+        ) {
+            m.actionItemsTemplate = merged.actionItemsTemplate
+            m.actionItemsModel = merged.actionItemsModel
             summaryChanged = true
         }
         if (m.notes == ours.notes && m.notesOriginal == ours.notesOriginal &&
@@ -848,10 +867,12 @@ class MeetingDetailActivity : AppCompatActivity() {
         askRow = headerView.findViewById(R.id.askRow)
         askDisabledHint = headerView.findViewById(R.id.askDisabledHint)
         // Added in code beside the existing header views: a notice banner
-        // above the summary, and "Report AI output" after its action items.
+        // above the summary and one above its action items, and "Report AI
+        // output" after the items.
         summaryNoticeView = DisclaimerViews.addBannerBefore(summaryView)
+        actionNoticeView = DisclaimerViews.addBannerBefore(headerView.findViewById(R.id.actionList))
         reportSummaryButton = AiReport.addButton(headerView.findViewById(R.id.actionList)) {
-            meeting?.let { current -> summarySubject(current)?.let { AiReport.show(this, it) } }
+            meeting?.let { current -> AiReport.choose(this, summarySubjects(current)) }
         }
         reportSummaryButton.visibility = View.GONE
         DisclaimerViews.copyWithNotices(summaryView) { summaryNotices() }
@@ -1312,10 +1333,17 @@ class MeetingDetailActivity : AppCompatActivity() {
         DisclaimerViews.show(
             summaryNoticeView, if (summary.isBlank()) emptyList() else summaryNotices()
         )
+        // A switch changes which notices the summary's banner already shows.
+        renderActionNotice()
         // An extractive summary is sentences picked from the transcript, not
-        // generated text, so it is not offered for report (QuotedAiText).
+        // generated text, so it is not offered for report (QuotedAiText);
+        // action items a model wrote in another run still are.
         reportSummaryButton.visibility =
-            if (meeting?.let { QuotedAiText.modelWrote(summary, it.summaryModel) } == true) {
+            if (meeting?.let {
+                    QuotedAiText.modelWrote(summary, it.summaryModel) ||
+                        QuotedAiText.itemsFromAnotherModelRun(it)
+                } == true
+            ) {
                 View.VISIBLE
             } else {
                 View.GONE
@@ -1323,36 +1351,83 @@ class MeetingDetailActivity : AppCompatActivity() {
         summaryVersions.render()
     }
 
-    /** The stored summary's fixed notices, by the template and model that wrote it. */
+    /** The shown summary's fixed notices, by the template and model that wrote it. */
     private fun summaryNotices(): List<String> {
         val m = meeting ?: return emptyList()
-        return AiDisclaimers.texts(this, AiDisclaimers.categories(m))
+        return AiDisclaimers.texts(this, AiDisclaimers.summaryCategories(m))
     }
 
     /**
-     * The summary and its action items as one reportable text, or null when
-     * there is none or no model wrote it.
+     * The notices of everything an export carries: the summary shown and
+     * the action items, which after a switch another run wrote.
      */
-    private fun summarySubject(m: Meeting): AiReport.Subject? {
-        if (!QuotedAiText.modelWrote(m.summary, m.summaryModel)) return null
-        val text = buildString {
-            append(m.summary.trim())
-            if (m.actionItems.isNotEmpty()) {
-                append("\n\nAction items:\n")
-                for (item in m.actionItems) {
-                    append("- ").append(item.task)
-                    if (!item.owner.isNullOrBlank()) append(" (").append(item.owner).append(')')
-                    append('\n')
+    private fun meetingNotices(m: Meeting): List<String> =
+        AiDisclaimers.texts(this, AiDisclaimers.categories(m))
+
+    /**
+     * The action items' notices the summary's banner does not already show:
+     * after a switch, a clinical run's items under plain minutes.
+     */
+    private fun renderActionNotice() {
+        val m = meeting
+        val notices = if (m == null || m.actionItems.isEmpty()) {
+            emptyList()
+        } else {
+            val shown = if (m.summary.isBlank()) emptySet() else AiDisclaimers.summaryCategories(m)
+            AiDisclaimers.texts(this, AiDisclaimers.actionItemCategories(m) - shown)
+        }
+        DisclaimerViews.show(actionNoticeView, notices)
+    }
+
+    private fun actionItemsText(m: Meeting): String = buildString {
+        for (item in m.actionItems) {
+            append("- ").append(item.task)
+            if (!item.owner.isNullOrBlank()) append(" (").append(item.owner).append(')')
+            append('\n')
+        }
+    }
+
+    /**
+     * The summary and its action items as reportable texts: one when the
+     * same run wrote both, two when the items came from another run (a
+     * switch since), each under the run that wrote it. Only what a model
+     * wrote; empty when nothing.
+     */
+    private fun summarySubjects(m: Meeting): List<AiReport.Subject> {
+        val out = ArrayList<AiReport.Subject>()
+        val separate = com.meetily.mobile.data.SummaryAlternatives.actionItemsFromAnotherRun(m)
+        if (QuotedAiText.modelWrote(m.summary, m.summaryModel)) {
+            val text = buildString {
+                append(m.summary.trim())
+                if (!separate && m.actionItems.isNotEmpty()) {
+                    append("\n\nAction items:\n").append(actionItemsText(m))
                 }
             }
+            out.add(
+                AiReport.Subject(
+                    label = getString(
+                        if (separate) R.string.summaries_report_summary else R.string.aisafety_subject_summary
+                    ),
+                    surface = "meeting_summary",
+                    text = text,
+                    templateKey = m.summaryTemplate ?: QuotedAiText.UNRECORDED,
+                    modelKey = m.summaryModel
+                )
+            )
         }
-        return AiReport.Subject(
-            label = getString(R.string.aisafety_subject_summary),
-            surface = "meeting_summary",
-            text = text,
-            templateKey = m.summaryTemplate ?: "unknown",
-            modelKey = m.summaryModel
-        )
+        if (separate && QuotedAiText.itemsFromAnotherModelRun(m)) {
+            val run = com.meetily.mobile.data.SummaryAlternatives.actionItemsRun(m)
+            out.add(
+                AiReport.Subject(
+                    label = getString(R.string.summaries_report_items),
+                    surface = "meeting_action_items",
+                    text = actionItemsText(m),
+                    templateKey = run.template ?: QuotedAiText.UNRECORDED,
+                    modelKey = run.model
+                )
+            )
+        }
+        return out
     }
 
     private fun answerSubject(question: String, answer: String) = AiReport.Subject(
@@ -1365,7 +1440,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun reportFromMenu() {
         val m = meeting ?: return
         val subjects = mutableListOf<AiReport.Subject>()
-        summarySubject(m)?.let { subjects.add(it) }
+        subjects.addAll(summarySubjects(m))
         // notesOriginal is only kept once the notes were AI-enhanced.
         if (m.notesOriginal.isNotEmpty() && m.notes.isNotBlank()) {
             subjects.add(
@@ -1784,6 +1859,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         val visible = m.actionItems.isNotEmpty()
         header.visibility = if (visible) View.VISIBLE else View.GONE
         list.visibility = if (visible) View.VISIBLE else View.GONE
+        renderActionNotice()
         if (!visible) return
         val inflater = LayoutInflater.from(this)
         for ((index, item) in m.actionItems.withIndex()) {
@@ -2286,11 +2362,12 @@ class MeetingDetailActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.no_action_items, Toast.LENGTH_SHORT).show()
             return
         }
-        // The items come from the same summary run, so a clinical plan's
-        // drugs and doses leave with the summary's notice.
+        // The items carry the notice of the summary run that wrote them,
+        // which after a switch is not the summary shown: a clinical plan's
+        // drugs and doses leave with the clinical notice.
         val text = AiDisclaimers.appendTo(
             com.meetily.mobile.export.TaskExport.text(items),
-            AiDisclaimers.texts(this, AiDisclaimers.categories(m))
+            AiDisclaimers.texts(this, AiDisclaimers.actionItemCategories(m))
         )
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
@@ -2304,7 +2381,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         // The worker reads a copy: laying out a long transcript takes a
         // while, and the live meeting keeps changing under it.
         val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
-        val notices = summaryNotices()
+        val notices = meetingNotices(m)
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 if (isPdf) {
@@ -2316,10 +2393,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
     }
 
-    /** Word, with the summary's fixed notices as in the Markdown and PDF exports. */
+    /** Word, with the fixed notices as in the Markdown and PDF exports. */
     private fun writeDocx(uri: Uri) {
         val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
-        val notices = summaryNotices()
+        val notices = meetingNotices(m)
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 DocxExport.write(m, out, notices)
