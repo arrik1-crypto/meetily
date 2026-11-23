@@ -1264,7 +1264,8 @@ class MainActivity : AppCompatActivity() {
         isRecording(meetingId) ||
             (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
             (ImportService.isRunning && ImportService.currentMeetingId == meetingId) ||
-            ClearVoiceService.isPreparing(meetingId)
+            ClearVoiceService.isPreparing(meetingId) ||
+            PassageService.isRemoving(meetingId)
 
     private fun isRecording(meetingId: String): Boolean =
         RecordingService.isRunning && store.activeId() == meetingId

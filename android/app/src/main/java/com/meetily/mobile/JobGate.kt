@@ -64,11 +64,16 @@ object JobGate {
      * kicked off a full re-transcription and a multi-GB LLM summary at the same
      * time — the exact thrash rule 2 exists to prevent, on a phone that has
      * just spent the whole meeting running Whisper.
+     *
+     * A passage being removed (PassageService) holds batches back too: a
+     * summary or a transcription made meanwhile would read the passage it
+     * removes. It is short, and drains the queue when it ends.
      */
     fun canStartBatch(): Boolean =
         !RecordingService.isRunning &&
             !ImportService.isRunning &&
             !SummaryService.isRunning &&
+            !PassageService.isBusy() &&
             !startPending()
 
     /**

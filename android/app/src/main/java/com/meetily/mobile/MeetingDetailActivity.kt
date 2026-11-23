@@ -870,6 +870,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             finish()
             return
         }
+        // Follows a passage being removed from this meeting (PassageUi).
+        passage.attach(id)
         // The title and date go up at once when they are known without the
         // file. Everything else waits for the read (onMeetingRead): on a
         // long meeting that is a megabyte of JSON and its word timings, which
@@ -1587,6 +1589,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (playable) {
             actions.add(A11y.Action(getString(R.string.share_clip_action)) { shareClip(index) })
         }
+        if (audioMs != null) {
+            actions.add(A11y.Action(getString(R.string.passage_line_action)) { passage.open(index) })
+        }
         return TranscriptLineActions(
             clickLabel = getString(R.string.a11y_line_options),
             longClickLabel = getString(
@@ -1623,6 +1628,9 @@ class MeetingDetailActivity : AppCompatActivity() {
                 { shareClip(index) }
             } else null,
             onFixWord = { replace.fixWord(index) },
+            onRemovePassage = if (audioMs != null) {
+                { passage.open(index) }
+            } else null,
             onRenameCluster = if (clusterId != null) {
                 { name ->
                     val tagged = mutableListOf<Int>()
@@ -1688,6 +1696,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         mainHandler.removeCallbacks(revealLoading)
         mainHandler.removeCallbacks(endFlash)
         findBar.release()
+        passage.detach()
         // The model outlives a rotation; it must not hold on to this screen.
         loadModel?.load?.detach(loadListener)
         // A rotation hands an unrecorded photo on in the saved state.
@@ -3989,6 +3998,81 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         syncNotesButtons()
         invalidateOptionsMenu()
+    }
+
+    // --- Remove a passage (PassageUi, PassageService) -------------------------
+
+    private val passage by lazy {
+        PassageUi(this, object : PassageUi.Host {
+            override fun liveMeeting(): Meeting? = meeting
+
+            override fun flushEdits() {
+                saveEdits()
+                requestSync()
+                flushSync()
+            }
+
+            override fun audioFile(): File? = audioFileOrNull()
+
+            override fun playerDurationMs(): Long = readyPlayer?.duration?.toLong()?.takeIf { it > 0L } ?: 0L
+
+            override fun releasePlayer() = releasePlayerForPassage()
+
+            override fun passageRemoved(span: com.meetily.mobile.data.PassagePlan.Span) = onPassageRemoved(span)
+        })
+    }
+
+    /**
+     * Stops playback and lets go of the recording, as Remove audio does:
+     * the passage run replaces the file, and the player must not go on
+     * playing the passage from the one it opened.
+     */
+    private fun releasePlayerForPassage() {
+        playerHandler.removeCallbacks(playerTick)
+        pendingPlayerAction = null
+        playerReady = false
+        releaseBoost()
+        try {
+            player?.release()
+        } catch (_: Exception) {
+        }
+        player = null
+        if (::playPauseButton.isInitialized) setPlayPauseIcon(playing = false)
+    }
+
+    /**
+     * A passage was removed from the stored meeting. This copy takes the
+     * same removal (so a line edited here meanwhile cannot bring it back
+     * through the next save), the player and the waveform let go of the
+     * old recording, and the sync takes in the new audio, the clear-voice
+     * copy gone and the resume point.
+     */
+    private fun onPassageRemoved(span: com.meetily.mobile.data.PassagePlan.Span) {
+        releasePlayerForPassage()
+        playingClearVoice = false
+        waveformBars = null
+        whenLoaded { m ->
+            val plan = com.meetily.mobile.data.PassagePlan.plan(
+                m.segments, span, null, m.highlightMarksMs, m.chapters, m.transcriptResumeMs
+            )
+            com.meetily.mobile.data.PassagePlan.applyTo(m, plan)
+            // The file the run wrote (PassageSwap names it from the old one),
+            // so the Audio tab draws its waveform now rather than the old one's.
+            val replaced = m.audioFile?.let { com.meetily.mobile.data.PassageSwap.newAudioName(it) }
+            if (replaced != null && AudioStore.exists(this, replaced)) {
+                m.audioFile = replaced
+                m.clearVoiceFile = null
+            }
+            requestSync()
+            if (isFinishing || isDestroyed) return@whenLoaded
+            applyTabState()
+            clearVoiceBar?.render()
+            renderMeta(m)
+            renderTranscript(m)
+            renderStats(m)
+            renderSummary(m.summary)
+            invalidateOptionsMenu()
+        }
     }
 
     private fun confirmDeleteSegment(index: Int) {

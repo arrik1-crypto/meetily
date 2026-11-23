@@ -225,7 +225,8 @@ class HomeSelection(
                     recording = meeting.id == recordingId,
                     busy = (ImportService.isRunning && ImportService.currentMeetingId == meeting.id) ||
                         (SummaryService.isRunning && SummaryService.currentMeetingId == meeting.id) ||
-                        ClearVoiceService.isPreparing(meeting.id),
+                        ClearVoiceService.isPreparing(meeting.id) ||
+                        PassageService.isRemoving(meeting.id),
                     queued = meeting.id in waiting,
                     // The list's copy has every transcript line (only word
                     // timings are left out).
