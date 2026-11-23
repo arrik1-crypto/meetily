@@ -14,39 +14,37 @@ everything below is included and works offline. No tiers, no upsells.
 
 RECORD AND IMPORT
 • One-tap recording, transcribed on your phone
-• Record device audio from webinars and videos (audio only, with your
-  consent; keep the screen unlocked)
+• Record device audio from webinars and videos (screen unlocked)
 • Import recordings or videos (only the sound is kept), several at
-  once, transcribed on your phone
-• Import Zoom and Teams transcripts (VTT/SRT) as meetings to search
-  and summarize
-• Crash-safe: recordings save as you go, and an interrupted
-  transcription carries on where it stopped
+  once, and Zoom/Teams transcripts (VTT/SRT)
+• Crash-safe recording; an interrupted transcription carries on
+• Android 16 Live Updates, where the phone supports them
 
 TRANSCRIPTION THAT RESPECTS PRIVACY
 • On-device Whisper models — from 75 MB Tiny to Large v3 Turbo
 • NVIDIA Parakeet (25 languages) and Nemotron engines, also on-device
 • Speaker detection with reusable voice profiles
 • Custom vocabulary so your names and jargon come out right
-• Clear voice: remove background noise from a recording on your
-  phone; switch back to the original at any moment
-• Spoken language detected or chosen; AI summaries follow it, or
-  translate speech to English
+• Clear voice: remove background noise from a recording on your phone
+• Spoken language detected or chosen, or translated to English
 
 AI SUMMARIES — EVEN OFFLINE
 • Built-in AI engine runs models like Gemma, Llama, Qwen, and Mistral
-  directly on your phone: summaries, action items, and Q&A, offline
+  directly on your phone: summaries, action items, and Q&A
 • Llama models: Built with Llama. Models download on demand under their
   publishers' licences, shown in the app.
 • Or connect your own endpoint (Ollama on your PC, Groq, OpenRouter)
+• Keep a summary per style and switch between them instantly
 • Turn rough notes into complete minutes
 • Clinical and legal summaries are drafts for professional review, not
   medical records or legal advice.
-• Report problematic AI output from inside the app
+• Report problematic AI output in the app
 
 FIND IT, FIX IT
 • Search that jumps to the moment, photo text included; find in
   meeting; find & replace with undo
+• Cut a passage's words and audio out of a meeting
+• Restore deleted meetings for 30 days
 • Free up space: remove old audio, keep transcripts
 
 STAY ON TOP OF FOLLOW-UPS
@@ -55,10 +53,11 @@ STAY ON TOP OF FOLLOW-UPS
 • Pre-meeting briefs for recurring meetings; weekly digest, tags
 
 BUILT FOR REAL WORK
-• Word-level tap-to-seek playback, speed control, skip-silence
+• Word-level tap-to-seek playback, speed, skip-silence, 15 s skips
+• Background playback; lock-screen controls hide the title
 • Rich notes with checklists, photos, whiteboard OCR, file attachments
 • Share audio clips of key moments; mark one from the notification
-• Export Markdown, PDF, Word or subtitles (SRT/VTT), or your whole
+• Export Markdown, PDF, Word or SRT/VTT subtitles, or the whole
   library as Markdown for Obsidian and other notes apps
 • Encrypted backups, biometric app lock, screenshot blocking
 
@@ -88,4 +87,4 @@ consent.
 
 Recap is open source.
 ----------------------------------------------------------------
-(char count 3,960, counting line breaks — under the 4,000 limit)
+(char count 3,978, counting line breaks — under the 4,000 limit)

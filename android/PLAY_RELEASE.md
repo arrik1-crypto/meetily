@@ -1,18 +1,26 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Current release:
-**3.19.0-beta1** (versionCode 114), targetSdk 36 (Android 16): Batch 5
-(sherpa-onnx v2.0.3 with ONNX Runtime 1.28.2 and the re-keyed CAM++
-speaker model, interrupted transcriptions that carry on from where they
-stopped, SRT/VTT subtitle and Word export plus the library as Markdown,
-one native library per CPU level, Clear voice, and importing video,
-several files at once and Zoom/Teams transcripts). The previous release,
+App ID: **com.recap.mobile** (permanent). Next release:
+**3.20.0-beta1** (versionCode 115), targetSdk 36 (Android 16): Batch 6
+(Android 16 Live Updates for the recording and for long jobs the user
+starts, meeting playback that carries on in the background with
+lock-screen, headset and car controls and 15-second skips, Recently
+deleted with 30 days to restore a deleted meeting, several summaries per
+meeting, one per style, and Remove a passage). Until the version bump,
+which the maintainer makes in a separate commit right after this
+documentation update, `android/app/build.gradle.kts` still reads
+**3.19.0-beta1** (versionCode 114), the Batch 5 release (sherpa-onnx
+v2.0.3 with ONNX Runtime 1.28.2 and the re-keyed CAM++ speaker model,
+interrupted transcriptions that carry on from where they stopped, SRT/VTT
+subtitle and Word export plus the library as Markdown, one native library
+per CPU level, Clear voice, and importing video, several files at once
+and Zoom/Teams transcripts). The release before it,
 **3.18.0-beta1** (versionCode 113), was Batch 4 (meetings read off
 the main thread, home search that lands on the moment and Find in
 meeting, Find & replace that keeps word timings, the Storage screen with
 Remove audio, automatic clean-up and multi-select on the home list, and
-the meeting's spoken and summary language). The release before it,
+the meeting's spoken and summary language).
 **3.17.0-beta1** (versionCode 112) was Batch 3 (llama.cpp v1.0.0 and
 whisper.cpp b5907 on ggml 1.0.0, Arm KleidiAI on arm64,
 control-token-safe prompts, the Silero speech gate in front of every
@@ -155,22 +163,41 @@ developer receives nothing from the app. "No data collected" is still not
 the right answer: the bundled Google ML Kit text-recognition SDK, which
 reads text in photos, sends Google diagnostics. The answers below match the
 code on this branch; re-check them whenever an SDK or a network path
-changes. Re-checked for 3.19.0-beta1: no change; owner to confirm
-against the merged build. It adds no permission, no foreground service
-type and no network path. Imported video has its sound extracted on the
-phone (MediaExtractor and MediaMuxer, platform APIs), WebVTT and SRT
-transcripts are read on the phone, and the share, Open with and picker
-grants cover only the files chosen. Continuing an interrupted
-transcription stores one number with the meeting (`transcriptResumeMs`
-in its JSON file, so in backups like any other meeting field) and in the
-local job queue. Clear voice runs the bundled GTCRN model through
-sherpa-onnx on the phone and writes the copy beside the recording; it is
-left out of backups. Every export, Markdown, PDF, Word, subtitles and the
-library as Markdown, is written only to a file or folder the user picks
-in the system picker (action items as text go to the share sheet the
-user opens), like the existing exports; the library export holds the
-folder grant only while it runs, or, if Android stops Recap mid-run,
-until Recap next starts. sherpa-onnx v2.0.3 and ONNX Runtime
+changes. Re-checked for 3.20.0-beta1: no change; owner to confirm
+against the merged build. It adds two permissions
+(FOREGROUND_SERVICE_MEDIA_PLAYBACK and POST_PROMOTED_NOTIFICATIONS) and
+one foreground service type (mediaPlayback), but no network path, no
+library and no new data type. Live Updates are the app's own
+notifications, posted on the phone. Background playback plays the
+meeting's own recording through the platform MediaPlayer and
+MediaSession; the session's metadata, which Android passes to the lock
+screen, the shade, Bluetooth devices, cars, watches and apps with
+notification access, holds only "Meeting audio", "Recap" and the length,
+never the meeting's title or text. Recently deleted moves a deleted
+meeting into another folder of app-private storage for 30 days and then
+erases it with its files; it is left out of backups and exports. Several
+summaries per meeting add fields to the meeting's JSON (`summaryAtMs`,
+`summaryLanguage`, `summaries`, `actionItemsTemplate`,
+`actionItemsModel`), which stay on the phone and go into backups like
+its other fields; a summary run sends a remote AI endpoint only what it
+always did, and only if the user set one up. Remove a passage decodes
+and re-encodes the recording on the phone with the platform AAC codecs.
+Batch 6 adds no logcat lines. Re-checked for 3.19.0-beta1: no change;
+owner to confirm against the merged build. It adds no permission, no
+foreground service type and no network path. Imported video has its
+sound extracted on the phone (MediaExtractor and MediaMuxer, platform
+APIs), WebVTT and SRT transcripts are read on the phone, and the share,
+Open with and picker grants cover only the files chosen. Continuing an
+interrupted transcription stores one number with the meeting
+(`transcriptResumeMs` in its JSON file, so in backups like any other
+meeting field) and in the local job queue. Clear voice runs the bundled
+GTCRN model through sherpa-onnx on the phone and writes the copy beside
+the recording; it is left out of backups. Every export, Markdown, PDF,
+Word, subtitles and the library as Markdown, is written only to a file or
+folder the user picks in the system picker (action items as text go to the
+share sheet the user opens), like the existing exports; the library export
+holds the folder grant only while it runs, or, if Android stops Recap
+mid-run, until Recap next starts. sherpa-onnx v2.0.3 and ONNX Runtime
 1.28.2 are prebuilt native code fetched by the build machine, not the
 app, and make no network requests of their own. The new `meetily_native`
 log lines, and whisper.cpp's warnings now under `meetily_ggml`, carry no
@@ -226,6 +253,8 @@ collection or a user-initiated transfer:
 | Report AI output | An email draft in the user's own email app; the generated text only if the user ticks the box; sent only if the user sends it | Not collected (user-initiated) |
 | Share, export (Markdown, PDF, Word, subtitles and action items for one meeting; several as a zip from multi-select; the whole library as Markdown files into a folder), backup | Wherever the user sends them: a file or folder picked in the system picker, or an app picked in the share sheet | Not collected (user-initiated) |
 | Calendar | Read on the phone; event title and attendee names leave only inside a meeting the user sends to an AI endpoint | Not collected |
+| Background playback and its media controls (3.20.0-beta1) | The audio goes to the output the user chose (speaker, headphones, a car); the media session gives the lock screen, Bluetooth devices, cars, watches and apps with notification access only "Meeting audio", "Recap" and the length, never the meeting's title or text | Not collected |
+| Recently deleted (3.20.0-beta1) | Nothing: deleted meetings stay in app-private storage for 30 days, out of backups and exports, then are erased | Not collected |
 
 **ML Kit, mapped to Play's data types** — owner to confirm against
 https://developers.google.com/ml-kit/android-data-disclosure (read
@@ -292,7 +321,13 @@ parties. Text recognition collects nothing feature-specific on top.
   app (meetings, a meeting's audio on its own, a clear-voice copy on its
   own or with the audio, voice profiles, models, and
   old meetings or their audio automatically if the user turns clean-up on)
-  or by uninstalling. From 3.18.0-beta1, Android's storage button for
+  or by uninstalling. From 3.20.0-beta1 deleting a meeting (by hand or by
+  the clean-up rule) moves it to Recently deleted: it stays on the
+  device, out of the library, search, exports and backups and
+  restorable, for 30 days, and is then permanently erased with all its
+  files; Delete permanently or Empty in Recently deleted erases it at
+  once. Recap itself stores nothing off the device. From 3.18.0-beta1,
+  Android's storage button for
   Recap reads Manage space and opens Recap's Storage screen instead of
   clearing the app's data, so uninstalling is the way to remove
   everything at once (the privacy policy says so). ML Kit's
@@ -376,12 +411,68 @@ The console will ask about these (all have in-app justifications):
   original in the player. Video import is not a new use: it runs inside
   the existing import job, which extracts the sound on the phone before
   transcribing it.
+  **From 3.20.0-beta1 PassageService uses this type too** (declared
+  `dataSync|mediaProcessing` and started through ImportFgsType, like
+  ClearVoiceService, so it shares the same six-hour allowance; onTimeout
+  stops it and keeps nothing). It processes a recorded audio file the
+  user chose to edit. Update the declaration to name it; suggested
+  addition to the wording above: "Recap also offers Remove a passage:
+  when the user picks a stretch of a meeting and confirms what will be
+  removed, a foreground service decodes that meeting's recorded audio,
+  turns the chosen stretch to silence, encodes the result as a new audio
+  file and puts it in place of the recording, all on the device. A long
+  meeting can take minutes, so the work must continue while the screen is
+  off or the user leaves the meeting. It runs only when the user starts
+  it, never during a recording, shows an ongoing progress notification
+  with Stop that names no meeting, and changes nothing if it is
+  stopped." Demo video: open a meeting with audio, tap a transcript line
+  → Remove passage…, choose a span, read the confirmation and confirm,
+  show the progress dialog, pull down the shade to show "Removing a
+  passage" with Stop, lock and unlock the phone, then show the transcript
+  without the span and play across it.
+- **FOREGROUND_SERVICE_MEDIA_PLAYBACK** (new in 3.20.0-beta1):
+  PlaybackService, declared `foregroundServiceType="mediaPlayback"`, keeps
+  a meeting's recording playing with the screen off or while the user is
+  in another app, with a media notification and the system media
+  controls. It starts only when the user presses Play on a meeting (the
+  player asks for it from that tap). It stays up while playing, and for
+  up to 10 minutes after a pause or while a call holds the audio. It
+  stops at the end of the audio, on Stop in the notification or the media
+  controls, when Recap is swiped from Recents while paused, when a
+  recording starts, and when the meeting is deleted or its audio removed
+  or replaced. WAKE_LOCK was already declared; MediaPlayer's wake mode
+  now holds a partial wake lock while playing. Play Console → App content
+  → Foreground service permissions: declare it, choose the media playback
+  use case, and paste the suggested wording: "Recap plays back meeting
+  recordings that the user recorded or imported on the device. When the
+  user taps Play on a meeting, a media playback foreground service keeps
+  the audio playing with the screen off or while the user uses other
+  apps. It shows a media notification and lock-screen controls
+  (play/pause, back and forward 15 seconds, stop) with a neutral title
+  ('Meeting audio'). The service runs only after the user starts
+  playback, and stops when playback ends, is stopped, or stays paused for
+  10 minutes. No audio leaves the device." Demo video (about 30 s, a
+  screen recording): open a meeting, tap Play and show the transcript
+  following along; press Home, show the media notification and that the
+  audio continues; lock the phone and show the lock-screen controls
+  reading "Meeting audio" (no meeting title), use back 15 s and pause;
+  unlock, tap the notification to return to the meeting, tap Stop, and
+  show the notification gone.
+- **POST_PROMOTED_NOTIFICATIONS** (new in 3.20.0-beta1): lets the
+  recording's and the user-started jobs' notifications ask to be Android
+  16 Live Updates. A normal permission with an app-op (protection level
+  `normal|appop`), granted at install with no runtime prompt; the user
+  can turn Live Updates off for Recap in Android's notification settings,
+  and Recap then posts ordinary notifications. Expected to need no Play
+  Console declaration (it is not a sensitive or restricted permission);
+  owner to confirm when the upload's permission list shows it. No Data
+  safety effect.
 - **FOREGROUND_SERVICE_DATA_SYNC**: model downloads, summary generation
   (also enhanced notes and AI speaker suggestions); file import,
-  transcription and, from 3.19.0-beta1, Clear voice copies on Android 14
-  and lower (Android 15+ uses mediaProcessing for those) — long-running
-  user-initiated work. Keep this declaration: dataSync is still declared
-  and used.
+  transcription and, from 3.19.0-beta1, Clear voice copies, and from
+  3.20.0-beta1 Remove a passage, on Android 14 and lower (Android 15+
+  uses mediaProcessing for those) — long-running user-initiated work.
+  Keep this declaration: dataSync is still declared and used.
 - **SCHEDULE_EXACT_ALARM**: user-set action-item reminders and calendar
   nudges (falls back to inexact windows when not permitted). This is an
   allowed use case (user-facing alarms/reminders).
@@ -397,6 +488,17 @@ The console will ask about these (all have in-app justifications):
   before a large model download over a metered connection and to say so
   when the phone is offline. Recap's own use keeps and sends nothing
   about the network. The privacy policy's PERMISSIONS list names it.
+- **3.20.0-beta1** adds two permissions, FOREGROUND_SERVICE_MEDIA_PLAYBACK
+  and POST_PROMOTED_NOTIFICATIONS, and one foreground service type,
+  mediaPlayback (PlaybackService). It changes no existing type: its other
+  new service, PassageService, uses the mediaProcessing and dataSync
+  types and permissions already declared. The daily clean-up job
+  (RetentionJobService) now also stays scheduled while Recently deleted
+  holds a meeting, even with no clean-up rule, to erase it when its 30
+  days are up; still a JobScheduler job, not a foreground service. New
+  notification channels: "Meeting playback" (low importance; its
+  notification is public, since it names no meeting) and "Removing
+  passages" (low importance, names no meeting).
 - **3.19.0-beta1** adds no permission and no foreground service type. Its
   one new service, ClearVoiceService, uses the existing mediaProcessing
   and dataSync types and permissions (above), and posts its progress
@@ -451,7 +553,14 @@ The console will ask about these (all have in-app justifications):
   MB, falls inside "Speaker detection: 1–2 GB"), and there is no new
   privacy claim. The listing names Zoom, Teams and Obsidian only to say
   which files Recap reads or writes; owner to confirm that this sits
-  within Play's metadata policy on third-party names.
+  within Play's metadata policy on third-party names. For
+  3.20.0-beta1 the full description gains Recently deleted, background
+  playback with lock-screen controls that show no meeting title and the
+  15-second skips, several summaries per meeting, Remove a passage and a
+  hedged Android 16 Live Updates line; older lines are merged or trimmed
+  to stay under 4,000 characters (3,978 now).
+  The DEVICE REQUIREMENTS figures are unchanged, and there is no new
+  claim about data leaving the phone.
 - **App icon**: `play-icon-512.png` (512×512, delivered separately).
 - **Feature graphic**: `play-feature-1024x500.png` (1024×500).
 - **Screenshots**: at least 2 phone screenshots (take from your device:
@@ -465,7 +574,10 @@ The console will ask about these (all have in-app justifications):
   and the Storage screen. From 3.19.0-beta1: the player with the Clear
   voice chip, a meeting's "This transcript is unfinished" card with
   Continue transcription, and the Export dialog listing Word and
-  subtitles.
+  subtitles. From 3.20.0-beta1: the summary card's style pills, the
+  Recently deleted screen, the lock screen's media controls reading
+  "Meeting audio", and, on an Android 16 phone with Live Updates, the
+  status-bar chip of a recording.
 - **Category**: Productivity. **Tags**: note-taking, transcription.
 - **Contact email**: required — the support address. Use the same address
   as `support_email` in the app (section 11): in-app AI output reports and
@@ -522,7 +634,10 @@ closed track and production checks).
    404 as of Batch 3, so the script fails as written: the 3.17.0-beta1
    `notices.txt` was regenerated with that one text reused from the
    committed file (every other text was fetched and is unchanged).
-   Repoint `mit_ort` to a working source first (section 11).
+   Repoint `mit_ort` to a working source first (section 11). For
+   3.20.0-beta1 `notices.txt` needs no change: Batch 6 adds no library,
+   model or native code (background playback uses the platform
+   MediaSession and Notification.MediaStyle, not Media3).
 3. When adding a model to any catalogue (WhisperModels, NemoModels,
    DiarizationModels, LocalLlmModels), add its licence to
    `licences/ModelLicences.kt` and to the MODELS text in
@@ -535,6 +650,23 @@ closed track and production checks).
 5. Play Console → the track → Create new release → upload AAB → release
    notes → roll out (after the accessibility pass in section 7 for
    anything beyond internal testing).
+
+Draft release notes for 3.20.0-beta1 (Play allows 500 characters per
+language; this is about 390):
+
+```
+• Recently deleted: restore a deleted meeting for 30 days
+• Playback keeps going with the screen off; lock-screen controls show "Meeting audio", never the title; skip back or forward 15 s
+• Keep one summary per style and switch between them instantly
+• Remove a passage: cut a moment's words and audio out of a meeting
+• Android 16: the recording and jobs you start can show as Live Updates
+```
+
+If 3.19.0-beta1 never reached a track, fold its notes (below) into these
+and keep the total under 500 characters. If downgrades matter to
+testers, add that a meeting opened in 3.19.0-beta1 shows only the
+summary that was shown, and loses the kept ones once that version saves
+it.
 
 Draft release notes for 3.19.0-beta1 (Play allows 500 characters per
 language; this is about 380):
@@ -704,11 +836,31 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [x] Bump `versionCode` to 114 and `versionName` to `3.19.0-beta1` in
-  `android/app/build.gradle.kts` (done; 113 / 3.18.0-beta1 before it,
+- [ ] Bump `versionCode` to 115 and `versionName` to `3.20.0-beta1` in
+  `android/app/build.gradle.kts`. The maintainer makes this bump in a
+  separate commit right after the Batch 6 documentation update; until
+  then the build reads 114 / 3.19.0-beta1 (113 / 3.18.0-beta1,
   112 / 3.17.0-beta1 and 111 / 3.16.0-beta1 before that). Bump both
   again for every later upload: Play rejects a versionCode it has
   already seen.
+- [ ] Run CI on the merged Batch 6 branch (`b6/integration`), not only on
+  the five group branches: `testReleaseUnitTest` (new LiveUpdates,
+  PassageAudio, PassagePlan, PlaybackRules, SummaryAlternatives and Trash
+  tests, plus changes to FindReplaceTest), then `assembleRelease` with
+  `lintVital` and the native export check. Gradle needs no change for
+  the new tests. Nothing in Batch 6 went through Gradle, lint or aapt:
+  the groups and the integration were compiled and type-checked against
+  AndroidX stubs extended by hand, so fix anything the real build turns
+  up. In particular check the androidx.core 1.17.0 calls the stubs stood
+  in for: `NotificationCompat.ProgressStyle` and its segments,
+  `setRequestPromotedOngoing`, `setShortCriticalText`,
+  `NotificationCompat.hasPromotableCharacteristics`,
+  `NotificationManagerCompat.canPostPromotedNotifications`, and
+  `ContextCompat.registerReceiver` with `RECEIVER_NOT_EXPORTED`. Several
+  groups edited MeetingDetailActivity, Meeting and MeetingMerge,
+  AudioRemoval, the storage strings and the manifest; the integration
+  resolved those, so lint must pass on the merged tree. Batch 6 changes
+  no native code, so the JNI export list is unchanged.
 - [x] Run CI on the merged Batch 5 branch (`b5/integration`), not only on
   the six group branches: `scripts/fetch_sherpa_libs.sh` (now checks the
   v2.0.3 tarball's pinned SHA-256) and `scripts/check_sherpa_jni.py`
@@ -865,7 +1017,10 @@ Work through it before the first targetSdk 36 upload to any track.
   phone or go only where the user sends them, and by 3.19.0-beta1, whose
   video, batch and caption imports, continued transcriptions and Clear
   voice work on the phone and whose new exports go only to a file or
-  folder the user picks; confirm this on the merged build). "No data
+  folder the user picks, and by 3.20.0-beta1, whose Live Updates,
+  background playback, Recently deleted, several summaries and Remove a
+  passage work on the phone; confirm this on the merged build). For the
+  data deletion question, describe Recently deleted (section 4). "No data
   collected" is no longer accurate. Re-read
   Google's ML Kit Android data disclosure
   (https://developers.google.com/ml-kit/android-data-disclosure) and
@@ -916,7 +1071,16 @@ Work through it before the first targetSdk 36 upload to any track.
   used by ClearVoiceService, to make a denoised copy of a recorded meeting
   that the user asked for, with the wording and optional demo video in
   section 5. No new type, and the library export runs without a
-  foreground service.
+  foreground service. 3.20.0-beta1 adds a type: declare
+  FOREGROUND_SERVICE_MEDIA_PLAYBACK (PlaybackService) with the media
+  playback use case, the wording and the demo video in section 5. It also
+  adds PassageService (Remove a passage) to the mediaProcessing
+  declaration and, for Android 14 and lower, to the dataSync description,
+  with its own wording and demo video in section 5.
+- [ ] **POST_PROMOTED_NOTIFICATIONS** (3.20.0-beta1, Android 16 Live
+  Updates): a normal permission granted at install. Check the first
+  upload's permission list and the Play Console policy status for any
+  question about it; none is expected (section 5).
 - [ ] **Network state**: ACCESS_NETWORK_STATE (Play shows "view network
   connections") was already in the merged manifest through ML Kit's
   datatransport, so Play shows no new permission. Recap now also reads it
@@ -966,7 +1130,20 @@ Work through it before the first targetSdk 36 upload to any track.
   provider terms then apply; Permissions names Clear voice among the
   background work and its notifications; Deleting your data says the copy
   goes with the meeting or its audio and can be deleted on its own.
-  Nothing new leaves the phone.
+  Nothing new leaves the phone. 3.20.0-beta1 changes it again, in both
+  copies together (same headings): What is stored on your phone adds
+  deleted meetings kept in Recently deleted, summaries kept per style and
+  audio edited by Remove a passage; Backups leaves out meetings in
+  Recently deleted and their files; Permissions says recording and
+  transcription notifications name no meeting or file on a locked phone
+  that hides notification contents, that on Android 16 the recording and
+  jobs the user starts can show as Live Updates (which can be turned off
+  for Recap in Settings), and that the playback notification and media
+  controls show "Meeting audio", not the meeting's title; Deleting your
+  data describes Recently deleted (kept on the phone for 30 days unless
+  emptied, left out of backups and exports, then erased with all its
+  files), the clean-up rule moving meetings there, and Remove a passage
+  deleting the replaced recording. Nothing new leaves the phone.
 - [ ] Set up a way to triage the "Recap AI output report" emails that
   arrive at the support address, and decide on a response time.
 
@@ -1203,6 +1380,85 @@ Work through it before the first targetSdk 36 upload to any track.
   queued for a charger (ClearVoiceService's KDoc gives the reasons: a copy
   made hours later would arrive unannounced and spend storage the user
   may no longer want). Confirm, after the 2-hour battery check below.
+- [ ] *Decision* (3.20.0-beta1, Live Updates): the lock-screen
+  trade-off. When the recording can be a Live Update, a phone that hides
+  sensitive notification content loses the Mark button on its lock
+  screen, because a custom lock-screen view rules promotion out
+  (Android checks the public version too). Turning Live Updates off for
+  Recap brings the button back from the next notification change.
+  Confirm, or keep the classic notification whenever the lock screen
+  hides contents.
+- [ ] *Decision*: should the transcript that starts on its own after an
+  audio-only recording be a Live Update? It is not today, because the
+  user did not start it explicitly. To change it, pass
+  `ImportService.EXTRA_USER_STARTED` from
+  `RecordingService.startPrimaryTranscription`, or relax
+  `LiveUpdates.transcriptionUserStarted`.
+- [ ] *Decision*: summaries are not Live Updates (`LiveUpdates.Job.SUMMARY`
+  is not promotable; their bar is stage estimates), and SummaryService is
+  unchanged: its ongoing notification shows the meeting title, has no
+  public version and relies on the default private redaction on a lock
+  screen that hides contents. Confirm, or give it a public version like
+  the transcription notification's.
+- [ ] Optional: a Settings entry that opens the system Live Updates toggle
+  for Recap (`Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS`, API
+  36). Not added, and Recap never prompts users to turn Live Updates on,
+  as Android's guide asks.
+- [ ] *Decision* (background playback): Media3 was not adopted. The newest
+  stable Media3 is 1.11.1; 1.12.0 was only beta and release candidate,
+  built with compileSdk 37 and AGP 9.1.1, while Recap is on compileSdk 36
+  and AGP 8.10.1. ExoPlayer's ADTS extractor at 1.11.1 seeks only by an
+  average-bitrate estimate, which would break follow-along on Recap's raw
+  ADTS recordings, and a Media3 session around MediaPlayer needs the
+  unstable SimpleBasePlayer plus Guava and androidx.media in the APK. If
+  a later release wants Media3, wait for a stable 1.12.x and check its
+  AAR's minCompileSdk first. Also confirm two consequences of the current
+  design: the media controls always show the neutral "Meeting audio",
+  never the title, even when unlocked (one set of session metadata serves
+  every surface), and nothing is kept to resume playback after the
+  service has ended (Media3's "playback resumption").
+- [ ] *Decision* (Recently deleted): the clean-up rule's "delete old
+  meetings" now moves them to Recently deleted, so their 30 days start at
+  clean-up and their space is freed only when they are erased. Confirm,
+  given that the rule runs unattended. Undo is offered only right after a
+  delete on the home screen (not after the clean-up rule, Delete
+  permanently or Empty), and the screen is reached from Settings → Data
+  and the Storage screen only, since the home header has no overflow
+  menu.
+- [ ] *Decision* (several summaries): every new summary still refreshes
+  the meeting's one list of action items, so a run with another style
+  can drop tasks it did not find and cancel their reminders, as a
+  regenerate always has. Confirm, or merge the lists. Kept summaries are
+  one per style, not one per style and language. Ask your library's
+  ranking reads only the summary shown; home search reads the kept ones
+  too.
+- [ ] *Decision* (Remove a passage): the clear-voice copy is deleted
+  rather than silenced too (one tap makes it again), transcript edits on
+  the meeting screen are not blocked during a run (the screen applies the
+  same removal to its own copy when the run ends, so nothing inside the
+  span comes back; Find & replace is blocked), and on a meeting screen
+  left open skip silence does not jump the new silence until it is
+  reopened. Confirm each.
+- [ ] Review the wording of Batch 6's new strings on a device:
+  `strings_liveupdates.xml` (the chip words must stay 6 characters or
+  fewer, as LiveUpdatesTest checks), `strings_playback.xml`,
+  `strings_trash.xml`, `strings_summaries.xml` and `strings_passage.xml`,
+  and the strings edited in place: `delete_meeting_message`, and in
+  `strings_storage.xml` `storage_bulk_delete_message`,
+  `storage_bulk_deleted`, `storage_retention_now_meetings`,
+  `storage_retention_later_meetings`, `storage_retention_irreversible`,
+  `storage_retention_done_meetings` and `storage_notif_meetings_text`.
+- [x] Integration fixes from the cross-group checks, done in the Batch 6
+  integration: deleting a meeting (home, multi-select, undo) stops its
+  background playback; Remove audio from the Storage screen, multi-select
+  and automatic clean-up stops the player before the files go; Remove a
+  passage stops the player on that meeting before the meeting points at
+  the new file; erasing a meeting for good (purge, Delete permanently,
+  Empty) also deletes an interrupted passage swap's leftover files, and
+  Restore and Undo settle them at once; Remove a passage marks every kept
+  summary out of date as well as the one shown, and its confirmation
+  says so; Remove a passage is a Live Update on Android 16, and media
+  playback is recorded as never promoted.
 - [ ] Review the wording of Batch 5's new strings on a device:
   `strings_resume.xml`, `strings_clearvoice.xml`, `strings_export.xml`
   and `strings_import.xml`, and the two storage strings edited in place,
@@ -1358,7 +1614,10 @@ Mark moment (3.16.0-beta1):
 - [ ] On the lock screen, both with notification content shown and with
   "hide sensitive content": Mark moment works without unlocking, and the
   redacted version shows only the generic line, the Mark button and the
-  "Marked at" time. Pause and Finish stay behind the lock there.
+  "Marked at" time. Pause and Finish stay behind the lock there. From
+  3.20.0-beta1 this holds on Android 15 and lower, and on Android 16 with
+  Live Updates off for Recap; with Live Updates on, the redacted version
+  has no Mark button (see Live Updates below).
 - [ ] Mark moment is gone while paused, after Finish, and once Android has
   ended a device-audio capture.
 
@@ -1628,7 +1887,9 @@ Storage, Remove audio, automatic clean-up and multi-select (3.18.0-beta1):
   is deleted and a "due for clean-up" notification opens the review.
   Turning the rule Off cancels the job (`adb shell dumpsys jobscheduler`
   no longer lists 7302 for the app); force-stop and relaunch re-arms it
-  while a rule is on.
+  while a rule is on. From 3.20.0-beta1 the job also stays, and is
+  re-armed, while Recently deleted holds a meeting, and Delete old
+  meetings moves meetings there instead of erasing them.
 - [ ] Multi-select: long-press a meeting and the selection bar replaces
   the header; tap rows to toggle; Select all; Back exits; rotation keeps
   the selection; searching or filtering drops hidden meetings from it.
@@ -1903,7 +2164,8 @@ Clear voice (3.19.0-beta1):
   each comes from the one playing.
 - [ ] Remove audio from the meeting menu, the Storage screen, multi-select
   and automatic clean-up: each removes both files, and the question
-  mentions the copy. Deleting the meeting removes both.
+  mentions the copy. Erasing the meeting (Delete permanently in Recently
+  deleted) removes both; deleting it keeps both until then.
 - [ ] The Storage screen counts the copy as meeting audio, with its
   recording in the largest list.
 - [ ] A backup leaves out `*.clear.m4a`; after restoring it, the meeting
@@ -1955,6 +2217,213 @@ Importing video, several files and transcripts (3.19.0-beta1):
 - [ ] Imported meetings are named from the file name, without the
   extension or Zoom's ".transcript", with underscores as spaces.
 
+Live Updates (3.20.0-beta1; Android 16 QPR1 or later, on a Pixel or
+another phone with Live Updates):
+
+- [ ] Start a recording: the status-bar chip runs the recording's time;
+  the card is at the top of the shade, expanded, with Pause, Mark moment
+  and Finish; it heads the lock screen and appears on the always-on
+  display.
+- [ ] Pause: the chip reads "Paused"; Resume: the time is back. Take the
+  microphone with a screen recorder or a call until the no-signal
+  warning: "No mic". Device audio ended by locking: "Ended". Finish:
+  "Saving" briefly, then the notification goes.
+- [ ] With "hide sensitive content" on the lock screen: the card shows
+  "Recording in progress" and the time, never the meeting title, and has
+  no Mark button.
+- [ ] Turn off Live Updates for Recap in Settings: the next pause or
+  resume, or the next recording, uses the ordinary notification, and the
+  lock-screen Mark button is back.
+- [ ] Swipe the recording's Live Update away: it stays away until the next
+  change of state, which posts an ordinary (not promoted) notification.
+- [ ] Import one file: a Live Update with a bar and a percentage chip. A
+  batch of three: the bar has three segments and fills across the whole
+  batch; swipe it away during the first file and the other two stay
+  ordinary notifications. A batch of 11 or more: one undivided bar.
+- [ ] Re-transcribe, Check transcript accuracy and Continue transcription
+  started from a meeting: Live Updates, also when queued behind other
+  work or started with Yes to "Resume interrupted work?". The automatic
+  transcript after an audio-only recording, the automatic accuracy check
+  and a check that waited for the charger: ordinary notifications with
+  no chip.
+- [ ] Clear voice, Remove a passage and a model download from Settings and
+  from first-run setup: Live Updates. A summary and the storage clean-up
+  notice: ordinary. Meeting playback: the system media controls, never a
+  chip.
+- [ ] During a transcription with hidden lock-screen content: "Transcribing
+  a recording" and the minutes line, no meeting or file name. Check this
+  on Android 14 or 15 too.
+- [ ] Android 14 and 15: the recording notification is unchanged (Mark
+  button on the redacted lock screen as before), and the progress
+  notifications keep the plain bar, apart from the new lock-screen
+  version for transcription.
+
+Background playback (3.20.0-beta1), on Android 8 (the older media
+notification with four actions) and Android 16 (the system media
+controls built from the session):
+
+- [ ] Play, then lock the phone: audio continues, and the lock-screen
+  controls and the shade show "Meeting audio" / "Recap", never the
+  meeting title or transcript text.
+- [ ] Unplug wired headphones, and disconnect a Bluetooth headset, while
+  playing: playback pauses and does not come out of the speaker.
+- [ ] Incoming call: playback pauses and resumes after the call. Pause it
+  yourself during the call: it stays paused. Take a call, unplug the
+  headphones during it, end the call: it stays paused.
+- [ ] Another app starts music: Recap pauses and does not resume by
+  itself. A navigation prompt or notification sound pauses playback and
+  then resumes it (no ducking).
+- [ ] Bluetooth headset: play/pause works, next/previous skip 15 s; in a
+  car the controls show "Meeting audio".
+- [ ] Clear voice: switch it while playing, leave the meeting and come
+  back: playback continues at the same place on the other recording, and
+  the chip matches what plays.
+- [ ] Start a recording while a meeting plays (record button, Quick
+  Settings tile, widget): playback stops at once. Press Play during a
+  recording: a message, and nothing plays. Press Play during a call: the
+  "can't play right now" message.
+- [ ] Remove audio or delete the meeting (meeting menu, Storage screen,
+  home options and multi-select) while it plays in the background:
+  playback and the notification stop.
+- [ ] Automatic clean-up (force it with `adb shell cmd jobscheduler run -f
+  com.recap.mobile 7302`) leaves the meeting being played alone.
+- [ ] Rotate while playing and while paused: position, speed, boost and
+  Clear voice are kept, and playback is not interrupted.
+- [ ] Leave the meeting screen with Back while playing: audio carries on,
+  and the notification reopens the meeting (behind the app lock when it
+  is on; from the meeting already on top it changes nothing). Back while
+  paused: the notification goes.
+- [ ] Paused for 10 minutes: the notification goes. Swipe Recap from
+  Recents: playing carries on; paused stops.
+- [ ] The player bar's back and forward 15 s near the start and the end
+  clamp correctly, and the highlight jumps with them. With large text
+  the controls row scrolls instead of clipping Skip silence.
+- [ ] Skip silence and the volume boost still apply with the screen off.
+- [ ] TalkBack reads "Back 15 seconds" and "Forward 15 seconds".
+- [ ] Android 13 or later: the expanded media controls show back 15 s and
+  forward 15 s in the previous and next places, and Stop; no track
+  arrows appear.
+- [ ] Play a clip in the accuracy check while the meeting plays: the
+  meeting pauses first.
+- [ ] While playing, `adb shell dumpsys activity services
+  com.recap.mobile` lists PlaybackService as a mediaPlayback foreground
+  service.
+
+Recently deleted (3.20.0-beta1):
+
+- [ ] Delete one meeting from its options on the home list: the
+  confirmation says Recently deleted; the bar's Undo brings it back with
+  any queued job; without Undo it appears in Recently deleted with the
+  date, "erased in 30 days" and its size.
+- [ ] Multi-select delete of several meetings including a busy one: the
+  busy one is left out, the bar says how many moved, and Undo restores
+  all of them.
+- [ ] Restore from Recently deleted: audio, photos, attachments and the
+  summary are intact. With a "delete old meetings" rule on, restoring an
+  old meeting shows the star warning.
+- [ ] Delete permanently and Empty: each asks first, naming what is lost
+  and the size; the Storage screen's total drops.
+- [ ] Clean-up rule "delete old meetings": the preview text and the
+  notification say Recently deleted, and the meetings appear there.
+- [ ] Purge: set the date forward 31 days and reopen the app (or wait for
+  the daily job): the meeting is gone, with its files on the Storage
+  screen.
+- [ ] Clock set back a year after deleting: nothing is erased early, and
+  the days left never show more than 30. Delete a meeting with the clock
+  set back, then set it right: the meeting is not due early.
+- [ ] Backup export with a meeting in Recently deleted: the zip has
+  neither its JSON nor its audio or photos.
+- [ ] Restore that backup after deleting a meeting it contains: the
+  meeting stays in Recently deleted, the result dialog says 1 was left
+  there, and its Open Recently deleted button works.
+- [ ] Search, Ask your library, the digest, Follow-ups and library export
+  do not show deleted meetings, and a reminder on a deleted meeting does
+  not fire.
+- [ ] TalkBack: Restore and Delete permanently name the meeting, and the
+  status line announces results.
+
+Several summaries per meeting (3.20.0-beta1):
+
+- [ ] Generate a summary with two styles, e.g. Standup then Sales call
+  report: both pills show, Sales call report is selected, and the status
+  line names it with a time.
+- [ ] Switch to Standup: instant, no progress, action items unchanged.
+  With TalkBack the pill reads selected and the status line is
+  announced.
+- [ ] Edit the shown summary with Find & replace, switch away and back:
+  the edit is kept. Undo still works after a switch, and puts back only
+  what the replace changed.
+- [ ] Regenerate Sales call report from "+": the picker marks it
+  "· replaces its summary"; only that one is replaced, and the Standup
+  pill remains.
+- [ ] Hold a pill and delete it: the confirmation names the style and says
+  the shown summary, action items and transcript stay.
+- [ ] Accept an accuracy check (or continue a transcription, or remove a
+  passage): every pill's description says "out of date", and the stale
+  hint shows on whichever summary you switch to.
+- [ ] Export Markdown, PDF and Word, and share: they contain only the
+  shown summary. Home search finds a word only in the kept summary and
+  labels it "Other summary".
+- [ ] Summarise with General minutes, then with Clinical visit note
+  (SOAP), then switch to General minutes: the card shows no clinical
+  notice, a notice above the action items does, and Follow-ups and the
+  exports carry it.
+- [ ] Queue a summary while recording or importing, then switch on the
+  meeting screen before it runs: after it finishes the new summary is
+  shown and no summary is lost.
+- [ ] Back up, then restore on a clean install: all pills come back.
+- [ ] Restore that backup in 3.19.0-beta1: the meeting opens with the
+  summary that was shown; the kept ones are not visible there and are
+  dropped the first time that version saves the meeting (expected).
+
+Remove a passage (3.20.0-beta1), on a phone with a vendor AAC encoder as
+well as a Pixel:
+
+- [ ] Remove a passage in the middle of a meeting with word timings, then
+  play across it: silence with soft edges. Tap a word after the span: it
+  seeks to that word.
+- [ ] Remove a passage from a 2-hour meeting on a mid-range phone, screen
+  off and unplugged: note the time it takes and the battery used, and
+  record them in `ACCELERATION_FINDINGS.md`.
+- [ ] Export a clip across it: silence inside the clip.
+- [ ] Re-transcribe (accuracy check) afterwards: no lines inside the span,
+  and the other lines' timings still match.
+- [ ] With a clear-voice copy present: the confirmation mentions it, the
+  copy is gone afterwards and can be made again.
+- [ ] With two summaries: the confirmation says every summary is marked
+  out of date, and afterwards both pills say so.
+- [ ] Press Stop half-way, from the dialog and from the notification:
+  nothing changes, and no part file is left under `files/audio/passage`.
+- [ ] Low storage (less than the recording's size plus 50 MB free): "Not
+  enough free space" and nothing changed.
+- [ ] A meeting without audio, after Remove audio: lines only, no
+  notification.
+- [ ] Start a removal, leave the screen and lock the phone: it finishes,
+  and the done notification opens the meeting. Rotate during a run: the
+  progress dialog comes back.
+- [ ] Force-stop the app during a run, then reopen: the meeting is
+  unchanged, or fully changed, never half.
+- [ ] While the meeting plays in the background, remove a passage: the
+  player stops first, and Play then plays the new file with the silence.
+- [ ] Debug build, with `adb shell run-as`: for a meeting in Recently
+  deleted, leave a `<meeting id>.swap` marker under `files/audio/passage`
+  naming two audio files (as a run force-stopped mid-swap would). Delete
+  permanently erases both files and the marker; Restore instead settles
+  them at once, deleting the file the meeting does not point at.
+- [ ] TalkBack reads the picker's labels, the status line and the
+  progress.
+- [ ] An imported 48 kHz stereo file and a live 16 kHz recording; an
+  imported MP3 becomes `<name>-edit1.aac`, and a second removal makes
+  `-edit2.aac`.
+- [ ] An unfinished transcript with a span ending before the Continue
+  point: Continue still offers the same point.
+- [ ] Android 15+: shorten the limit (`adb shell device_config put
+  activity_manager media_processing_fgs_timeout_duration 60000`) and run
+  a long removal: it stops with the daily-limit message and changes
+  nothing. While it runs, `adb shell dumpsys activity services
+  com.recap.mobile` lists PassageService as a mediaProcessing foreground
+  service (dataSync on Android 14 and lower).
+
 Accessibility:
 
 - [ ] Run Accessibility Scanner on the home, recording, meeting detail
@@ -1963,14 +2432,19 @@ Accessibility:
   the home selection bar, the find bar and the Find & replace dialog;
   from 3.19.0-beta1 also the player's Clear voice row, the "This
   transcript is unfinished" card, the import screen while a batch is
-  being added, and Settings → Data during a library export.
+  being added, and Settings → Data during a library export; from
+  3.20.0-beta1 also the player bar with its 15-second skips, the summary
+  card's style pills, the Recently deleted screen and the Storage
+  screen's Recently deleted card, and the Remove a passage picker and
+  confirmation.
   Check touch targets, missing labels and contrast (contrast was not part
   of this change).
 - [ ] TalkBack pass on a real device: start/pause/resume/stop a recording
   and listen for the announcements; import a file; generate a summary; on
   a transcript line open the actions menu and try Play from here / Edit
-  text / Split / Share clip / Highlight; expand and collapse chapters; on
-  the Audio tab use the speaker strip's next/previous turn; and check the
+  text / Split / Share clip / Highlight / Remove passage; expand and
+  collapse chapters; on the Audio tab use the speaker strip's
+  next/previous turn; and check the
   action-item reminder actions. Do not claim screen-reader support in the
   listing until this pass is done.
 - [ ] Look over the result on a small phone (360dp wide) and a typical
@@ -1993,7 +2467,10 @@ Accessibility:
   bundled GTCRN model, and saves 3,290,336 bytes of arm64 native code
   (1,316,126 zipped) by linking whisper.cpp and llama.cpp into one library
   per CPU level (one ggml, KleidiAI and libc++ copy instead of two). The
-  arm64 APK went from 27.5 MB at 3.18.0-beta1 to 27.0 MB. Every other
+  arm64 APK went from 27.5 MB at 3.18.0-beta1 to 27.0 MB. 3.20.0-beta1
+  adds no library, model or native code (background playback uses the
+  platform MediaSession rather than Media3), only Kotlin, layouts and two
+  small vector icons. Every other
   speech/AI model is
   downloaded in-app at runtime, so Play's size limits are a non-issue —
   but the listing should mention large optional downloads.

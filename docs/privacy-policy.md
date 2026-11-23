@@ -28,8 +28,11 @@ All of this is kept in Recap's private storage, which other apps cannot read:
 
 - Meetings: title, date, transcript with timings and speaker names, the
   language it was spoken in (when known), where an unfinished transcription
-  stopped, your notes, summaries, action items and reminders, highlights,
-  topics, tags and attendee names.
+  stopped, your notes, summaries (one for each summary style you use),
+  action items and reminders, highlights, topics, tags and attendee names.
+- Meetings you delete, kept in Recently deleted with their audio, photos
+  and files for 30 days unless you erase them sooner (see Deleting your
+  data).
 - Meeting audio, when kept. On-device transcription keeps it by default.
 - Files you import: a recording, the sound of a video (only the sound is
   kept when it can be taken out on the phone; otherwise the whole file),
@@ -55,7 +58,8 @@ Android does not copy any of this off the phone. The in-app backup
 audio, photos, attached files and voice profiles, can be encrypted with a
 passphrase (AES-256), and never includes settings or API keys.
 Clear-voice copies are not included; they can be made again from the
-recording.
+recording. Meetings in Recently deleted are not included either, nor are
+their files.
 
 ## Transcription
 
@@ -174,9 +178,17 @@ reports or messages you choose to send.
   as a webinar. Android asks each time, and only the audio is captured, never
   the screen.
 - **Calendar (optional):** read-only, as described below.
-- **Notifications:** recording, transcription, clear-voice and download
-  progress, reminders, meeting nudges, and storage clean-up notices if you
-  turn automatic clean-up on.
+- **Notifications:** recording, transcription, clear-voice, passage
+  removal and download progress, playback controls, reminders, meeting
+  nudges, and storage clean-up notices if you turn automatic clean-up on.
+  On Android 16 a recording, and work you start such as an import, can
+  show as a Live Update in the status bar and at the top of the lock
+  screen; you can turn Live Updates off for Recap in Android's Settings.
+  When your lock screen hides notification contents, recording and
+  transcription notifications show no meeting or file names there. The
+  playback controls (on the lock screen, in the notification shade, and
+  on connected headsets, cars and watches) show "Meeting audio" and
+  "Recap", never the meeting's title.
 - **Internet:** model downloads, your AI endpoint if you set one up, and ML Kit
   diagnostics.
 - **Network state:** Recap uses it only to warn before a large model download
@@ -185,8 +197,11 @@ reports or messages you choose to send.
   Reading text in photos).
 - **Running in the background, starting after a restart, exact alarms and
   keeping the phone awake:** so recordings, transcriptions, clear-voice
-  copies and downloads finish with the screen off, reminders arrive on
-  time, and automatic clean-up, if you turn it on, runs once a day.
+  copies, passage removals and downloads finish with the screen off, a
+  meeting you play keeps playing when you leave the app or lock the
+  phone, reminders arrive on time, and a once-a-day job erases meetings
+  whose 30 days in Recently deleted are up and runs automatic clean-up if
+  you turn it on.
 
 Photos come from your camera app or the system picker; Recap has no camera or
 photo-library permission. Files you import come from the share sheet, "Open
@@ -204,18 +219,26 @@ you send to an AI endpoint.
 
 ## Deleting your data
 
-Deleting a meeting removes its transcript, audio, photos and attached files
-from the phone. You can also remove only a meeting's audio and keep its
-transcript, from the meeting's menu or from Settings → Data → Storage and
-clean-up. That Storage screen also deletes downloaded models you no longer
-use, and can turn on automatic clean-up: once a day, on the phone, it
-removes the audio of meetings, or the meetings themselves, once they are
-older than a number of days you choose. Automatic clean-up is off unless you
-turn it on, and leaves starred and recently changed meetings alone.
-Deleting a meeting or removing its audio also deletes its clear-voice copy,
-and the copy can be deleted on its own from the player. Saved
-voices are deleted under Settings → Voice profiles, and downloaded models
-also from their lists in Settings. To remove everything, uninstall the app:
+Deleting a meeting moves it, with its transcript, audio, clear-voice copy,
+photos and attached files, to Recently deleted (Settings → Data), where you
+can restore it for 30 days. Until then it stays on this phone, left out of
+your library, search, exports and backups, and nothing is sent anywhere.
+After 30 days, or at once if you choose Delete permanently or Empty there,
+the meeting and all its files are erased from the phone. You can also
+remove only a meeting's audio and keep its transcript, from the meeting's
+menu or from Settings → Data → Storage and clean-up. That Storage screen
+also deletes downloaded models you no longer use, and can turn on automatic
+clean-up: once a day, on the phone, it removes the audio of meetings, or
+moves the meetings themselves to Recently deleted, once they are older than
+a number of days you choose. Automatic clean-up is off unless you turn it
+on, and leaves starred and recently changed meetings alone. Erasing a
+meeting or removing its audio also deletes its clear-voice copy, and the
+copy can be deleted on its own from the player. Remove passage, in a
+transcript line's menu, deletes the words of the stretch you choose and,
+on the phone, replaces the recording with a copy in which that stretch is
+silent; the earlier recording, clips cut from it and its clear-voice copy
+are deleted. Saved voices are deleted under Settings → Voice profiles, and
+downloaded models also from their lists in Settings. To remove everything, uninstall the app:
 Android's Manage space button for Recap opens Recap's Storage screen rather
 than clearing all of its data. Copies you exported or shared, and anything
 sent to a speech service or AI endpoint, are outside Recap and have to be

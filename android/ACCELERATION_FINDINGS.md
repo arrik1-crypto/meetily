@@ -243,6 +243,26 @@ Baseline, verified in this repo:
   0.25 s + 64 ms) / 30 s. On Android 15+ it runs as a mediaProcessing
   foreground service and shares that type's six-hour daily allowance with
   transcription.
+- **Batch 6 (2026-11, 3.20.0-beta1): no size added, nothing new to
+  accelerate.** No native code, library or bundled model changed.
+  Background playback stays on the platform MediaPlayer, with the
+  platform MediaSession and Notification.MediaStyle for its controls.
+  Media3 was evaluated and not adopted (the newest stable was 1.11.1;
+  1.12.0 was only beta and release candidate, built with compileSdk 37),
+  so media3-session and media3-exoplayer, and the Guava and
+  androidx.media a Media3 session around MediaPlayer would also need, add
+  nothing to the APK; their size was not measured. ExoPlayer was not an
+  option for the player itself: its ADTS extractor at 1.11.1 seeks only
+  by an average-bitrate estimate, while follow-along, tap-a-word and the
+  waveform need MediaPlayer's exact seeks on Recap's raw ADTS recordings.
+  MediaPlayer's wake mode holds a partial wake lock only while playing.
+  Remove a passage decodes and re-encodes one recording with the
+  platform's AAC decoder and encoder (MediaCodec) on one
+  background-priority thread, after a short probe that measures the
+  encoder's delay, and runs as mediaProcessing on Android 15+, sharing
+  the six-hour allowance with transcription and Clear voice. Its time and
+  battery cost on a phone have not been measured; the Remove a passage
+  device checks in PLAY_RELEASE.md record that on a 2-hour meeting.
 
 ---
 
