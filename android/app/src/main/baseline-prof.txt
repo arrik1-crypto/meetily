@@ -20,7 +20,8 @@
 
 # Cold start. Application.onCreate and what it runs (crash capture, the
 # engine-default migration, night mode, the app lock's lifecycle
-# callbacks, the start-up threads' entry points), then the home screen up
+# callbacks, the system-sounds backstop's callback and its first-resume
+# look, the start-up threads' entry points), then the home screen up
 # to its first frame: MainActivity, the library list's adapter and rows,
 # the light listing read and parsed on the library-load worker with the
 # search index built beside it, the search box and filter chips, the
@@ -30,6 +31,7 @@ HSPLcom/meetily/mobile/RecapApp;->**(**)**
 HSPLcom/meetily/mobile/diag/ExitInfoCapture;->**(**)**
 HSPLcom/meetily/mobile/security/AppLock;->**(**)**
 HSPLcom/meetily/mobile/security/AppLock$*;->**(**)**
+HSPLcom/meetily/mobile/SystemSoundsGuard$install$1;->**(**)**
 HSPLcom/meetily/mobile/ThemeManager;->**(**)**
 HSPLcom/meetily/mobile/data/EngineDefault;->**(**)**
 HSPLcom/meetily/mobile/data/EngineDefault$*;->**(**)**
@@ -48,6 +50,8 @@ HSPLcom/meetily/mobile/data/Meeting;->**(**)**
 HSPLcom/meetily/mobile/data/Meeting$*;->**(**)**
 HSPLcom/meetily/mobile/data/TranscriptSegment;->**(**)**
 HSPLcom/meetily/mobile/data/WordStamp;->**(**)**
+HSPLcom/meetily/mobile/data/WordTimes;->**(**)**
+HSPLcom/meetily/mobile/data/WordTimes$*;->**(**)**
 HSPLcom/meetily/mobile/data/ActionItem;->**(**)**
 HSPLcom/meetily/mobile/data/QaEntry;->**(**)**
 HSPLcom/meetily/mobile/data/Attachment;->**(**)**
@@ -71,6 +75,11 @@ HSPLcom/meetily/mobile/MainActivity;->rebuildFilterChips$lambda$*(**)**
 HSPLcom/meetily/mobile/MainActivity;->addFilterChip$lambda$*(**)**
 HSPLcom/meetily/mobile/MainActivity;->startIdleGlow$lambda$*(**)**
 HSPLcom/meetily/mobile/MainActivity;->recoverInterruptedRecording$lambda$*(**)**
+HSPLcom/meetily/mobile/AlignService$Companion;->aligningId()Ljava/lang/String;
+HSPLcom/meetily/mobile/AlignService$Companion;->claimed()Ljava/lang/String;
+HSPLcom/meetily/mobile/AlignService$Companion;->getCurrentMeetingId()Ljava/lang/String;
+HSPLcom/meetily/mobile/AlignService$Companion;->isBusy()Z
+HSPLcom/meetily/mobile/AlignService$Companion;->isRunning()Z
 HSPLcom/meetily/mobile/AudioRemoval;->deleteFiles(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)J
 HSPLcom/meetily/mobile/AudioRemoval;->deleteFiles$default(Lcom/meetily/mobile/AudioRemoval;Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;ILjava/lang/Object;)J
 HSPLcom/meetily/mobile/HomeSelection;-><init>(Landroidx/appcompat/app/AppCompatActivity;Lkotlin/jvm/functions/Function0;Lkotlin/jvm/functions/Function1;)V
@@ -126,6 +135,11 @@ HSPLcom/meetily/mobile/RetentionJobService$Companion;->schedule(Landroid/content
 HSPLcom/meetily/mobile/RetentionRunner;->rule(Landroid/content/Context;)Lcom/meetily/mobile/data/Retention$Rule;
 HSPLcom/meetily/mobile/SummaryService;->removeObserver(Lcom/meetily/mobile/SummaryService$Observer;)V
 HSPLcom/meetily/mobile/SummaryService$Companion;->isRunning()Z
+HSPLcom/meetily/mobile/SystemSoundsGuard;-><clinit>()V
+HSPLcom/meetily/mobile/SystemSoundsGuard;-><init>()V
+HSPLcom/meetily/mobile/SystemSoundsGuard;->install(Landroid/app/Application;)V
+HSPLcom/meetily/mobile/SystemSoundsGuard;->prefs(Landroid/content/Context;)Landroid/content/SharedPreferences;
+HSPLcom/meetily/mobile/SystemSoundsGuard;->restoreLeftover(Landroid/content/Context;Z)V
 HSPLcom/meetily/mobile/data/AppSettings;-><init>(Landroid/content/Context;)V
 HSPLcom/meetily/mobile/data/AppSettings;->migrateEngineDefault(Lkotlin/jvm/functions/Function0;)V
 HSPLcom/meetily/mobile/data/AudioStore;->bytesWithCopy(Landroid/content/Context;Ljava/lang/String;)J
@@ -182,6 +196,7 @@ HSPLcom/meetily/mobile/data/MeetingTrash;->hasAny()Z
 HSPLcom/meetily/mobile/data/MeetingTrash;->newestKnownMs()J
 HSPLcom/meetily/mobile/data/MeetingTrash;->purgeDue(J)I
 HSPLcom/meetily/mobile/data/MeetingTrash;->purgeDue$default(Lcom/meetily/mobile/data/MeetingTrash;JILjava/lang/Object;)I
+HSPLcom/meetily/mobile/data/MutedStreams;->decode(Ljava/lang/String;)Lcom/meetily/mobile/data/MutedStreams$Record;
 HSPLcom/meetily/mobile/data/PassageSwap;->leftover(ZLjava/lang/String;Ljava/lang/String;Ljava/lang/String;)Lcom/meetily/mobile/data/PassageSwap$Leftover;
 HSPLcom/meetily/mobile/data/PassageSwap;->markerNames(Ljava/lang/String;)Lkotlin/Pair;
 HSPLcom/meetily/mobile/data/PassageSwap;->meetingOfMarker(Ljava/lang/String;)Ljava/lang/String;
@@ -311,8 +326,9 @@ HSPLcom/meetily/mobile/whisper/VideoAudioExtractor;->sweepStale(Landroid/content
 # MeetingStore.loadStaged and the Meeting parse above), and the first
 # render once it lands (onMeetingRead: header, tabs, player bar, summary
 # and its versions and notices, action items, transcript, notes, photos,
-# attachments, stats), with the views and helpers those call. Dialogs,
-# photo OCR, speaker suggestions and summary runs are left out.
+# attachments, stats), with the views and helpers those call, Re-time
+# words' screen helper and its menu check among them. Dialogs, photo OCR,
+# speaker suggestions and summary or re-timing runs are left out.
 HPLcom/meetily/mobile/MeetingDetailActivity$loadListener$1;->**(**)**
 HPLcom/meetily/mobile/MeetingDetailActivity$onCreate$*;->**(**)**
 HPLcom/meetily/mobile/MeetingDetailActivity$findHost$1;->**(**)**
@@ -342,8 +358,14 @@ HPLcom/meetily/mobile/MeetingDetailActivity;->revealLoading$lambda$*(**)**
 HPLcom/meetily/mobile/MeetingDetailActivity;->replace_delegate$lambda$*(**)**
 HPLcom/meetily/mobile/MeetingDetailActivity;->speechSpans_delegate$lambda$*(**)**
 HPLcom/meetily/mobile/MeetingDetailActivity;->renderPhotos$lambda$*(**)**
+HPLcom/meetily/mobile/MeetingDetailActivity;->align_delegate$lambda$*(**)**
 HPLcom/meetily/mobile/AiReport;->addButton(Landroid/view/View;ILkotlin/jvm/functions/Function0;)Lcom/google/android/material/button/MaterialButton;
 HPLcom/meetily/mobile/AiReport;->addButton$default(Lcom/meetily/mobile/AiReport;Landroid/view/View;ILkotlin/jvm/functions/Function0;ILjava/lang/Object;)Lcom/google/android/material/button/MaterialButton;
+HPLcom/meetily/mobile/AlignService$Companion;->addListener(Lcom/meetily/mobile/AlignService$Listener;)V
+HPLcom/meetily/mobile/AlignService$Companion;->isAligning(Ljava/lang/String;)Z
+HPLcom/meetily/mobile/AlignUi;-><init>(Landroidx/appcompat/app/AppCompatActivity;Lcom/meetily/mobile/AlignUi$Host;)V
+HPLcom/meetily/mobile/AlignUi;->attach(Ljava/lang/String;)V
+HPLcom/meetily/mobile/AlignUi;->offersAll(Lcom/meetily/mobile/data/Meeting;)Z
 HPLcom/meetily/mobile/AudioRemoval;->isWriting(Landroid/content/Context;Ljava/lang/String;)Z
 HPLcom/meetily/mobile/AudioRemoval;->isWritingContent(Landroid/content/Context;Ljava/lang/String;)Z
 HPLcom/meetily/mobile/ClearVoiceBar;-><init>(Landroid/app/Activity;Landroid/view/View;Landroid/widget/TextView;Landroid/widget/TextView;Landroid/widget/ImageButton;Lcom/meetily/mobile/ClearVoiceBar$Host;)V
@@ -389,6 +411,7 @@ HPLcom/meetily/mobile/MeetingDetailActivity;->finishSummaryUi(Z)V
 HPLcom/meetily/mobile/MeetingDetailActivity;->flushSync()V
 HPLcom/meetily/mobile/MeetingDetailActivity;->formatClock(I)Ljava/lang/String;
 HPLcom/meetily/mobile/MeetingDetailActivity;->formatFileSize(J)Ljava/lang/String;
+HPLcom/meetily/mobile/MeetingDetailActivity;->getAlign()Lcom/meetily/mobile/AlignUi;
 HPLcom/meetily/mobile/MeetingDetailActivity;->getOnTranscriptTab()Z
 HPLcom/meetily/mobile/MeetingDetailActivity;->getPassage()Lcom/meetily/mobile/PassageUi;
 HPLcom/meetily/mobile/MeetingDetailActivity;->getPlayer()Landroid/media/MediaPlayer;
@@ -469,6 +492,7 @@ HPLcom/meetily/mobile/MeetingDetailActivity$PendingSync;->getOfferReviews()Z
 HPLcom/meetily/mobile/MeetingDetailActivity$PendingSync;->getOurs()Lcom/meetily/mobile/data/Meeting;
 HPLcom/meetily/mobile/MeetingDetailActivity$PendingSync;->getSummaryDone()Z
 HPLcom/meetily/mobile/MeetingDetailActivity$PendingSync;->getTask()Ljava/util/concurrent/FutureTask;
+HPLcom/meetily/mobile/MeetingDetailActivity$align$2$1;-><init>(Lcom/meetily/mobile/MeetingDetailActivity;)V
 HPLcom/meetily/mobile/MeetingDetailActivity$playbackListener$1;-><init>(Lcom/meetily/mobile/MeetingDetailActivity;)V
 HPLcom/meetily/mobile/MeetingDetailActivity$replace$2$1;-><init>(Lcom/meetily/mobile/MeetingDetailActivity;)V
 HPLcom/meetily/mobile/MeetingDetailActivity$setUpClearVoice$1;-><init>(Lcom/meetily/mobile/MeetingDetailActivity;)V
@@ -534,6 +558,7 @@ HPLcom/meetily/mobile/SummaryVersionsBar;->render()V
 HPLcom/meetily/mobile/SummaryVersionsBar;->styleName(Ljava/lang/String;Ljava/util/Map;)Ljava/lang/String;
 HPLcom/meetily/mobile/SummaryVersionsBar;->stylePill(Landroid/widget/TextView;Z)V
 HPLcom/meetily/mobile/SummaryVersionsBar;->themeColor(I)I
+HPLcom/meetily/mobile/TakePictureWithGrant;-><init>()V
 HPLcom/meetily/mobile/data/AttachmentStore;->dir(Landroid/content/Context;)Ljava/io/File;
 HPLcom/meetily/mobile/data/AttachmentStore;->fileFor(Landroid/content/Context;Ljava/lang/String;)Ljava/io/File;
 HPLcom/meetily/mobile/data/AudioStore;->clearVoiceCopy(Landroid/content/Context;Ljava/lang/String;Ljava/lang/String;)Ljava/io/File;
@@ -602,6 +627,7 @@ HPLcom/meetily/mobile/data/TranscriptDraft;->readyFor(Landroid/content/Context;L
 HPLcom/meetily/mobile/data/TranscriptResume;->clock(J)Ljava/lang/String;
 HPLcom/meetily/mobile/data/Waveform;->cached(Landroid/content/Context;Ljava/lang/String;)[F
 HPLcom/meetily/mobile/data/Waveform;->sidecar(Landroid/content/Context;Ljava/lang/String;)Ljava/io/File;
+HPLcom/meetily/mobile/data/WordAlign;->needsRetime(Lcom/meetily/mobile/data/TranscriptSegment;)Z
 HPLcom/meetily/mobile/search/FindInMeeting$Anchor;-><init>()V
 HPLcom/meetily/mobile/search/FindInMeeting$Anchor;-><init>(Lkotlin/jvm/internal/DefaultConstructorMarker;)V
 HPLcom/meetily/mobile/search/FindInMeeting$Anchor$AtOrAfter;-><init>(II)V
@@ -645,8 +671,9 @@ HPLcom/meetily/mobile/whisper/SpeechSpans$build$$inlined$sortedBy$1;-><init>()V
 
 # Transcript scroll. Binding transcript lines and chapter headers (time and
 # speaker labels, the tap-to-seek word spans, find-in-meeting and
-# playback-follow highlighting, each line's screen-reader actions) and the
-# player's follow tick that moves the highlight while audio plays.
+# playback-follow highlighting, each line's screen-reader actions with
+# Re-time words' offer) and the player's follow tick that moves the
+# highlight while audio plays.
 HPLcom/meetily/mobile/TranscriptLinesAdapter;->**(**)**
 HPLcom/meetily/mobile/TranscriptLinesAdapter$*;->**(**)**
 HPLcom/meetily/mobile/TranscriptAdaptersKt;->**(**)**
@@ -657,6 +684,19 @@ HPLcom/meetily/mobile/data/PlaybackFollow$*;->**(**)**
 HPLcom/meetily/mobile/MeetingDetailActivity$playerTick$1;->**(**)**
 HPLcom/meetily/mobile/MeetingFindBar;->show$lambda$*(**)**
 HPLcom/meetily/mobile/MeetingDetailActivity;->lineAccessibility(I)Lcom/meetily/mobile/TranscriptLineActions;
+HPLcom/meetily/mobile/MeetingDetailActivity$align$2$1;->liveMeeting()Lcom/meetily/mobile/data/Meeting;
+HPLcom/meetily/mobile/AlignUi;->offers(Lcom/meetily/mobile/data/TranscriptSegment;)Z
+HPLcom/meetily/mobile/data/WordAlign;-><clinit>()V
+HPLcom/meetily/mobile/data/WordAlign;->alignable(Lcom/meetily/mobile/data/TranscriptSegment;)Z
+HPLcom/meetily/mobile/data/WordAlign;->isApostrophe(I)Z
+HPLcom/meetily/mobile/data/WordAlign;->isWordChar(I)Z
+HPLcom/meetily/mobile/data/WordAlign;->mayRetimeUnknown(ZLcom/meetily/mobile/data/WordAlign$Speech;)Z
+HPLcom/meetily/mobile/data/WordAlign;->offersLine(Lcom/meetily/mobile/data/TranscriptSegment;Z)Z
+HPLcom/meetily/mobile/data/WordAlign;->speech(Ljava/lang/String;Z)Lcom/meetily/mobile/data/WordAlign$Speech;
+HPLcom/meetily/mobile/data/WordAlign;->tokens(Ljava/lang/String;)Ljava/util/List;
+HPLcom/meetily/mobile/data/WordAlign;->tokens$*(**)**
+HPLcom/meetily/mobile/data/WordAlign;->words(Ljava/lang/String;)Ljava/util/List;
+HPLcom/meetily/mobile/data/WordAlign$Speech;->**(**)**
 HPLcom/meetily/mobile/search/FindInMeeting;->rangesIn(Ljava/lang/String;Ljava/lang/String;)[I
 HPLcom/meetily/mobile/search/TextFold;->fold(Ljava/lang/String;)Lcom/meetily/mobile/search/TextFold$Folded;
 HPLcom/meetily/mobile/search/TextFold;->foldCodePoint(I)Ljava/lang/String;
@@ -677,6 +717,8 @@ Lcom/meetily/mobile/data/EngineDefault;
 Lcom/meetily/mobile/ThemeManager;
 Lcom/meetily/mobile/security/AppLock;
 Lcom/meetily/mobile/security/AppLock$Tracker;
+Lcom/meetily/mobile/SystemSoundsGuard;
+Lcom/meetily/mobile/SystemSoundsGuard$install$1;
 Lcom/meetily/mobile/MainActivity;
 Lcom/meetily/mobile/HomeSelection;
 Lcom/meetily/mobile/MeetingAdapter;

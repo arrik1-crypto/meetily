@@ -310,7 +310,7 @@ class AlignUi(
         progressBar?.isIndeterminate = total <= 0
         progressBar?.progress = percent.coerceIn(0, 100)
         val line = if (total > 0) {
-            activity.getString(R.string.align_progress, done, total)
+            activity.resources.getQuantityString(R.plurals.align_progress, total, done, total)
         } else {
             activity.getString(R.string.align_progress_loading)
         }

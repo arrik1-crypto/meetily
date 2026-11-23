@@ -34,7 +34,11 @@
     <string name="align_busy_batch">Re-timing waits for the transcription, summary or passage removal in progress to finish.</string>
 
     <string name="align_progress_title">Re-timing words</string>
-    <string name="align_progress">Re-timing words: %1$d of %2$d lines</string>
+    <!-- Counted by the total (%2$d): "1 of 1 line", "1 of 3 lines". -->
+    <plurals name="align_progress">
+        <item quantity="one">Re-timing words: %1$d of %2$d line</item>
+        <item quantity="other">Re-timing words: %1$d of %2$d lines</item>
+    </plurals>
     <string name="align_progress_loading">Loading the word re-timing model…</string>
     <string name="align_progress_note">It keeps going if you leave this screen. Stopping keeps the lines already re-timed.</string>
     <string name="align_hide">Hide</string>

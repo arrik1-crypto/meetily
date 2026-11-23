@@ -566,7 +566,7 @@ class AlignService : Service() {
         )
         // No meeting title or transcript text: the notification can show on the lock screen.
         val text = if (total > 0) {
-            getString(R.string.align_progress, done, total)
+            resources.getQuantityString(R.plurals.align_progress, total, done, total)
         } else {
             getString(R.string.align_progress_loading)
         }
