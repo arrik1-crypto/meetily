@@ -1,5 +1,7 @@
 package com.meetily.mobile
 
+import android.os.Handler
+import android.os.Looper
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.AdapterView
@@ -67,6 +69,15 @@ class PassageUi(
     /** The recording is being read for the picker; a second tap waits. */
     private var measuring = false
 
+    /**
+     * "Reading the recording…", only once the read has taken a moment. Most
+     * reads (a header, or a container that states its length) end well
+     * before it, and the toast would then sit over the picker saying the
+     * recording is still being read.
+     */
+    private val main = Handler(Looper.getMainLooper())
+    private val slowRead = Runnable { if (measuring) showReading() }
+
     /** From onCreate, with the meeting the screen shows: follow runs on it. */
     fun attach(meetingId: String) {
         this.meetingId = meetingId
@@ -82,6 +93,7 @@ class PassageUi(
 
     /** From onDestroy. */
     fun detach() {
+        main.removeCallbacks(slowRead)
         if (attached) {
             PassageService.removeListener(this)
             attached = false
@@ -119,21 +131,19 @@ class PassageUi(
         // walking every frame header, seconds on a long meeting.
         if (measuring) return
         measuring = true
-        if (known <= 0L) showReading()
+        main.postDelayed(slowRead, READING_NOTICE_DELAY_MS)
         Thread {
             // A raw ADTS recording (every live one) states its format in its
             // first frame header. With the length known too (a prepared
             // player) that is all that is read, and the picker opens at once.
             val quick = if (known > 0L) PassageSilencer.adtsReencode(file) else null
             // Otherwise one open gives the format and the length together.
-            val header = if (quick != null) null else {
-                if (known > 0L) activity.runOnUiThread { showReading() }
-                PassageSilencer.readHeader(file)
-            }
+            val header = if (quick != null) null else PassageSilencer.readHeader(file)
             val reencode = quick ?: header?.reencode
             val durationMs = if (known > 0L) known else header?.durationMs ?: 0L
             activity.runOnUiThread {
                 measuring = false
+                main.removeCallbacks(slowRead)
                 if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                 val current = host.liveMeeting() ?: return@runOnUiThread
                 if (current.id != m.id) return@runOnUiThread
@@ -550,5 +560,8 @@ class PassageUi(
     private companion object {
         /** How many words of a line the picker shows. */
         const val LABEL_WORDS = 8
+
+        /** How long a read for the picker runs before "Reading the recording…" shows. */
+        const val READING_NOTICE_DELAY_MS = 400L
     }
 }
