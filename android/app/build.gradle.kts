@@ -151,6 +151,18 @@ android {
     kotlinOptions {
         jvmTarget = "17"
     }
+
+    // Per-app language (Android 13+): AGP writes the locale list from
+    // res/resources.properties (en-US: the unqualified strings) and the
+    // app's values-xx folders, and adds android:localeConfig to the merged
+    // manifest. It also unions in every library's translations (AppCompat
+    // and Material carry dozens), which would offer languages the app is not
+    // written in; the filter keeps only what the app has. A translation adds
+    // its resource qualifier here along with its values-xx folder.
+    androidResources {
+        generateLocaleConfig = true
+        localeFilters += listOf("en-rUS")
+    }
 }
 
 dependencies {
