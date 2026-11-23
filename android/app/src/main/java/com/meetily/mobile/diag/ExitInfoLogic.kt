@@ -13,7 +13,9 @@ enum class NativeJob(val label: String) {
     DIARISE("diarise"),
     OCR("ocr"),
     /** The Silero speech gate in front of the recognisers (SileroVad). */
-    VAD("vad")
+    VAD("vad"),
+    /** The GTCRN speech enhancer making a clear-voice copy (SpeechEnhancer). */
+    ENHANCE("enhance")
 }
 
 /**

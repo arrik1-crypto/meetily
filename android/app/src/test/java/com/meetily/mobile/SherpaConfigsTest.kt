@@ -91,6 +91,22 @@ class SherpaConfigsTest {
     }
 
     @Test
+    fun denoiserIsGtcrnAloneOnOneCpuThread() {
+        val config = SherpaConfigs.denoiser("/models/gtcrn_simple.onnx")
+        val model = config.model
+        assertEquals("/models/gtcrn_simple.onnx", model.gtcrn.model)
+        // The other two families the JNI reads stay empty, so the loader
+        // picks GTCRN (it takes the first family with a model set).
+        assertEquals("", model.dpdfnet.model)
+        assertEquals("", model.voxlock.enrollModel)
+        assertEquals("", model.voxlock.chunkModel)
+        assertEquals("", model.voxlock.voiceSample)
+        assertEquals(1, model.numThreads)
+        assertEquals("cpu", model.provider)
+        assertFalse(model.debug)
+    }
+
+    @Test
     fun configsAreFreshEachTime() {
         // The data classes are mutable (var fields); a shared instance
         // changed by one engine would leak into the next.

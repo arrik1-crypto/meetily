@@ -107,7 +107,12 @@ object JobQueue {
          * queue and its notices show, and how JobGate tells a continuation
          * whose transcript has been finished since. See TranscriptResume.
          */
-        val resumeFromMs: Long = 0L
+        val resumeFromMs: Long = 0L,
+        /**
+         * Check only: transcribe the meeting's clear-voice copy instead of
+         * its recording, which the user chose explicitly (ClearVoice).
+         */
+        val clearVoice: Boolean = false
     )
 
     /**
@@ -271,7 +276,9 @@ object JobQueue {
             // is what every run did before the choice existed.
             language = o.optString("language"),
             // Absent in older rows: 0, from the beginning, as they ran.
-            resumeFromMs = o.optLong("resumeFromMs").coerceAtLeast(0L)
+            resumeFromMs = o.optLong("resumeFromMs").coerceAtLeast(0L),
+            // Absent in older rows: the recording, as before.
+            clearVoice = o.optBoolean("clearVoice")
         )
     }
 
@@ -289,6 +296,7 @@ object JobQueue {
             .put("required", job.required)
             .put("auto", job.auto)
             .put("language", job.language)
+            .put("clearVoice", job.clearVoice)
         if (job.resumeFromMs > 0L) o.put("resumeFromMs", job.resumeFromMs)
         return o
     }

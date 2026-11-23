@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.annotation.WorkerThread
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
+import com.meetily.mobile.data.ClearVoice
 import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.StorageUsage
@@ -77,7 +78,9 @@ object StorageScan {
                     meeting.title,
                     AudioStore.fileFor(context, name).length(),
                     hasTranscript = meeting.segments.isNotEmpty(),
-                    unfinishedAtMs = meeting.transcriptResumeMs
+                    unfinishedAtMs = meeting.transcriptResumeMs,
+                    // Named after the recording; removed with it (AudioStore.delete).
+                    clearVoiceBytes = AudioStore.fileFor(context, ClearVoice.copyNameFor(name)).length()
                 )
             }
 

@@ -199,6 +199,13 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|mediaProcessing" />
 
+        <!-- Clear voice: one meeting's denoised copy, as ImportService's
+             types (mediaProcessing from Android 15, dataSync below). -->
+        <service
+            android:name=".ClearVoiceService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProcessing" />
+
         <service
             android:name=".ModelDownloadService"
             android:exported="false"

@@ -141,7 +141,7 @@ class StorageActivity : AppCompatActivity() {
             largest.addView(row(getString(R.string.storage_largest_empty), null, clickable = false))
         } else {
             for (meeting in report.largest) {
-                val view = row(meeting.title, size(meeting.audioBytes), clickable = true)
+                val view = row(meeting.title, size(meeting.removableBytes), clickable = true)
                 view.setOnClickListener { showMeetingOptions(meeting) }
                 A11y.labelClick(view, getString(R.string.a11y_meeting_options))
                 largest.addView(view)
@@ -248,7 +248,7 @@ class StorageActivity : AppCompatActivity() {
                 ActionSheet.Item(
                     ACTION_REMOVE_AUDIO,
                     getString(R.string.storage_remove_audio),
-                    subtitle = size(meeting.audioBytes),
+                    subtitle = size(meeting.removableBytes),
                     destructive = true,
                     separated = true
                 )
@@ -266,13 +266,19 @@ class StorageActivity : AppCompatActivity() {
 
     private fun removeAudio(meeting: StorageUsage.MeetingAudio) {
         if (AudioRemoval.isBlocked(this, meeting.id)) {
-            Toast.makeText(this, R.string.storage_audio_busy, Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                if (ClearVoiceService.isPreparing(meeting.id)) R.string.clearvoice_busy
+                else R.string.storage_audio_busy,
+                Toast.LENGTH_LONG
+            ).show()
             return
         }
         val untranscribed = !meeting.hasTranscript
         AudioRemoval.confirm(
-            this, 1, meeting.audioBytes, untranscribed = untranscribed,
-            unfinishedAtMs = meeting.unfinishedAtMs
+            this, 1, meeting.removableBytes, untranscribed = untranscribed,
+            unfinishedAtMs = meeting.unfinishedAtMs,
+            clearVoiceCopies = if (meeting.clearVoiceBytes > 0L) 1 else 0
         ) {
             val app = applicationContext
             worker.execute {

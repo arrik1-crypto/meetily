@@ -220,6 +220,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         super.onStart()
         started = true
         hasStarted = true
+        // Set up with the player once the meeting is read (setUpClearVoice).
+        clearVoiceBar?.attach()
         // Nothing to refresh or attach to until the meeting has been read;
         // onMeetingRead does this itself when the read lands.
         val m = meeting ?: return
@@ -266,6 +268,7 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     override fun onStop() {
         started = false
+        clearVoiceBar?.detach()
         // Away for a while during the read, not just rotated: the file may
         // have been read before something saved meanwhile (onMeetingRead).
         if (loadGate.isLoading && !isChangingConfigurations) loadModel?.load?.ownerLeft()
@@ -591,6 +594,12 @@ class MeetingDetailActivity : AppCompatActivity() {
             // The audio removed elsewhere (Storage, multi-select): the
             // language chip offers re-transcription only with audio to run.
             if (live && !transcriptChanged) renderMeta(m)
+            if (live) clearVoiceBar?.render()
+        }
+        // A copy finished by ClearVoiceService, or deleted elsewhere.
+        if (m.clearVoiceFile == ours.clearVoiceFile && m.clearVoiceFile != merged.clearVoiceFile) {
+            m.clearVoiceFile = merged.clearVoiceFile
+            if (live) clearVoiceBar?.render()
         }
         if (m.starred == ours.starred && m.starred != merged.starred) {
             m.starred = merged.starred
@@ -894,6 +903,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             offerFollowLink = savedInstanceState.getBoolean(STATE_OFFER_FOLLOW)
         }
         requestedActionPending = savedInstanceState?.getBoolean(STATE_ACTION_PENDING) ?: true
+        playingClearVoice = savedInstanceState?.getBoolean(STATE_CLEAR_VOICE) ?: false
         restoreView = savedInstanceState?.getBundle(STATE_VIEW)
         // A search hit opens at its line once the meeting is read; the find
         // bar comes back as it was left.
@@ -2031,6 +2041,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         pendingPhotoResult?.let { outState.putBoolean(STATE_PHOTO_RESULT, it) }
         outState.putBoolean(STATE_ACTION_PENDING, requestedActionPending)
         outState.putBoolean(STATE_OFFER_FOLLOW, offerFollowLink)
+        outState.putBoolean(STATE_CLEAR_VOICE, playingClearVoice)
         // The next screen shows these at once, before its own read.
         if (headerCreatedAtMs >= 0) {
             outState.putString(STATE_TITLE, meeting?.title ?: titleView.text.toString())
@@ -2895,17 +2906,21 @@ class MeetingDetailActivity : AppCompatActivity() {
             return
         }
         if (AudioRemoval.isBlocked(this, m.id)) {
-            Toast.makeText(this, R.string.storage_audio_busy, Toast.LENGTH_LONG).show()
+            Toast.makeText(this, removeAudioBusyText(m.id), Toast.LENGTH_LONG).show()
             return
         }
+        // The clear-voice copy goes with the recording, and is in the size.
+        val bytes = AudioStore.bytesWithCopy(this, name)
+        val hasCopy = bytes > AudioStore.fileFor(this, name).length()
         AudioRemoval.confirm(
-            this, 1, AudioStore.fileFor(this, name).length(), untranscribed = m.segments.isEmpty(),
-            unfinishedAtMs = m.transcriptResumeMs
+            this, 1, bytes, untranscribed = m.segments.isEmpty(),
+            unfinishedAtMs = m.transcriptResumeMs,
+            clearVoiceCopies = if (hasCopy) 1 else 0
         ) {
             val current = meeting ?: return@confirm
             // Asked again: a job may have started while the question was up.
             if (current.audioFile != name || AudioRemoval.isBlocked(this, current.id)) {
-                Toast.makeText(this, R.string.storage_audio_busy, Toast.LENGTH_LONG).show()
+                Toast.makeText(this, removeAudioBusyText(current.id), Toast.LENGTH_LONG).show()
                 return@confirm
             }
             playerHandler.removeCallbacks(playerTick)
@@ -2919,9 +2934,12 @@ class MeetingDetailActivity : AppCompatActivity() {
             player = null
             if (::playerBar.isInitialized) showPlayerBar(false)
             val untranscribed = current.segments.isEmpty()
+            val copy = current.clearVoiceFile
             current.audioFile = null
             // Nothing can continue the transcript now; it keeps what it has.
             current.transcriptResumeMs = null
+            current.clearVoiceFile = null
+            playingClearVoice = false
             persist(current)
             applyTabState()
             // The language chip offers "Re-transcribe as…" only while there
@@ -2940,13 +2958,15 @@ class MeetingDetailActivity : AppCompatActivity() {
                     if (stored.audioFile == name) {
                         stored.audioFile = null
                         stored.transcriptResumeMs = null
+                        // Made from the recording; it goes with it.
+                        stored.clearVoiceFile = null
                         true
                     } else {
                         false
                     }
                 }
                 // A meeting deleted meanwhile names nothing either.
-                if (released || !store.exists(id)) AudioRemoval.deleteFiles(app, name)
+                if (released || !store.exists(id)) AudioRemoval.deleteFiles(app, name, copy)
             }
             Toast.makeText(
                 this,
@@ -2955,6 +2975,11 @@ class MeetingDetailActivity : AppCompatActivity() {
             ).show()
         }
     }
+
+    /** Why Remove audio is held back, naming clear voice when that is the job. */
+    private fun removeAudioBusyText(meetingId: String): Int =
+        if (ClearVoiceService.isPreparing(meetingId)) R.string.clearvoice_busy
+        else R.string.storage_audio_busy
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         // The items are disabled until the meeting has been read
@@ -3201,6 +3226,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             settings.skipSilence = skipSilence
             renderSkipSilence()
         }
+        setUpClearVoice()
         playPauseButton.setOnClickListener { togglePlayback() }
         playerSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(bar: SeekBar?, value: Int, fromUser: Boolean) {
@@ -3247,7 +3273,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         if (action != null) pendingPlayerAction = action
         if (player != null) return // preparing
-        val file = audioFileOrNull() ?: return
+        val file = playbackFileOrNull() ?: return
         val p = MediaPlayer()
         try {
             p.setDataSource(file.absolutePath)
@@ -3526,6 +3552,118 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (!android.text.TextUtils.equals(view.text, text)) view.text = text
     }
 
+    // --- Clear voice ---------------------------------------------------------
+
+    /**
+     * The player plays (or will play) the meeting's clear-voice copy rather
+     * than its recording. Kept across rotation; falls back to the recording
+     * whenever there is no copy to play (playbackFileOrNull).
+     */
+    private var playingClearVoice = false
+
+    /** The player bar's clear-voice row; built with the player. */
+    private var clearVoiceBar: ClearVoiceBar? = null
+
+    /** The file the player opens: the copy when chosen and on disk, else the recording. */
+    private fun playbackFileOrNull(): File? {
+        if (playingClearVoice) clearVoiceBar?.copyFile()?.let { return it }
+        return audioFileOrNull()
+    }
+
+    private fun setUpClearVoice() {
+        if (clearVoiceBar != null) return
+        clearVoiceBar = ClearVoiceBar(
+            this,
+            row = findViewById(R.id.clearVoiceRow),
+            chip = findViewById(R.id.clearVoiceChip),
+            status = findViewById(R.id.clearVoiceStatus),
+            delete = findViewById(R.id.clearVoiceDelete),
+            host = object : ClearVoiceBar.Host {
+                override fun meeting(): Meeting? = meeting
+
+                override fun audioDurationMs(): Long =
+                    readyPlayer?.duration?.toLong()?.takeIf { it > 0L }
+                        ?: meeting?.let { checkAudioMs(it) } ?: 0L
+
+                override fun playingCopy(): Boolean = playingClearVoice
+
+                override fun switchTo(copy: Boolean) = switchPlaybackSource(copy)
+
+                override fun dropCopy(name: String) = dropClearVoiceCopy(name)
+
+                override fun refresh() = requestSync()
+            }
+        )
+        if (started) clearVoiceBar?.attach() else clearVoiceBar?.render()
+    }
+
+    /**
+     * Moves the player between the recording and the clear-voice copy. Both
+     * share one timeline, so a prepared player is rebuilt on the other file
+     * at the same position, playing again if it was playing; one not made
+     * yet just opens the other file when it is first used.
+     */
+    private fun switchPlaybackSource(copy: Boolean) {
+        if (copy == playingClearVoice) return
+        val p = readyPlayer
+        val position = p?.currentPosition ?: -1
+        val wasPlaying = p?.isPlaying == true
+        playingClearVoice = copy
+        playerHandler.removeCallbacks(playerTick)
+        pendingPlayerAction = null
+        playerReady = false
+        releaseBoost()
+        try {
+            player?.release()
+        } catch (_: Exception) {
+        }
+        player = null
+        setPlayPauseIcon(playing = false)
+        if (position < 0) return
+        withPlayer { next ->
+            next.seekTo(position.coerceIn(0, next.duration.coerceAtLeast(0)))
+            if (wasPlaying) {
+                next.start()
+                applyPlaybackSpeed(next)
+                setPlayPauseIcon(playing = true)
+                restartTick()
+            } else {
+                updatePlayerUi(next)
+            }
+        }
+    }
+
+    /**
+     * Deletes the clear-voice copy [name] through the screen's save path, as
+     * Remove audio does: the screen's copy drops the reference (persist),
+     * the stored copy drops it on the save thread, and only then does the
+     * file go. The recording is untouched.
+     */
+    private fun dropClearVoiceCopy(name: String) {
+        val current = meeting ?: return
+        if (playingClearVoice) switchPlaybackSource(false)
+        playingClearVoice = false
+        current.clearVoiceFile = null
+        persist(current)
+        val app = applicationContext
+        val id = current.id
+        SYNC_EXECUTOR.execute {
+            val store = MeetingStore(app)
+            val released = store.mutateIf(id) { stored ->
+                if (stored.clearVoiceFile == name) {
+                    stored.clearVoiceFile = null
+                    true
+                } else {
+                    false
+                }
+            }
+            // Not under a copy being made again meanwhile: it has this name too.
+            if ((released || !store.exists(id)) && !ClearVoiceService.isPreparing(id)) {
+                AudioStore.fileFor(app, name).delete()
+            }
+        }
+    }
+
     // --- Audio tab -----------------------------------------------------------
 
     private var waveformBars: FloatArray? = null
@@ -3708,9 +3846,11 @@ class MeetingDetailActivity : AppCompatActivity() {
                 .estimateDurationMs(segment.text, null) + 1_000L
         }
         Toast.makeText(this, R.string.clip_preparing, Toast.LENGTH_SHORT).show()
+        // What the player is playing: the clear-voice copy or the recording.
+        val clearVoiceInUse = playingClearVoice && clearVoiceBar?.copyFile() != null
         Thread {
             val clip = com.meetily.mobile.export.ClipExporter
-                .export(this, source, start, end)
+                .export(this, source, start, end, useEnhanced = clearVoiceInUse)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 if (clip == null) {
@@ -3985,8 +4125,13 @@ class MeetingDetailActivity : AppCompatActivity() {
             .ifEmpty { downloaded }
         val willUse = ranked.first()
         val audioMs = checkAudioMs(m)
+        // Offered only with a clear-voice copy on disk, and never ticked to
+        // begin with: denoising can cost words, so the recording is checked
+        // unless the user picks the copy, and the review then compares.
+        val useCopy = clearVoiceBar?.copyFile()?.let { clearVoiceCheckOption() }
         AlertDialog.Builder(this)
             .setTitle(R.string.check_accuracy_title)
+            .setView(useCopy?.first)
             .setMessage(
                 // State the cost up front. The only speed signal before this
                 // was the word "slow" inside a model's display name, in the
@@ -4000,6 +4145,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 )
             )
             .setPositiveButton(R.string.check_accuracy_go) { _, _ ->
+                val clearVoice = useCopy?.second?.isChecked == true
                 if (choices.size == 1) {
                     // No picker to show, but the same fit warning as one.
                     val only = choices.first()
@@ -4011,13 +4157,40 @@ class MeetingDetailActivity : AppCompatActivity() {
                             com.meetily.mobile.whisper.TranscriptionModels.fitNeedOrNull(only)
                         ),
                         alreadyActive = false
-                    ) { startCheck(m, only) }
+                    ) { startCheck(m, only, clearVoice = clearVoice) }
                 } else {
-                    chooseCheckModel(m, choices, willUse)
+                    chooseCheckModel(m, choices, willUse, clearVoice)
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * The accuracy check's "Transcribe the clear-voice copy instead" box,
+     * unticked, with its note on what denoising can cost. The view goes
+     * into the dialog; the box is read when it is confirmed.
+     */
+    private fun clearVoiceCheckOption(): Pair<View, android.widget.CheckBox> {
+        val density = resources.displayMetrics.density
+        val side = (24 * density).toInt()
+        val box = android.widget.CheckBox(this).apply {
+            setText(R.string.clearvoice_check_use_copy)
+            isChecked = false
+            minHeight = A11y.minTouchPx(this@MeetingDetailActivity)
+        }
+        val note = TextView(this).apply {
+            setText(R.string.clearvoice_check_use_copy_note)
+            setTextAppearance(R.style.TextAppearance_Nocturne_BodySmall)
+            setTextColor(themeColor(com.google.android.material.R.attr.colorOnSurfaceVariant))
+        }
+        val column = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(side, (8 * density).toInt(), side, 0)
+            addView(box)
+            addView(note)
+        }
+        return column to box
     }
 
     /** Audio length this check would cover, for the time estimate. */
@@ -4028,7 +4201,12 @@ class MeetingDetailActivity : AppCompatActivity() {
         return (last - first).coerceAtLeast(0L)
     }
 
-    private fun chooseCheckModel(m: Meeting, ranked: List<String>, preferred: String) {
+    private fun chooseCheckModel(
+        m: Meeting,
+        ranked: List<String>,
+        preferred: String,
+        clearVoice: Boolean = false
+    ) {
         val models = com.meetily.mobile.whisper.TranscriptionModels
         ModelPickerSheet.show(
             this,
@@ -4055,13 +4233,27 @@ class MeetingDetailActivity : AppCompatActivity() {
                     )
                 }
             },
-            onPick = { key -> startCheck(m, key) }
+            onPick = { key -> startCheck(m, key, clearVoice = clearVoice) }
         )
     }
 
-    /** [language]: "auto" or a code for this pass only (the language chip); null uses Settings. */
-    private fun startCheck(m: Meeting, modelKey: String, language: String? = null) {
+    /**
+     * [language]: "auto" or a code for this pass only (the language chip);
+     * null uses Settings. [clearVoice]: transcribe the clear-voice copy, as
+     * the user chose in the accuracy check (never otherwise).
+     */
+    private fun startCheck(
+        m: Meeting,
+        modelKey: String,
+        language: String? = null,
+        clearVoice: Boolean = false
+    ) {
         val file = audioFileOrNull() ?: return
+        val copy = if (clearVoice) clearVoiceBar?.copyFile() else null
+        if (clearVoice && copy == null) {
+            Toast.makeText(this, R.string.clearvoice_check_unavailable, Toast.LENGTH_LONG).show()
+            return
+        }
         // A second pass queued behind the one already checking this meeting
         // would overwrite that pass's draft before the user had reviewed it.
         if (ImportService.isRunning && ImportService.isRecheck &&
@@ -4075,7 +4267,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         if (!JobGate.canStartBatch()) {
             JobGate.requestCheck(
                 this, m.id, modelKey, whenCharging = false, required = true,
-                language = language.orEmpty()
+                language = language.orEmpty(), clearVoice = copy != null
             )
             Toast.makeText(this, R.string.check_queued, Toast.LENGTH_LONG).show()
             return
@@ -4088,6 +4280,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, m.id)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         language?.let { start.putExtra(ImportService.EXTRA_LANGUAGE, it) }
+        if (copy != null) start.putExtra(ImportService.EXTRA_CLEAR_VOICE, true)
         if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
             startForegroundService(start)
         } else {
@@ -4813,6 +5006,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         private const val STATE_PHOTO_RESULT = "photo_result"
         private const val STATE_ACTION_PENDING = "action_pending"
         private const val STATE_OFFER_FOLLOW = "offer_follow_pending"
+        private const val STATE_CLEAR_VOICE = "clear_voice_playing"
         private const val STATE_TITLE = "header_title"
         private const val STATE_CREATED_AT = "header_created_at"
         private const val STATE_VIEW = "view_state"

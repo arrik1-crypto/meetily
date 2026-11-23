@@ -88,6 +88,9 @@ class ImportService : Service() {
     /** This run is giving an audio-only recording its first transcript. */
     private var firstTranscript = false
 
+    /** This check transcribes the meeting's clear-voice copy; see [EXTRA_CLEAR_VOICE]. */
+    private var clearVoice = false
+
     /**
      * Where this run was asked to continue an unfinished transcription from
      * (EXTRA_RESUME_FROM_MS), for its in-flight marker; the importer takes
@@ -217,6 +220,7 @@ class ImportService : Service() {
                     .ifBlank { getString(R.string.import_title) }
                 modelKey = intent.getStringExtra(EXTRA_MODEL)
                 language = intent.getStringExtra(EXTRA_LANGUAGE)?.takeIf { it.isNotBlank() }
+                clearVoice = recheckMeetingId != null && intent.getBooleanExtra(EXTRA_CLEAR_VOICE, false)
                 createChannel()
                 startForegroundCompat(buildNotification(0))
                 // Whisper or NeMo is about to load. An idle on-device LLM from
@@ -332,6 +336,7 @@ class ImportService : Service() {
                     // An unplugged check keeps its partial draft to carry on
                     // from when the charger is back (requeueForCharging).
                     keepPartialCheck = { stoppedByUnplug },
+                    clearVoice = clearVoice,
                     onMeetingCreated = { id ->
                         currentMeetingId = id
                         adoptFile?.let {
@@ -883,6 +888,11 @@ class ImportService : Service() {
          * the same model is asked for (TranscriptResume.continueFrom).
          */
         const val EXTRA_RESUME_FROM_MS = "resume_from_ms"
+        /**
+         * Accuracy checks only: transcribe the meeting's clear-voice copy
+         * rather than its recording. Only ever set by an explicit choice.
+         */
+        const val EXTRA_CLEAR_VOICE = "clear_voice"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45
