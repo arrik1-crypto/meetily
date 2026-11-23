@@ -30,6 +30,9 @@ class RecapApp : Application() {
         // App lock + FLAG_SECURE are enforced from lifecycle callbacks so
         // every activity is covered, including quick-tile entry points.
         AppLock.install(this)
+        // System sounds a recording left muted go back once the app is on
+        // screen again (a callback only; the work waits for that).
+        SystemSoundsGuard.install(this)
         // Re-arm reminder alarms when a force-stop has cleared them (a reboot
         // is BootReceiver's). Not unconditionally: this runs on every cold
         // start, most of them from background broadcasts, and the full re-arm

@@ -324,6 +324,9 @@ class RecordingService : Service() {
         }
         store.markActive(meetingId)
         startForegroundNotification()
+        // Sounds an earlier session left muted go back first, in the
+        // foreground where Android 17 honours it, before this one mutes any.
+        SystemSoundsGuard.restoreLeftover(this, duringRecording = true)
 
         whisperMode = settings.transcriptionEngine == "whisper"
         liveWhisper = whisperMode && !plannedAudioOnly(this, settings)
@@ -831,6 +834,9 @@ class RecordingService : Service() {
             } catch (_: Exception) {
             }
         }
+        // Written down, so a session that dies muted, or a restore Android 17
+        // ignores, is put right at the next start (SystemSoundsGuard).
+        SystemSoundsGuard.remember(this, mutedStreams)
     }
 
     private fun restoreSystemSounds() {
@@ -851,6 +857,10 @@ class RecordingService : Service() {
                 } catch (_: Exception) {
                 }
             }
+            // Android 17 ignores the unmute once the service has left the
+            // foreground (only onDestroy restores that late); what is still
+            // muted stays recorded for the next start.
+            SystemSoundsGuard.settle(this, am, mutedStreams.toList())
         }
         mutedStreams.clear()
         savedRingerMode = -1
