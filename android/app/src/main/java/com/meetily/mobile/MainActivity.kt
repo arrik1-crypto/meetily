@@ -657,9 +657,25 @@ class MainActivity : AppCompatActivity() {
         if (RecordingService.isRunning) return
         val id = store.activeId() ?: return
         store.clearActive()
-        if (store.load(id) != null) {
-            Toast.makeText(this, R.string.recording_recovered, Toast.LENGTH_LONG).show()
-        }
+        // Whether the meeting is still readable decides only the toast, and
+        // finding out parses the whole file, which an hours-long recording
+        // makes megabytes: on its own thread, not in onCreate before the
+        // first frame, and not on libraryLoader ahead of the list. The
+        // marker is still cleared here, so a re-created screen never asks
+        // twice, and the application context lets the toast outlive one.
+        val app = applicationContext
+        Thread({
+            val readable = try {
+                store.load(id) != null
+            } catch (_: Throwable) {
+                false
+            }
+            if (readable) {
+                runOnUiThread {
+                    Toast.makeText(app, R.string.recording_recovered, Toast.LENGTH_LONG).show()
+                }
+            }
+        }, "recording-recover").start()
     }
 
     override fun onResume() {
@@ -719,91 +735,131 @@ class MainActivity : AppCompatActivity() {
         // One prompt at a time: the crash offer's dismissal calls this again.
         if (crashDialog?.isShowing == true) return
         if (!JobGate.canStartBatch()) return
+        // A look already on its way answers this call too.
+        if (interruptedLookup) return
+        interruptedLookup = true
+        // Working out the prompt parses the interrupted meeting's whole file,
+        // which an hours-long one makes megabytes, and the job stays queued
+        // until a button is pressed: a prompt dismissed with Back is worked
+        // out again on every later resume. So on a worker, like the recovered
+        // recording's check, and the prompt opens only if it still may when
+        // the answer is back (InterruptedOffer.mayShow).
+        val app = applicationContext
+        interruptedWork.execute {
+            val offer = try {
+                findInterruptedWork(app)
+            } catch (_: Throwable) {
+                null
+            }
+            runOnUiThread {
+                interruptedLookup = false
+                if (offer == null) return@runOnUiThread
+                val may = InterruptedOffer.mayShow(
+                    visible = canOfferInterruptedWork(),
+                    promptShowing = interruptedDialog?.isShowing == true,
+                    crashShowing = crashDialog?.isShowing == true,
+                    canStartBatch = JobGate.canStartBatch(),
+                    stillInterrupted = InterruptedOffer.stillInterrupted(
+                        com.meetily.mobile.data.JobQueue.load(this), offer.job
+                    )
+                )
+                if (may) showInterruptedWork(offer)
+            }
+        }
+    }
+
+    /** offerInterruptedWork's worker is between its look and its answer. */
+    private var interruptedLookup = false
+
+    /**
+     * What offerInterruptedWork offers back, if anything, clearing the
+     * markers nothing can offer on the way. Reads and writes the job queue,
+     * meetings and audio: on interruptedWork only, so one look runs at a time.
+     */
+    @androidx.annotation.WorkerThread
+    private fun findInterruptedWork(app: Context): InterruptedOffer.Offer? {
         val queue = com.meetily.mobile.data.JobQueue
+        // A marker counts as dead only while nothing runs: a run started
+        // since offerInterruptedWork looked owns its marker.
+        if (!JobGate.canStartBatch()) return null
         // A run that died before its meeting was ever saved (a file import
         // killed during its first batch) left a marker nothing can offer.
         // Nothing is running (canStartBatch above), so every marker is dead.
-        for (dead in queue.interrupted(queue.load(this))) {
+        for (dead in queue.interrupted(queue.load(app))) {
             if (dead.kind != queue.KIND_IMPORT && !store.exists(dead.meetingId)) {
-                queue.finished(this, dead.kind, dead.meetingId)
+                queue.finished(app, dead.kind, dead.meetingId)
             }
         }
-        val interrupted = queue.interrupted(queue.load(this))
+        val interrupted = queue.interrupted(queue.load(app))
         // An import that died before its staged file became a meeting's
         // audio can be offered back; one that died after it has either a
         // meeting to show (its partial transcript) or nothing, in which case
         // the renamed audio is an orphan nobody can reach.
         val deadImport = interrupted.firstOrNull { it.kind == queue.KIND_IMPORT }
-        if (deadImport != null &&
-            !com.meetily.mobile.data.AudioStore.exists(this, deadImport.stagedFile)
-        ) {
+        if (deadImport != null && !AudioStore.exists(app, deadImport.stagedFile)) {
             // A meeting in Recently deleted is not an orphan: its audio
             // stays for a restore. Deleting it drops the marker, but that
             // write may not have reached the disk before the process died.
             if (deadImport.meetingId.isNotBlank() && !store.exists(deadImport.meetingId) &&
-                deadImport.meetingId !in com.meetily.mobile.data.MeetingTrash(this).ids()
+                deadImport.meetingId !in com.meetily.mobile.data.MeetingTrash(app).ids()
             ) {
                 // Named as the importer renames it: by the staged file's
                 // extension (a video's sound is staged as .m4a or the like).
-                com.meetily.mobile.data.AudioStore.delete(
-                    this,
-                    com.meetily.mobile.data.AudioStore.newImportFile(
-                        this, deadImport.meetingId,
+                AudioStore.delete(
+                    app,
+                    AudioStore.newImportFile(
+                        app, deadImport.meetingId,
                         deadImport.stagedFile.ifBlank { deadImport.sourceName }
                     ).name
                 )
             }
-            queue.dequeueStaged(this, deadImport.stagedFile)
+            queue.dequeueStaged(app, deadImport.stagedFile)
             // It had become a meeting whose words stop part-way: offered back
-            // below as carrying that meeting's transcript on from there, with
-            // the model and language the import ran with (TranscriptResume).
+            // as carrying that meeting's transcript on from there, with the
+            // model and language the import ran with (TranscriptResume).
             val unfinishedAt = deadImport.meetingId.takeIf { it.isNotBlank() }
                 ?.let { store.load(it) }
-                ?.takeIf { AudioStore.exists(this, it.audioFile) }
+                ?.takeIf { AudioStore.exists(app, it.audioFile) }
                 ?.transcriptResumeMs
             if (unfinishedAt != null) {
                 queue.markRunning(
-                    this, queue.KIND_CHECK, deadImport.meetingId, deadImport.payload,
+                    app, queue.KIND_CHECK, deadImport.meetingId, deadImport.payload,
                     firstTranscript = true, language = deadImport.language,
                     resumeFromMs = unfinishedAt
                 )
-                offerInterruptedWork()
+                return findInterruptedWork(app)
             }
-            return
+            return null
         }
-        val job = deadImport ?: interrupted.firstOrNull { store.exists(it.meetingId) } ?: return
-        val target = if (job.kind == queue.KIND_IMPORT) null else store.load(job.meetingId)
-        val title = if (job.kind == queue.KIND_IMPORT) {
-            job.sourceName
-        } else {
-            target?.title.orEmpty()
-        }
-        // A first transcript that stopped part-way carries on from where its
-        // words stop when resumed (TranscriptResume), and says so. One that
-        // stopped before any pause to carry on from (0) starts over.
-        val continueFrom = target?.takeIf { job.kind == queue.KIND_CHECK && job.firstTranscript }
-            ?.takeIf { AudioStore.exists(this, it.audioFile) }
-            ?.transcriptResumeMs
-            ?.takeIf { com.meetily.mobile.data.TranscriptResume.canContinue(it) }
+        val job = deadImport ?: interrupted.firstOrNull { store.exists(it.meetingId) } ?: return null
+        if (job.kind == queue.KIND_IMPORT) return InterruptedOffer.offer(job, null, false, null)
+        val target = store.load(job.meetingId)
+        return InterruptedOffer.offer(
+            job, target?.title, target != null && AudioStore.exists(app, target.audioFile),
+            target?.transcriptResumeMs
+        )
+    }
+
+    /** The prompt for [offer], worked out by findInterruptedWork. */
+    private fun showInterruptedWork(offer: InterruptedOffer.Offer) {
+        val queue = com.meetily.mobile.data.JobQueue
+        val job = offer.job
+        val continueFrom = offer.continueFromMs
         // A tap is only honoured while the job is still the interrupted one
         // offered. Otherwise a stale prompt could start a second run, or
         // dequeue the crash marker of a run that is already going.
         fun stillOffered(): Boolean =
-            JobGate.canStartBatch() &&
-                queue.interrupted(queue.load(this)).any {
-                    it.kind == job.kind && it.meetingId == job.meetingId &&
-                        it.stagedFile == job.stagedFile
-                }
+            JobGate.canStartBatch() && InterruptedOffer.stillInterrupted(queue.load(this), job)
         interruptedDialog = AlertDialog.Builder(this)
             .setTitle(R.string.resume_job_title)
             .setMessage(
                 if (continueFrom != null) {
                     getString(
-                        R.string.resume_job_continue_body, title,
+                        R.string.resume_job_continue_body, offer.title,
                         com.meetily.mobile.data.TranscriptResume.clock(continueFrom)
                     )
                 } else {
-                    getString(R.string.resume_job_body, title)
+                    getString(R.string.resume_job_body, offer.title)
                 }
             )
             .setPositiveButton(R.string.resume_job_yes) { _, _ ->
@@ -1382,5 +1438,16 @@ class MainActivity : AppCompatActivity() {
 
         /** Quiet time after the last keystroke before the library is searched. */
         private const val SEARCH_DEBOUNCE_MS = 150L
+
+        /**
+         * Works out the interrupted-work prompt (offerInterruptedWork) one
+         * look at a time for the whole process, not per screen: a re-created
+         * screen's look waits for its predecessor's, then reads what that one
+         * wrote (a dead import turned into a check to offer, an orphan's audio
+         * removed) instead of doing the same writes beside it.
+         */
+        private val interruptedWork = java.util.concurrent.Executors.newSingleThreadExecutor {
+            Thread(it, "interrupted-work")
+        }
     }
 }
