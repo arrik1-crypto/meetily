@@ -10,19 +10,8 @@ import java.util.concurrent.TimeUnit
  */
 object WhisperBridge {
 
-    @Volatile
-    private var loaded = false
-
-    fun load(): Boolean {
-        if (loaded) return true
-        return try {
-            com.meetily.mobile.data.CpuFeatures.loadEngineLibrary("meetily_whisper")
-            loaded = true
-            true
-        } catch (_: Throwable) {
-            false
-        }
-    }
+    /** Loads the native library, which also holds llama.cpp; see NativeEngines. */
+    fun load(): Boolean = com.meetily.mobile.data.NativeEngines.load()
 
     external fun initContext(modelPath: String): Long
     external fun freeContext(ptr: Long)

@@ -1,5 +1,6 @@
 package com.meetily.mobile
 
+import com.meetily.mobile.data.NativeEngines
 import com.meetily.mobile.llm.LlamaBridge
 import com.meetily.mobile.whisper.WhisperBridge
 import java.io.File
@@ -11,27 +12,28 @@ import org.junit.Assert.fail
 import org.junit.Test
 
 /**
- * Pins the JNI surface of the two Recap native libraries.
+ * Pins the JNI surface of Recap's native library.
  *
- * jni_exports.map hides every symbol of libmeetily_whisper and libmeetily_llama
- * except the JNI entry points. A native that ends up hidden, misnamed or in
- * the other library is not a build error: it is an UnsatisfiedLinkError at its
- * first call, on a phone. So the three descriptions of that surface must
+ * jni_exports.map hides every symbol of libmeetily_native (both CPU builds)
+ * except the JNI entry points. A native that ends up hidden, misnamed or left
+ * out of the library is not a build error: it is an UnsatisfiedLinkError at
+ * its first call, on a phone. So the three descriptions of that surface must
  * agree here, before anything is built:
  *  - the natives of the bridge classes, read from the compiled classes, so the
  *    names are the ones the VM will look up;
- *  - the Java_ functions each library's C sources define (per CMakeLists.txt);
+ *  - the Java_ functions the library's C sources define (per CMakeLists.txt);
  *  - jni_exports.txt, which scripts/check_jni_exports.py checks the built
  *    libraries against in CI.
  * And the map must export every listed name and nothing that looks like
- * engine internals.
+ * engine internals, and the names NativeEngines loads must be the libraries
+ * the two Gradle modules build.
  */
 class NativeExportsTest {
 
-    /** Every class with natives in our libraries, and the library it loads. */
+    /** Every class with natives in our library, and the library they are in. */
     private val bridges: Map<Class<*>, String> = mapOf(
-        WhisperBridge::class.java to "meetily_whisper",
-        LlamaBridge::class.java to "meetily_llama"
+        WhisperBridge::class.java to NativeEngines.BASELINE,
+        LlamaBridge::class.java to NativeEngines.BASELINE
     )
 
     /** Unit tests run from the module directory; the others are fallbacks. */
@@ -189,6 +191,7 @@ class NativeExportsTest {
         val internals = listOf(
             "meetily_render_chat",
             "meetily_vad_init",
+            "meetily_engine_log",
             "whisper_vad_init_from_file_with_params",
             "ggml_init",
             "llama_backend_init",
@@ -208,7 +211,7 @@ class NativeExportsTest {
 
     @Test
     fun onlyTheBridgesDeclareNativesAndEachLoadsItsLibrary() {
-        // A new class with natives in these libraries has to be added to
+        // A new class with natives in this library has to be added to
         // [bridges], or none of the checks above would see it. Natives in
         // com.k2fsa are sherpa-onnx's own library and are not checked here.
         val root = source("java/com/meetily/mobile")
@@ -222,13 +225,60 @@ class NativeExportsTest {
         }.toSet()
         assertEquals("files declaring natives (add a new bridge to [bridges])", expected, declaring)
 
+        // One loader picks the CPU build and loads it once for every bridge.
         for ((cls, lib) in bridges) {
             val file = File(root, cls.name.removePrefix("com.meetily.mobile.").replace('.', '/') + ".kt")
             assertTrue(
-                "${file.name} should load $lib",
-                kotlinCode(file.readText(), keepLiterals = true).contains("loadEngineLibrary(\"$lib\")")
+                "${file.name} should load lib$lib.so through NativeEngines.load()",
+                kotlinCode(file.readText(), keepLiterals = false).contains("NativeEngines.load()")
             )
         }
+        // Loading one of our libraries anywhere else could load the other CPU
+        // build beside it. (sherpa-onnx's library has loaders of its own.)
+        val direct = Regex("""loadLibrary\(\s*"meetily""")
+        val loaders = root.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" }
+            .filter { direct.containsMatchIn(kotlinCode(it.readText(), keepLiterals = true)) }
+            .map { it.relativeTo(root).invariantSeparatorsPath }
+            .toSet()
+        assertEquals(
+            "files loading a meetily library directly (use NativeEngines.load())",
+            emptySet<String>(),
+            loaders
+        )
+    }
+
+    /** A file of the Gradle project; unit tests run from the app module. */
+    private fun projectFile(path: String): File =
+        listOf(File("../$path"), File(path), File("android/$path")).firstOrNull { it.exists() }
+            ?: run {
+                fail("$path not found from ${File(".").absolutePath}")
+                throw IllegalStateException()
+            }
+
+    @Test
+    fun libraryNamesAgreeWithTheBuild() {
+        // A name NativeEngines loads that no module builds is an
+        // UnsatisfiedLinkError on every phone, or for the fast build a
+        // silent fall back to the slow one.
+        val cmake = source("cpp/CMakeLists.txt").readText()
+        val base = Regex("""set\(NATIVE_LIB\s+(\w+)\$\{MEETILY_LIB_SUFFIX\}\)""")
+            .find(cmake)?.groupValues?.get(1)
+        assertEquals("CMakeLists.txt library name", NativeEngines.BASELINE, base)
+
+        val targets = Regex("""targets\s*\+=\s*listOf\(([^)]*)\)""")
+        val quoted = Regex("\"([^\"]+)\"")
+        fun targetsOf(text: String): List<String> = targets.findAll(text)
+            .flatMap { m -> quoted.findAll(m.groupValues[1]).map { it.groupValues[1] } }
+            .toList()
+
+        val app = kotlinCode(projectFile("app/build.gradle.kts").readText(), keepLiterals = true)
+        assertEquals("app module CMake targets", listOf(NativeEngines.BASELINE), targetsOf(app))
+
+        val v82 = kotlinCode(projectFile("native-v82/build.gradle.kts").readText(), keepLiterals = true)
+        assertEquals("native-v82 CMake targets", listOf(NativeEngines.DOTPROD), targetsOf(v82))
+        val suffix = Regex("""-DMEETILY_LIB_SUFFIX=(\w+)""").find(v82)?.groupValues?.get(1)
+        assertEquals("native-v82 library name", NativeEngines.DOTPROD, NativeEngines.BASELINE + suffix)
     }
 
     @Test

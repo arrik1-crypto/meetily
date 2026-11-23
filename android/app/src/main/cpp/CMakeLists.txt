@@ -69,16 +69,20 @@ set(WHISPER_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(WHISPER_BUILD_SERVER OFF CACHE BOOL "" FORCE)
 # whisper.cpp b5907 also defines a `parakeet` library (its own NeMo port) on
 # every configure, with no option to drop it. Nothing here links it, and
-# both Gradle modules name the two JNI targets in externalNativeBuild
+# both Gradle modules name only the JNI target in externalNativeBuild
 # `targets`, so it is never built.
 
 # llama.cpp is fetched FIRST and provides the shared ggml target;
 # whisper.cpp reuses it via its `if (NOT TARGET ggml)` guard (still there at
-# b5907). The two must embed the same ggml: llama.cpp v1.0.0 and
-# whisper.cpp b5907 both carry ggml 1.0.0, and their ggml headers,
-# ggml/CMakeLists.txt, ggml-cpu/CMakeLists.txt and ggml.c are identical
-# (the only ggml difference is one MATH_LIBRARY test in ggml/src, unused
-# here because whisper.cpp's copy is never added). whisper.cpp has no
+# b5907; its WHISPER_USE_SYSTEM_GGML and llama.cpp's LLAMA_USE_SYSTEM_GGML
+# only find_package an installed ggml, which a FetchContent build has none
+# of). Both engines are then linked into ONE library over that ggml (see the
+# end of this file). The two must embed the same ggml: llama.cpp v1.0.0 and
+# whisper.cpp b5907 both carry ggml 1.0.0, and all 22 public ggml headers,
+# ggml/CMakeLists.txt, ggml-cpu/CMakeLists.txt and ggml.c are byte for byte
+# identical (the only ggml difference is one MATH_LIBRARY test in
+# ggml/src/CMakeLists.txt, unused here because whisper.cpp's copy is never
+# added). Re-check that with any bump of either tag. whisper.cpp has no
 # release tag on ggml 1.0.0 yet (no v1.9.6), hence the build tag.
 # llama.cpp v1.0.0 carries the gemma4 and qwen35 architectures. If this pair
 # ever fails, the fallback is llama.cpp v0.6.0 + whisper.cpp v1.9.5 (both
@@ -99,12 +103,12 @@ FetchContent_Declare(
 #
 # The ":native-v82" Gradle module builds this same file a second time with
 # -DGGML_CPU_ARM_ARCH=armv8.2-a+dotprod+fp16 and -DMEETILY_LIB_SUFFIX=_v82,
-# and CpuFeatures.kt loads that pair instead on phones whose every core
-# reports asimddp/asimdhp/fphp. Runtime-selected ggml variants
+# and NativeEngines.kt loads that library instead on phones whose every
+# core reports asimddp/asimdhp/fphp. Runtime-selected ggml variants
 # (GGML_BACKEND_DL + GGML_CPU_ALL_VARIANTS) would be neater, but need ggml,
 # whisper and llama as shared libraries and the variant MODULE libraries
 # packaged into the APK — too much to get right without a device to test on.
-set(MEETILY_LIB_SUFFIX "" CACHE STRING "Suffix for the JNI library names")
+set(MEETILY_LIB_SUFFIX "" CACHE STRING "Suffix for the JNI library name")
 if (GGML_CPU_ARM_ARCH AND NOT ANDROID_ABI STREQUAL "arm64-v8a")
     message(FATAL_ERROR "GGML_CPU_ARM_ARCH is an arm64-v8a-only setting (got ${ANDROID_ABI})")
 endif()
@@ -181,7 +185,7 @@ endif()
 # llama.cpp names the buffer in its "model buffer size" log line, and
 # KleidiAI logs its kernel choice once per process ("kleidiai: primary q8
 # kernel feature DOTPROD" or "I8MM", "kleidiai: SME disabled", and for q4_k
-# "no compatible q4_k kernels found"); llama_jni.c forwards those to
+# "no compatible q4_k kernels found"); engine_log.c forwards those to
 # logcat. whisper.cpp offers its weights to the same extra buffer types,
 # but the shipped Whisper models are F16, q5_0 and q5_1. KleidiAI has
 # nothing for q5_0/q5_1, and runs F16 matmuls only on SME2 (without
@@ -203,20 +207,37 @@ endif()
 
 FetchContent_MakeAvailable(llama_cpp whisper_cpp)
 
-set(WHISPER_JNI meetily_whisper${MEETILY_LIB_SUFFIX})
-set(LLAMA_JNI meetily_llama${MEETILY_LIB_SUFFIX})
+# One ggml for both engines: whisper.cpp must have taken llama.cpp's target
+# (see the FetchContent_Declare comment), not added a copy of its own.
+get_target_property(MEETILY_GGML_DIR ggml SOURCE_DIR)
+string(FIND "${MEETILY_GGML_DIR}/" "${llama_cpp_SOURCE_DIR}/" MEETILY_GGML_AT)
+if (NOT MEETILY_GGML_AT EQUAL 0)
+    message(FATAL_ERROR "ggml should come from llama.cpp (${llama_cpp_SOURCE_DIR}), not ${MEETILY_GGML_DIR}")
+endif()
+
+# ONE JNI library per CPU level: libmeetily_native.so here, and
+# libmeetily_native_v82.so when :native-v82 builds this file with
+# MEETILY_LIB_SUFFIX. Each holds whisper.cpp, llama.cpp, llama-common, the
+# one ggml above (with KleidiAI on arm64), the NDK's static libc++ and every
+# JNI source, so ggml and libc++ are linked once per level instead of once
+# per engine. The fetched targets keep their own compile flags, and ggml's
+# CPU flags still come only from GGML_CPU_ARM_ARCH (unset for the app
+# module: plain armv8-a), exactly as when the engines were two libraries.
+#
 # vad_guard.cpp: the speech gate's whisper_vad_* calls, where a C++
 # exception from whisper.cpp is caught before it can reach a JNI frame.
-add_library(${WHISPER_JNI} SHARED whisper_jni.c vad_guard.cpp)
-add_library(${LLAMA_JNI} SHARED llama_jni.c chat_render.cpp)
+# engine_log.c: the log callback both engines hand to the ggml they share.
+set(NATIVE_LIB meetily_native${MEETILY_LIB_SUFFIX})
+add_library(${NATIVE_LIB} SHARED
+    whisper_jni.c vad_guard.cpp llama_jni.c chat_render.cpp engine_log.c)
 
 # 16 KB page-size alignment for Android 15+ devices.
-target_link_options(${WHISPER_JNI} PRIVATE "-Wl,-z,max-page-size=16384")
-target_link_options(${LLAMA_JNI} PRIVATE "-Wl,-z,max-page-size=16384")
+target_link_options(${NATIVE_LIB} PRIVATE "-Wl,-z,max-page-size=16384")
 
 # Export only the JNI entry points (see jni_exports.map); everything else in
-# each library becomes local. This file is built twice (here and by
-# :native-v82, with MEETILY_LIB_SUFFIX), and both pairs come through here.
+# the library becomes local. This file is built twice (here and by
+# :native-v82, with MEETILY_LIB_SUFFIX), and both libraries come through
+# here.
 #
 # --no-undefined-version is already on in the NDK toolchain; it is repeated
 # so that a future exact name in the map that matches nothing fails the link
@@ -226,18 +247,15 @@ target_link_options(${LLAMA_JNI} PRIVATE "-Wl,-z,max-page-size=16384")
 # when compiling and --gc-sections when linking release builds. Do not add
 # compile flags here; ggml's CPU flags decide which phones can run it.
 set(MEETILY_JNI_EXPORTS "${CMAKE_CURRENT_SOURCE_DIR}/jni_exports.map")
-foreach(jni_lib ${WHISPER_JNI} ${LLAMA_JNI})
-    target_link_options(${jni_lib} PRIVATE
-        "-Wl,--version-script=${MEETILY_JNI_EXPORTS}"
-        "-Wl,--no-undefined-version")
-    # Without this an edit to the map does not relink the library.
-    set_property(TARGET ${jni_lib} APPEND PROPERTY LINK_DEPENDS "${MEETILY_JNI_EXPORTS}")
-    # Read by kleidiai_env.h (see the KleidiAI notes above).
-    if (MEETILY_KLEIDIAI_SME)
-        target_compile_definitions(${jni_lib} PRIVATE MEETILY_KLEIDIAI_SME=1)
-    endif()
-endforeach()
+target_link_options(${NATIVE_LIB} PRIVATE
+    "-Wl,--version-script=${MEETILY_JNI_EXPORTS}"
+    "-Wl,--no-undefined-version")
+# Without this an edit to the map does not relink the library.
+set_property(TARGET ${NATIVE_LIB} APPEND PROPERTY LINK_DEPENDS "${MEETILY_JNI_EXPORTS}")
+# Read by kleidiai_env.h (see the KleidiAI notes above).
+if (MEETILY_KLEIDIAI_SME)
+    target_compile_definitions(${NATIVE_LIB} PRIVATE MEETILY_KLEIDIAI_SME=1)
+endif()
 
-target_link_libraries(${WHISPER_JNI} PRIVATE whisper log)
 # llama-common (not "common") is the target name, still at v1.0.0.
-target_link_libraries(${LLAMA_JNI} PRIVATE llama llama-common log)
+target_link_libraries(${NATIVE_LIB} PRIVATE whisper llama llama-common log)

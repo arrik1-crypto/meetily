@@ -229,14 +229,14 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             photoAwaitingService = File(it)
         }
         ThemeManager.apply(this)
+        settings = AppSettings(this)
+        warmNativeEngines()
         setContentView(R.layout.activity_recording)
         EdgeToEdge.setUp(this)
         deviceAudioRequested =
             intent?.getBooleanExtra(EXTRA_DEVICE_AUDIO, false) == true
         readNudgeExtras(intent)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-
-        settings = AppSettings(this)
 
         titleInput = findViewById(R.id.titleInput)
         attendeesInput = findViewById(R.id.attendeesInput)
@@ -532,10 +532,18 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             val key = settings.whisperModel
             if (!com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)) {
                 Toast.makeText(this, R.string.whisper_model_missing, Toast.LENGTH_LONG).show()
-            } else if (
-                !com.meetily.mobile.whisper.TranscriptionModels.isRuntimeAvailable(key)
-            ) {
-                Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG).show()
+            } else {
+                // The first runtime check loads the native library, so it runs
+                // off the main thread; the Toast is all that depends on it.
+                Thread {
+                    if (!com.meetily.mobile.whisper.TranscriptionModels.isRuntimeAvailable(key)) {
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG)
+                                .show()
+                        }
+                    }
+                }.start()
             }
         }
         if (deviceAudioRequested &&
@@ -1275,6 +1283,25 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
      */
     private fun whisperReadyForDeviceAudio(): Boolean =
         settings.transcriptionEngine == "whisper"
+
+    /**
+     * Starts loading the native library in the background when this screen
+     * is going to need it anyway: [RecordingService.plannedAudioOnly] loads it
+     * on the main thread for live Whisper, and [startNewSession] checks the
+     * runtime of a downloaded Whisper model. The library holds llama.cpp as
+     * well as whisper.cpp, so its first load is worth overlapping with
+     * inflating the layout. NeMo models run on sherpa-onnx instead.
+     */
+    private fun warmNativeEngines() {
+        if (settings.transcriptionEngine != "whisper") return
+        val key = settings.whisperModel
+        if (com.meetily.mobile.whisper.TranscriptionModels.isNemo(key)) return
+        if (settings.liveTranscription ||
+            com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(this, key)
+        ) {
+            com.meetily.mobile.data.NativeEngines.warmUp()
+        }
+    }
 
     /**
      * The system screen-capture consent; declined or failed means microphone.

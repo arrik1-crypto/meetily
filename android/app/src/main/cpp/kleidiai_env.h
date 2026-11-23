@@ -6,12 +6,11 @@
  *
  * ggml has no build option for this, only the GGML_KLEIDIAI_SME variable
  * (llama.cpp v1.0.0, ggml-cpu/kleidiai/kleidiai.cpp): 0 drops the
- * SME-family kernels. Each library's ggml reads it once, the first time a
- * model load asks for its buffer types, so every entry point that loads a
- * model calls this first. The variable is process-wide and both libraries
- * set the same value, so it does not matter which engine loads first. An
- * existing value is kept (overwrite 0), so a debuggable build can still set
- * it from wrap.sh.
+ * SME-family kernels. The ggml both engines share in libmeetily_native reads
+ * it once, the first time a model load asks for its buffer types, so every
+ * entry point that loads a model calls this first: it does not matter which
+ * engine loads first. An existing value is kept (overwrite 0), so a
+ * debuggable build can still set it from wrap.sh.
  */
 #pragma once
 

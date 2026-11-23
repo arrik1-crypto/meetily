@@ -412,11 +412,19 @@ class SettingsActivity : AppCompatActivity() {
         useLlmSwitch.setOnCheckedChangeListener { _, _ -> updateLlmSectionVisibility() }
         whisperSwitch.setOnCheckedChangeListener { _, checked ->
             updateWhisperSection()
-            if (checked && !WhisperModels.isRuntimeAvailable()) {
-                Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG).show()
-            }
             if (checked) {
                 systemEngineConfirmed = false
+                // The first runtime check loads the native library (llama.cpp
+                // as well as whisper.cpp), so it runs off the main thread.
+                Thread {
+                    if (!WhisperModels.isRuntimeAvailable()) {
+                        runOnUiThread {
+                            if (isFinishing || isDestroyed) return@runOnUiThread
+                            Toast.makeText(this, R.string.whisper_unavailable, Toast.LENGTH_LONG)
+                                .show()
+                        }
+                    }
+                }.start()
             } else if (!systemEngineConfirmed) {
                 confirmSystemEngine()
             }

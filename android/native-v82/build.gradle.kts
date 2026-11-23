@@ -2,17 +2,17 @@ plugins {
     id("com.android.library")
 }
 
-// A second build of the whisper/llama JNI libraries, compiled for
-// armv8.2-a+dotprod+fp16 and named with a "_v82" suffix
-// (libmeetily_whisper_v82.so, libmeetily_llama_v82.so). It shares the app's
-// CMakeLists; only the ggml CPU target and the library names differ.
+// A second build of the JNI library (whisper.cpp and llama.cpp over one
+// ggml), compiled for armv8.2-a+dotprod+fp16 and named with a "_v82" suffix
+// (libmeetily_native_v82.so). It shares the app's CMakeLists; only the ggml
+// CPU target and the library name differ.
 //
 // ggml selects its kernels at compile time, so the app's baseline build runs
 // emulated dot products and f32-converted F16 maths even on phones that have
 // the instructions. This build uses them, but would crash (SIGILL) on the
 // Cortex-A53/A73 phones minSdk 26 still admits, so it is never loaded
-// blindly: CpuFeatures.loadEngineLibrary checks /proc/cpuinfo first and
-// falls back to the baseline pair.
+// blindly: NativeEngines checks /proc/cpuinfo (CpuFeatures) first and falls
+// back to the baseline library.
 //
 // The Arm KleidiAI kernels are the exception: ggml picks those at run time,
 // so they are on in both builds (see CMakeLists.txt).
@@ -40,9 +40,9 @@ android {
                 (project.findProperty("kleidiaiSourceDir") as String?)?.let {
                     arguments += "-DFETCHCONTENT_SOURCE_DIR_KLEIDIAI=$it"
                 }
-                // Only the two JNI libraries; nothing else in the tree
-                // needs building twice.
-                targets += listOf("meetily_whisper_v82", "meetily_llama_v82")
+                // Only the JNI library; nothing else in the tree needs
+                // building twice.
+                targets += listOf("meetily_native_v82")
             }
         }
     }

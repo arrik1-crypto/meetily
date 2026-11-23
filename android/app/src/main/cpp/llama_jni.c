@@ -8,48 +8,12 @@
 /* Jinja rendering and control-token-safe tokenisation (chat_render.cpp). */
 #include "chat_render.h"
 #include "kleidiai_env.h"
+/* The log callback shared with whisper_jni.c (engine_log.c). */
+#include "engine_log.h"
 
 #define TAG "meetily_llama"
 #define LOGI(...) __android_log_print(ANDROID_LOG_INFO, TAG, __VA_ARGS__)
 #define LOGE(...) __android_log_print(ANDROID_LOG_ERROR, TAG, __VA_ARGS__)
-
-/*
- * llama.cpp and its ggml log through one callback, which defaults to stderr:
- * nothing an app process sees. Forward warnings and errors, and from INFO
- * only the load-time lines that say where the model went and what it costs:
- * "<buffer> model/KV/compute buffer size = N MiB" (the buffer name says
- * CPU_KLEIDIAI or CPU_REPACK when those took the weights), KleidiAI's
- * "kleidiai: ..." kernel choice, and the KV cache's cell counts
- * ("llama_kv_cache: size = ...", and llama_kv_cache_iswa's "creating ...
- * KV cache, size = N cells", which shows whether a sliding-window model got
- * the small cache). Shape only: nothing forwarded carries prompt or reply
- * text, like every other log line in this file.
- */
-static void forward_engine_log(enum ggml_log_level level, const char *text, void *user_data) {
-    (void) user_data;
-    if (text == NULL) return;
-    int prio;
-    switch (level) {
-        case GGML_LOG_LEVEL_ERROR:
-            prio = ANDROID_LOG_ERROR;
-            break;
-        case GGML_LOG_LEVEL_WARN:
-            prio = ANDROID_LOG_WARN;
-            break;
-        case GGML_LOG_LEVEL_INFO:
-            if (strstr(text, " buffer size = ") == NULL &&
-                strncmp(text, "kleidiai:", 9) != 0 &&
-                strncmp(text, "llama_kv_cache: size = ", 23) != 0 &&
-                strstr(text, " KV cache, size = ") == NULL) {
-                return;
-            }
-            prio = ANDROID_LOG_INFO;
-            break;
-        default:
-            return; /* DEBUG, and CONT pieces (which carry no level of their own) */
-    }
-    __android_log_print(prio, "meetily_ggml", "%s", text);
-}
 
 /*
  * Why the last generate()/countTokens() failed.
@@ -168,7 +132,7 @@ Java_com_meetily_mobile_llm_LlamaBridge_initModel(
     const char *path = (*env)->GetStringUTFChars(env, model_path, NULL);
     if (path == NULL) return 0;
 
-    llama_log_set(forward_engine_log, NULL);
+    llama_log_set(meetily_engine_log, NULL);
     meetily_kleidiai_env();
     llama_backend_init();
 

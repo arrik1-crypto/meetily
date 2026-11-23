@@ -6,19 +6,8 @@ package com.meetily.mobile.llm
  */
 object LlamaBridge {
 
-    @Volatile
-    private var loaded = false
-
-    fun load(): Boolean {
-        if (loaded) return true
-        return try {
-            com.meetily.mobile.data.CpuFeatures.loadEngineLibrary("meetily_llama")
-            loaded = true
-            true
-        } catch (_: Throwable) {
-            false
-        }
-    }
+    /** Loads the native library, which also holds whisper.cpp; see NativeEngines. */
+    fun load(): Boolean = com.meetily.mobile.data.NativeEngines.load()
 
     /**
      * Loads [modelPath] with a context of [nCtx] tokens, clamped to the
