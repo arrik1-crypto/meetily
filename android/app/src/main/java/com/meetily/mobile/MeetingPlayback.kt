@@ -14,6 +14,7 @@ import android.os.Looper
 import android.os.PowerManager
 import androidx.core.content.ContextCompat
 import com.meetily.mobile.data.AudioDeletions
+import com.meetily.mobile.data.FocusClient
 import com.meetily.mobile.data.OpenMeetings
 import com.meetily.mobile.data.PlaybackFocus
 import com.meetily.mobile.data.PlaybackLifecycle
@@ -317,7 +318,7 @@ object MeetingPlayback {
         if (!current.prepared) return PlayResult.NOT_READY
         if (RecordingService.isRunning) return PlayResult.RECORDING
         app = context.applicationContext
-        if (!requestFocus(context)) return PlayResult.FOCUS_DENIED
+        if (!requestFocus()) return PlayResult.FOCUS_DENIED
         resumeOnGain = false
         startPlayer(current)
         PlaybackService.sync(context)
@@ -647,8 +648,15 @@ object MeetingPlayback {
 
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change -> onFocusChange(change) }
 
-    private fun requestFocus(context: Context): Boolean {
-        val manager = context.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return true
+    /**
+     * Request and abandon through one AudioManager, the application's: the
+     * screen's or the service's would leave a request on the system's focus
+     * stack that the next play from elsewhere pauses itself with (FocusClient).
+     */
+    private val focus = FocusClient { app?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager }
+
+    private fun requestFocus(): Boolean {
+        val manager = focus.forRequest() ?: return true
         val request = focusRequest ?: AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
             .setAudioAttributes(attributes)
             // Speech under another sound loses words: asked, then paused (PlaybackFocus).
@@ -663,7 +671,7 @@ object MeetingPlayback {
     private fun abandonFocus() {
         val request = focusRequest ?: return
         focusRequest = null
-        val manager = app?.getSystemService(Context.AUDIO_SERVICE) as? AudioManager ?: return
+        val manager = focus.forAbandon() ?: return
         try {
             manager.abandonAudioFocusRequest(request)
         } catch (_: Exception) {

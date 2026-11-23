@@ -43,7 +43,9 @@ object FindReplace {
         val transcriptLines: Int = 0,
         val notes: Int = 0,
         val summary: Int = 0,
-        val actionItems: Int = 0
+        val actionItems: Int = 0,
+        /** Of [summary], the changes in summaries kept for other styles, which the summary card does not show. */
+        val keptSummaries: Int = 0
     ) {
         fun of(area: Area): Int = when (area) {
             Area.TRANSCRIPT -> transcriptMatches
@@ -214,16 +216,17 @@ object FindReplace {
             if (taskEdits.isNotEmpty() && leavesText(item.task, taskEdits)) items += taskEdits.size
             item.owner?.let { items += edits(it, pattern, query.replace).size }
         }
+        val kept = source.keptSummaries.sumOf { text ->
+            val keptEdits = edits(text, pattern, query.replace)
+            if (keptEdits.isNotEmpty() && leavesText(text, keptEdits)) keptEdits.size else 0
+        }
         return Counts(
             transcriptMatches = matches,
             transcriptLines = lines,
             notes = edits(source.notes, pattern, query.replace).size,
-            summary = edits(source.summary, pattern, query.replace).size +
-                source.keptSummaries.sumOf { text ->
-                    val keptEdits = edits(text, pattern, query.replace)
-                    if (keptEdits.isNotEmpty() && leavesText(text, keptEdits)) keptEdits.size else 0
-                },
-            actionItems = items
+            summary = edits(source.summary, pattern, query.replace).size + kept,
+            actionItems = items,
+            keptSummaries = kept
         )
     }
 

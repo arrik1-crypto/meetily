@@ -48,7 +48,12 @@ import java.nio.ByteOrder
  */
 internal object PassageSilencer {
 
-    enum class Outcome { DONE, CANCELLED, NO_SPACE, FAILED }
+    /**
+     * How a run ended. NEEDS_CONSENT: the recording decodes to a format the
+     * encoder cannot take and the user did not agree to the whole recording
+     * being mixed down (PassageAudio.mayWrite); nothing was written.
+     */
+    enum class Outcome { DONE, CANCELLED, NO_SPACE, FAILED, NEEDS_CONSENT }
 
     class Result(
         val outcome: Outcome,
@@ -71,11 +76,47 @@ internal object PassageSilencer {
     /** Below this much free space a failed write is taken for a full disk. */
     private const val LOW_SPACE_BYTES = 16L * 1024 * 1024
 
+    /** The recording would be mixed down, which the user did not agree to. */
+    private class ConvertNotAgreed : RuntimeException()
+
+    /**
+     * What writing [file] again does to it beyond the passage, from its
+     * first audio track's header, for the confirmation
+     * (PassageAudio.reencodeOf); null when the header cannot be read.
+     */
+    @WorkerThread
+    fun reencodeOf(file: File): PassageAudio.Reencode? {
+        val extractor = MediaExtractor()
+        return try {
+            extractor.setDataSource(file.absolutePath)
+            val format = (0 until extractor.trackCount)
+                .map { extractor.getTrackFormat(it) }
+                .firstOrNull { it.getString(MediaFormat.KEY_MIME).orEmpty().startsWith("audio/") }
+                ?: return null
+            PassageAudio.reencodeOf(
+                format.getString(MediaFormat.KEY_MIME),
+                format.getInteger(MediaFormat.KEY_SAMPLE_RATE),
+                format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+            )
+        } catch (_: Exception) {
+            null
+        } finally {
+            try {
+                extractor.release()
+            } catch (_: Throwable) {
+            }
+        }
+    }
+
     /**
      * Writes [source] with [startMs, endMs) silenced into [out], using
      * [probe] for the delay measurement. [onProgress] gets 0..99 and the
      * recording's ms decoded so far. [out] is deleted unless the outcome
-     * is DONE, and [probe] always.
+     * is DONE, and [probe] always. A recording that decodes to a format
+     * the encoder cannot take is mixed down to 16 kHz mono only when
+     * [allowConvert] (the confirmation said so); otherwise the outcome is
+     * NEEDS_CONSENT, decided on what the decoder gives, before anything is
+     * written.
      */
     @WorkerThread
     fun silence(
@@ -86,6 +127,7 @@ internal object PassageSilencer {
         endMs: Long,
         sourceBitRate: Int,
         totalMs: Long,
+        allowConvert: Boolean,
         cancelled: () -> Boolean,
         onProgress: (percent: Int, doneMs: Long) -> Unit
     ): Result {
@@ -93,9 +135,13 @@ internal object PassageSilencer {
         var pipeline: Pipeline? = null
         val outcome = try {
             val decoded = decode(source, cancelled) { pcm, frames, rate, channels ->
-                val p = pipeline ?: setUp(rate, channels, sourceBitRate, startMs, endMs, out, probe, cancelled)
-                    ?.also { pipeline = it }
-                    ?: throw IllegalStateException("the codec's delay could not be measured")
+                val p = pipeline ?: run {
+                    // Asked of the decoder's format: the header PassageUi read may differ.
+                    if (!PassageAudio.mayWrite(rate, channels, allowConvert)) throw ConvertNotAgreed()
+                    setUp(rate, channels, sourceBitRate, startMs, endMs, out, probe, cancelled)
+                        ?.also { pipeline = it }
+                        ?: throw IllegalStateException("the codec's delay could not be measured")
+                }
                 if (rate != p.sourceRate || channels != p.sourceChannels) {
                     throw IllegalStateException("format changed mid-file")
                 }
@@ -117,6 +163,8 @@ internal object PassageSilencer {
                     if (verdict == PassageSwap.Verdict.OK) Outcome.DONE else Outcome.FAILED
                 }
             }
+        } catch (_: ConvertNotAgreed) {
+            Outcome.NEEDS_CONSENT
         } catch (_: IOException) {
             if (cancelled()) Outcome.CANCELLED else if (lowOnSpace(out)) Outcome.NO_SPACE else Outcome.FAILED
         } catch (_: Throwable) {

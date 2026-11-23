@@ -539,6 +539,8 @@ class SummaryAlternativesTest {
             com.meetily.mobile.data.FindReplace.Source.of(m), q
         )
         assertEquals(2, counted.summary)
+        // One of them is in the kept Standup summary, which the card does not show.
+        assertEquals(1, counted.keptSummaries)
         val snapshot = com.meetily.mobile.data.FindReplace.apply(m, q, area)!!
         assertEquals(2, snapshot.counts.summary)
         assertEquals("John called", m.summary)

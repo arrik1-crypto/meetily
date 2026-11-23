@@ -22,6 +22,7 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.FindReplace
 import com.meetily.mobile.data.FindReplace.Area
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.data.SummaryAlternatives
 import com.meetily.mobile.reminders.Reminders
 import com.meetily.mobile.security.AppLock
 import com.meetily.mobile.whisper.Vocab
@@ -111,7 +112,8 @@ class MeetingReplace(
         }
         host.takeFieldEdits()
         val source = FindReplace.Source.of(m)
-        val hasSummary = m.summary.isNotBlank()
+        // The one shown or one kept for another style: a transcript change marks them all.
+        val hasSummary = SummaryAlternatives.hasAny(m)
 
         val view = LayoutInflater.from(activity).inflate(R.layout.replace_dialog, null)
         val findInput = view.findViewById<EditText>(R.id.replace_find_input)
@@ -182,7 +184,12 @@ class MeetingReplace(
                 activity.getString(R.string.replace_area_transcript_none, changes(0))
             }
             notesBox.text = activity.getString(R.string.replace_area_notes, changes(c.notes))
-            summaryBox.text = activity.getString(R.string.replace_area_summary, changes(c.summary))
+            // Changes in summaries kept for other styles are not on the card: said apart.
+            summaryBox.text = if (c.keptSummaries > 0) {
+                activity.getString(R.string.replace_area_summary_kept, changes(c.summary), changes(c.keptSummaries))
+            } else {
+                activity.getString(R.string.replace_area_summary, changes(c.summary))
+            }
             actionsBox.text = activity.getString(R.string.replace_area_actions, changes(c.actionItems))
 
             val areas = areas()

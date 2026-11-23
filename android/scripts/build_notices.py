@@ -211,6 +211,13 @@ Material Components for Android 1.12.0
     Copyright (c) Google LLC
     https://github.com/material-components/material-components-android
 
+Material Design Icons
+    Apache License 2.0
+    Copyright (c) Google LLC
+    https://github.com/google/material-design-icons
+    Some of the app's icons are drawn from this set, such as the player's
+    back and forward 15 seconds.
+
 ML Kit Text Recognition 16.0.1
     Google APIs Terms of Service
     Copyright (c) Google LLC
@@ -579,7 +586,8 @@ def main() -> int:
         rule("MIT License - GTCRN"),
         texts["mit_gtcrn"],
         rule(
-            "Apache License 2.0 - sherpa-onnx, Arm KleidiAI, AndroidX, Material Components, Kotlin"
+            "Apache License 2.0 - sherpa-onnx, Arm KleidiAI, AndroidX, Material Components,"
+            " Material Design Icons, Kotlin"
         ).rstrip("\n") + "\n",
         texts["apache"],
         rule("Creative Commons Attribution 4.0 International (CC BY 4.0)"),

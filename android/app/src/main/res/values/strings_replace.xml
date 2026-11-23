@@ -29,6 +29,9 @@
     <string name="replace_area_transcript_none">Transcript: %1$s</string>
     <string name="replace_area_notes">Notes: %1$s</string>
     <string name="replace_area_summary">Summary: %1$s</string>
+    <!-- %1$s is all the summary area's changes, %2$s those of them in the
+         summaries kept for other styles (each such as "2 changes"). -->
+    <string name="replace_area_summary_kept">Summary: %1$s (%2$s in the other summaries)</string>
     <string name="replace_area_actions">Action items: %1$s</string>
 
     <!-- Status line under the areas; read out politely as it changes. -->
@@ -40,7 +43,7 @@
         <item quantity="one">Replace makes %d change. Word timings are kept, and you can undo it.</item>
         <item quantity="other">Replace makes %d changes. Word timings are kept, and you can undo it.</item>
     </plurals>
-    <string name="replace_stale_note">Changing the transcript marks the summary as out of date. Replace in the summary fixes its wording, not what it paraphrased.</string>
+    <string name="replace_stale_note">Changing the transcript marks this meeting\'s summaries as out of date. Replace in the summary fixes their wording, not what they paraphrased.</string>
 
     <string name="replace_busy">Find &amp; replace is available once this meeting has finished recording or transcribing, and any summary, notes or speaker run on it is done.</string>
     <string name="replace_nothing">Nothing was replaced. The meeting changed since the preview.</string>

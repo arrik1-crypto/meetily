@@ -41,7 +41,8 @@
     </plurals>
     <string name="passage_summary_empty">The end comes before the start. Choose a later end.</string>
 
-    <!-- The confirmation, which says exactly what is lost. -->
+    <!-- The confirmation, which says exactly what is lost, and what is kept
+         that may still mention the passage. -->
     <!-- %1$s is a span such as "12:03 – 12:41". -->
     <string name="passage_confirm_title">Remove %1$s?</string>
     <!-- %1$s is a length such as "38 s". -->
@@ -61,6 +62,11 @@
     </plurals>
     <string name="passage_confirm_audio">• the audio, which becomes silence. The recording keeps its length, so every other moment stays where it is</string>
     <string name="passage_confirm_no_audio">This meeting has no audio, so only the lines go.</string>
+    <!-- The new file is AAC whatever the recording was (PassageAudio.Reencode).
+         16 kHz mono is PassageAudio.SPEECH_RATE, one channel: what the phone
+         falls back to for a rate or channel count its encoder cannot take. -->
+    <string name="passage_confirm_reencode">The whole recording, not only the passage, is saved again as compressed audio (AAC), and the original file is deleted. A lossless original, such as WAV or FLAC, loses some quality.</string>
+    <string name="passage_confirm_downgrade">The phone cannot save audio in this recording\'s format, so the whole recording, not only the passage, is saved again as compressed audio (AAC) at 16 kHz mono, and the original file is deleted. Its channels are mixed into one, and any higher sample rate is lost.</string>
     <string name="passage_confirm_silence_only">No words start inside it, so the transcript stays as it is.</string>
     <string name="passage_confirm_snapped">Some of its lines have no word timings, so the passage was widened to take those lines whole.</string>
     <plurals name="passage_confirm_chapters_moved">
@@ -76,8 +82,9 @@
         <item quantity="other">%d photos were taken during the passage. They are kept.</item>
     </plurals>
     <string name="passage_confirm_clearvoice">The clear-voice copy is deleted, because it holds the passage. You can make it again from the player.</string>
-    <string name="passage_confirm_summary">The summary is marked out of date.</string>
-    <string name="passage_confirm_summaries">Every summary of this meeting is marked out of date.</string>
+    <string name="passage_confirm_summary">The summary is marked out of date. Its text is not changed and may still mention what was said in the passage: generate it again or edit it to leave the passage out.</string>
+    <string name="passage_confirm_summaries">Every summary of this meeting is marked out of date. Their text is not changed and may still mention what was said in the passage: generate them again or edit them to leave the passage out.</string>
+    <string name="passage_confirm_derived">The title, notes, action items, answers under Ask this meeting and chapter titles are kept as they are, so they may still mention what was said in the passage.</string>
     <string name="passage_confirm_resume_done">Nothing is left to transcribe after it, so the transcript counts as complete.</string>
     <string name="passage_confirm_final">This cannot be undone.</string>
     <string name="passage_confirm_button">Remove passage</string>
@@ -99,6 +106,7 @@
     <string name="passage_no_space">Not enough free space to write the audio again. Free some space and try again. Nothing was changed.</string>
     <string name="passage_timed_out">Stopped: Android limits how long apps may process media each day. Nothing was changed; try again later.</string>
     <string name="passage_gone">The meeting or its audio changed meanwhile, so nothing was removed.</string>
+    <string name="passage_needs_convert">Removing this passage would save the whole recording again at lower quality (16 kHz mono). Nothing was changed. Remove the passage again to see what changes.</string>
     <string name="passage_blocked_recording">Wait until the recording ends, then try again.</string>
     <string name="passage_blocked_running">A passage of this meeting is being removed.</string>
     <string name="passage_blocked_other">A passage of another meeting is being removed. Try again when it ends.</string>

@@ -3,6 +3,7 @@ package com.meetily.mobile
 import android.media.AudioManager
 import android.view.KeyEvent
 import com.meetily.mobile.data.AudioDeletions
+import com.meetily.mobile.data.FocusClient
 import com.meetily.mobile.data.PlaybackFocus
 import com.meetily.mobile.data.PlaybackFocus.Action
 import com.meetily.mobile.data.PlaybackKeys
@@ -12,6 +13,8 @@ import com.meetily.mobile.data.PlaybackSessionText
 import com.meetily.mobile.data.PlaybackSkip
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -173,6 +176,71 @@ class PlaybackRulesTest {
             PlaybackFocus.Resume.STAY_PAUSED,
             PlaybackFocus.resume(prepared = false, reopening = false, recording = false)
         )
+    }
+
+    // --- One AudioManager for focus ---------------------------------------------
+
+    /**
+     * Android's focus stack, as far as it matters here: a request is named
+     * after the manager it went through (its toString() and the listener's),
+     * a new request sends a loss to every other one and replaces them, and
+     * an abandon removes only the request of the manager it went through.
+     */
+    private class FocusStack {
+        val entries = ArrayList<Any>()
+        val lossesSent = ArrayList<Any>()
+
+        fun request(manager: Any) {
+            for (other in entries) if (other !== manager) lossesSent.add(other)
+            entries.clear()
+            entries.add(manager)
+        }
+
+        fun abandon(manager: Any) {
+            entries.removeAll { it === manager }
+        }
+    }
+
+    @Test
+    fun aPauseOnOneSurfaceAndAPlayOnAnotherNeverPausesItself() {
+        // The meeting screen, the playback service and the application each
+        // have their own AudioManager; focus goes through the application's.
+        val application = Any()
+        val focus = FocusClient { application }
+        val stack = FocusStack()
+        // Play on the meeting screen.
+        stack.request(focus.forRequest()!!)
+        // Pause on the lock screen: the request is given up.
+        stack.abandon(focus.forAbandon()!!)
+        assertTrue(stack.entries.isEmpty())
+        // Play on the lock screen: no stale request is left to be sent a
+        // loss, which would pause the player as it starts.
+        stack.request(focus.forRequest()!!)
+        assertTrue(stack.lossesSent.isEmpty())
+        stack.abandon(focus.forAbandon()!!)
+        assertTrue(stack.entries.isEmpty())
+    }
+
+    @Test
+    fun focusIsGivenUpThroughTheManagerItWasAskedThrough() {
+        var current: Any? = Any()
+        val focus = FocusClient { current }
+        val asked = focus.forRequest()
+        // Asked again while held (Play twice): the same manager.
+        current = Any()
+        assertSame(asked, focus.forRequest())
+        // Whatever the supplier gives now, the abandon goes where the request went.
+        assertSame(asked, focus.forAbandon())
+        assertNull(focus.forAbandon())
+        // A later request starts afresh from the supplier.
+        assertSame(current, focus.forRequest())
+    }
+
+    @Test
+    fun noManagerMeansNothingToGiveUp() {
+        val focus = FocusClient<Any> { null }
+        assertNull(focus.forRequest())
+        assertNull(focus.forAbandon())
     }
 
     // --- Skips -----------------------------------------------------------------

@@ -131,6 +131,46 @@ object PassageAudio {
         return Format(rate, ch, bitRateFor(sourceBitRate, rate, ch))
     }
 
+    /**
+     * Whether a run may write the recording, which decodes to [sampleRate]
+     * and [channels], in the format [formatFor] gives: always when that
+     * keeps its rate and channels, and otherwise only when the user saw the
+     * confirmation say that the whole recording is mixed down to 16 kHz
+     * mono ([allowConvert], see [reencodeOf]). The decoder has the last
+     * word, since it can give other than the file's header says, so the run
+     * asks this again of what it decodes.
+     */
+    fun mayWrite(sampleRate: Int, channels: Int, allowConvert: Boolean): Boolean =
+        allowConvert || !formatFor(sampleRate, channels, -1).converts(sampleRate, channels)
+
+    /** The MIME type of AAC (MediaFormat.MIMETYPE_AUDIO_AAC), which the new file is. */
+    const val AAC_MIME = "audio/mp4a-latm"
+
+    /** What writing the recording again does to it beyond the passage, for the confirmation. */
+    enum class Reencode {
+        /** AAC already, at a rate and channel count the encoder takes: written again as it was. */
+        SAME_FORMAT,
+
+        /** Another kind of audio (WAV, FLAC, MP3, Opus…): written again as AAC, at its own rate and channels. */
+        OTHER_CODEC,
+
+        /** A rate or channel count the encoder cannot take: the whole recording is mixed down to 16 kHz mono. */
+        DOWNGRADED
+    }
+
+    /**
+     * [Reencode] for a recording whose first audio track's header states
+     * [mime], [sampleRate] and [channels]. A rate or channel count that is
+     * not known counts as [Reencode.DOWNGRADED], so the confirmation says
+     * the most that can happen.
+     */
+    fun reencodeOf(mime: String?, sampleRate: Int, channels: Int): Reencode = when {
+        sampleRate <= 0 || channels <= 0 -> Reencode.DOWNGRADED
+        !mayWrite(sampleRate, channels, allowConvert = false) -> Reencode.DOWNGRADED
+        mime != AAC_MIME -> Reencode.OTHER_CODEC
+        else -> Reencode.SAME_FORMAT
+    }
+
     /** See [formatFor]. */
     fun bitRateFor(sourceBitRate: Int, sampleRate: Int, channels: Int): Int {
         // AAC-LC carries at most 6144 bits per channel in a 1024-sample frame.

@@ -43,7 +43,7 @@ AI SUMMARIES — EVEN OFFLINE
 FIND IT, FIX IT
 • Search that jumps to the moment, photo text included; find in
   meeting; find & replace with undo
-• Cut a passage's words and audio out of a meeting
+• Remove a passage: its words go and its audio turns to silence
 • Restore deleted meetings for 30 days
 • Free up space: remove old audio, keep transcripts
 
@@ -87,4 +87,4 @@ consent.
 
 Recap is open source.
 ----------------------------------------------------------------
-(char count 3,978, counting line breaks — under the 4,000 limit)
+(char count 3,991, counting line breaks — under the 4,000 limit)

@@ -12,9 +12,11 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.data.PassageAudio
 import com.meetily.mobile.data.PassagePlan
 import com.meetily.mobile.data.TranscriptResume
 import com.meetily.mobile.security.AppLock
+import com.meetily.mobile.whisper.PassageSilencer
 import java.io.File
 
 /**
@@ -107,17 +109,19 @@ class PassageUi(
         }
         val file = host.audioFile()
         val known = host.playerDurationMs()
-        if (file == null || known > 0L) {
-            pickRange(m, index, known.takeIf { it > 0L })
+        if (file == null) {
+            pickRange(m, index, known.takeIf { it > 0L }, null)
             return
         }
-        // The recording's length bounds the last line. Raw ADTS states none,
-        // so it is read by walking the file: a worker.
+        // The recording's format, for what writing it again does to it (the
+        // confirmation), and its length, which bounds the last line: raw
+        // ADTS states none, so it is read by walking the file. A worker.
         if (measuring) return
         measuring = true
-        Toast.makeText(activity, R.string.passage_reading, Toast.LENGTH_SHORT).show()
+        if (known <= 0L) Toast.makeText(activity, R.string.passage_reading, Toast.LENGTH_SHORT).show()
         Thread {
-            val durationMs = ClearVoiceService.durationMs(file)
+            val reencode = PassageSilencer.reencodeOf(file)
+            val durationMs = if (known > 0L) known else ClearVoiceService.durationMs(file)
             activity.runOnUiThread {
                 measuring = false
                 if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
@@ -126,14 +130,15 @@ class PassageUi(
                 // The line may have moved while the file was read.
                 val at = current.segments.indexOf(segment).takeIf { it >= 0 } ?: index
                 if (current.segments.getOrNull(at)?.audioMs == null) return@runOnUiThread
-                pickRange(current, at, durationMs.takeIf { it > 0L })
+                pickRange(current, at, durationMs.takeIf { it > 0L }, reencode)
             }
-        }.apply { name = "passage-length" }.start()
+        }.apply { name = "passage-read" }.start()
     }
 
     // --- The range picker -------------------------------------------------------
 
-    private fun pickRange(m: Meeting, index: Int, durationMs: Long?) {
+    /** [reencode]: what writing the recording again does to it; null when unknown or without audio. */
+    private fun pickRange(m: Meeting, index: Int, durationMs: Long?, reencode: PassageAudio.Reencode?) {
         val segments = m.segments.toList()
         val resume = m.transcriptResumeMs
         val lines = PassagePlan.lines(segments, durationMs, resume)
@@ -236,7 +241,7 @@ class PassageUi(
                     return@setOnClickListener
                 }
                 dialog.dismiss()
-                confirm(m.id, chosen)
+                confirm(m.id, chosen, reencode)
             }
         }
         dialog.show()
@@ -306,7 +311,7 @@ class PassageUi(
 
     // --- The confirmation ----------------------------------------------------
 
-    private fun confirm(meetingId: String, plan: PassagePlan.Plan) {
+    private fun confirm(meetingId: String, plan: PassagePlan.Plan, reencode: PassageAudio.Reencode?) {
         val m = host.liveMeeting()?.takeIf { it.id == meetingId } ?: return
         val res = activity.resources
         val hasAudio = host.audioFile() != null
@@ -334,6 +339,13 @@ class PassageUi(
         if (hasAudio) head.add(activity.getString(R.string.passage_confirm_audio))
         parts.add(head.joinToString("\n"))
         if (!hasAudio) parts.add(activity.getString(R.string.passage_confirm_no_audio))
+        // The whole recording is written again, not only the passage.
+        val downgrade = hasAudio && reencode == PassageAudio.Reencode.DOWNGRADED
+        if (downgrade) {
+            parts.add(activity.getString(R.string.passage_confirm_downgrade))
+        } else if (hasAudio && reencode == PassageAudio.Reencode.OTHER_CODEC) {
+            parts.add(activity.getString(R.string.passage_confirm_reencode))
+        }
         if (!plan.changesTranscript) parts.add(activity.getString(R.string.passage_confirm_silence_only))
         if (plan.snapped) parts.add(activity.getString(R.string.passage_confirm_snapped))
         if (plan.chaptersMoved > 0) {
@@ -355,6 +367,9 @@ class PassageUi(
                 )
             )
         }
+        // Only the transcript and the audio are changed: text made from them
+        // earlier is not rewritten.
+        if (plan.changesTranscript) parts.add(activity.getString(R.string.passage_confirm_derived))
         if (m.transcriptResumeMs != null && PassagePlan.resumeAfter(plan, m.transcriptResumeMs) == null) {
             parts.add(activity.getString(R.string.passage_confirm_resume_done))
         }
@@ -362,14 +377,31 @@ class PassageUi(
         AlertDialog.Builder(activity)
             .setTitle(activity.getString(R.string.passage_confirm_title, spanText(plan.span)))
             .setMessage(parts.joinToString("\n\n"))
-            .setPositiveButton(R.string.passage_confirm_button) { _, _ -> start(meetingId, plan.span) }
+            .setPositiveButton(R.string.passage_confirm_button) { _, _ -> start(meetingId, plan.span, downgrade) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .showSecure()
+    }
+
+    /**
+     * A run found, on decoding, that the recording has to be mixed down to
+     * 16 kHz mono, which its header did not show (so the confirmation did
+     * not say it) and nothing was changed: asks for that, and runs again.
+     */
+    private fun confirmDowngrade(meetingId: String, span: PassagePlan.Span) {
+        val message = activity.getString(R.string.passage_confirm_downgrade) + "\n\n" +
+            activity.getString(R.string.passage_confirm_final)
+        AlertDialog.Builder(activity)
+            .setTitle(activity.getString(R.string.passage_confirm_title, spanText(span)))
+            .setMessage(message)
+            .setPositiveButton(R.string.passage_confirm_button) { _, _ -> start(meetingId, span, allowConvert = true) }
             .setNegativeButton(android.R.string.cancel, null)
             .showSecure()
     }
 
     // --- Running it ------------------------------------------------------------
 
-    private fun start(meetingId: String, span: PassagePlan.Span) {
+    /** [allowConvert]: the user saw that the whole recording is mixed down to 16 kHz mono. */
+    private fun start(meetingId: String, span: PassagePlan.Span, allowConvert: Boolean) {
         val m = host.liveMeeting()?.takeIf { it.id == meetingId } ?: return
         // Asked again: a job may have started while the question was up.
         PassageService.blockReason(activity, m.id)?.let {
@@ -389,7 +421,7 @@ class PassageUi(
             return
         }
         host.releasePlayer()
-        if (!PassageService.start(activity, meetingId, audio, span)) {
+        if (!PassageService.start(activity, meetingId, audio, span, allowConvert)) {
             Toast.makeText(activity, R.string.passage_failed, Toast.LENGTH_LONG).show()
             return
         }
@@ -487,6 +519,10 @@ class PassageUi(
         if (result == PassageService.Result.REMOVED) host.passageRemoved(span)
         // In the background the notification says it instead.
         if (!showsMeeting(meetingId)) return
+        if (result == PassageService.Result.NEEDS_CONSENT) {
+            confirmDowngrade(meetingId, span)
+            return
+        }
         val message = if (result == PassageService.Result.REMOVED) {
             activity.getString(R.string.passage_removed_span, spanText(span))
         } else {

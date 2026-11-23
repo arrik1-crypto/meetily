@@ -84,6 +84,32 @@ object PlaybackFocus {
     }
 }
 
+/**
+ * The one AudioManager the player's audio focus goes through, [M] being
+ * AudioManager in the app (generic so it is unit-tested).
+ *
+ * Android names a focus request after its AudioManager as well as its
+ * listener (the manager's own toString() and the listener's), and every
+ * Context has its own AudioManager: the meeting screen, the playback service
+ * and the application each get a different one. A request made through the
+ * screen's and given up through the application's is never given up: it
+ * stays on the system's focus stack, and the next request, from the lock
+ * screen through the service's, sends that stale request a loss which
+ * pauses the player as soon as it starts. So every request goes through one
+ * manager, the application's ([managerOf]), and is given up through the
+ * very manager it went through.
+ */
+class FocusClient<M : Any>(private val managerOf: () -> M?) {
+
+    private var held: M? = null
+
+    /** The manager to ask for focus through: the one a request already went through, else the application's. */
+    fun forRequest(): M? = held ?: managerOf()?.also { held = it }
+
+    /** The manager the request went through, forgotten now that it is given up; null when none was made. */
+    fun forAbandon(): M? = held.also { held = null }
+}
+
 /** The player bar's, notification's and media keys' 15-second skips. */
 object PlaybackSkip {
 

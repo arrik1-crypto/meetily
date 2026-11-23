@@ -254,7 +254,7 @@ collection or a user-initiated transfer:
 | Share, export (Markdown, PDF, Word, subtitles and action items for one meeting; several as a zip from multi-select; the whole library as Markdown files into a folder), backup | Wherever the user sends them: a file or folder picked in the system picker, or an app picked in the share sheet | Not collected (user-initiated) |
 | Calendar | Read on the phone; event title and attendee names leave only inside a meeting the user sends to an AI endpoint | Not collected |
 | Background playback and its media controls (3.20.0-beta1) | The audio goes to the output the user chose (speaker, headphones, a car); the media session gives the lock screen, Bluetooth devices, cars, watches and apps with notification access only "Meeting audio", "Recap" and the length, never the meeting's title or text | Not collected |
-| Recently deleted (3.20.0-beta1) | Nothing: deleted meetings stay in app-private storage for 30 days, out of backups and exports, then are erased | Not collected |
+| Recently deleted (3.20.0-beta1) | Nothing: deleted meetings stay in app-private storage for 30 days (longer if the phone's clock was once set ahead), out of backups and exports, then are erased | Not collected |
 
 **ML Kit, mapped to Play's data types** — owner to confirm against
 https://developers.google.com/ml-kit/android-data-disclosure (read
@@ -558,7 +558,7 @@ The console will ask about these (all have in-app justifications):
   playback with lock-screen controls that show no meeting title and the
   15-second skips, several summaries per meeting, Remove a passage and a
   hedged Android 16 Live Updates line; older lines are merged or trimmed
-  to stay under 4,000 characters (3,978 now).
+  to stay under 4,000 characters (3,991 now).
   The DEVICE REQUIREMENTS figures are unchanged, and there is no new
   claim about data leaving the phone.
 - **App icon**: `play-icon-512.png` (512×512, delivered separately).
@@ -635,9 +635,14 @@ closed track and production checks).
    `notices.txt` was regenerated with that one text reused from the
    committed file (every other text was fetched and is unchanged).
    Repoint `mit_ort` to a working source first (section 11). For
-   3.20.0-beta1 `notices.txt` needs no change: Batch 6 adds no library,
-   model or native code (background playback uses the platform
-   MediaSession and Notification.MediaStyle, not Media3).
+   3.20.0-beta1 Batch 6 adds no library, model or native code (background
+   playback uses the platform MediaSession and Notification.MediaStyle,
+   not Media3), but its two 15-second skip icons reuse the "replay" path
+   of Google's Material Design Icons (Apache-2.0), as `ic_delete` and
+   other older icons already did without credit: `notices.txt` and
+   `build_notices.py` now carry a Material Design Icons entry and name
+   the set in the Apache-2.0 heading, edited by hand in both, so a full
+   run should change nothing else.
 3. When adding a model to any catalogue (WhisperModels, NemoModels,
    DiarizationModels, LocalLlmModels), add its licence to
    `licences/ModelLicences.kt` and to the MODELS text in
@@ -658,7 +663,7 @@ language; this is about 390):
 • Recently deleted: restore a deleted meeting for 30 days
 • Playback keeps going with the screen off; lock-screen controls show "Meeting audio", never the title; skip back or forward 15 s
 • Keep one summary per style and switch between them instantly
-• Remove a passage: cut a moment's words and audio out of a meeting
+• Remove a passage: delete a moment's words and silence its audio
 • Android 16: the recording and jobs you start can show as Live Updates
 ```
 
@@ -1019,8 +1024,13 @@ Work through it before the first targetSdk 36 upload to any track.
   voice work on the phone and whose new exports go only to a file or
   folder the user picks, and by 3.20.0-beta1, whose Live Updates,
   background playback, Recently deleted, several summaries and Remove a
-  passage work on the phone; confirm this on the merged build). For the
-  data deletion question, describe Recently deleted (section 4). "No data
+  passage work on the phone; confirm this on the merged build). The data
+  deletion question is a plain Yes or No about the data Recap collects,
+  with no text to fill in: answer it as section 4 says (most likely No,
+  since ML Kit's diagnostics are held by Google and Recap cannot delete
+  them; owner to confirm). Recently deleted keeps meetings on the phone
+  only; it is neither collection nor the automatic deletion of collected
+  data, so it changes no Data safety answer. "No data
   collected" is no longer accurate. Re-read
   Google's ML Kit Android data disclosure
   (https://developers.google.com/ml-kit/android-data-disclosure) and
@@ -1132,8 +1142,9 @@ Work through it before the first targetSdk 36 upload to any track.
   goes with the meeting or its audio and can be deleted on its own.
   Nothing new leaves the phone. 3.20.0-beta1 changes it again, in both
   copies together (same headings): What is stored on your phone adds
-  deleted meetings kept in Recently deleted, summaries kept per style and
-  audio edited by Remove a passage; Backups leaves out meetings in
+  deleted meetings kept in Recently deleted (longer than 30 days if the
+  phone's clock was once set ahead) and summaries kept per style; Backups
+  leaves out meetings in
   Recently deleted and their files; Permissions says recording and
   transcription notifications name no meeting or file on a locked phone
   that hides notification contents, that on Android 16 the recording and
@@ -1141,9 +1152,12 @@ Work through it before the first targetSdk 36 upload to any track.
   for Recap in Settings), and that the playback notification and media
   controls show "Meeting audio", not the meeting's title; Deleting your
   data describes Recently deleted (kept on the phone for 30 days unless
-  emptied, left out of backups and exports, then erased with all its
+  emptied, counted from the latest date Recap has seen on the phone's
+  clock, left out of backups and exports, then erased with all its
   files), the clean-up rule moving meetings there, and Remove a passage
-  deleting the replaced recording. Nothing new leaves the phone.
+  deleting the replaced recording while summaries, the title, notes,
+  action items, answers and chapter titles made before are not
+  rewritten. Nothing new leaves the phone.
 - [ ] Set up a way to triage the "Recap AI output report" emails that
   arrive at the support address, and decide on a response time.
 
@@ -1403,11 +1417,21 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] Optional: a Settings entry that opens the system Live Updates toggle
   for Recap (`Settings.ACTION_APP_NOTIFICATION_PROMOTION_SETTINGS`, API
   36). Not added, and Recap never prompts users to turn Live Updates on,
-  as Android's guide asks.
+  by choice: Android allows sending users to that setting, and its guide
+  only warns against posting Live Updates users would dismiss.
+- [ ] *Decision* (3.20.0-beta1, Live Updates): model downloads
+  (`LiveUpdates.Job.MODEL_DOWNLOAD`) are promoted, like the other work the
+  user starts. Android's guide limits Live Updates to activities that are
+  ongoing, user-initiated and time-sensitive, needing the user's attention
+  throughout, and gives tracking a package as a case that is not; a
+  download is silent, low-importance and posts its own completion
+  notification. Confirm, or set `MODEL_DOWNLOAD(false)` in `LiveUpdates`
+  (and update `LiveUpdatesTest`, the README's Live Updates and download
+  bullets and the Live Updates device check).
 - [ ] *Decision* (background playback): Media3 was not adopted. The newest
-  stable Media3 is 1.11.1; 1.12.0 was only beta and release candidate,
-  built with compileSdk 37 and AGP 9.1.1, while Recap is on compileSdk 36
-  and AGP 8.10.1. ExoPlayer's ADTS extractor at 1.11.1 seeks only by an
+  stable Media3 is 1.11.1; 1.12.0 was only alpha and beta (1.12.0-beta01,
+  11 November 2026), built with compileSdk 37 and AGP 9.1.1, while Recap
+  is on compileSdk 36 and AGP 8.10.1. ExoPlayer's ADTS extractor at 1.11.1 seeks only by an
   average-bitrate estimate, which would break follow-along on Recap's raw
   ADTS recordings, and a Media3 session around MediaPlayer needs the
   unstable SimpleBasePlayer plus Guava and androidx.media in the APK. If
@@ -2273,6 +2297,12 @@ controls built from the session):
 - [ ] Another app starts music: Recap pauses and does not resume by
   itself. A navigation prompt or notification sound pauses playback and
   then resumes it (no ducking).
+- [ ] Play on the meeting screen, lock the phone, Pause on the lock
+  screen, then Play there: it keeps playing at the first press (it does
+  not pause itself). The same from the notification after playing on the
+  screen, and on the screen after a rotation. After a pause, the focus
+  stack in `adb shell dumpsys audio` has no entry for `com.recap.mobile`
+  (focus was given up).
 - [ ] Bluetooth headset: play/pause works, next/previous skip 15 s; in a
   car the controls show "Meeting audio".
 - [ ] Clear voice: switch it while playing, leave the meeting and come
@@ -2328,6 +2358,11 @@ Recently deleted (3.20.0-beta1):
 - [ ] Purge: set the date forward 31 days and reopen the app (or wait for
   the daily job): the meeting is gone, with its files on the Storage
   screen.
+- [ ] Then, on the same install, set the date right and delete a meeting:
+  it shows "erased in 30 days" until the date the clock had been set
+  forward to, and is erased 30 days after that, never earlier (as the
+  privacy policy says). Clear the app's data before the next check, which
+  needs a library whose clock was never ahead.
 - [ ] Clock set back a year after deleting: nothing is erased early, and
   the days left never show more than 30. Delete a meeting with the clock
   set back, then set it right: the meeting is not due early.
@@ -2391,11 +2426,26 @@ well as a Pixel:
 - [ ] With a clear-voice copy present: the confirmation mentions it, the
   copy is gone afterwards and can be made again.
 - [ ] With two summaries: the confirmation says every summary is marked
-  out of date, and afterwards both pills say so.
+  out of date and that their text is not changed, and afterwards both
+  pills say so.
+- [ ] With action items and an Ask this meeting answer: the confirmation
+  says the title, notes, action items, answers and chapter titles are kept
+  as they are, and afterwards they are unchanged.
+- [ ] Import a 1-minute 44.1 kHz stereo WAV, then remove a passage: the
+  confirmation says the whole recording is saved again as AAC and the
+  original file deleted; afterwards the meeting's audio is a stereo
+  `-edit1.aac`.
+- [ ] Import a 96 kHz WAV (stereo, or 4 channels): the confirmation says
+  the whole recording is saved again at 16 kHz mono; afterwards the
+  meeting's audio is 16 kHz mono. A 6-channel (5.1) AAC import gets the
+  same warning; the new file is 16 kHz mono, or stereo at the original
+  rate where the phone's decoder gives stereo.
 - [ ] Press Stop half-way, from the dialog and from the notification:
   nothing changes, and no part file is left under `files/audio/passage`.
-- [ ] Low storage (less than the recording's size plus 50 MB free): "Not
-  enough free space" and nothing changed.
+- [ ] Low storage (less than the new file's estimated size plus 50 MB
+  free; about the recording's size for a live recording, and at most
+  320 kbps times its length for an import): "Not enough free space" and
+  nothing changed.
 - [ ] A meeting without audio, after Remove audio: lines only, no
   notification.
 - [ ] Start a removal, leave the screen and lock the phone: it finishes,

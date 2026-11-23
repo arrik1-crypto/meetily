@@ -185,6 +185,52 @@ class PassageAudioTest {
     }
 
     @Test
+    fun aRunNeverMixesDownARecordingWithoutTheUsersAgreement() {
+        // A 4-channel 96 kHz WAV, 5.1 sound from a video, hi-res stereo and
+        // an odd rate: each would lose channels or rate for the whole
+        // recording, so a run may write them only after the confirmation
+        // said so.
+        for ((rate, channels) in listOf(96_000 to 4, 48_000 to 6, 96_000 to 2, 88_200 to 2, 64_000 to 1, 7_350 to 1)) {
+            assertFalse("$rate Hz × $channels", PassageAudio.mayWrite(rate, channels, allowConvert = false))
+            assertTrue("$rate Hz × $channels", PassageAudio.mayWrite(rate, channels, allowConvert = true))
+        }
+        // Formats the encoder keeps as they are need no agreement.
+        for ((rate, channels) in listOf(16_000 to 1, 44_100 to 2, 48_000 to 2, 8_000 to 1, 22_050 to 2)) {
+            assertTrue("$rate Hz × $channels", PassageAudio.mayWrite(rate, channels, allowConvert = false))
+        }
+    }
+
+    @Test
+    fun theConfirmationSaysWhatWritingTheRecordingAgainDoes() {
+        val aac = PassageAudio.AAC_MIME
+        // A live recording or an AAC import: written again as it was.
+        assertEquals(PassageAudio.Reencode.SAME_FORMAT, PassageAudio.reencodeOf(aac, 16_000, 1))
+        assertEquals(PassageAudio.Reencode.SAME_FORMAT, PassageAudio.reencodeOf(aac, 44_100, 2))
+        // A lossless or other import at a rate the encoder takes becomes AAC.
+        assertEquals(PassageAudio.Reencode.OTHER_CODEC, PassageAudio.reencodeOf("audio/raw", 44_100, 2))
+        assertEquals(PassageAudio.Reencode.OTHER_CODEC, PassageAudio.reencodeOf("audio/flac", 48_000, 1))
+        assertEquals(PassageAudio.Reencode.OTHER_CODEC, PassageAudio.reencodeOf("audio/mpeg", 44_100, 2))
+        assertEquals(PassageAudio.Reencode.OTHER_CODEC, PassageAudio.reencodeOf(null, 16_000, 1))
+        // Mixed down to 16 kHz mono, whatever the codec.
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageAudio.reencodeOf("audio/raw", 96_000, 4))
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageAudio.reencodeOf(aac, 48_000, 6))
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageAudio.reencodeOf("audio/flac", 96_000, 2))
+        // Not known: the most that can happen.
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageAudio.reencodeOf(aac, 0, 1))
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageAudio.reencodeOf(aac, 16_000, 0))
+        // The confirmation warns of a mix-down exactly when a run would need the agreement.
+        for (rate in listOf(7_350, 8_000, 16_000, 44_100, 48_000, 64_000, 88_200, 96_000)) {
+            for (channels in 1..8) {
+                assertEquals(
+                    "$rate Hz × $channels",
+                    !PassageAudio.mayWrite(rate, channels, allowConvert = false),
+                    PassageAudio.reencodeOf(aac, rate, channels) == PassageAudio.Reencode.DOWNGRADED
+                )
+            }
+        }
+    }
+
+    @Test
     fun adtsHeadersMatchTheLiveRecordingsAndNameTheRateAndChannels() {
         // What MeetingAudioWriter writes for a 100-byte frame at 16 kHz mono.
         val live = PassageAudio.adtsHeader(100, 16_000, 1)!!

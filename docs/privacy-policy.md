@@ -31,8 +31,8 @@ All of this is kept in Recap's private storage, which other apps cannot read:
   stopped, your notes, summaries (one for each summary style you use),
   action items and reminders, highlights, topics, tags and attendee names.
 - Meetings you delete, kept in Recently deleted with their audio, photos
-  and files for 30 days unless you erase them sooner (see Deleting your
-  data).
+  and files for 30 days (longer if the phone's clock was once set ahead)
+  unless you erase them sooner (see Deleting your data).
 - Meeting audio, when kept. On-device transcription keeps it by default.
 - Files you import: a recording, the sound of a video (only the sound is
   kept when it can be taken out on the phone; otherwise the whole file),
@@ -224,7 +224,10 @@ photos and attached files, to Recently deleted (Settings → Data), where you
 can restore it for 30 days. Until then it stays on this phone, left out of
 your library, search, exports and backups, and nothing is sent anywhere.
 After 30 days, or at once if you choose Delete permanently or Empty there,
-the meeting and all its files are erased from the phone. You can also
+the meeting and all its files are erased from the phone. The 30 days are
+counted by the phone's clock and never start before the latest date Recap
+has seen on it, so if the clock was once set ahead, a meeting deleted after
+it was put right is kept until 30 days after that date. You can also
 remove only a meeting's audio and keep its transcript, from the meeting's
 menu or from Settings → Data → Storage and clean-up. That Storage screen
 also deletes downloaded models you no longer use, and can turn on automatic
@@ -237,7 +240,10 @@ copy can be deleted on its own from the player. Remove passage, in a
 transcript line's menu, deletes the words of the stretch you choose and,
 on the phone, replaces the recording with a copy in which that stretch is
 silent; the earlier recording, clips cut from it and its clear-voice copy
-are deleted. Saved voices are deleted under Settings → Voice profiles, and
+are deleted. Summaries, the title, notes, action items, answers and chapter
+titles made before are not rewritten, so they may still mention that
+stretch until you generate them again, edit or delete them. Saved voices
+are deleted under Settings → Voice profiles, and
 downloaded models also from their lists in Settings. To remove everything, uninstall the app:
 Android's Manage space button for Recap opens Recap's Storage screen rather
 than clearing all of its data. Copies you exported or shared, and anything

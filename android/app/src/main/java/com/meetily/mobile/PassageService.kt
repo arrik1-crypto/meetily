@@ -56,8 +56,12 @@ import java.util.concurrent.CopyOnWriteArraySet
  */
 class PassageService : Service() {
 
-    /** How a run ended, for the meeting screen and the notification. */
-    enum class Result { REMOVED, CANCELLED, FAILED, NO_SPACE, TIMED_OUT, GONE, RECORDING, BUSY }
+    /**
+     * How a run ended, for the meeting screen and the notification.
+     * NEEDS_CONSENT: the recording would have been mixed down to 16 kHz
+     * mono, which the confirmation did not say; nothing was changed.
+     */
+    enum class Result { REMOVED, CANCELLED, FAILED, NO_SPACE, TIMED_OUT, GONE, RECORDING, BUSY, NEEDS_CONSENT }
 
     /** The meeting screen's view of a run. Called on the main thread. */
     interface Listener {
@@ -128,7 +132,7 @@ class PassageService : Service() {
                 startForegroundCompat(buildNotification(id))
                 // The foreground service keeps the process, not the CPU.
                 acquireWakeLock()
-                run(id, audio, span)
+                run(id, audio, span, intent.getBooleanExtra(EXTRA_ALLOW_CONVERT, false))
             }
             else -> if (!isRunning) stopSelfResult(startId)
         }
@@ -160,7 +164,7 @@ class PassageService : Service() {
         if (!isRunning) stopSelfResult(startId)
     }
 
-    private fun run(meetingId: String, audio: String, span: PassagePlan.Span) {
+    private fun run(meetingId: String, audio: String, span: PassagePlan.Span, allowConvert: Boolean) {
         val app = applicationContext
         Thread {
             // A live recording started meanwhile wins the CPU.
@@ -169,7 +173,7 @@ class PassageService : Service() {
             } catch (_: Throwable) {
             }
             val result = try {
-                work(app, meetingId, audio, span)
+                work(app, meetingId, audio, span, allowConvert)
             } catch (_: Throwable) {
                 Result.FAILED
             }
@@ -181,7 +185,13 @@ class PassageService : Service() {
     }
 
     @WorkerThread
-    private fun work(app: Context, meetingId: String, audio: String, span: PassagePlan.Span): Result {
+    private fun work(
+        app: Context,
+        meetingId: String,
+        audio: String,
+        span: PassagePlan.Span,
+        allowConvert: Boolean
+    ): Result {
         // Checked again here: the start was asynchronous.
         if (RecordingService.isRunning) return Result.RECORDING
         if (othersBusy(app, meetingId)) return Result.BUSY
@@ -204,7 +214,7 @@ class PassageService : Service() {
         val probeFile = File(dir, PassageSwap.probeName(meetingId))
         val startedMs = SystemClock.elapsedRealtime()
         val written = PassageSilencer.silence(
-            source, part, probeFile, span.startMs, span.endMs, bitRate, totalMs,
+            source, part, probeFile, span.startMs, span.endMs, bitRate, totalMs, allowConvert,
             cancelled = { cancelRequested || timedOut }
         ) { p, doneMs ->
             renewWakeLockIfStale()
@@ -220,6 +230,7 @@ class PassageService : Service() {
             PassageSilencer.Outcome.CANCELLED -> return if (timedOut) Result.TIMED_OUT else Result.CANCELLED
             PassageSilencer.Outcome.NO_SPACE -> return Result.NO_SPACE
             PassageSilencer.Outcome.FAILED -> return Result.FAILED
+            PassageSilencer.Outcome.NEEDS_CONSENT -> return Result.NEEDS_CONSENT
         }
         // A last chance to stop before anything is changed.
         if (cancelRequested || timedOut) {
@@ -525,6 +536,13 @@ class PassageService : Service() {
         const val EXTRA_START_MS = "start_ms"
         const val EXTRA_END_MS = "end_ms"
 
+        /**
+         * The confirmation said the whole recording is mixed down to 16 kHz
+         * mono (PassageAudio.Reencode.DOWNGRADED); without it a run that
+         * would do so changes nothing (Result.NEEDS_CONSENT).
+         */
+        const val EXTRA_ALLOW_CONVERT = "allow_convert"
+
         private const val CHANNEL_ID = "passage_removal"
 
         /** Out of the range the other services' notification ids use. */
@@ -632,9 +650,17 @@ class PassageService : Service() {
         /**
          * Starts removing [span] from [meetingId], whose recording is
          * [audioFile]. Main thread, from a screen in the foreground, after
-         * the player let go of the recording. Returns false when refused.
+         * the player let go of the recording. [allowConvert] only when the
+         * user confirmed that the whole recording is mixed down to 16 kHz
+         * mono. Returns false when refused.
          */
-        fun start(context: Context, meetingId: String, audioFile: String, span: PassagePlan.Span): Boolean {
+        fun start(
+            context: Context,
+            meetingId: String,
+            audioFile: String,
+            span: PassagePlan.Span,
+            allowConvert: Boolean
+        ): Boolean {
             if (isRunning || claimed() != null) return false
             percent = 0
             minutesLeft = null
@@ -646,6 +672,7 @@ class PassageService : Service() {
                 .putExtra(EXTRA_AUDIO, audioFile)
                 .putExtra(EXTRA_START_MS, span.startMs)
                 .putExtra(EXTRA_END_MS, span.endMs)
+                .putExtra(EXTRA_ALLOW_CONVERT, allowConvert)
             return try {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     context.startForegroundService(intent)
@@ -762,6 +789,7 @@ class PassageService : Service() {
             Result.GONE -> R.string.passage_gone
             Result.RECORDING -> R.string.passage_blocked_recording
             Result.BUSY -> R.string.passage_blocked_busy
+            Result.NEEDS_CONSENT -> R.string.passage_needs_convert
         }
     }
 }

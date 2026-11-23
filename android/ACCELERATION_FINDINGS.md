@@ -248,7 +248,8 @@ Baseline, verified in this repo:
   Background playback stays on the platform MediaPlayer, with the
   platform MediaSession and Notification.MediaStyle for its controls.
   Media3 was evaluated and not adopted (the newest stable was 1.11.1;
-  1.12.0 was only beta and release candidate, built with compileSdk 37),
+  1.12.0 was only alpha and beta (1.12.0-beta01, 11 November 2026), built
+  with compileSdk 37),
   so media3-session and media3-exoplayer, and the Guava and
   androidx.media a Media3 session around MediaPlayer would also need, add
   nothing to the APK; their size was not measured. ExoPlayer was not an
