@@ -38,7 +38,11 @@ class ClearVoiceBar(
         /** The meeting on screen, once read. */
         fun meeting(): Meeting?
 
-        /** The audio's length for the estimate: the player's, else the transcript's; 0 unknown. */
+        /**
+         * The audio's length for the estimate: the player's, else the
+         * transcript's; 0 when neither is known (the bar then reads it from
+         * the recording on a worker).
+         */
         fun audioDurationMs(): Long
 
         /** True while the player plays (or will play) the copy. */
@@ -56,6 +60,9 @@ class ClearVoiceBar(
 
     private val announcer = ProgressAnnouncer()
     private var attached = false
+
+    /** confirmStart is reading the recording's length; another tap waits for it. */
+    private var measuring = false
 
     init {
         chip.setOnClickListener { onChipTapped() }
@@ -166,7 +173,39 @@ class ClearVoiceBar(
             Toast.makeText(activity, it, Toast.LENGTH_LONG).show()
             return
         }
-        val durationMs = host.audioDurationMs()
+        val known = host.audioDurationMs()
+        if (known > 0L) {
+            askToStart(known)
+            return
+        }
+        // No prepared player and no transcript to go by (live transcription
+        // is off, or the transcript waits for a charger): the length comes
+        // from the recording itself, so a long meeting still gets its size
+        // and battery note. Read on a worker (ClearVoiceService.durationMs).
+        val audio = m.audioFile ?: return
+        if (measuring) return
+        measuring = true
+        val app = activity.applicationContext
+        val id = m.id
+        Thread {
+            val measured = try {
+                ClearVoiceService.durationMs(AudioStore.fileFor(app, audio))
+            } catch (_: Throwable) {
+                0L
+            }
+            activity.runOnUiThread {
+                measuring = false
+                if (live() && host.meeting()?.id == id) askToStart(measured)
+            }
+        }.apply {
+            name = "clear-voice-length"
+            isDaemon = true
+            start()
+        }
+    }
+
+    /** The start question, with the size and long-meeting notes when [durationMs] is known. */
+    private fun askToStart(durationMs: Long) {
         var message = activity.getString(R.string.clearvoice_confirm_message)
         if (durationMs > 0L) {
             message += "\n\n" + activity.getString(

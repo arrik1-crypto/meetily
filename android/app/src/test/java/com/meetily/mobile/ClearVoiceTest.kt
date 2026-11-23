@@ -3,8 +3,10 @@ package com.meetily.mobile
 import com.meetily.mobile.data.BackupManager
 import com.meetily.mobile.data.ClearVoice
 import com.meetily.mobile.data.JobQueue
+import com.meetily.mobile.data.LightJson
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingMerge
+import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.StorageUsage
 import com.meetily.mobile.data.StorageUsage.Area
 import com.meetily.mobile.data.StorageUsage.Root
@@ -104,13 +106,22 @@ class ClearVoiceTest {
     }
 
     @Test
-    fun theFieldIsWrittenAfterTheHeaderKeys() {
-        // MeetingStore.loadStaged reads the header from the start of the file.
-        val text = meeting(copy = "m1.clear.m4a").toJson().toString()
-        val at = text.indexOf("\"clearVoiceFile\"")
-        assertTrue(at > 0)
-        for (key in listOf("\"id\"", "\"title\"", "\"createdAtMs\"")) {
-            assertTrue("$key before the copy", text.indexOf(key) in 0 until at)
+    fun theHeaderReadSkipsTheFieldWhereverItIs() {
+        // MeetingStore.loadStaged's quick header read keeps only the header
+        // keys, in whatever order the file has them: the copy's name never
+        // reaches the display-only copy, whether it comes before them or
+        // after. The full read has it either way.
+        val written = meeting(copy = "m1.clear.m4a").toJson().toString()
+        val copyFirst = "{\"clearVoiceFile\":\"m1.clear.m4a\",\"audioFile\":\"m1.aac\"," +
+            "\"id\":\"m1\",\"title\":\"Standup\",\"createdAtMs\":1}"
+        for (text in listOf(written, copyFirst)) {
+            val parsed = LightJson.parseLeading(text, MeetingStore.HEADER_FIELDS)
+            assertEquals(MeetingStore.HEADER_FIELDS, parsed.keySet())
+            val header = Meeting.fromJson(parsed)
+            assertEquals("Standup", header.title)
+            assertEquals(1L, header.createdAtMs)
+            assertNull(header.clearVoiceFile)
+            assertEquals("m1.clear.m4a", Meeting.fromJson(JSONObject(text)).clearVoiceFile)
         }
     }
 

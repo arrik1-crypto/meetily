@@ -6,8 +6,9 @@ package com.meetily.mobile.whisper
  *
  * sherpa-onnx's offline GTCRN takes a whole signal and keeps its whole
  * spectrogram while it runs (about 0.5 MB a second of audio), and its
- * output is a quarter-second short of its input. So each block is cut from
- * the stream with a lead-in and a run-out it does not keep:
+ * output is cut to whole 256-sample hops (floor(n/256)*256, up to 16 ms
+ * short of its input). So each block is cut from the stream with a lead-in
+ * and a run-out it does not keep:
  *
  *  - Block k owns [k*hop, (k+1)*hop) of the output.
  *  - It starts [fade] + [warmUp] samples early. GTCRN is recurrent, and a

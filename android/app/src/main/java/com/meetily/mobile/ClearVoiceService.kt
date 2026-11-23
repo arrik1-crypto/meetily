@@ -46,8 +46,10 @@ import java.util.concurrent.CopyOnWriteArraySet
  *
  * While it runs, the meeting counts as being written (AudioRemoval.isWriting),
  * so its audio is not removed and it is not deleted or cleaned up underneath.
- * The copy is written to a part file and only renamed into place, and its
- * name stored on the meeting, once it is whole; anything less is deleted.
+ * Its transcript, notes and summary are not (AudioRemoval.isWritingContent),
+ * so Find & replace stays open meanwhile. The copy is written to a part file
+ * and only renamed into place, and its name stored on the meeting, once it
+ * is whole; anything less is deleted.
  */
 class ClearVoiceService : Service() {
 
@@ -166,7 +168,7 @@ class ClearVoiceService : Service() {
         val audio = meeting.audioFile ?: return Result.GONE
         val source = AudioStore.fileFor(app, audio)
         if (source.length() <= 0L) return Result.GONE
-        val totalMs = durationMs(app, source)
+        val totalMs = durationMs(source)
         // Room for the copy, from its length; unknown length is not refused.
         if (totalMs > 0L) {
             val need = ClearVoice.estimatedBytes(totalMs) + SPACE_MARGIN_BYTES
@@ -231,23 +233,6 @@ class ClearVoiceService : Service() {
         return Result.READY
     }
 
-    /** The recording's length from its container, or 0 when unknown. */
-    private fun durationMs(context: Context, file: java.io.File): Long {
-        val retriever = android.media.MediaMetadataRetriever()
-        return try {
-            retriever.setDataSource(file.absolutePath)
-            retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
-                ?.toLongOrNull() ?: 0L
-        } catch (_: Throwable) {
-            0L
-        } finally {
-            try {
-                retriever.release()
-            } catch (_: Throwable) {
-            }
-        }
-    }
-
     private fun publish(meetingId: String, p: Int, left: Long?) {
         if (p == percent && left == minutesLeft) return
         percent = p
@@ -268,7 +253,6 @@ class ClearVoiceService : Service() {
         val wasTimedOut = timedOut
         isRunning = false
         cancelRequested = false
-        lastResult = meetingId to result
         val watching = listeners.any { it.showsMeeting(meetingId) }
         listeners.forEach { it.onClearVoiceDone(meetingId, result) }
         // The meeting screen shows the outcome itself; the notification is
@@ -463,10 +447,6 @@ class ClearVoiceService : Service() {
         @Volatile var minutesLeft: Long? = null
             private set
 
-        /** The last run's meeting and result, for a screen that missed it. */
-        @Volatile var lastResult: Pair<String, Result>? = null
-            private set
-
         @Volatile private var cancelRequested = false
 
         /**
@@ -506,7 +486,7 @@ class ClearVoiceService : Service() {
             RecordingService.isRunning -> R.string.clearvoice_blocked_recording
             isRunning || claimed() != null ->
                 if (preparingId() == meetingId) null else R.string.clearvoice_blocked_other
-            AudioRemoval.isWriting(context, meetingId) -> R.string.clearvoice_blocked_busy
+            AudioRemoval.isWritingContent(context, meetingId) -> R.string.clearvoice_blocked_busy
             else -> null
         }
 
@@ -541,6 +521,28 @@ class ClearVoiceService : Service() {
         /** Stops the run between decoder chunks; nothing it made is kept. */
         fun cancel() {
             if (isRunning) cancelRequested = true
+        }
+
+        /**
+         * The recording's length from its container, or 0 when unknown.
+         * A recording is raw ADTS, whose length is found by walking every
+         * frame header, which is slow on a long meeting: a worker only.
+         */
+        @WorkerThread
+        fun durationMs(file: java.io.File): Long {
+            val retriever = android.media.MediaMetadataRetriever()
+            return try {
+                retriever.setDataSource(file.absolutePath)
+                retriever.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION)
+                    ?.toLongOrNull() ?: 0L
+            } catch (_: Throwable) {
+                0L
+            } finally {
+                try {
+                    retriever.release()
+                } catch (_: Throwable) {
+                }
+            }
         }
 
         /** The message for a finished run's [result]. */

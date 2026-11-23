@@ -28,16 +28,27 @@ object AudioRemoval {
 
     /**
      * True when a recording, import, accuracy check or summary is writing
-     * [meetingId] right now. Their next write would put the audio reference
-     * back (RecordingService and ImportService write it on every save). A
-     * clear-voice copy being made counts too: it reads the recording and
-     * writes the copy's reference when it ends (ClearVoiceService).
+     * [meetingId]'s content right now: transcript, summary, notes or speaker
+     * tags. An edit to them made meanwhile would be overwritten (recording
+     * and import write the transcript back whole on every save). This is
+     * Find & replace's rule (MeetingReplace).
      */
-    fun isWriting(context: Context, meetingId: String): Boolean =
+    fun isWritingContent(context: Context, meetingId: String): Boolean =
         (RecordingService.isRunning && MeetingStore(context).activeId() == meetingId) ||
             (ImportService.isRunning && ImportService.currentMeetingId == meetingId) ||
-            (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
-            ClearVoiceService.isPreparing(meetingId)
+            (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId)
+
+    /**
+     * [isWritingContent], or a clear-voice copy of [meetingId] being made.
+     * Their next write would put the audio reference back (RecordingService
+     * and ImportService write it on every save), and the copy reads the
+     * recording and writes its own reference when it ends
+     * (ClearVoiceService). The rule for removing the audio, deleting the
+     * meeting and cleaning it up. The copy never touches the content, which
+     * is why Find & replace asks [isWritingContent] instead.
+     */
+    fun isWriting(context: Context, meetingId: String): Boolean =
+        isWritingContent(context, meetingId) || ClearVoiceService.isPreparing(meetingId)
 
     /**
      * Meetings whose audio something is still waiting for: a queued or
