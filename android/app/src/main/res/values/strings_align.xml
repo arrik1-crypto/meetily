@@ -97,11 +97,12 @@
     <string name="align_model_deleted">Word re-timing model deleted.</string>
     <!-- The download is on the phone but not unpacked (a full disk, or the
          unpacking was stopped): %1$s is what it takes, %2$s the room
-         unpacking needs. -->
+         unpacking needs, and in the dialog %3$s the download that re-timing
+         needs again after Delete download. -->
     <string name="align_model_status_kept">Downloaded, not unpacked yet: %1$s on this phone. Unpacking needs %2$s free and downloads nothing again.</string>
     <string name="align_model_kept_action">Unpack or delete…</string>
     <string name="align_model_kept_title">Unpack the word re-timing model?</string>
-    <string name="align_model_kept_message">Its download (%1$s) is on this phone but was not unpacked, perhaps because the phone ran out of space or the unpacking was stopped. Unpacking needs %2$s free and downloads nothing again. Delete download frees the %1$s instead.</string>
+    <string name="align_model_kept_message">Its download (%1$s) is on this phone but was not unpacked, perhaps because the phone ran out of space or the unpacking was stopped. Unpacking needs %2$s free and downloads nothing again. Delete download frees the %1$s instead; re-timing words then needs the model downloaded again (%3$s).</string>
     <string name="align_model_unpack">Unpack</string>
     <string name="align_model_delete_download">Delete download</string>
     <string name="align_model_download_deleted">Word re-timing model download deleted.</string>

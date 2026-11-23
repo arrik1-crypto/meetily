@@ -2820,17 +2820,19 @@ kept its audio:
   it is on the phone, and Delete unused models leaves it alone.
 - [ ] A download kept but not unpacked: download the model in Settings
   and tap Cancel on the download notification once it passes 90%
-  (unpacking). The row reads "Downloaded, not unpacked yet: … on this
-  phone" with Unpack or delete…, and the Storage screen's "Word
+  (unpacking). Without leaving Settings, the row stops reading
+  "Downloading…" and reads "Downloaded, not unpacked yet: … on this
+  phone" with Unpack or delete… enabled, and the Storage screen's "Word
   re-timing model" row counts the archive (about 46 MB). Re-time words
-  on an edited line then offers Unpack, not the download. In the row's
-  dialog, Delete download frees the space (the row offers Download model
-  again and the Storage row goes); download and cancel again, then
-  choose Unpack: the free-space check asks only for the unpacked files
-  (with about 80 MB free, no space warning appears), nothing is
-  downloaded (progress starts at 90%), and the row then reads
-  downloaded. With its download queued behind another model's, Delete
-  download is refused.
+  on an edited line then offers Unpack, not the download. The row's
+  dialog says that after Delete download, re-timing needs the model
+  downloaded again (about 49 MB); Delete download frees the space (the
+  row offers Download model again and the Storage row goes); download
+  and cancel again, then choose Unpack: the free-space check asks only
+  for the unpacked files (with about 80 MB free, no space warning
+  appears), nothing is downloaded (progress starts at 90%), and the row
+  then reads downloaded, again without leaving Settings. With its
+  download queued behind another model's, Delete download is refused.
 - [ ] Remove the meeting's audio (the confirmation lists re-timing
   edited words among what stops working), then Re-time words on an
   edited line: it explains there is no recording. A meeting imported

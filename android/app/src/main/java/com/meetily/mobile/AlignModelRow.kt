@@ -31,6 +31,20 @@ class AlignModelRow(
     /** The last progress the download service reported, for a re-render mid-download. */
     private var lastPercent = 0
 
+    /** What the row shows, and when it is worked out after a download ends. */
+    private val state = AlignRowState(
+        aligning = {
+            ModelDownloadService.isRunning &&
+                ModelDownloadService.currentKind == ModelDownloadService.KIND_ALIGN
+        },
+        downloaded = { AlignerModels.isDownloaded(activity, AlignerModels.DEFAULT) },
+        kept = { AlignerModels.hasKeptArchive(activity, AlignerModels.DEFAULT) },
+        later = { block ->
+            status.post { if (!activity.isFinishing && !activity.isDestroyed) block() }
+        },
+        draw = { shown -> draw(shown) }
+    )
+
     fun bind() {
         button.setOnClickListener { onButton() }
         render()
@@ -39,35 +53,41 @@ class AlignModelRow(
     /** Shows what is on the phone now. A few stats. */
     fun render() {
         if (activity.isFinishing || activity.isDestroyed) return
-        val model = AlignerModels.DEFAULT
-        val downloading = ModelDownloadService.isRunning &&
-            ModelDownloadService.currentKind == ModelDownloadService.KIND_ALIGN
-        if (downloading) {
+        state.render()
+    }
+
+    private fun draw(shown: AlignRowState.Shown) {
+        if (shown == AlignRowState.Shown.DOWNLOADING) {
             onProgress(lastPercent)
             return
         }
+        val model = AlignerModels.DEFAULT
         progress.visibility = View.GONE
-        if (AlignerModels.isDownloaded(activity, model)) {
-            status.text = activity.getString(
-                R.string.align_model_status_ready,
-                model.displayName,
-                Formatter.formatShortFileSize(activity, AlignerModels.bytesOnDisk(activity))
-            )
-            button.setText(R.string.align_model_delete)
-        } else if (AlignerModels.hasKeptArchive(activity, model)) {
-            status.text = activity.getString(
-                R.string.align_model_status_kept,
-                Formatter.formatShortFileSize(activity, AlignerModels.bytesOnDisk(activity)),
-                Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
-            )
-            button.setText(R.string.align_model_kept_action)
-        } else {
-            status.text = activity.getString(
-                R.string.align_model_status_missing,
-                Formatter.formatShortFileSize(activity, model.approxSizeMb * MB),
-                Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
-            )
-            button.setText(R.string.align_model_download)
+        when (shown) {
+            AlignRowState.Shown.DOWNLOADED -> {
+                status.text = activity.getString(
+                    R.string.align_model_status_ready,
+                    model.displayName,
+                    Formatter.formatShortFileSize(activity, AlignerModels.bytesOnDisk(activity))
+                )
+                button.setText(R.string.align_model_delete)
+            }
+            AlignRowState.Shown.KEPT -> {
+                status.text = activity.getString(
+                    R.string.align_model_status_kept,
+                    Formatter.formatShortFileSize(activity, AlignerModels.bytesOnDisk(activity)),
+                    Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
+                )
+                button.setText(R.string.align_model_kept_action)
+            }
+            else -> { // MISSING
+                status.text = activity.getString(
+                    R.string.align_model_status_missing,
+                    Formatter.formatShortFileSize(activity, model.approxSizeMb * MB),
+                    Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
+                )
+                button.setText(R.string.align_model_download)
+            }
         }
         button.isEnabled = true
     }
@@ -92,11 +112,19 @@ class AlignModelRow(
         A11y.setStatusText(status, activity.getString(R.string.align_model_queued), true)
     }
 
+    /**
+     * A download of the model ended, or ended while Settings was away.
+     * Settings forwards the service's done callback here, which finishRun
+     * makes before it clears isRunning and currentKind. The row is drawn
+     * once finishRun has returned (AlignRowState.onDone), so it shows what
+     * is on disk (downloaded, a kept download, or nothing) or a queued
+     * download of the model, not the one that just ended.
+     */
     fun onDone(cancelled: Boolean, error: String?) {
         lastPercent = 0
         announcer.reset()
         if (!cancelled && error == null) A11y.announceNextChange(status)
-        render()
+        state.onDone()
     }
 
     private fun onButton() {
@@ -117,7 +145,8 @@ class AlignModelRow(
             .setMessage(
                 activity.getString(
                     R.string.align_model_kept_message, size,
-                    Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
+                    Formatter.formatShortFileSize(activity, model.unpackedMb * MB),
+                    Formatter.formatShortFileSize(activity, model.approxSizeMb * MB)
                 )
             )
             .setPositiveButton(R.string.align_model_unpack) { _, _ -> download() }
