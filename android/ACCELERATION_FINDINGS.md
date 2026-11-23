@@ -181,14 +181,17 @@ Baseline, verified in this repo:
   `NativeEngines.kt` loads the library once per process (warmed off the
   main thread on the recording screen and the Settings switch, since the
   first load now maps llama.cpp too) and logs under `meetily_native`.
-  *Size saving:* expected to be roughly the ggml, KleidiAI and libc++ copy
-  the whisper library carried, about 1 MB uncompressed per CPU level on
-  arm64 and less zipped, but not measured yet: take it from the "Check
-  native library exports" CI log ("change: file ..., zipped ..." per ABI,
-  against the previous dist APK, whose four engine libraries count as the
-  "before"), and record it here. For scale, the 3.18.0-beta1 arm64 APK
-  held `libmeetily_llama.so` 7,144,736 bytes and `libmeetily_whisper.so`
-  1,876,496 (`_v82`: 7,150,464 and 1,881,008).
+  *Size saving (measured in the first 3.19.0-beta1 CI build, "Check native
+  library exports" step):* arm64-v8a engine code went from 4 libraries,
+  18,052,704 bytes (7,346,325 zipped), to 2 libraries, 14,762,368 bytes
+  (6,030,199 zipped). That is -3,290,336 bytes (-18.2%) on disk and
+  -1,316,126 bytes (-17.9%) in the APK, about 1.6 MB uncompressed per CPU
+  level, more than the 1 MB expected. `libmeetily_native.so` is 7,378,312
+  bytes (`_v82`: 7,384,056), against `libmeetily_llama.so` 7,144,736 plus
+  `libmeetily_whisper.so` 1,876,496 in 3.18.0-beta1 (`_v82`: 7,150,464
+  plus 1,881,008). The x86_64 `libmeetily_native.so` is 8,057,192 bytes.
+  The whole arm64 APK went from 27,483,313 to 27,032,463 bytes, even with
+  sherpa-onnx v2.0.3 and the bundled GTCRN model added.
 - **sherpa-onnx v2.0.3 (2026-11, Batch 5):** from v1.13.4, with ONNX
   Runtime 1.28.2 (was 1.27.0). arm64 native code grows by about 1.2 MB
   uncompressed: `libsherpa-onnx-jni.so` 4,710,728 → 5,386,920 bytes and

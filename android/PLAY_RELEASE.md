@@ -709,7 +709,7 @@ Work through it before the first targetSdk 36 upload to any track.
   112 / 3.17.0-beta1 and 111 / 3.16.0-beta1 before that). Bump both
   again for every later upload: Play rejects a versionCode it has
   already seen.
-- [ ] Run CI on the merged Batch 5 branch (`b5/integration`), not only on
+- [x] Run CI on the merged Batch 5 branch (`b5/integration`), not only on
   the six group branches: `scripts/fetch_sherpa_libs.sh` (now checks the
   v2.0.3 tarball's pinned SHA-256) and `scripts/check_sherpa_jni.py`
   right after it, `testReleaseUnitTest` (new ClearVoice,
@@ -722,8 +722,9 @@ Work through it before the first targetSdk 36 upload to any track.
   not the real classpath, so fix anything the real build turns up.
   Several groups edited MeetingDetailActivity, ImportService, JobQueue,
   AudioRemoval and the storage strings; the integration commit resolved
-  those, so lint must pass on the merged tree.
-- [ ] After that first run, read the "Check native library exports" step
+  those, so lint must pass on the merged tree. Done 2026-11-23: the first
+  3.19.0-beta1 run passed every step.
+- [x] After that first run, read the "Check native library exports" step
   log. Expect arm64-v8a to have 2 engine libraries, `libmeetily_native.so`
   and `libmeetily_native_v82.so`, each with 18 exports, all 18 `Java_`
   (x86_64 has only `libmeetily_native.so`); the "before
@@ -736,6 +737,11 @@ Work through it before the first targetSdk 36 upload to any track.
   that log; expect roughly the ggml, KleidiAI and libc++ copy the whisper
   library carried, about 1 MB uncompressed per CPU level on arm64 and less
   zipped, but quote nothing until it is measured.
+  Done 2026-11-23: both arm64 levels and x86_64 show 18 exports, all
+  `Java_`; the symbols list includes `libmeetily_native_v82.so.sym`, so
+  the `:native-v82` symbols reach the upload; the saving (-3,290,336
+  bytes on disk, -1,316,126 zipped, on arm64) is recorded in
+  `ACCELERATION_FINDINGS.md`.
 - [ ] Watch sherpa-onnx v2.0.3 (published 2026-11-22) for early
   regressions. If one appears, fall back to v2.0.2: change `VER` and
   `SHA256` in `scripts/fetch_sherpa_libs.sh` (take the digest from
@@ -1977,10 +1983,11 @@ Accessibility:
   uncompressed arm64 native code for sherpa-onnx v2.0.3 and ONNX Runtime
   1.28.2 (`libsherpa-onnx-jni.so` 4,710,728 → 5,386,920 bytes,
   `libonnxruntime.so` 21,688,912 → 22,249,560) and 535,638 bytes for the
-  bundled GTCRN model, and saves an as yet unmeasured amount by linking
-  whisper.cpp and llama.cpp into one library per CPU level (one ggml,
-  KleidiAI and libc++ copy instead of two; section 11 says where to read
-  the figure). Every other speech/AI model is
+  bundled GTCRN model, and saves 3,290,336 bytes of arm64 native code
+  (1,316,126 zipped) by linking whisper.cpp and llama.cpp into one library
+  per CPU level (one ggml, KleidiAI and libc++ copy instead of two). The
+  arm64 APK went from 27.5 MB at 3.18.0-beta1 to 27.0 MB. Every other
+  speech/AI model is
   downloaded in-app at runtime, so Play's size limits are a non-issue —
   but the listing should mention large optional downloads.
 - **Native engines**: llama.cpp v1.0.0 and whisper.cpp b5907 (from
