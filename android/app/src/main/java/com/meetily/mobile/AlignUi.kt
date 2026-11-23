@@ -194,7 +194,10 @@ class AlignUi(
         onReady()
     }
 
-    /** No model yet: say what it is and offer the download, or say it is on its way. */
+    /**
+     * No model yet: say what it is and offer the download (only the unpack
+     * when its download was kept), or say it is on its way.
+     */
     private fun offerModel() {
         if (ModelDownloadService.isRunning && (
                 ModelDownloadService.currentKind == ModelDownloadService.KIND_ALIGN ||
@@ -205,26 +208,39 @@ class AlignUi(
             return
         }
         val model = AlignerModels.DEFAULT
+        val kept = AlignerModels.hasKeptArchive(activity, model)
         val dialog = AlertDialog.Builder(activity)
-            .setTitle(R.string.align_need_model_title)
+            .setTitle(if (kept) R.string.align_model_kept_title else R.string.align_need_model_title)
             .setMessage(
-                activity.getString(
-                    R.string.align_need_model_message,
-                    Formatter.formatShortFileSize(activity, model.approxSizeMb * MB),
-                    Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
-                )
+                if (kept) {
+                    activity.getString(
+                        R.string.align_need_unpack_message,
+                        Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
+                    )
+                } else {
+                    activity.getString(
+                        R.string.align_need_model_message,
+                        Formatter.formatShortFileSize(activity, model.approxSizeMb * MB),
+                        Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
+                    )
+                }
             )
-            .setPositiveButton(R.string.align_need_model_download) { _, _ -> download() }
+            .setPositiveButton(
+                if (kept) R.string.align_model_unpack else R.string.align_need_model_download
+            ) { _, _ -> download() }
             .setNegativeButton(android.R.string.cancel, null)
             .create()
         AppLock.secure(dialog)
         dialog.show()
     }
 
-    /** The space check, the memory check, then the download service; as Settings' pickers do. */
+    /**
+     * The space check (only the unpacked files when the download was kept),
+     * the memory check, then the download service; as Settings' pickers do.
+     */
     private fun download() {
         val model = AlignerModels.DEFAULT
-        ModelSpaceCheck.confirm(activity, listOf(AlignerModels.spaceNeededMb(model))) {
+        ModelSpaceCheck.confirm(activity, listOf(AlignerModels.spaceNeededMb(activity, model))) {
             FitBadge.confirmChoice(
                 activity, model.displayName,
                 DeviceProbe.verdict(activity, AlignerModels.need(model)),

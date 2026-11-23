@@ -15,8 +15,10 @@ import com.meetily.mobile.whisper.AlignerModels
  * Settings' "Word re-timing (English)" row: whether the optional model for
  * "Re-time words" (AlignerModels) is on the phone, its download (through
  * ModelDownloadService, after the same space and memory checks as every
- * model) and its deletion. Settings forwards the download service's
- * callbacks for its kind here.
+ * model) and its deletion. A download that was kept but not unpacked (a
+ * full disk, a stopped unpack) is offered to unpack or delete, so its
+ * space can always be taken back. Settings forwards the download
+ * service's callbacks for its kind here.
  */
 class AlignModelRow(
     private val activity: AppCompatActivity,
@@ -52,6 +54,13 @@ class AlignModelRow(
                 Formatter.formatShortFileSize(activity, AlignerModels.bytesOnDisk(activity))
             )
             button.setText(R.string.align_model_delete)
+        } else if (AlignerModels.hasKeptArchive(activity, model)) {
+            status.text = activity.getString(
+                R.string.align_model_status_kept,
+                Formatter.formatShortFileSize(activity, AlignerModels.bytesOnDisk(activity)),
+                Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
+            )
+            button.setText(R.string.align_model_kept_action)
         } else {
             status.text = activity.getString(
                 R.string.align_model_status_missing,
@@ -92,14 +101,42 @@ class AlignModelRow(
 
     private fun onButton() {
         val model = AlignerModels.DEFAULT
-        if (AlignerModels.isDownloaded(activity, model)) confirmDelete() else download()
+        when {
+            AlignerModels.isDownloaded(activity, model) -> confirmDelete()
+            AlignerModels.hasKeptArchive(activity, model) -> offerKept()
+            else -> download()
+        }
+    }
+
+    /** A download kept but not unpacked: unpack it, or delete it to free its space. */
+    private fun offerKept() {
+        val model = AlignerModels.DEFAULT
+        val size = Formatter.formatShortFileSize(activity, AlignerModels.bytesOnDisk(activity))
+        val dialog = AlertDialog.Builder(activity)
+            .setTitle(R.string.align_model_kept_title)
+            .setMessage(
+                activity.getString(
+                    R.string.align_model_kept_message, size,
+                    Formatter.formatShortFileSize(activity, model.unpackedMb * MB)
+                )
+            )
+            .setPositiveButton(R.string.align_model_unpack) { _, _ -> download() }
+            .setNeutralButton(R.string.align_model_delete_download) { _, _ ->
+                deleteNow(R.string.align_model_download_deleted)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        com.meetily.mobile.security.AppLock.secure(dialog)
+        dialog.show()
     }
 
     private fun download() {
         val model = AlignerModels.DEFAULT
         button.isEnabled = false
+        // Only the unpacked files when the archive was kept: download()
+        // then only unpacks it.
         ModelSpaceCheck.confirm(
-            activity, listOf(AlignerModels.spaceNeededMb(model)),
+            activity, listOf(AlignerModels.spaceNeededMb(activity, model)),
             onMeasured = { render() }
         ) {
             FitBadge.confirmChoice(
@@ -133,31 +170,41 @@ class AlignModelRow(
                 )
             )
             .setPositiveButton(R.string.align_model_delete_confirm) { _, _ ->
-                val busy = AlignService.isBusy() || (
-                    ModelDownloadService.isRunning &&
-                        (ModelDownloadService.currentKind == ModelDownloadService.KIND_ALIGN ||
-                            ModelDownloadService.queuedItems.any { it.first == ModelDownloadService.KIND_ALIGN })
-                    )
-                if (busy) {
-                    Toast.makeText(activity, R.string.align_model_delete_busy, Toast.LENGTH_LONG).show()
-                    return@setPositiveButton
-                }
-                val app = activity.applicationContext
-                button.isEnabled = false
-                Thread {
-                    AlignerModels.delete(app, model)
-                    activity.runOnUiThread {
-                        render()
-                        if (!activity.isFinishing && !activity.isDestroyed) {
-                            Toast.makeText(activity, R.string.align_model_deleted, Toast.LENGTH_SHORT).show()
-                        }
-                    }
-                }.apply { name = "align-model-delete" }.start()
+                deleteNow(R.string.align_model_deleted)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .create()
         com.meetily.mobile.security.AppLock.secure(dialog)
         dialog.show()
+    }
+
+    /**
+     * Deletes the model and whatever of its download is left, off the main
+     * thread, then says [done]; refused while it downloads, waits to, or a
+     * run uses it.
+     */
+    private fun deleteNow(done: Int) {
+        val model = AlignerModels.DEFAULT
+        val busy = AlignService.isBusy() || (
+            ModelDownloadService.isRunning &&
+                (ModelDownloadService.currentKind == ModelDownloadService.KIND_ALIGN ||
+                    ModelDownloadService.queuedItems.any { it.first == ModelDownloadService.KIND_ALIGN })
+            )
+        if (busy) {
+            Toast.makeText(activity, R.string.align_model_delete_busy, Toast.LENGTH_LONG).show()
+            return
+        }
+        val app = activity.applicationContext
+        button.isEnabled = false
+        Thread {
+            AlignerModels.delete(app, model)
+            activity.runOnUiThread {
+                render()
+                if (!activity.isFinishing && !activity.isDestroyed) {
+                    Toast.makeText(activity, done, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }.apply { name = "align-model-delete" }.start()
     }
 
     private companion object {
