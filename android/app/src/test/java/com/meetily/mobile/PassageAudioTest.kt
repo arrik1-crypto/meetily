@@ -8,13 +8,16 @@ import com.meetily.mobile.data.PassageSwap.Facts
 import com.meetily.mobile.data.PassageSwap.Leftover
 import com.meetily.mobile.data.PassageSwap.Verdict
 import com.meetily.mobile.data.SafeFiles
+import com.meetily.mobile.whisper.PassageSilencer
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 
 /**
  * Silencing a passage of the audio: the span goes wholly silent with short
@@ -23,6 +26,9 @@ import org.junit.Test
  * only replaces the recording once it reads back whole.
  */
 class PassageAudioTest {
+
+    @get:Rule
+    val folder = TemporaryFolder()
 
     // --- Fades --------------------------------------------------------------
 
@@ -252,6 +258,152 @@ class PassageAudioTest {
         assertEquals(507, length)
         assertNull(PassageAudio.adtsHeader(100, 17_000, 1))
         assertNull(PassageAudio.adtsHeader(100, 16_000, 9))
+    }
+
+    /** A file of [bytes], read as PassageSilencer reads one; counts the reads. */
+    private class FakeFile(val bytes: ByteArray) {
+        var reads = 0
+        var furthest = 0L
+
+        fun readAt(offset: Long, into: ByteArray): Int {
+            reads++
+            if (offset >= bytes.size) return 0
+            val n = minOf(into.size.toLong(), bytes.size - offset).toInt()
+            System.arraycopy(bytes, offset.toInt(), into, 0, n)
+            furthest = maxOf(furthest, offset + n)
+            return n
+        }
+    }
+
+    /** [frames] ADTS frames of [payload] bytes each, as MeetingAudioWriter or a passage run writes them. */
+    private fun adtsFile(frames: Int, sampleRate: Int, channels: Int, payload: Int = 200): ByteArray {
+        val header = PassageAudio.adtsHeader(payload, sampleRate, channels)!!
+        val out = java.io.ByteArrayOutputStream()
+        repeat(frames) {
+            out.write(header)
+            out.write(ByteArray(payload) { i -> (i * 7 + it).toByte() })
+        }
+        return out.toByteArray()
+    }
+
+    /** An ID3v2 tag of [body] bytes, its size in the header's four 7-bit bytes. */
+    private fun id3(body: Int): ByteArray {
+        val tag = ByteArray(10 + body)
+        tag[0] = 'I'.code.toByte(); tag[1] = 'D'.code.toByte(); tag[2] = '3'.code.toByte()
+        tag[3] = 4
+        tag[6] = ((body shr 21) and 0x7F).toByte()
+        tag[7] = ((body shr 14) and 0x7F).toByte()
+        tag[8] = ((body shr 7) and 0x7F).toByte()
+        tag[9] = (body and 0x7F).toByte()
+        return tag
+    }
+
+    @Test
+    fun aLiveRecordingsFormatComesFromItsFirstHeaderWithoutWalkingTheFile() {
+        // An hour of live recording: 16 kHz mono AAC, 56,250 frames (small ones here).
+        val hour = FakeFile(adtsFile(3600 * 16_000 / 1024, 16_000, 1, payload = 8))
+        val format = PassageAudio.adtsFormatOf(hour::readAt)
+        assertEquals(PassageAudio.AdtsFormat(16_000, 1), format)
+        assertEquals(PassageAudio.Reencode.SAME_FORMAT, format!!.reencode)
+        // One read of the first ten bytes, however long the recording.
+        assertEquals(1, hour.reads)
+        assertEquals(PassageAudio.HEADER_BYTES.toLong(), hour.furthest)
+        // The exact bytes MeetingAudioWriter starts a recording with.
+        val live = byteArrayOf(0xFF.toByte(), 0xF1.toByte(), 0x60, 0x40, 0x0D, 0xFF.toByte(), 0xFC.toByte(), 0, 0, 0)
+        assertEquals(PassageAudio.AdtsFormat(16_000, 1), PassageAudio.adtsFormat(live))
+    }
+
+    @Test
+    fun anAdtsHeaderIsReadAsThePlatformsAacExtractorReadsIt() {
+        // What a passage run writes for an import it kept as it was.
+        for ((rate, channels) in listOf(48_000 to 2, 44_100 to 2, 8_000 to 1, 22_050 to 1, 96_000 to 2)) {
+            val file = FakeFile(adtsFile(3, rate, channels))
+            val format = PassageAudio.adtsFormatOf(file::readAt)
+            assertEquals("$rate Hz × $channels", PassageAudio.AdtsFormat(rate, channels), format)
+            assertEquals(PassageAudio.reencodeOf(PassageAudio.AAC_MIME, rate, channels), format!!.reencode)
+        }
+        assertEquals(PassageAudio.Reencode.SAME_FORMAT, PassageAudio.AdtsFormat(48_000, 2).reencode)
+        // 96 kHz, a 5.1 configuration (6) or none (0, a program config element): the mix-down warning.
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageAudio.AdtsFormat(96_000, 2).reencode)
+        val surround = PassageAudio.adtsHeader(200, 48_000, 6)!! + ByteArray(3)
+        assertEquals(PassageAudio.AdtsFormat(48_000, 6), PassageAudio.adtsFormat(surround))
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageAudio.adtsFormat(surround)!!.reencode)
+        val noConfig = surround.copyOf().also { it[2] = (it[2].toInt() and 0xFE).toByte(); it[3] = (it[3].toInt() and 0x3F).toByte() }
+        assertEquals(PassageAudio.AdtsFormat(48_000, 0), PassageAudio.adtsFormat(noConfig))
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageAudio.adtsFormat(noConfig)!!.reencode)
+        // An MPEG-2 header (ID bit set, 0xF9) and one with a CRC (0xF0) are ADTS too.
+        val mpeg2 = surround.copyOf().also { it[1] = 0xF9.toByte() }
+        assertEquals(48_000, PassageAudio.adtsFormat(mpeg2)!!.sampleRate)
+        val crc = surround.copyOf().also { it[1] = 0xF0.toByte() }
+        assertEquals(48_000, PassageAudio.adtsFormat(crc)!!.sampleRate)
+        // 7350 Hz and the reserved indexes: the extractor does not take the file, so neither does this.
+        for (index in 12..15) {
+            val odd = surround.copyOf().also { it[2] = ((it[2].toInt() and 0xC3) or (index shl 2)).toByte() }
+            assertNull("index $index", PassageAudio.adtsFormat(odd))
+        }
+    }
+
+    @Test
+    fun anythingButRawAdtsIsLeftToTheExtractor() {
+        fun formatOf(bytes: ByteArray) = PassageAudio.adtsFormatOf(FakeFile(bytes)::readAt)
+        // MP3 frame sync (layer III, not ADTS's layer 0), an MP4's ftyp box, WAV, FLAC, Ogg.
+        assertNull(formatOf(byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x64) + ByteArray(400)))
+        assertNull(formatOf(byteArrayOf(0, 0, 0, 0x20) + "ftypM4A ".toByteArray() + ByteArray(400)))
+        assertNull(formatOf("RIFF".toByteArray() + ByteArray(4) + "WAVEfmt ".toByteArray() + ByteArray(400)))
+        assertNull(formatOf("fLaC".toByteArray() + ByteArray(400)))
+        assertNull(formatOf("OggS".toByteArray() + ByteArray(400)))
+        // Empty, and shorter than the ten bytes the extractor looks at.
+        assertNull(formatOf(ByteArray(0)))
+        assertNull(formatOf(adtsFile(1, 16_000, 1).copyOf(9)))
+        // An MP3 behind an ID3 tag is still an MP3.
+        assertNull(formatOf(id3(300) + byteArrayOf(0xFF.toByte(), 0xFB.toByte(), 0x90.toByte(), 0x64) + ByteArray(400)))
+        // A tag that runs past the end of the file.
+        assertNull(formatOf(id3(5000).copyOf(200)))
+    }
+
+    @Test
+    fun id3TagsBeforeAnAdtsStreamAreSkippedAsTheExtractorSkipsThem() {
+        assertEquals(10L + 300L, PassageAudio.id3TagBytes(id3(300)))
+        // The size is four 7-bit bytes (syncsafe): 2^21 + 2^14 + 2^7 + 1.
+        assertEquals(10L + 2_113_665L, PassageAudio.id3TagBytes(id3(2_113_665)))
+        assertEquals(0L, PassageAudio.id3TagBytes(adtsFile(1, 16_000, 1)))
+        assertEquals(0L, PassageAudio.id3TagBytes("ID3".toByteArray()))
+        // One tag, then two in a row, then the stream.
+        val stream = adtsFile(4, 44_100, 2)
+        val one = FakeFile(id3(1000) + stream)
+        assertEquals(PassageAudio.AdtsFormat(44_100, 2), PassageAudio.adtsFormatOf(one::readAt))
+        assertEquals(2, one.reads)
+        val two = FakeFile(id3(1000) + id3(0) + stream)
+        assertEquals(PassageAudio.AdtsFormat(44_100, 2), PassageAudio.adtsFormatOf(two::readAt))
+        assertEquals(3, two.reads)
+        assertEquals(1010L + 10L + PassageAudio.HEADER_BYTES, two.furthest)
+    }
+
+    @Test
+    fun thePickerReadsARecordingsFormatFromTheFileItself() {
+        val live = folder.newFile("live.aac").apply { writeBytes(adtsFile(50, 16_000, 1)) }
+        assertEquals(PassageAudio.Reencode.SAME_FORMAT, PassageSilencer.adtsReencode(live))
+        val tagged = folder.newFile("tagged.aac").apply { writeBytes(id3(700) + adtsFile(5, 48_000, 6)) }
+        assertEquals(PassageAudio.Reencode.DOWNGRADED, PassageSilencer.adtsReencode(tagged))
+        // Not raw ADTS, too short or missing: the extractor must say (PassageSilencer.readHeader).
+        val m4a = folder.newFile("import.m4a").apply {
+            writeBytes(byteArrayOf(0, 0, 0, 0x20) + "ftypM4A ".toByteArray() + ByteArray(400))
+        }
+        assertNull(PassageSilencer.adtsReencode(m4a))
+        assertNull(PassageSilencer.adtsReencode(folder.newFile("empty.aac")))
+        assertNull(PassageSilencer.adtsReencode(java.io.File(folder.root, "gone.aac")))
+    }
+
+    @Test
+    fun aStatedLengthIsRoundedAsMediaMetadataRetrieverRoundsIt() {
+        // An hour of 16 kHz AAC frames as the AAC extractor states it: 56,250 frames of 64,000 µs.
+        assertEquals(3_600_000L, PassageAudio.durationMsOf(56_250L * 64_000L))
+        assertEquals(1L, PassageAudio.durationMsOf(500L))
+        assertEquals(0L, PassageAudio.durationMsOf(499L))
+        assertEquals(2L, PassageAudio.durationMsOf(1_500L))
+        assertEquals(0L, PassageAudio.durationMsOf(0L))
+        assertEquals(0L, PassageAudio.durationMsOf(-1L))
+        assertEquals(Long.MAX_VALUE / 1000L, PassageAudio.durationMsOf(Long.MAX_VALUE))
     }
 
     // --- The codec's delay ------------------------------------------------------

@@ -14,6 +14,7 @@ import java.io.BufferedOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.io.RandomAccessFile
 import java.nio.ByteOrder
 
 /**
@@ -79,27 +80,72 @@ internal object PassageSilencer {
     /** The recording would be mixed down, which the user did not agree to. */
     private class ConvertNotAgreed : RuntimeException()
 
+    /** What [readHeader] found. */
+    class Header(
+        /** What writing the file again does (PassageAudio.reencodeOf); null when its format is not stated. */
+        val reencode: PassageAudio.Reencode?,
+        /** The file's length in ms, as MediaMetadataRetriever states it; 0 when not known. */
+        val durationMs: Long
+    )
+
     /**
-     * What writing [file] again does to it beyond the passage, from its
-     * first audio track's header, for the confirmation
-     * (PassageAudio.reencodeOf); null when the header cannot be read.
+     * What writing [file] again does to it beyond the passage, for the
+     * confirmation, when [file] is raw ADTS: from its first frame header
+     * (PassageAudio.adtsFormatOf), a few bytes. Every live recording, and
+     * every file a passage run writes, is raw ADTS. Null for anything else,
+     * or when it cannot be read: [readHeader] then.
      */
     @WorkerThread
-    fun reencodeOf(file: File): PassageAudio.Reencode? {
+    fun adtsReencode(file: File): PassageAudio.Reencode? = try {
+        RandomAccessFile(file, "r").use { raf ->
+            PassageAudio.adtsFormatOf { offset, into ->
+                raf.seek(offset)
+                var read = 0
+                while (read < into.size) {
+                    val n = raf.read(into, read, into.size - read)
+                    if (n < 0) break
+                    read += n
+                }
+                read
+            }
+        }?.reencode
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * What writing [file] again does to it beyond the passage, from its
+     * first audio track's format (PassageAudio.reencodeOf), and its length
+     * (the longest track's), from one MediaExtractor open. Opening raw ADTS
+     * walks every frame header of the file, which takes seconds on a long
+     * meeting: [adtsReencode] when only the format is wanted, and this once
+     * when the length is too, never a second read for it.
+     */
+    @WorkerThread
+    fun readHeader(file: File): Header {
         val extractor = MediaExtractor()
         return try {
             extractor.setDataSource(file.absolutePath)
-            val format = (0 until extractor.trackCount)
-                .map { extractor.getTrackFormat(it) }
-                .firstOrNull { it.getString(MediaFormat.KEY_MIME).orEmpty().startsWith("audio/") }
-                ?: return null
-            PassageAudio.reencodeOf(
-                format.getString(MediaFormat.KEY_MIME),
-                format.getInteger(MediaFormat.KEY_SAMPLE_RATE),
-                format.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
-            )
+            val formats = (0 until extractor.trackCount).map { extractor.getTrackFormat(it) }
+            val durationUs = formats.maxOfOrNull {
+                if (it.containsKey(MediaFormat.KEY_DURATION)) it.getLong(MediaFormat.KEY_DURATION) else 0L
+            } ?: 0L
+            // A format without its rate or channels says nothing, but the length still counts.
+            val reencode = try {
+                formats.firstOrNull { it.getString(MediaFormat.KEY_MIME).orEmpty().startsWith("audio/") }
+                    ?.let {
+                        PassageAudio.reencodeOf(
+                            it.getString(MediaFormat.KEY_MIME),
+                            it.getInteger(MediaFormat.KEY_SAMPLE_RATE),
+                            it.getInteger(MediaFormat.KEY_CHANNEL_COUNT)
+                        )
+                    }
+            } catch (_: Exception) {
+                null
+            }
+            Header(reencode, PassageAudio.durationMsOf(durationUs))
         } catch (_: Exception) {
-            null
+            Header(null, 0L)
         } finally {
             try {
                 extractor.release()

@@ -94,7 +94,7 @@ object PassageAudio {
 
     // --- The new file's format ------------------------------------------------
 
-    /** AAC sample rates in ADTS order: a rate's index is its sampling_frequency_index. */
+    /** AAC sample rates in ADTS order: a rate's index is its sampling_frequency_index ([adtsFormat] reads it back). */
     private val ADTS_RATES = intArrayOf(96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350)
 
     /**
@@ -170,6 +170,90 @@ object PassageAudio {
         mime != AAC_MIME -> Reencode.OTHER_CODEC
         else -> Reencode.SAME_FORMAT
     }
+
+    // --- What a raw ADTS recording's first header says ------------------------
+
+    /**
+     * How many bytes [adtsFormatOf] reads at a time: an ID3v2 tag's header,
+     * the most the platform's AAC extractor looks at in one go when it
+     * checks a file.
+     */
+    const val HEADER_BYTES = 10
+
+    /**
+     * The rates the platform's AAC extractor takes: the first twelve
+     * sampling-frequency indexes, without 7350 Hz.
+     */
+    private const val EXTRACTOR_RATES = 12
+
+    /** A raw ADTS file's rate and channel count, as its first frame header states them. */
+    data class AdtsFormat(val sampleRate: Int, val channels: Int) {
+        /** What writing the file again does ([reencodeOf]); it is AAC. */
+        val reencode: Reencode get() = reencodeOf(AAC_MIME, sampleRate, channels)
+    }
+
+    /**
+     * The length of the ID3v2 tag that [bytes] starts with (its 10-byte
+     * header plus the size that header states), or 0 when [bytes] does not
+     * start with one. Read as the platform's AAC extractor reads it.
+     */
+    fun id3TagBytes(bytes: ByteArray): Long {
+        if (bytes.size < HEADER_BYTES) return 0L
+        if (bytes[0] != 'I'.code.toByte() || bytes[1] != 'D'.code.toByte() || bytes[2] != '3'.code.toByte()) return 0L
+        val size = ((bytes[6].toInt() and 0x7F) shl 21) or
+            ((bytes[7].toInt() and 0x7F) shl 14) or
+            ((bytes[8].toInt() and 0x7F) shl 7) or
+            (bytes[9].toInt() and 0x7F)
+        return HEADER_BYTES + size.toLong()
+    }
+
+    /**
+     * The rate and channel count the ADTS frame header at the start of
+     * [bytes] states, as the platform's AAC extractor reads them: the rate
+     * of its sampling-frequency index, and its channel configuration taken
+     * as the count. Null when [bytes] does not start with an ADTS sync word
+     * or names a rate the extractor does not take.
+     */
+    fun adtsFormat(bytes: ByteArray): AdtsFormat? {
+        if (bytes.size < 4) return null
+        val b0 = bytes[0].toInt() and 0xFF
+        val b1 = bytes[1].toInt() and 0xFF
+        val b2 = bytes[2].toInt() and 0xFF
+        val b3 = bytes[3].toInt() and 0xFF
+        if (b0 != 0xFF || (b1 and 0xF6) != 0xF0) return null
+        val index = (b2 shr 2) and 0xF
+        if (index >= EXTRACTOR_RATES) return null
+        return AdtsFormat(ADTS_RATES[index], ((b2 and 1) shl 2) or (b3 shr 6))
+    }
+
+    /**
+     * The format of a raw ADTS file (every live recording, and every file a
+     * passage run writes) from its first frame header, found as the
+     * platform's AAC extractor finds it: past any ID3v2 tags. That
+     * extractor also walks every frame header of the file before it says
+     * anything, which takes seconds on a long meeting; this reads a few
+     * bytes. [readAt] fills the array it is given from a file offset and
+     * returns how many bytes it read. Null when the file is not raw ADTS
+     * (only the extractor can say then) or names a rate it does not take.
+     */
+    fun adtsFormatOf(readAt: (offset: Long, into: ByteArray) -> Int): AdtsFormat? {
+        val bytes = ByteArray(HEADER_BYTES)
+        var offset = 0L
+        while (true) {
+            // The extractor wants this many bytes here even when they are a frame header.
+            if (readAt(offset, bytes) < HEADER_BYTES) return null
+            val tag = id3TagBytes(bytes)
+            if (tag == 0L) return adtsFormat(bytes)
+            offset += tag
+        }
+    }
+
+    /**
+     * A length a track format states in microseconds, in ms as
+     * MediaMetadataRetriever gives it (rounded to the nearest); 0 for none.
+     */
+    fun durationMsOf(durationUs: Long): Long =
+        if (durationUs <= 0L) 0L else (durationUs.coerceAtMost(Long.MAX_VALUE - 500L) + 500L) / 1000L
 
     /** See [formatFor]. */
     fun bitRateFor(sourceBitRate: Int, sampleRate: Int, channels: Int): Int {

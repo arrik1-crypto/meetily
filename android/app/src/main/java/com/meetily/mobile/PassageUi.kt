@@ -64,7 +64,7 @@ class PassageUi(
     private var progressText: TextView? = null
     private val announcer = ProgressAnnouncer()
 
-    /** The recording's length is being read for the picker; a second tap waits. */
+    /** The recording is being read for the picker; a second tap waits. */
     private var measuring = false
 
     /** From onCreate, with the meeting the screen shows: follow runs on it. */
@@ -114,14 +114,24 @@ class PassageUi(
             return
         }
         // The recording's format, for what writing it again does to it (the
-        // confirmation), and its length, which bounds the last line: raw
-        // ADTS states none, so it is read by walking the file. A worker.
+        // confirmation), and its length, which bounds the last line. A
+        // worker: the platform opens raw ADTS, which states no length, by
+        // walking every frame header, seconds on a long meeting.
         if (measuring) return
         measuring = true
-        if (known <= 0L) Toast.makeText(activity, R.string.passage_reading, Toast.LENGTH_SHORT).show()
+        if (known <= 0L) showReading()
         Thread {
-            val reencode = PassageSilencer.reencodeOf(file)
-            val durationMs = if (known > 0L) known else ClearVoiceService.durationMs(file)
+            // A raw ADTS recording (every live one) states its format in its
+            // first frame header. With the length known too (a prepared
+            // player) that is all that is read, and the picker opens at once.
+            val quick = if (known > 0L) PassageSilencer.adtsReencode(file) else null
+            // Otherwise one open gives the format and the length together.
+            val header = if (quick != null) null else {
+                if (known > 0L) activity.runOnUiThread { showReading() }
+                PassageSilencer.readHeader(file)
+            }
+            val reencode = quick ?: header?.reencode
+            val durationMs = if (known > 0L) known else header?.durationMs ?: 0L
             activity.runOnUiThread {
                 measuring = false
                 if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
@@ -133,6 +143,12 @@ class PassageUi(
                 pickRange(current, at, durationMs.takeIf { it > 0L }, reencode)
             }
         }.apply { name = "passage-read" }.start()
+    }
+
+    /** Opening the recording for the picker may take a while: say so. */
+    private fun showReading() {
+        if (activity.isFinishing || activity.isDestroyed) return
+        Toast.makeText(activity, R.string.passage_reading, Toast.LENGTH_SHORT).show()
     }
 
     // --- The range picker -------------------------------------------------------

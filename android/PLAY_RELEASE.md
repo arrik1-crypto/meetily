@@ -2420,6 +2420,11 @@ well as a Pixel:
 - [ ] Remove a passage from a 2-hour meeting on a mid-range phone, screen
   off and unplugged: note the time it takes and the battery used, and
   record them in `ACCELERATION_FINDINGS.md`.
+- [ ] Open a 2-hour live recording without playing it or opening its
+  Audio tab, and choose Remove passage… on a line: "Reading the
+  recording…" shows and the picker follows after one read of the file
+  (note the wait). Press Play, then Pause, and choose it again: the
+  picker opens at once, with no message.
 - [ ] Export a clip across it: silence inside the clip.
 - [ ] Re-transcribe (accuracy check) afterwards: no lines inside the span,
   and the other lines' timings still match.
