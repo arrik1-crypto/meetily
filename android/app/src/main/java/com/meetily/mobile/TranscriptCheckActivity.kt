@@ -557,6 +557,9 @@ class TranscriptCheckActivity : AppCompatActivity() {
                 player = fresh
             }
             active.seekTo(ms.toInt())
+            // The meeting's own playback (it carries on behind this screen)
+            // must not talk over the line being checked.
+            MeetingPlayback.pause()
             active.start()
         } catch (_: Exception) {
             // Release whichever one we are holding — a player that failed in

@@ -222,6 +222,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         hasStarted = true
         // Set up with the player once the meeting is read (setUpClearVoice).
         clearVoiceBar?.attach()
+        // Hears what happens to this meeting's player while shown, and shows
+        // what happened to it while away (it may have played on, or ended).
+        playbackScreenId?.let { MeetingPlayback.attach(it, playbackListener) }
+        syncPlayerFromPlayback()
         // Nothing to refresh or attach to until the meeting has been read;
         // onMeetingRead does this itself when the read lands.
         val m = meeting ?: return
@@ -269,6 +273,10 @@ class MeetingDetailActivity : AppCompatActivity() {
     override fun onStop() {
         started = false
         clearVoiceBar?.detach()
+        MeetingPlayback.detach(playbackListener)
+        // A screen out of sight has nothing to follow; the chain would
+        // otherwise keep waking the main thread every 90 ms.
+        playerHandler.removeCallbacks(playerTick)
         // Away for a while during the read, not just rotated: the file may
         // have been read before something saved meanwhile (onMeetingRead).
         if (loadGate.isLoading && !isChangingConfigurations) loadModel?.load?.ownerLeft()
@@ -870,6 +878,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             finish()
             return
         }
+        // Counted for as long as this screen lives (onDestroy), so a player
+        // left paused goes with the last screen on its meeting.
+        playbackScreenId = id
+        MeetingPlayback.screenOpened(id)
         // The title and date go up at once when they are known without the
         // file. Everything else waits for the read (onMeetingRead): on a
         // long meeting that is a megabyte of JSON and its word timings, which
@@ -1670,18 +1682,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         } else if (isChangingConfigurations && syncWanted) {
             pendingSync?.let { completeSync(it) }
         }
-        player?.let { p ->
-            if (playerReady && p.isPlaying) {
-                p.pause()
-                setPlayPauseIcon(playing = false)
-            }
-        }
-        // A tap made while the player was still preparing must not start
+        // Playback itself carries on (MeetingPlayback and its service): with
+        // the screen off, behind another app, or from the notification. But
+        // a tap made while the player was still preparing must not start
         // playback behind a screen the user has left.
         pendingPlayerAction = null
-        // A backgrounded screen has nothing to follow; the chain would
-        // otherwise keep waking the main thread every 90 ms.
-        playerHandler.removeCallbacks(playerTick)
     }
 
     override fun onDestroy() {
@@ -1693,14 +1698,11 @@ class MeetingDetailActivity : AppCompatActivity() {
         // A rotation hands an unrecorded photo on in the saved state.
         if (isFinishing && !isChangingConfigurations && loadGate.isLoading) recordPhotoUnread()
         playerHandler.removeCallbacks(playerTick)
-        playerReady = false
         pendingPlayerAction = null
-        releaseBoost()
-        try {
-            player?.release()
-        } catch (_: Exception) {
-        }
-        player = null
+        MeetingPlayback.detach(playbackListener)
+        // A rotation keeps the player; closing the screen keeps it only
+        // while it plays (it carries on in the background).
+        playbackScreenId?.let { MeetingPlayback.screenClosed(it, isChangingConfigurations) }
         super.onDestroy()
     }
 
@@ -2949,13 +2951,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             playerHandler.removeCallbacks(playerTick)
             pendingPlayerAction = null
-            playerReady = false
-            releaseBoost()
-            try {
-                player?.release()
-            } catch (_: Exception) {
-            }
-            player = null
+            // Also ends playback carried on in the background, and its notification.
+            MeetingPlayback.stopMeeting(current.id)
             if (::playerBar.isInitialized) showPlayerBar(false)
             val untranscribed = current.segments.isEmpty()
             val copy = current.clearVoiceFile
@@ -3095,8 +3092,18 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     // --- Audio playback ----------------------------------------------------
 
-    private var player: MediaPlayer? = null
-    private var playerReady = false
+    /**
+     * This meeting's player, prepared or still preparing; null when there is
+     * none. It belongs to MeetingPlayback, so it outlives the screen:
+     * playback goes on in the background, and a rotation keeps it.
+     */
+    private val player: MediaPlayer?
+        get() = MeetingPlayback.playerFor(meeting?.id)
+    private val playerReady: Boolean
+        get() = MeetingPlayback.isPrepared(meeting?.id)
+
+    /** The meeting this screen counts itself open on with MeetingPlayback. */
+    private var playbackScreenId: String? = null
     private lateinit var playerBar: View
     private lateinit var playPauseButton: ImageButton
     private lateinit var playerSeek: SeekBar
@@ -3118,13 +3125,8 @@ class MeetingDetailActivity : AppCompatActivity() {
     private var followScrolling = true
     /** (audio offset, segment index) for locatable lines; see PlaybackFollow. */
     private var followTimeline: List<Pair<Long, Int>> = emptyList()
+    /** The volume boost setting; MeetingPlayback holds the effect itself. */
     private var boostDb = 0
-    /**
-     * Gain stage bound to the player's audio session. MediaPlayer.setVolume
-     * is clamped to 1.0 and can only attenuate, so raising a quiet meeting
-     * above the system ceiling needs an audio effect.
-     */
-    private var boost: android.media.audiofx.LoudnessEnhancer? = null
 
     /** Speech spans over the audio timeline; built lazily for skip-silence. */
     private val speechSpans: List<com.meetily.mobile.whisper.SpeechSpans.Span> by lazy {
@@ -3136,14 +3138,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         override fun run() {
             val p = player ?: return
             if (playerReady) {
-                if (skipSilence && p.isPlaying) {
-                    val target = com.meetily.mobile.whisper.SpeechSpans.skipTarget(
-                        p.currentPosition.toLong(), speechSpans
-                    )
-                    if (target != null && target < p.duration) {
-                        p.seekTo(target.toInt())
-                    }
-                }
+                // Skip-silence runs in MeetingPlayback, so it carries on
+                // in the background; this tick only shows where it went.
                 updatePlayerUi(p)
                 if (followPlayback) updateFollow(p.currentPosition.toLong())
                 if (p.isPlaying) {
@@ -3161,22 +3157,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
     }
 
-    /** Applies the persisted speed to an actively playing player (API 23+). */
-    private fun applyPlaybackSpeed(p: MediaPlayer) {
-        try {
-            p.playbackParams = p.playbackParams.setSpeed(playbackSpeed)
-        } catch (_: Exception) {
-            // Some codecs refuse non-1x; playback continues at normal speed.
-        }
-    }
-
     private fun cyclePlaybackSpeed() {
         val steps = floatArrayOf(1.0f, 1.25f, 1.5f, 2.0f, 3.0f, 0.5f)
         val at = steps.indexOfFirst { kotlin.math.abs(it - playbackSpeed) < 0.01f }
         playbackSpeed = steps[(at + 1).mod(steps.size)]
         settings.playbackSpeed = playbackSpeed
         renderSpeedLabel()
-        readyPlayer?.let { if (it.isPlaying) applyPlaybackSpeed(it) }
+        // Applied at once while playing, and to every later start.
+        MeetingPlayback.setSpeed(playbackSpeed)
     }
 
     private fun renderSpeedLabel() {
@@ -3229,14 +3217,22 @@ class MeetingDetailActivity : AppCompatActivity() {
         showPlayerBar(true)
         playerTime.text = formatClock(0)
         playbackSpeed = settings.playbackSpeed
+        MeetingPlayback.setSpeed(playbackSpeed)
         renderSpeedLabel()
         playerSpeedButton.setOnClickListener { cyclePlaybackSpeed() }
+        findViewById<View>(R.id.playerBack15).setOnClickListener {
+            skipBy(-com.meetily.mobile.data.PlaybackSkip.STEP_MS)
+        }
+        findViewById<View>(R.id.playerForward15).setOnClickListener {
+            skipBy(com.meetily.mobile.data.PlaybackSkip.STEP_MS)
+        }
         followButton = findViewById(R.id.followButton)
         followPlayback = settings.followPlayback
         renderFollowButton()
         followButton.setOnClickListener { toggleFollow() }
         playerBoostButton = findViewById(R.id.playerBoost)
         boostDb = settings.playbackBoostDb
+        MeetingPlayback.setBoost(boostDb)
         renderBoostLabel()
         playerBoostButton.setOnClickListener { cycleBoost() }
         skipSilence = settings.skipSilence && speechSpans.isNotEmpty()
@@ -3251,7 +3247,12 @@ class MeetingDetailActivity : AppCompatActivity() {
             skipSilence = !skipSilence
             settings.skipSilence = skipSilence
             renderSkipSilence()
+            MeetingPlayback.setSkipSpans(meeting?.id, skipSpans())
         }
+        // Back to a player that outlived the last screen (a rotation, or
+        // playback carried on in the background): whichever recording it
+        // plays is the one the chip shows.
+        MeetingPlayback.playingCopy(meeting?.id)?.let { playingClearVoice = it }
         setUpClearVoice()
         playPauseButton.setOnClickListener { togglePlayback() }
         playerSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -3265,6 +3266,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             override fun onStartTrackingTouch(bar: SeekBar?) {}
             override fun onStopTrackingTouch(bar: SeekBar?) {}
         })
+        syncPlayerFromPlayback()
     }
 
     /**
@@ -3291,6 +3293,10 @@ class MeetingDetailActivity : AppCompatActivity() {
      * index, so the platform walks every frame header of the file to find
      * its length — seconds of frozen screen on a multi-hour meeting when it
      * was done with prepare() on the first tap. [action] now waits for it.
+     *
+     * The player is MeetingPlayback's. Opening this meeting's takes it from
+     * any other meeting, except when nothing was asked ([action] null, the
+     * Audio tab wanting the length) and another meeting is still playing.
      */
     private fun withPlayer(action: ((MediaPlayer) -> Unit)? = null) {
         readyPlayer?.let { p ->
@@ -3299,40 +3305,36 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         if (action != null) pendingPlayerAction = action
         if (player != null) return // preparing
+        val m = meeting ?: return
+        if (action == null && MeetingPlayback.busyElsewhere(m.id)) return
         val file = playbackFileOrNull() ?: return
-        val p = MediaPlayer()
-        try {
-            p.setDataSource(file.absolutePath)
-            p.setOnPreparedListener { onPlayerPrepared(p) }
-            p.setOnErrorListener { failed, _, _ ->
-                // Only a failure to prepare is handled here; once playing,
-                // errors keep their old route through the completion listener.
-                if (player === failed && !playerReady) {
-                    onPlayerFailed(failed)
-                    true
-                } else {
-                    false
-                }
-            }
-            player = p
-            playPauseButton.alpha = 0.5f
-            p.prepareAsync()
-        } catch (_: Exception) {
-            onPlayerFailed(p)
+        val opened = MeetingPlayback.open(
+            this, m.id, m.audioFile, file,
+            copy = file.name != m.audioFile,
+            spans = skipSpans()
+        )
+        if (opened) {
+            // prepareAsync can fail at once, which has already said so.
+            if (player != null && !playerReady) playPauseButton.alpha = 0.5f
+        } else {
+            onPlayerFailed()
         }
     }
 
+    /** The speech spans skip-silence jumps between, while it is on. */
+    private fun skipSpans(): List<com.meetily.mobile.whisper.SpeechSpans.Span>? =
+        if (skipSilence) speechSpans else null
+
     private fun onPlayerPrepared(p: MediaPlayer) {
         if (player !== p || isDestroyed) return
-        playerReady = true
         playPauseButton.alpha = 1f
-        p.setOnCompletionListener {
-            setPlayPauseIcon(playing = false)
-            updatePlayerUi(p)
-        }
-        attachBoost(p)
+        if (MeetingPlayback.boostUnavailable) playerBoostButton.visibility = View.GONE
         playerSeek.max = p.duration.coerceAtLeast(1)
         updatePlayerUi(p)
+        // Reopened on the other recording (Clear voice), it carries on
+        // playing by itself.
+        setPlayPauseIcon(playing = MeetingPlayback.isPlaying())
+        if (MeetingPlayback.isPlaying()) restartTick()
         // The strip was scaled from the transcript while the real length
         // was unknown; now it is known.
         if (tab == Tab.AUDIO) meeting?.let { renderAudioTab(it) }
@@ -3341,30 +3343,108 @@ class MeetingDetailActivity : AppCompatActivity() {
         action?.invoke(p)
     }
 
-    private fun onPlayerFailed(p: MediaPlayer) {
-        try {
-            p.release()
-        } catch (_: Exception) {
-        }
-        if (player === p) player = null
-        playerReady = false
+    /** The player could not be opened; MeetingPlayback has let it go. */
+    private fun onPlayerFailed() {
         pendingPlayerAction = null
         if (isFinishing || isDestroyed) return
+        // A screen re-created while the player was preparing hears this
+        // before its own bar is set up.
+        if (!::playPauseButton.isInitialized) return
         playPauseButton.alpha = 1f
+        setPlayPauseIcon(playing = false)
         Toast.makeText(this, R.string.audio_play_failed, Toast.LENGTH_SHORT).show()
     }
 
     private fun togglePlayback() {
         withPlayer { p ->
             if (p.isPlaying) {
-                p.pause()
+                MeetingPlayback.pause()
                 setPlayPauseIcon(playing = false)
-            } else {
-                p.start()
-                applyPlaybackSpeed(p)
+            } else if (startPlayback()) {
                 setPlayPauseIcon(playing = true)
                 restartTick()
             }
+        }
+    }
+
+    /**
+     * Starts this meeting's prepared player: with audio focus, and never
+     * while a recording runs. Says why when it does not start.
+     */
+    private fun startPlayback(): Boolean =
+        when (MeetingPlayback.play(this)) {
+            MeetingPlayback.PlayResult.STARTED -> true
+            MeetingPlayback.PlayResult.RECORDING -> {
+                Toast.makeText(this, R.string.playback_blocked_recording, Toast.LENGTH_LONG).show()
+                false
+            }
+            MeetingPlayback.PlayResult.FOCUS_DENIED -> {
+                Toast.makeText(this, R.string.playback_focus_denied, Toast.LENGTH_LONG).show()
+                false
+            }
+            MeetingPlayback.PlayResult.NOT_READY -> false
+        }
+
+    /** The player bar's 15-second skips; the highlight follows at once. */
+    private fun skipBy(deltaMs: Long) {
+        withPlayer { p ->
+            val target = MeetingPlayback.skipBy(deltaMs) ?: return@withPlayer
+            updatePlayerUi(p)
+            updateFollow(target)
+        }
+    }
+
+    /**
+     * Shows the player as MeetingPlayback has it now: on coming back to the
+     * screen or after a rotation (playback may have gone on, been paused
+     * from the notification, or ended meanwhile), and when something outside
+     * the screen played, paused, moved or stopped it.
+     */
+    private fun syncPlayerFromPlayback() {
+        if (!::playerBar.isInitialized || playerBar.visibility != View.VISIBLE) return
+        val p = readyPlayer
+        if (p == null) {
+            playerHandler.removeCallbacks(playerTick)
+            if (player != null) {
+                // Preparing (or reopening on the other recording):
+                // onPlayerPrepared shows the rest.
+                playPauseButton.alpha = 0.5f
+                return
+            }
+            // Let go (a recording started, Stop, a long pause, the audio
+            // deleted): the next play opens it again from the start.
+            playPauseButton.alpha = 1f
+            setPlayPauseIcon(playing = false)
+            playerSeek.progress = 0
+            playerTime.text = formatClock(0)
+            return
+        }
+        playPauseButton.alpha = 1f
+        if (MeetingPlayback.boostUnavailable) playerBoostButton.visibility = View.GONE
+        playerSeek.max = p.duration.coerceAtLeast(1)
+        updatePlayerUi(p)
+        val playing = MeetingPlayback.isPlaying()
+        setPlayPauseIcon(playing)
+        if (playing) {
+            if (started) restartTick()
+        } else {
+            updateFollow(p.currentPosition.toLong())
+        }
+    }
+
+    /** What MeetingPlayback tells the started screen about this meeting's player. */
+    private val playbackListener = object : MeetingPlayback.Listener {
+        override fun onPrepared(player: MediaPlayer) = onPlayerPrepared(player)
+
+        override fun onFailed() = onPlayerFailed()
+
+        override fun onPlayingChanged(playing: Boolean) = syncPlayerFromPlayback()
+
+        override fun onMoved() = syncPlayerFromPlayback()
+
+        override fun onReleased() {
+            pendingPlayerAction = null
+            syncPlayerFromPlayback()
         }
     }
 
@@ -3378,9 +3458,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun playFrom(audioMs: Long) {
         withPlayer { p ->
             p.seekTo(audioMs.toInt().coerceIn(0, p.duration))
-            if (!p.isPlaying) {
-                p.start()
-                applyPlaybackSpeed(p)
+            if (!p.isPlaying && startPlayback()) {
                 setPlayPauseIcon(playing = true)
             }
             restartTick()
@@ -3487,53 +3565,17 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     // --- Volume boost -------------------------------------------------
 
-    /**
-     * Attaches the gain stage to [p]'s audio session.
-     *
-     * Not every device provides the effect — construction throws on some
-     * ROMs — so a failure hides the control rather than killing playback.
-     */
-    private fun attachBoost(p: MediaPlayer) {
-        releaseBoost()
-        if (boostDb <= 0) return
-        boost = try {
-            android.media.audiofx.LoudnessEnhancer(p.audioSessionId).apply {
-                setTargetGain(boostDb * 100) // millibels
-                enabled = true
-            }
-        } catch (_: Throwable) {
-            playerBoostButton.visibility = View.GONE
-            null
-        }
-    }
-
-    private fun releaseBoost() {
-        try {
-            boost?.release()
-        } catch (_: Exception) {
-        }
-        boost = null
-    }
-
     private fun cycleBoost() {
         val steps = intArrayOf(0, 4, 8, 12)
         val at = steps.indexOfFirst { it == boostDb }
         boostDb = steps[(at + 1).mod(steps.size)]
         settings.playbackBoostDb = boostDb
         renderBoostLabel()
-        val active = boost
-        if (boostDb <= 0) {
-            releaseBoost()
-        } else if (active != null) {
-            try {
-                active.setTargetGain(boostDb * 100)
-                active.enabled = true
-            } catch (_: Throwable) {
-                releaseBoost()
-            }
-        } else {
-            player?.let { attachBoost(it) }
-        }
+        // The gain stage lives with the player (MeetingPlayback), so it
+        // carries on in the background. Not every device provides the
+        // effect; a failure hides the control rather than killing playback.
+        MeetingPlayback.setBoost(boostDb)
+        if (MeetingPlayback.boostUnavailable) playerBoostButton.visibility = View.GONE
         if (boostDb > 0) {
             Toast.makeText(this, R.string.playback_boost_noise, Toast.LENGTH_SHORT).show()
         }
@@ -3628,35 +3670,29 @@ class MeetingDetailActivity : AppCompatActivity() {
      * share one timeline, so a prepared player is rebuilt on the other file
      * at the same position, playing again if it was playing; one not made
      * yet just opens the other file when it is first used.
+     * MeetingPlayback does the reopen, keeping audio focus and the
+     * notification through it, so this works the same with the screen
+     * showing playback that carried on in the background.
      */
     private fun switchPlaybackSource(copy: Boolean) {
         if (copy == playingClearVoice) return
-        val p = readyPlayer
-        val position = p?.currentPosition ?: -1
-        val wasPlaying = p?.isPlaying == true
         playingClearVoice = copy
         playerHandler.removeCallbacks(playerTick)
         pendingPlayerAction = null
-        playerReady = false
-        releaseBoost()
-        try {
-            player?.release()
-        } catch (_: Exception) {
+        val m = meeting ?: return
+        if (player == null) return
+        val file = playbackFileOrNull()
+        if (file == null) {
+            MeetingPlayback.stopMeeting(m.id)
+            return
         }
-        player = null
-        setPlayPauseIcon(playing = false)
-        if (position < 0) return
-        withPlayer { next ->
-            next.seekTo(position.coerceIn(0, next.duration.coerceAtLeast(0)))
-            if (wasPlaying) {
-                next.start()
-                applyPlaybackSpeed(next)
-                setPlayPauseIcon(playing = true)
-                restartTick()
-            } else {
-                updatePlayerUi(next)
-            }
+        if (!MeetingPlayback.switchSource(this, m.id, file, copy = file.name != m.audioFile)) {
+            onPlayerFailed()
+            return
         }
+        // Reopening (onPlayerPrepared follows), or let go while it was
+        // still preparing: the next use opens the chosen file.
+        playPauseButton.alpha = if (player != null && !playerReady) 0.5f else 1f
     }
 
     /**

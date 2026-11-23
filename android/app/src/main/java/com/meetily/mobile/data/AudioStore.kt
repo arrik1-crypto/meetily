@@ -58,6 +58,8 @@ object AudioStore {
             fileFor(context, ClearVoice.copyNameFor(name)).delete()
             fileFor(context, ClearVoice.partNameFor(name)).delete()
         }
+        // A player on this file, or on the copy just deleted, stops.
+        AudioDeletions.deleted(name)
     }
 
     /**

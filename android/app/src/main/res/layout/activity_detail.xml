@@ -28,7 +28,8 @@
         android:scrollbars="none" />
 
     <!-- Audio player bar; visible only when the meeting kept its audio. The
-         transport row, then the clear-voice row (shown with the bar). -->
+         seek row, the transport row, then the clear-voice row (shown with
+         the bar). -->
     <LinearLayout
         android:id="@+id/playerBar"
         android:layout_width="match_parent"
@@ -40,6 +41,8 @@
         android:paddingBottom="4dp"
         android:visibility="gone">
 
+        <!-- Full width for the seek bar, which shared its row with every
+             control and was left a sliver on a phone. -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -47,6 +50,38 @@
             android:orientation="horizontal"
             android:paddingStart="8dp"
             android:paddingEnd="16dp">
+
+            <SeekBar
+                android:id="@+id/playerSeek"
+                android:layout_width="0dp"
+                android:layout_height="48dp"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/playerTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+
+        <!-- Seven 48dp controls: they fit a 360dp-wide phone with 8dp a side. -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp">
+
+            <ImageButton
+                android:id="@+id/playerBack15"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/playback_back15"
+                android:src="@drawable/ic_playback_back15"
+                app:tint="?attr/colorOnSurfaceVariant" />
 
             <ImageButton
                 android:id="@+id/playPauseButton"
@@ -57,25 +92,25 @@
                 android:src="@drawable/ic_play"
                 app:tint="?attr/colorPrimary" />
 
-            <SeekBar
-                android:id="@+id/playerSeek"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1" />
+            <ImageButton
+                android:id="@+id/playerForward15"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/playback_forward15"
+                android:src="@drawable/ic_playback_forward15"
+                app:tint="?attr/colorOnSurfaceVariant" />
 
-            <TextView
-                android:id="@+id/playerTime"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textAppearance="?attr/textAppearanceLabelMedium"
-                android:textColor="?attr/colorOnSurfaceVariant" />
+            <Space
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1" />
 
             <!-- Cycles 1× → 1.25× → 1.5× → 2× → 3× → 0.5× -->
             <TextView
                 android:id="@+id/playerSpeed"
                 android:layout_width="wrap_content"
                 android:layout_height="48dp"
-                android:layout_marginStart="10dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:gravity="center"
                 android:minWidth="48dp"
@@ -88,7 +123,6 @@
                 android:id="@+id/playerBoost"
                 android:layout_width="wrap_content"
                 android:layout_height="48dp"
-                android:layout_marginStart="6dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:contentDescription="@string/playback_boost"
                 android:gravity="center"

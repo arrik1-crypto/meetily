@@ -1935,6 +1935,9 @@ class RecordingService : Service() {
 
         fun start(context: Context, deviceAudio: Boolean = false, initialTitle: String = "") {
             isRunning = true
+            // A recording always wins: meeting playback stops before capture
+            // starts, so it is neither recorded nor heard over the meeting.
+            MeetingPlayback.stopForRecording()
             val intent = Intent(context, RecordingService::class.java)
                 .setAction(ACTION_START)
                 .putExtra(EXTRA_DEVICE_AUDIO, deviceAudio)

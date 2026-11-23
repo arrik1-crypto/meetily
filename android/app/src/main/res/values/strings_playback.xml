@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Meeting playback away from the meeting screen (MeetingPlayback,
+         PlaybackService): the player bar's skips, the media notification and
+         lock-screen controls, and why playback did not start. -->
+
+    <!-- The player bar's and the media controls' 15-second skips. -->
+    <string name="playback_back15">Back 15 seconds</string>
+    <string name="playback_forward15">Forward 15 seconds</string>
+
+    <!-- Notification channel name, in the system's notification settings. -->
+    <string name="playback_channel">Meeting playback</string>
+    <!-- The media controls' title on the lock screen, in the shade, on a car
+         or a watch. Deliberately not the meeting's title: these places are
+         seen by others. -->
+    <string name="playback_session_title">Meeting audio</string>
+    <!-- Notification action that ends playback and the notification. -->
+    <string name="playback_stop">Stop</string>
+
+    <!-- Play was tapped while a recording runs; the recording always wins. -->
+    <string name="playback_blocked_recording">Playback is off while a recording is running.</string>
+    <!-- Play was tapped while a call or another app holds the audio. -->
+    <string name="playback_focus_denied">Can\'t play right now: a call or another app is using the audio.</string>
+</resources>
