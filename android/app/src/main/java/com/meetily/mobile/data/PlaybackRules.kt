@@ -51,6 +51,37 @@ object PlaybackFocus {
                 Decision(if (resumeOnGain) Action.RESUME else Action.NONE, resumeOnGain = false, abandon = false)
             else -> Decision(Action.NONE, resumeOnGain, abandon = false)
         }
+
+    /**
+     * Headphones unplugged (ACTION_AUDIO_BECOMING_NOISY) while playback is
+     * [ongoing] (PlaybackLifecycle.ongoing): playing, reopening on the other
+     * recording to carry on, or paused for a short loss with a resume still
+     * to come. Each pauses as the user's own pause would: no resume on the
+     * next regain, focus given up. Otherwise the end of a call taken on the
+     * handset after unplugging would start the meeting on the loudspeaker.
+     */
+    fun onUnplugged(ongoing: Boolean): Decision =
+        if (ongoing) {
+            Decision(Action.PAUSE, resumeOnGain = false, abandon = true)
+        } else {
+            Decision(Action.NONE, resumeOnGain = false, abandon = false)
+        }
+
+    enum class Resume { START, AFTER_REOPEN, STAY_PAUSED }
+
+    /**
+     * How a regain's [Action.RESUME] is carried out: at once on a [prepared]
+     * player; once it is ready when it is [reopening] on the other recording
+     * (Clear voice), as a switch made while playing would; never while a
+     * [recording] runs. Anything else stays paused as the user's pause
+     * would (focus given up, so the idle stop runs).
+     */
+    fun resume(prepared: Boolean, reopening: Boolean, recording: Boolean): Resume = when {
+        recording -> Resume.STAY_PAUSED
+        prepared -> Resume.START
+        reopening -> Resume.AFTER_REOPEN
+        else -> Resume.STAY_PAUSED
+    }
 }
 
 /** The player bar's, notification's and media keys' 15-second skips. */

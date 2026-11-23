@@ -460,7 +460,9 @@ object MeetingPlayback {
             }
         }
         p.setOnCompletionListener { onCompleted(opened) }
-        p.setOnSeekCompleteListener { if (item === opened) PlaybackService.refresh() }
+        // Only the position changed: the session's playback state, not the
+        // whole notification (a seek-bar drag seeks many times a second).
+        p.setOnSeekCompleteListener { if (item === opened) PlaybackService.refreshPosition() }
         try {
             p.prepareAsync()
         } catch (_: Exception) {
@@ -494,6 +496,12 @@ object MeetingPlayback {
     private fun failed(opened: Item) {
         if (item !== opened) return
         item = null
+        // Its file descriptor and the media server's player stay held until
+        // released; safe from inside the error callback.
+        try {
+            opened.player.release()
+        } catch (_: Exception) {
+        }
         finishRelease(opened, notify = false)
         if (listenerMeetingId == opened.meetingId) listener?.onFailed()
     }
@@ -548,7 +556,9 @@ object MeetingPlayback {
         } catch (_: Exception) {
         }
         main.removeCallbacks(skipTick)
-        unregisterNoisy()
+        // Paused for a call or a prompt with a resume to come, an unplug
+        // must still cancel that resume (PlaybackFocus.onUnplugged).
+        if (!isOngoing) unregisterNoisy()
         main.removeCallbacks(idleStop)
         if (current.active && !isOngoing) main.postDelayed(idleStop, PlaybackLifecycle.IDLE_STOP_MS)
     }
@@ -672,9 +682,28 @@ object MeetingPlayback {
                 pausePlayer(current)
                 listenerFor(current)?.onPlayingChanged(false)
             }
-            PlaybackFocus.Action.RESUME -> if (current.prepared && !RecordingService.isRunning) {
-                startPlayer(current)
-                listenerFor(current)?.onPlayingChanged(true)
+            PlaybackFocus.Action.RESUME -> when (
+                PlaybackFocus.resume(
+                    prepared = current.prepared,
+                    reopening = !current.prepared && current.switchToMs >= 0,
+                    recording = RecordingService.isRunning
+                )
+            ) {
+                PlaybackFocus.Resume.START -> {
+                    startPlayer(current)
+                    listenerFor(current)?.onPlayingChanged(true)
+                }
+                // Still reopening on the other recording (Clear voice): it
+                // starts once ready (onPrepared), with the focus it holds.
+                PlaybackFocus.Resume.AFTER_REOPEN -> {
+                    current.playAfterSwitch = true
+                }
+                PlaybackFocus.Resume.STAY_PAUSED -> {
+                    // Nothing will start it by itself now: as a user's
+                    // pause, focus goes and the idle stop runs.
+                    abandonFocus()
+                    pausePlayer(current)
+                }
             }
             PlaybackFocus.Action.NONE -> Unit
         }
@@ -692,8 +721,10 @@ object MeetingPlayback {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action != AudioManager.ACTION_AUDIO_BECOMING_NOISY) return
             val current = item ?: return
-            if (!isPlaying() && !current.playAfterSwitch) return
-            // Before the sound moves to the loudspeaker: as if the user paused.
+            // Playing, reopening to carry on, or paused for a call with a
+            // resume to come: as if the user paused, before the sound moves
+            // to the loudspeaker, now or when the call ends.
+            if (PlaybackFocus.onUnplugged(isOngoing).action != PlaybackFocus.Action.PAUSE) return
             pause()
             listenerFor(current)?.onPlayingChanged(false)
         }

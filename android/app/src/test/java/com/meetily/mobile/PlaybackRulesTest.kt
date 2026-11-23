@@ -86,6 +86,95 @@ class PlaybackRulesTest {
         assertFalse(d.abandon)
     }
 
+    // --- Headphones unplugged ----------------------------------------------------
+
+    @Test
+    fun unpluggingWhilePlayingPausesAsTheUserWould() {
+        val d = PlaybackFocus.onUnplugged(ongoing = PlaybackLifecycle.ongoing(playing = true, resumeOnGain = false))
+        assertEquals(Action.PAUSE, d.action)
+        assertFalse(d.resumeOnGain)
+        assertTrue(d.abandon)
+    }
+
+    @Test
+    fun unpluggingDuringACallCancelsTheResumeWhenItEnds() {
+        // Playing on headphones; a call pauses it; the headphones come out
+        // to take the call on the handset; the call ends. The meeting must
+        // not start again on the loudspeaker.
+        val call = PlaybackFocus.onChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, playing = true, resumeOnGain = false)
+        assertTrue(call.resumeOnGain)
+        // Still going on, so the unplug is still listened for.
+        val ongoing = PlaybackLifecycle.ongoing(playing = false, resumeOnGain = call.resumeOnGain)
+        assertTrue(ongoing)
+        val unplugged = PlaybackFocus.onUnplugged(ongoing)
+        assertEquals(Action.PAUSE, unplugged.action)
+        assertFalse(unplugged.resumeOnGain)
+        assertTrue(unplugged.abandon)
+        val callEnds = PlaybackFocus.onChange(
+            AudioManager.AUDIOFOCUS_GAIN, playing = false, resumeOnGain = unplugged.resumeOnGain
+        )
+        assertEquals(Action.NONE, callEnds.action)
+    }
+
+    @Test
+    fun unpluggingWhileReopeningOnTheOtherRecordingPausesIt() {
+        val ongoing = PlaybackLifecycle.ongoing(playing = false, resumeOnGain = false, resumingAfterSwitch = true)
+        assertEquals(Action.PAUSE, PlaybackFocus.onUnplugged(ongoing).action)
+    }
+
+    @Test
+    fun unpluggingWhilePausedByTheUserDoesNothing() {
+        val d = PlaybackFocus.onUnplugged(ongoing = PlaybackLifecycle.ongoing(playing = false, resumeOnGain = false))
+        assertEquals(Action.NONE, d.action)
+        assertFalse(d.abandon)
+    }
+
+    // --- Carrying out a resume -------------------------------------------------
+
+    @Test
+    fun aPreparedPlayerResumesAtOnce() {
+        assertEquals(
+            PlaybackFocus.Resume.START,
+            PlaybackFocus.resume(prepared = true, reopening = false, recording = false)
+        )
+    }
+
+    @Test
+    fun aResumeDuringAClearVoiceReopenWaitsForThePlayer() {
+        // A prompt starts and ends while a long recording is reopened on its
+        // clear-voice copy: playback carries on once the copy is ready
+        // rather than staying paused with focus and the service held.
+        val lost = PlaybackFocus.onChange(
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK, playing = true, resumeOnGain = false
+        )
+        val back = PlaybackFocus.onChange(AudioManager.AUDIOFOCUS_GAIN, playing = false, resumeOnGain = lost.resumeOnGain)
+        assertEquals(Action.RESUME, back.action)
+        assertEquals(
+            PlaybackFocus.Resume.AFTER_REOPEN,
+            PlaybackFocus.resume(prepared = false, reopening = true, recording = false)
+        )
+    }
+
+    @Test
+    fun nothingResumesWhileARecordingRuns() {
+        assertEquals(
+            PlaybackFocus.Resume.STAY_PAUSED,
+            PlaybackFocus.resume(prepared = true, reopening = false, recording = true)
+        )
+        assertEquals(
+            PlaybackFocus.Resume.STAY_PAUSED,
+            PlaybackFocus.resume(prepared = false, reopening = true, recording = true)
+        )
+    }
+
+    @Test
+    fun aPlayerStillPreparingForTheFirstTimeStaysPaused() {
+        assertEquals(
+            PlaybackFocus.Resume.STAY_PAUSED,
+            PlaybackFocus.resume(prepared = false, reopening = false, recording = false)
+        )
+    }
+
     // --- Skips -----------------------------------------------------------------
 
     @Test

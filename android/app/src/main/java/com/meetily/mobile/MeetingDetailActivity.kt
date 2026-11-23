@@ -212,6 +212,20 @@ class MeetingDetailActivity : AppCompatActivity() {
         summaryBound = true
     }
 
+    /**
+     * Reached only by an intent with FLAG_ACTIVITY_SINGLE_TOP while a meeting
+     * screen is on top: the playback notification or the lock screen's media
+     * controls (PlaybackService). The meeting already shown stays as it is
+     * rather than opening again over itself; another meeting opens in a
+     * screen of its own, as it would without the flag.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        val id = intent.getStringExtra(EXTRA_MEETING_ID) ?: return
+        if (id == this.intent.getStringExtra(EXTRA_MEETING_ID)) return
+        startActivity(Intent(this, MeetingDetailActivity::class.java).putExtras(intent))
+    }
+
     /** Between onStart and onStop; and whether onStart has run at all. */
     private var started = false
     private var hasStarted = false
