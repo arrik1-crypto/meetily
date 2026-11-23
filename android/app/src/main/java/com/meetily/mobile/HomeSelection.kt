@@ -217,7 +217,8 @@ class HomeSelection(
                     queued = meeting.id in waiting,
                     // The list's copy has every transcript line (only word
                     // timings are left out).
-                    hasTranscript = meeting.segments.isNotEmpty()
+                    hasTranscript = meeting.segments.isNotEmpty(),
+                    unfinished = meeting.transcriptResumeMs != null
                 )
             }
             val split = BulkActions.split(action, items)

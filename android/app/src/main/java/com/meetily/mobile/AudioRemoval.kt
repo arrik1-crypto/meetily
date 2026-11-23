@@ -21,7 +21,10 @@ import com.meetily.mobile.export.ClipExporter
  * recordings, the home list's multi-select and the automatic clean-up rule,
  * so the safety checks and the confirmation's wording are the same
  * everywhere. A meeting with no transcript yet is not offered by
- * multi-select or the clean-up rule: its recording is all it holds.
+ * multi-select or the clean-up rule: its recording is all it holds. Nor is
+ * one whose transcription is unfinished (TranscriptResume): without its
+ * audio the rest can never be transcribed, and only a confirmation that
+ * says so, for that one meeting, may take it.
  */
 object AudioRemoval {
 
@@ -67,7 +70,9 @@ object AudioRemoval {
      * removal does not apply to are named as left out. [untranscribed] is
      * one meeting with no transcript yet, whose recording is all it holds:
      * the question then says so instead of promising a transcript is kept.
-     * (Multi-select and the automatic clean-up leave such meetings out.)
+     * [unfinishedAtMs] is where one meeting's unfinished transcript stops:
+     * the question adds that it can then never be completed. (Multi-select
+     * and the automatic clean-up leave both kinds of meeting out.)
      * [onConfirm] runs on the main thread.
      */
     fun confirm(
@@ -76,6 +81,7 @@ object AudioRemoval {
         bytes: Long,
         skipped: Int = 0,
         untranscribed: Boolean = false,
+        unfinishedAtMs: Long? = null,
         onConfirm: () -> Unit
     ) {
         val size = Formatter.formatShortFileSize(activity, bytes.coerceAtLeast(0L))
@@ -91,6 +97,12 @@ object AudioRemoval {
             else R.string.storage_remove_audio_message,
             size
         )
+        if (unfinishedAtMs != null && count == 1 && !untranscribed) {
+            message += "\n\n" + activity.getString(
+                R.string.resume_remove_audio_warning,
+                com.meetily.mobile.data.TranscriptResume.clock(unfinishedAtMs)
+            )
+        }
         if (skipped > 0) {
             message += "\n\n" + activity.resources.getQuantityString(
                 R.plurals.storage_bulk_skipped, skipped, skipped
@@ -128,6 +140,8 @@ object AudioRemoval {
             } else {
                 name = audio
                 meeting.audioFile = null
+                // Nothing can continue its transcript now; it keeps what it has.
+                meeting.transcriptResumeMs = null
                 true
             }
         }

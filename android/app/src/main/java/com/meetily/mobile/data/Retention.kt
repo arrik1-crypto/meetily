@@ -10,8 +10,8 @@ package com.meetily.mobile.data
  * starred meeting, one with a job running, queued or waiting for review, one
  * open on a meeting screen, one with a reminder still to come, one changed
  * in the last week, and one whose age cannot be told are never touched, and
- * the audio rule never takes a recording that was not transcribed. Pure, so
- * the selection is unit-tested.
+ * the audio rule never takes a recording that was not transcribed, or whose
+ * transcription is unfinished. Pure, so the selection is unit-tested.
  */
 object Retention {
 
@@ -69,7 +69,14 @@ object Retention {
          * transcribed yet (no model was downloaded when it was made, or the
          * transcription failed): its audio is all it holds.
          */
-        val hasTranscript: Boolean
+        val hasTranscript: Boolean,
+        /**
+         * Its transcription stopped part-way and is waiting to be continued
+         * from the audio (TranscriptResume). The audio rule leaves it: an
+         * automatic run cannot ask, and without the audio the rest of the
+         * transcript could never be made.
+         */
+        val unfinished: Boolean = false
     )
 
     /**
@@ -97,8 +104,9 @@ object Retention {
                 !c.hasFutureReminder &&
                 c.id !in protectedIds &&
                 // "Remove audio, keep transcript" needs a transcript to keep:
-                // without one it would empty the meeting.
-                (rule.mode != Mode.AUDIO || (c.audioBytes > 0L && c.hasTranscript))
+                // without one it would empty the meeting, and an unfinished
+                // one could never be completed.
+                (rule.mode != Mode.AUDIO || (c.audioBytes > 0L && c.hasTranscript && !c.unfinished))
         }.sortedWith(compareBy<Candidate> { it.createdAtMs }.thenBy { it.id })
     }
 

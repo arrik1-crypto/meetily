@@ -95,7 +95,19 @@ object JobQueue {
          * or "auto" to detect even when Settings pins one). Blank means no
          * choice was made and the Settings value applies when it runs.
          */
-        val language: String = ""
+        val language: String = "",
+        /**
+         * Check only: the audio offset (ms) this job continues an unfinished
+         * transcription from, recorded when a pass was stopped part-way
+         * (an unplug requeue, or the in-flight marker of a continuing run).
+         * 0 means from the beginning, which is what every job queued before
+         * this field did. The importer takes the exact point from what is
+         * stored with the words (Meeting.transcriptResumeMs, or a staged
+         * check's draft), so this is the job's own record of it: what the
+         * queue and its notices show, and how JobGate tells a continuation
+         * whose transcript has been finished since. See TranscriptResume.
+         */
+        val resumeFromMs: Long = 0L
     )
 
     /**
@@ -145,6 +157,29 @@ object JobQueue {
         return grown.filterNot { it in dropped }
     }
 
+    /**
+     * The job that puts back a pass the charger stopped, still waiting for
+     * power, to carry on from [resumeFromMs]. Never trimmed when it is a
+     * recording's only transcript, or when it carries on a check whose
+     * partial draft was kept for it: dropped, that draft would stay behind
+     * with nothing to finish or remove it.
+     */
+    fun chargingRequeue(
+        meetingId: String,
+        modelKey: String,
+        nowMs: Long,
+        firstTranscript: Boolean,
+        language: String,
+        resumeFromMs: Long
+    ): Job = Job(
+        KIND_CHECK, meetingId, modelKey, nowMs,
+        chargingOnly = true,
+        firstTranscript = firstTranscript,
+        required = firstTranscript || resumeFromMs > 0L,
+        language = language,
+        resumeFromMs = resumeFromMs
+    )
+
     fun remove(existing: List<Job>, kind: String, meetingId: String): List<Job> =
         existing.filterNot { it.kind == kind && it.meetingId == meetingId }
 
@@ -184,60 +219,78 @@ object JobQueue {
     private fun prefs(context: Context) =
         context.getSharedPreferences("meetily_jobs", Context.MODE_PRIVATE)
 
-    fun load(context: Context): List<Job> = try {
-        val raw = prefs(context).getString("jobs", "[]") ?: "[]"
+    fun load(context: Context): List<Job> =
+        decode(prefs(context).getString("jobs", "[]") ?: "[]")
+
+    fun save(context: Context, jobs: List<Job>) {
+        prefs(context).edit().putString("jobs", encode(jobs)).apply()
+    }
+
+    /**
+     * The stored queue as jobs. Rows written by older versions lack the
+     * newer fields and read as their defaults, which is what those jobs did;
+     * an unreadable queue reads as empty. Pure, so it is unit-tested.
+     */
+    fun decode(raw: String): List<Job> = try {
         val array = JSONArray(raw)
-        (0 until array.length()).mapNotNull { i ->
-            val o = array.optJSONObject(i) ?: return@mapNotNull null
-            val kind = o.optString("kind")
-            val meetingId = o.optString("meetingId")
-            // An import legitimately has no meeting id yet.
-            if (kind.isBlank()) return@mapNotNull null
-            if (meetingId.isBlank() && kind != KIND_IMPORT) return@mapNotNull null
-            Job(
-                kind = kind,
-                meetingId = meetingId,
-                payload = o.optString("payload"),
-                queuedAtMs = o.optLong("queuedAtMs"),
-                interrupted = o.optBoolean("interrupted"),
-                stagedFile = o.optString("stagedFile"),
-                sourceName = o.optString("sourceName"),
-                // Absent in jobs queued before this field existed; false
-                // reproduces exactly what those jobs did.
-                chargingOnly = o.optBoolean("chargingOnly"),
-                // Absent in older rows; false is what those jobs did.
-                firstTranscript = o.optBoolean("firstTranscript"),
-                required = o.optBoolean("required"),
-                auto = o.optBoolean("auto"),
-                // Absent in older rows; blank is "use the setting", which
-                // is what every run did before the choice existed.
-                language = o.optString("language")
-            )
-        }
+        (0 until array.length()).mapNotNull { i -> fromJson(array.optJSONObject(i)) }
     } catch (_: Exception) {
         emptyList()
     }
 
-    fun save(context: Context, jobs: List<Job>) {
+    /** [jobs] as the stored queue; [decode] reads it back. */
+    fun encode(jobs: List<Job>): String {
         val array = JSONArray()
-        for (job in jobs) {
-            array.put(
-                JSONObject()
-                    .put("kind", job.kind)
-                    .put("meetingId", job.meetingId)
-                    .put("payload", job.payload)
-                    .put("queuedAtMs", job.queuedAtMs)
-                    .put("interrupted", job.interrupted)
-                    .put("stagedFile", job.stagedFile)
-                    .put("sourceName", job.sourceName)
-                    .put("chargingOnly", job.chargingOnly)
-                    .put("firstTranscript", job.firstTranscript)
-                    .put("required", job.required)
-                    .put("auto", job.auto)
-                    .put("language", job.language)
-            )
-        }
-        prefs(context).edit().putString("jobs", array.toString()).apply()
+        for (job in jobs) array.put(toJson(job))
+        return array.toString()
+    }
+
+    private fun fromJson(o: JSONObject?): Job? {
+        if (o == null) return null
+        val kind = o.optString("kind")
+        val meetingId = o.optString("meetingId")
+        // An import legitimately has no meeting id yet.
+        if (kind.isBlank()) return null
+        if (meetingId.isBlank() && kind != KIND_IMPORT) return null
+        return Job(
+            kind = kind,
+            meetingId = meetingId,
+            payload = o.optString("payload"),
+            queuedAtMs = o.optLong("queuedAtMs"),
+            interrupted = o.optBoolean("interrupted"),
+            stagedFile = o.optString("stagedFile"),
+            sourceName = o.optString("sourceName"),
+            // Absent in jobs queued before this field existed; false
+            // reproduces exactly what those jobs did.
+            chargingOnly = o.optBoolean("chargingOnly"),
+            // Absent in older rows; false is what those jobs did.
+            firstTranscript = o.optBoolean("firstTranscript"),
+            required = o.optBoolean("required"),
+            auto = o.optBoolean("auto"),
+            // Absent in older rows; blank is "use the setting", which
+            // is what every run did before the choice existed.
+            language = o.optString("language"),
+            // Absent in older rows: 0, from the beginning, as they ran.
+            resumeFromMs = o.optLong("resumeFromMs").coerceAtLeast(0L)
+        )
+    }
+
+    private fun toJson(job: Job): JSONObject {
+        val o = JSONObject()
+            .put("kind", job.kind)
+            .put("meetingId", job.meetingId)
+            .put("payload", job.payload)
+            .put("queuedAtMs", job.queuedAtMs)
+            .put("interrupted", job.interrupted)
+            .put("stagedFile", job.stagedFile)
+            .put("sourceName", job.sourceName)
+            .put("chargingOnly", job.chargingOnly)
+            .put("firstTranscript", job.firstTranscript)
+            .put("required", job.required)
+            .put("auto", job.auto)
+            .put("language", job.language)
+        if (job.resumeFromMs > 0L) o.put("resumeFromMs", job.resumeFromMs)
+        return o
     }
 
     @Synchronized
@@ -307,13 +360,16 @@ object JobQueue {
         payload: String,
         firstTranscript: Boolean = false,
         /** The run's language choice, so a restart offered later keeps it. */
-        language: String = ""
+        language: String = "",
+        /** Where the run continues an unfinished transcription from; see [Job.resumeFromMs]. */
+        resumeFromMs: Long = 0L
     ) {
         enqueue(
             context,
             Job(
                 kind, meetingId, payload, System.currentTimeMillis(), interrupted = true,
-                firstTranscript = firstTranscript, language = language
+                firstTranscript = firstTranscript, language = language,
+                resumeFromMs = resumeFromMs
             )
         )
     }

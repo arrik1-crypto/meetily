@@ -68,7 +68,9 @@ class MainActivity : AppCompatActivity() {
     private val importObserver = object : ImportService.Observer {
         override fun onImportProgress(meetingId: String?, percent: Int, detail: String) {
             if (isFinishing || isDestroyed) return
-            val recheck = ImportService.isRecheck
+            // A first transcript, a continued one included, is anchored to its
+            // meeting like a check but is that meeting's transcript.
+            val recheck = ImportService.isRecheck && !ImportService.isFirstTranscript
             val source = importService?.sourceName?.ifBlank { null }
                 ?: getString(R.string.import_title)
             importWork = Work(
@@ -692,6 +694,14 @@ class MainActivity : AppCompatActivity() {
         if (crashDialog?.isShowing == true) return
         if (!JobGate.canStartBatch()) return
         val queue = com.meetily.mobile.data.JobQueue
+        // A run that died before its meeting was ever saved (a file import
+        // killed during its first batch) left a marker nothing can offer.
+        // Nothing is running (canStartBatch above), so every marker is dead.
+        for (dead in queue.interrupted(queue.load(this))) {
+            if (dead.kind != queue.KIND_IMPORT && !store.exists(dead.meetingId)) {
+                queue.finished(this, dead.kind, dead.meetingId)
+            }
+        }
         val interrupted = queue.interrupted(queue.load(this))
         // An import that died before its staged file became a meeting's
         // audio can be offered back; one that died after it has either a
@@ -709,14 +719,37 @@ class MainActivity : AppCompatActivity() {
                 )
             }
             queue.dequeueStaged(this, deadImport.stagedFile)
+            // It had become a meeting whose words stop part-way: offered back
+            // below as carrying that meeting's transcript on from there, with
+            // the model and language the import ran with (TranscriptResume).
+            val unfinishedAt = deadImport.meetingId.takeIf { it.isNotBlank() }
+                ?.let { store.load(it) }
+                ?.takeIf { AudioStore.exists(this, it.audioFile) }
+                ?.transcriptResumeMs
+            if (unfinishedAt != null) {
+                queue.markRunning(
+                    this, queue.KIND_CHECK, deadImport.meetingId, deadImport.payload,
+                    firstTranscript = true, language = deadImport.language,
+                    resumeFromMs = unfinishedAt
+                )
+                offerInterruptedWork()
+            }
             return
         }
         val job = deadImport ?: interrupted.firstOrNull { store.exists(it.meetingId) } ?: return
+        val target = if (job.kind == queue.KIND_IMPORT) null else store.load(job.meetingId)
         val title = if (job.kind == queue.KIND_IMPORT) {
             job.sourceName
         } else {
-            store.load(job.meetingId)?.title.orEmpty()
+            target?.title.orEmpty()
         }
+        // A first transcript that stopped part-way carries on from where its
+        // words stop when resumed (TranscriptResume), and says so. One that
+        // stopped before any pause to carry on from (0) starts over.
+        val continueFrom = target?.takeIf { job.kind == queue.KIND_CHECK && job.firstTranscript }
+            ?.takeIf { AudioStore.exists(this, it.audioFile) }
+            ?.transcriptResumeMs
+            ?.takeIf { com.meetily.mobile.data.TranscriptResume.canContinue(it) }
         // A tap is only honoured while the job is still the interrupted one
         // offered. Otherwise a stale prompt could start a second run, or
         // dequeue the crash marker of a run that is already going.
@@ -728,7 +761,16 @@ class MainActivity : AppCompatActivity() {
                 }
         interruptedDialog = AlertDialog.Builder(this)
             .setTitle(R.string.resume_job_title)
-            .setMessage(getString(R.string.resume_job_body, title))
+            .setMessage(
+                if (continueFrom != null) {
+                    getString(
+                        R.string.resume_job_continue_body, title,
+                        com.meetily.mobile.data.TranscriptResume.clock(continueFrom)
+                    )
+                } else {
+                    getString(R.string.resume_job_body, title)
+                }
+            )
             .setPositiveButton(R.string.resume_job_yes) { _, _ ->
                 if (!stillOffered()) return@setPositiveButton
                 if (job.kind == queue.KIND_IMPORT) {
@@ -756,7 +798,7 @@ class MainActivity : AppCompatActivity() {
                     JobGate.requestCheck(
                         this, job.meetingId, job.payload, false,
                         required = true, firstTranscript = job.firstTranscript,
-                        language = job.language
+                        language = job.language, resumeFromMs = continueFrom ?: 0L
                     )
                 }
             }
@@ -768,6 +810,13 @@ class MainActivity : AppCompatActivity() {
                     com.meetily.mobile.data.AudioStore.delete(this, job.stagedFile)
                 } else {
                     queue.dequeue(this, job.kind, job.meetingId)
+                    // A check's half-made draft, kept to be continued, goes
+                    // with it; a finished one still waits to be reviewed.
+                    if (job.kind == queue.KIND_CHECK && !job.firstTranscript &&
+                        !com.meetily.mobile.data.TranscriptDraft.isPending(this, job.meetingId)
+                    ) {
+                        com.meetily.mobile.data.TranscriptDraft.delete(this, job.meetingId)
+                    }
                 }
             }
             .setOnDismissListener { interruptedDialog = null }
@@ -1052,7 +1101,16 @@ class MainActivity : AppCompatActivity() {
         val canTopics = meeting.segments.size >= 8
         val busy = isBusy(meeting.id)
         val recording = isRecording(meeting.id)
-        val items = listOf(
+        // Only while its words stop short and nothing is working on it.
+        val unfinishedAt = ContinueTranscription.offeredAt(this, meeting)
+        val items = listOfNotNull(
+            unfinishedAt?.let {
+                ActionSheet.Item(
+                    MeetingDetailActivity.ACTION_CONTINUE_TRANSCRIPTION,
+                    getString(R.string.resume_continue),
+                    subtitle = ContinueTranscription.fromLabel(this, it)
+                )
+            },
             ActionSheet.Item(
                 MeetingDetailActivity.ACTION_RENAME,
                 getString(R.string.rename_meeting)

@@ -212,7 +212,8 @@ class MeetingStore(context: Context) {
 
     /**
      * Saves only what a transcription pass owns — the segments, the audio
-     * file and the model that produced them — onto whatever is on disk.
+     * file, the model and language that produced them, and where an
+     * unfinished pass stopped — onto whatever is on disk.
      *
      * An import holds one Meeting object for its whole run and writes the
      * entire thing back every batch, which for an hour of audio is many
@@ -224,8 +225,14 @@ class MeetingStore(context: Context) {
      *
      * The write lock does NOT solve this on its own: a lost update is not a
      * torn file. The fix has to be about which side owns which field.
+     *
+     * A pass that continues an unfinished transcript passes its [seam]: the
+     * lines before it are not the pass's to write back. They are shown and
+     * editable for the whole run, so what is stored before the seam is
+     * kept, with only the pass's speaker relabelling applied, and the
+     * pass's own lines follow it (TranscriptResume.continued).
      */
-    fun saveTranscription(meeting: Meeting): Boolean {
+    fun saveTranscription(meeting: Meeting, seam: TranscriptResume.Seam? = null): Boolean {
         return AtomicJson.exclusive {
             val file = fileFor(meeting.id) ?: return@exclusive false
             // The reload is what protects the user's edits, but an import
@@ -244,12 +251,22 @@ class MeetingStore(context: Context) {
             }
             val onDisk = base?.meeting ?: load(meeting.id)
             if (onDisk == null) {
-                HighlightMarks.apply(meeting.segments, meeting.highlightMarksMs)
+                HighlightMarks.apply(
+                    meeting.segments,
+                    TranscriptResume.marksReached(meeting.highlightMarksMs, meeting.transcriptResumeMs)
+                )
                 lastTranscribed = null
                 return@exclusive save(meeting)
             }
+            val segments = if (seam != null) {
+                TranscriptResume.continued(
+                    onDisk.segments, meeting.segments, seam.resumeMs, seam.baseMs, seam.relabel
+                )
+            } else {
+                meeting.segments
+            }
             onDisk.segments.clear()
-            onDisk.segments.addAll(meeting.segments)
+            onDisk.segments.addAll(segments)
             onDisk.audioFile = meeting.audioFile
             onDisk.transcriptModel = meeting.transcriptModel
             // The pass's language travels with its words. Kept when this
@@ -257,9 +274,16 @@ class MeetingStore(context: Context) {
             // model), rather than wiping one an earlier pass recorded.
             meeting.language?.let { onDisk.language = it }
             onDisk.translated = meeting.translated
+            // Where the words stop, while they do: the next pass carries on
+            // from there (TranscriptResume). Null once the pass completes.
+            onDisk.transcriptResumeMs = meeting.transcriptResumeMs
             // Highlights tapped while an audio-only recording had no lines to
-            // star land on the lines this pass just produced.
-            HighlightMarks.apply(onDisk.segments, onDisk.highlightMarksMs)
+            // star land on the lines this pass just produced; a mark past
+            // where the words stop waits for the pass that reaches it.
+            HighlightMarks.apply(
+                onDisk.segments,
+                TranscriptResume.marksReached(onDisk.highlightMarksMs, onDisk.transcriptResumeMs)
+            )
             val saved = save(onDisk)
             lastTranscribed = if (saved) {
                 TranscriptionBase(

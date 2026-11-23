@@ -7,6 +7,7 @@ import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.MeetingStore
+import com.meetily.mobile.data.TranscriptResume
 
 /**
  * Admission control for heavy work, and the one place that starts it.
@@ -160,13 +161,15 @@ object JobGate {
         /** The recording's only transcript; see [JobQueue.Job.firstTranscript]. */
         firstTranscript: Boolean = false,
         /** Spoken language for this run; see [JobQueue.Job.language]. */
-        language: String = ""
+        language: String = "",
+        /** Continues an unfinished transcription; see [JobQueue.Job.resumeFromMs]. */
+        resumeFromMs: Long = 0L
     ) {
         val app = context.applicationContext
         val job = JobQueue.Job(
             JobQueue.KIND_CHECK, meetingId, modelKey, System.currentTimeMillis(),
             chargingOnly = whenCharging, firstTranscript = firstTranscript,
-            required = required, language = language
+            required = required, language = language, resumeFromMs = resumeFromMs
         )
         if (whenCharging && !Power.isCharging(app)) {
             queue(app, job)
@@ -265,6 +268,14 @@ object JobGate {
             val meeting = MeetingStore(context).load(meetingId) ?: return
             val audio = meeting.audioFile ?: return
             if (!AudioStore.exists(context, audio)) return
+            // Queued to continue a transcript that has been finished since:
+            // running it would only start the finished one over.
+            if (!TranscriptResume.stillWanted(
+                    job.firstTranscript, job.resumeFromMs, meeting.transcriptResumeMs
+                )
+            ) {
+                return
+            }
             val intent = Intent(context, ImportService::class.java)
                 .setAction(ImportService.ACTION_START)
                 .setData(AudioStore.uriFor(context, AudioStore.fileFor(context, audio)))
@@ -278,6 +289,9 @@ object JobGate {
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             if (job.language.isNotBlank()) {
                 intent.putExtra(ImportService.EXTRA_LANGUAGE, job.language)
+            }
+            if (job.resumeFromMs > 0L) {
+                intent.putExtra(ImportService.EXTRA_RESUME_FROM_MS, job.resumeFromMs)
             }
             pendingStartAt = android.os.SystemClock.elapsedRealtime()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

@@ -395,6 +395,30 @@ class MeetingDetailActivity : AppCompatActivity() {
         LanguagePicker.bindChip(headerView.findViewById(R.id.detailLanguageChip), m) {
             showLanguageOptions()
         }
+        bindResumeCard(m)
+    }
+
+    /** The Continue card: an unfinished transcript with its audio still here. */
+    private fun bindResumeCard(m: Meeting) {
+        ContinueTranscription.bindCard(
+            headerView.findViewById(R.id.resume_card),
+            headerView.findViewById(R.id.resume_card_text),
+            headerView.findViewById(R.id.resume_card_button),
+            m
+        ) { continueTranscription() }
+    }
+
+    /** "Continue transcription": the card, the menu item and the home card's option. */
+    private fun continueTranscription() {
+        val m = meeting ?: return
+        // The pass reads the stored lines before the seam; edits made here
+        // have to be there first.
+        flushSync()
+        ContinueTranscription.start(this, m) {
+            if (isFinishing || isDestroyed) return@start
+            headerView.findViewById<View>(R.id.resume_card).visibility = View.GONE
+            invalidateOptionsMenu()
+        }
     }
 
     /** The language chip: transcribe the saved audio again as a chosen language. */
@@ -575,6 +599,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         ) {
             m.transcriptModel = merged.transcriptModel
         }
+        if (m.transcriptResumeMs == ours.transcriptResumeMs &&
+            m.transcriptResumeMs != merged.transcriptResumeMs
+        ) {
+            m.transcriptResumeMs = merged.transcriptResumeMs
+            // The Continue card and menu item follow where the words stop.
+            if (live && !transcriptChanged) renderMeta(m)
+            if (live) invalidateOptionsMenu()
+        }
         if (m.language == ours.language && m.translated == ours.translated &&
             (m.language != merged.language || m.translated != merged.translated)
         ) {
@@ -587,6 +619,11 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (live && !transcriptChanged) renderFollowsFrom(m)
         }
         syncBase = base
+        // Hidden by hand once a run was started from it; a run that then
+        // stopped without saving anything (cancelled while matching voices,
+        // refused, failed before its first batch) changes nothing on disk,
+        // so the card is bound again with every sync, not only on a change.
+        if (live && !transcriptChanged) bindResumeCard(m)
 
         if (live && transcriptChanged) {
             // Includes a line folded in by a save from here: without this it
@@ -909,6 +946,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 ACTION_TOPICS -> topicsAction()
                 ACTION_CHECK_ACCURACY -> confirmCheckAccuracy()
                 ACTION_SHARE -> shareMeeting()
+                ACTION_CONTINUE_TRANSCRIPTION -> continueTranscription()
             }
         }
     }
@@ -2681,6 +2719,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (meeting?.starred == true) R.string.unstar_meeting else R.string.star_meeting
         )
         menu.findItem(R.id.replace_action_undo)?.isVisible = replace.canUndo(meeting?.id)
+        menu.findItem(R.id.resume_action_continue)?.isVisible =
+            meeting?.let { ContinueTranscription.offeredAt(this, it) } != null
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -2784,7 +2824,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             return
         }
         AudioRemoval.confirm(
-            this, 1, AudioStore.fileFor(this, name).length(), untranscribed = m.segments.isEmpty()
+            this, 1, AudioStore.fileFor(this, name).length(), untranscribed = m.segments.isEmpty(),
+            unfinishedAtMs = m.transcriptResumeMs
         ) {
             val current = meeting ?: return@confirm
             // Asked again: a job may have started while the question was up.
@@ -2804,6 +2845,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             if (::playerBar.isInitialized) showPlayerBar(false)
             val untranscribed = current.segments.isEmpty()
             current.audioFile = null
+            // Nothing can continue the transcript now; it keeps what it has.
+            current.transcriptResumeMs = null
             persist(current)
             applyTabState()
             // The language chip offers "Re-transcribe as…" only while there
@@ -2821,6 +2864,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 val released = store.mutateIf(id) { stored ->
                     if (stored.audioFile == name) {
                         stored.audioFile = null
+                        stored.transcriptResumeMs = null
                         true
                     } else {
                         false
@@ -2901,6 +2945,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
             R.id.action_check_accuracy -> {
                 confirmCheckAccuracy()
+                true
+            }
+            R.id.resume_action_continue -> {
+                continueTranscription()
                 true
             }
             R.id.storage_action_remove_audio -> {
@@ -4709,6 +4757,8 @@ class MeetingDetailActivity : AppCompatActivity() {
         const val ACTION_TOPICS = "topics"
         const val ACTION_CHECK_ACCURACY = "check_accuracy"
         const val ACTION_SHARE = "share"
+        /** Continue an unfinished transcription (ContinueTranscription). */
+        const val ACTION_CONTINUE_TRANSCRIPTION = "continue_transcription"
 
         /**
          * Optional: the transcript line (segment index, Int) to open at, as

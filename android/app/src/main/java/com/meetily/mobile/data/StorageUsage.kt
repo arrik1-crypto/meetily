@@ -92,7 +92,12 @@ object StorageUsage {
         val id: String,
         val title: String,
         val audioBytes: Long,
-        val hasTranscript: Boolean
+        val hasTranscript: Boolean,
+        /**
+         * Where an unfinished transcript stops (TranscriptResume), which
+         * removing the audio would leave unfinished for good; null otherwise.
+         */
+        val unfinishedAtMs: Long? = null
     )
 
     /**

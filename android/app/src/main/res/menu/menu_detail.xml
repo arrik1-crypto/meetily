@@ -61,6 +61,12 @@
         android:id="@+id/action_share_audio"
         android:title="@string/share_audio"
         app:showAsAction="never" />
+    <!-- Shown while the transcript is unfinished (ContinueTranscription). -->
+    <item
+        android:id="@+id/resume_action_continue"
+        android:title="@string/resume_continue"
+        android:visible="false"
+        app:showAsAction="never" />
     <item
         android:id="@+id/action_check_accuracy"
         android:title="@string/check_accuracy"

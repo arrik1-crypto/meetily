@@ -138,7 +138,15 @@ data class Meeting(
      * The transcript came from Whisper's translate task, so its text is
      * English whatever [language] says. Summaries follow the text.
      */
-    var translated: Boolean = false
+    var translated: Boolean = false,
+    /**
+     * Where an unfinished transcription stopped: the audio offset (ms) that
+     * the next pass continues from, always a cut the importer made at
+     * silence (TranscriptResume). The lines before it are final; any at or
+     * after it are made again. Null when the transcript is complete, or was
+     * never made by the importer; also in meetings saved before this field.
+     */
+    var transcriptResumeMs: Long? = null
 ) {
     /**
      * True for a copy read by MeetingStore's light listings, which leave out
@@ -250,6 +258,7 @@ data class Meeting(
         if (!transcriptModel.isNullOrBlank()) {
             obj.put("transcriptModel", transcriptModel)
         }
+        transcriptResumeMs?.let { obj.put("transcriptResumeMs", it) }
         if (summaryStale) {
             obj.put("summaryStale", true)
         }
@@ -430,6 +439,13 @@ data class Meeting(
             // exactly the default either way.
             meeting.starred = obj.optBoolean("starred", false)
             meeting.transcriptModel = obj.optString("transcriptModel", "").ifBlank { null }
+            // Absent in complete transcripts and in every meeting saved
+            // before it existed; a negative value is not a place in audio.
+            meeting.transcriptResumeMs = if (obj.has("transcriptResumeMs")) {
+                obj.optLong("transcriptResumeMs", -1L).takeIf { it >= 0L }
+            } else {
+                null
+            }
             meeting.summaryStale = obj.optBoolean("summaryStale", false)
             meeting.summaryTemplate = obj.optString("summaryTemplate", "").ifBlank { null }
             meeting.summaryModel = obj.optString("summaryModel", "").ifBlank { null }

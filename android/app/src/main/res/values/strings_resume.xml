@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Continuing an unfinished transcription from where it stopped
+         (TranscriptResume, ContinueTranscription): the meeting screen's
+         card and menu item, the home card's options, the progress line and
+         notifications of a continuing run, and the warnings before the
+         audio such a meeting still needs is removed. Every %s that is a
+         time ("42:10", "1:05:00") is a position in the recording. -->
+
+    <!-- Meeting screen card, shown while a transcript is unfinished and its
+         audio is still here. %1$s is where the words stop. -->
+    <string name="resume_card_text">Transcription stopped at %1$s. The rest of the recording hasn\'t been transcribed yet.</string>
+    <!-- The card when the transcription stopped before it reached any pause
+         it could carry on from (its button then reads "Start over"). -->
+    <string name="resume_card_text_restart">Transcription stopped part-way, before it reached a pause it could carry on from, so it can only start again from the beginning.</string>
+    <!-- Card button, menu item and home card option. -->
+    <string name="resume_continue">Continue transcription</string>
+    <!-- Home card option subtitle. %1$s is where the words stop. -->
+    <string name="resume_continue_from">From %1$s</string>
+    <!-- Home card option subtitle when it can only start over. -->
+    <string name="resume_continue_from_start">From the beginning</string>
+
+    <string name="resume_started">Continuing the transcript from %1$s in the background.</string>
+    <string name="resume_queued">Queued — the transcript will continue from %1$s when the current job finishes.</string>
+    <!-- %1$s is a model's name. -->
+    <string name="resume_restarted">Transcribing again from the beginning with %1$s.</string>
+    <string name="resume_restart_queued">Queued — the transcript will start over when the current job finishes.</string>
+    <string name="resume_busy">This transcript is already being continued, or is waiting in the queue.</string>
+    <!-- Something else is running, so the continuation would have to wait in
+         the queue, which holds one transcription or check per meeting. -->
+    <string name="resume_check_queued">An accuracy check for this meeting is already waiting in the queue, and only one can wait at a time. Try again when nothing else is running.</string>
+
+    <!-- The model that made the words is gone, another one is ready. %1$s is
+         the model that made them, %2$s where they stop, %3$s the model that
+         would start over. -->
+    <string name="resume_model_gone_title">Start this transcript over?</string>
+    <string name="resume_model_gone_message">%1$s, the model this transcript was started with, is no longer on this phone, so it can\'t carry on from %2$s.\n\nStart over with %3$s instead? The lines there now are replaced by the new pass\'s as soon as it saves its first ones, including any edits made to them, so if it stops part-way only what it reached is kept.</string>
+    <string name="resume_start_over">Start over</string>
+    <!-- The transcription stopped before it reached any pause to carry on
+         from. %1$s is the model that would start over. -->
+    <string name="resume_restart_message">This transcription stopped before it reached a pause it could carry on from, so it can only start again from the beginning, with %1$s.\n\nThe lines there now are replaced by the new pass\'s as soon as it saves its first ones, including any edits made to them, so if it stops part-way only what it reached is kept.</string>
+    <!-- No model to run at all. %1$s is the model that made the words. -->
+    <string name="resume_no_model">%1$s, the model this transcript was started with, is no longer on this phone. Download it again in Settings to continue the transcript.</string>
+
+    <!-- Progress line of a continuing run, in the notification, the import
+         screen and the home card. %1$s is where it continues from, %2$s the
+         usual minutes-done line. -->
+    <string name="resume_detail">Continuing from %1$s · %2$s</string>
+    <string name="resume_detail_start">Continuing from %1$s</string>
+    <!-- While the voices of the lines already there are matched again, before
+         anything new is transcribed. -->
+    <string name="resume_detail_voices">Continuing from %1$s · matching voices so far</string>
+
+    <!-- The charger came out under an "only while charging" pass. %1$s is the
+         meeting's title, %2$s where its words now stop. -->
+    <string name="resume_unplugged_continue">“%1$s” will carry on from %2$s next time you charge.</string>
+    <!-- An import or transcription that failed part-way, with its words
+         kept. %1$s is where they stop. -->
+    <string name="resume_stopped_early">Transcription stopped at %1$s. The audio was saved — open the meeting and tap “Continue transcription” to try the rest.</string>
+    <!-- Offered after Recap closed mid-transcription. %1$s is the meeting's
+         title, %2$s where its words stop. -->
+    <string name="resume_job_continue_body">“%1$s” was still being transcribed when Recap closed. Its transcript can carry on from %2$s.</string>
+
+    <!-- Added to "Remove audio" for a meeting whose transcript is
+         unfinished. %1$s is where its words stop. -->
+    <string name="resume_remove_audio_warning">Its transcription stopped at %1$s and is unfinished. Without the audio it can never be completed: the rest of the recording will never be transcribed.</string>
+</resources>
