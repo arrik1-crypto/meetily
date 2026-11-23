@@ -4,7 +4,7 @@ import java.util.regex.Pattern
 
 /**
  * Find & replace across one meeting: its transcript lines, notes, summary
- * and action items.
+ * (with the summaries kept from other templates) and action items.
  *
  * Whole word is on and match case off by default, so fixing a misheard name
  * ("Jon" to "John") reaches "jon" and "Jon's" but not "Jonas". A match that
@@ -63,14 +63,17 @@ object FindReplace {
         val lines: List<String>,
         val notes: String,
         val summary: String,
-        val actionItems: List<ActionItem>
+        val actionItems: List<ActionItem>,
+        /** The texts of the summaries kept from other templates; the summary area covers them too. */
+        val keptSummaries: List<String> = emptyList()
     ) {
         companion object {
             fun of(meeting: Meeting) = Source(
                 meeting.segments.map { it.text },
                 meeting.notes,
                 meeting.summary,
-                meeting.actionItems.toList()
+                meeting.actionItems.toList(),
+                meeting.summaries.map { it.text }
             )
         }
     }
@@ -82,6 +85,18 @@ object FindReplace {
 
     data class ItemChange(val index: Int, val before: ActionItem, val after: ActionItem)
 
+    /**
+     * A summary kept from another template (Meeting.summaries) before and
+     * after a replace, found again by its template and the time it was
+     * written, wherever it is when Undo runs.
+     */
+    data class KeptChange(
+        val template: String?,
+        val createdAtMs: Long,
+        val before: String,
+        val after: String
+    )
+
     /** Everything one replace changed: what Undo puts back. */
     data class Snapshot(
         val query: Query,
@@ -91,7 +106,10 @@ object FindReplace {
         val actionItems: List<ItemChange>,
         val staleBefore: Boolean,
         val staleAfter: Boolean,
-        val counts: Counts
+        val counts: Counts,
+        val kept: List<KeptChange> = emptyList(),
+        /** The kept summaries this replace marked out of date, by template and time written. */
+        val keptMarkedStale: List<Pair<String?, Long>> = emptyList()
     )
 
     /** Places (lines, notes, summary, items) put back, and those edited since and left. */
@@ -187,7 +205,11 @@ object FindReplace {
             transcriptMatches = matches,
             transcriptLines = lines,
             notes = edits(source.notes, pattern, query.replace).size,
-            summary = edits(source.summary, pattern, query.replace).size,
+            summary = edits(source.summary, pattern, query.replace).size +
+                source.keptSummaries.sumOf { text ->
+                    val keptEdits = edits(text, pattern, query.replace)
+                    if (keptEdits.isNotEmpty() && leavesText(text, keptEdits)) keptEdits.size else 0
+                },
             actionItems = items
         )
     }
@@ -237,6 +259,7 @@ object FindReplace {
 
         var summary: TextChange? = null
         var summaryMatches = 0
+        val kept = mutableListOf<KeptChange>()
         if (Area.SUMMARY in areas) {
             val edits = edits(meeting.summary, pattern, replacement)
             if (edits.isNotEmpty()) {
@@ -245,6 +268,21 @@ object FindReplace {
                 meeting.summary = after
                 summaryMatches = edits.size
             }
+            // The summaries kept from other templates read the same name
+            // the same wrong way; switching to one must not bring it back.
+            // One that would be left blank is left as it was, like a line.
+            val keptAfter = meeting.summaries.map { saved ->
+                val keptEdits = edits(saved.text, pattern, replacement)
+                val text = WordRealign.applyText(saved.text, keptEdits)
+                if (keptEdits.isEmpty() || text.isBlank()) {
+                    saved
+                } else {
+                    kept.add(KeptChange(saved.template, saved.createdAtMs, saved.text, text))
+                    summaryMatches += keptEdits.size
+                    saved.copy(text = text)
+                }
+            }
+            if (kept.isNotEmpty()) meeting.summaries = keptAfter.toMutableList()
         }
 
         val items = mutableListOf<ItemChange>()
@@ -272,11 +310,15 @@ object FindReplace {
             }
         }
 
-        if (lines.isEmpty() && notes == null && summary == null && items.isEmpty()) return null
+        if (lines.isEmpty() && notes == null && summary == null && kept.isEmpty() && items.isEmpty()) {
+            return null
+        }
         val staleBefore = meeting.summaryStale
+        val keptFresh = meeting.summaries.filter { !it.stale }.map { it.template to it.createdAtMs }
         // The summary was written from the old wording; fixing its own text
-        // too does not cover what it paraphrased.
-        if (lines.isNotEmpty() && meeting.summary.isNotBlank()) meeting.summaryStale = true
+        // too does not cover what it paraphrased. The same goes for every
+        // summary kept from another template.
+        if (lines.isNotEmpty()) SummaryAlternatives.markStale(meeting)
         return Snapshot(
             query = query,
             lines = lines,
@@ -285,7 +327,9 @@ object FindReplace {
             actionItems = items,
             staleBefore = staleBefore,
             staleAfter = meeting.summaryStale,
-            counts = Counts(lineMatches, lines.size, notesMatches, summaryMatches, itemMatches)
+            counts = Counts(lineMatches, lines.size, notesMatches, summaryMatches, itemMatches),
+            kept = kept,
+            keptMarkedStale = if (lines.isNotEmpty()) keptFresh else emptyList()
         )
     }
 
@@ -339,6 +383,21 @@ object FindReplace {
                 skipped++
             }
         }
+        for (change in snapshot.kept) {
+            // Still kept and still as the replace left it. One switched to
+            // since, or regenerated, counts as edited.
+            val at = meeting.summaries.indexOfFirst {
+                it.template == change.template &&
+                    it.createdAtMs == change.createdAtMs &&
+                    it.text == change.after
+            }
+            if (at < 0) {
+                skipped++
+                continue
+            }
+            meeting.summaries[at] = meeting.summaries[at].copy(text = change.before)
+            restored++
+        }
 
         val takenItems = HashSet<Int>()
         for (change in snapshot.actionItems) {
@@ -362,6 +421,12 @@ object FindReplace {
             meeting.summaryStale == snapshot.staleAfter
         ) {
             meeting.summaryStale = snapshot.staleBefore
+        }
+        if (snapshot.lines.isNotEmpty() && allLinesBack && snapshot.keptMarkedStale.isNotEmpty()) {
+            val marked = snapshot.keptMarkedStale.toSet()
+            meeting.summaries = meeting.summaries.map {
+                if (it.stale && (it.template to it.createdAtMs) in marked) it.copy(stale = false) else it
+            }.toMutableList()
         }
         return UndoResult(restored, skipped)
     }

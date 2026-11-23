@@ -306,6 +306,11 @@ class SummaryService : Service() {
                 ),
                 settings.userName
             )
+            // Recorded with the summary: the language a model was asked to
+            // write in. A summary picked from the transcript is in its words.
+            val askedLanguage = OutputLanguage.target(
+                settings.summaryLanguage, meeting.language, meeting.translated
+            )
             // English word lists and action phrases only where they fit.
             val englishHeuristics = com.meetily.mobile.data.MeetingLanguage
                 .englishHeuristics(meeting.transcriptLanguage())
@@ -401,7 +406,9 @@ class SummaryService : Service() {
                 // then announced "Summary ready". The fallback is only worth
                 // writing onto a meeting that has nothing yet.
                 val current = store.load(meetingId) ?: meeting
-                if (current.summary.isNotBlank() || current.actionItems.isNotEmpty()) {
+                if (com.meetily.mobile.data.SummaryAlternatives.hasAny(current) ||
+                    current.actionItems.isNotEmpty()
+                ) {
                     lastFailure = llmFailure
                     main.post { finishRun(meetingId, failed = true) }
                     return@Thread
@@ -419,10 +426,8 @@ class SummaryService : Service() {
             // could lose that transcript, or have this summary lost under it.
             val droppedReminders = mutableListOf<String>()
             val saved = store.mutate(meetingId) { target ->
-                target.summary = result
-                target.summaryTemplate = template.key
                 // A failed generation saved its extractive fallback.
-                target.summaryModel = if (generationFailed) AiProvenance.EXTRACTIVE else modelUsed
+                val wroteModel = if (generationFailed) AiProvenance.EXTRACTIVE else modelUsed
                 /*
                  * Carry the user's state across a regeneration.
                  *
@@ -449,11 +454,28 @@ class SummaryService : Service() {
                     }
                 }
                 target.actionItems = merged.toMutableList()
-                // Up to date only if the transcript is still the one that was
-                // summarised. Clearing the flag unconditionally hid the "out
-                // of date" hint when a check was accepted during the run.
-                target.summaryStale = com.meetily.mobile.data.MeetingMerge
-                    .transcriptFingerprint(target.segments) != startFingerprint
+                // The summary shown until now is kept under its template
+                // unless this run made the same template again; the new one
+                // is shown (SummaryAlternatives). Up to date only if the
+                // transcript is still the one that was summarised. Clearing
+                // the flag unconditionally hid the "out of date" hint when a
+                // check was accepted during the run.
+                com.meetily.mobile.data.SummaryAlternatives.adoptRun(
+                    target,
+                    com.meetily.mobile.data.SavedSummary(
+                        template = template.key,
+                        model = wroteModel,
+                        language = if (wroteModel == AiProvenance.EXTRACTIVE) {
+                            meeting.transcriptLanguage()
+                        } else {
+                            askedLanguage
+                        },
+                        text = result,
+                        createdAtMs = System.currentTimeMillis(),
+                        stale = com.meetily.mobile.data.MeetingMerge
+                            .transcriptFingerprint(target.segments) != startFingerprint
+                    )
+                )
             }
             if (saved) {
                 for (task in droppedReminders) {

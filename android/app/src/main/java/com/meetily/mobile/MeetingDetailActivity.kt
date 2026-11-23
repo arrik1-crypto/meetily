@@ -109,6 +109,9 @@ class MeetingDetailActivity : AppCompatActivity() {
     private lateinit var summaryNoticeView: TextView
     private lateinit var reportSummaryButton: MaterialButton
 
+    /** The styles the meeting has summaries in, above the summary (SummaryAlternatives). */
+    private lateinit var summaryVersions: SummaryVersionsBar
+
     /** The title a model wrote on this screen (maybeAutoTitle), while it stands. */
     private var modelTitle: String? = null
 
@@ -524,28 +527,17 @@ class MeetingDetailActivity : AppCompatActivity() {
             m.chapters.addAll(merged.chapters)
             transcriptChanged = true
         }
-        if (m.summary == ours.summary && m.summary != merged.summary) {
-            m.summary = merged.summary
+        // The summary shown, its stale mark, template and model (which decide
+        // its notice; see renderSummary) and the summaries kept beside it
+        // move as one, keeping a switch or deletion made here while the save
+        // ran (SummaryAlternatives.adopt).
+        val summaryBefore = m.summary
+        if (com.meetily.mobile.data.SummaryAlternatives.adopt(m, ours, merged)) {
             summaryChanged = true
-            summaryTextChanged = true
+            if (m.summary != summaryBefore) summaryTextChanged = true
         }
         if (m.actionItems == ours.actionItems && m.actionItems != merged.actionItems) {
             m.actionItems = merged.actionItems.toMutableList()
-            summaryChanged = true
-        }
-        if (m.summaryStale == ours.summaryStale && m.summaryStale != merged.summaryStale) {
-            m.summaryStale = merged.summaryStale
-            summaryChanged = true
-        }
-        // The template and model decide the summary's notice; see renderSummary.
-        if (m.summaryTemplate == ours.summaryTemplate &&
-            m.summaryTemplate != merged.summaryTemplate
-        ) {
-            m.summaryTemplate = merged.summaryTemplate
-            summaryChanged = true
-        }
-        if (m.summaryModel == ours.summaryModel && m.summaryModel != merged.summaryModel) {
-            m.summaryModel = merged.summaryModel
             summaryChanged = true
         }
         if (m.notes == ours.notes && m.notesOriginal == ours.notesOriginal &&
@@ -863,6 +855,17 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         reportSummaryButton.visibility = View.GONE
         DisclaimerViews.copyWithNotices(summaryView) { summaryNotices() }
+        summaryVersions = SummaryVersionsBar(this, progress, object : SummaryVersionsBar.Host {
+            override fun meeting(): Meeting? = meeting
+
+            override fun summariesChanged(m: Meeting) {
+                if (m !== meeting) return
+                persist(m)
+                renderSummary(m.summary)
+            }
+
+            override fun newSummary() = chooseTemplateAndSummarize()
+        })
 
         val id = intent.getStringExtra(EXTRA_MEETING_ID)
         if (id == null) {
@@ -1317,6 +1320,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             } else {
                 View.GONE
             }
+        summaryVersions.render()
     }
 
     /** The stored summary's fixed notices, by the template and model that wrote it. */
@@ -2617,10 +2621,22 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
         }
         val list = view.findViewById<android.widget.ListView>(R.id.templateList)
+        // A style that already has a summary says so: choosing it writes
+        // that one again, and the others are kept (SummaryAlternatives).
+        val withSummary = meeting?.let { m ->
+            com.meetily.mobile.data.SummaryAlternatives.versions(m, emptyList())
+                .mapNotNull { it.template }.toSet()
+        }.orEmpty()
         list.adapter = android.widget.ArrayAdapter(
             this,
             android.R.layout.simple_list_item_single_choice,
-            templates.map { it.label(this) }
+            templates.map {
+                if (it.key in withSummary) {
+                    getString(R.string.summaries_picker_has_summary, it.label(this))
+                } else {
+                    it.label(this)
+                }
+            }
         )
         list.setItemChecked(current, true)
 
@@ -2747,6 +2763,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         aiPanel.visibility = View.GONE
         summaryNoticeView.visibility = View.GONE
         reportSummaryButton.visibility = View.GONE
+        summaryVersions.hide()
         progress.visibility = View.VISIBLE
         summaryView.visibility = View.VISIBLE
         A11y.setStatusText(summaryView, getString(R.string.summarizing), announce = false)

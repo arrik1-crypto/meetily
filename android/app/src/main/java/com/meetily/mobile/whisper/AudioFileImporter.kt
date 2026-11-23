@@ -1158,15 +1158,11 @@ class AudioFileImporter(
             // or of the lines a start-over replaced: say it is out of date,
             // as an accepted accuracy check does. ImportService leaves such
             // a summary in place rather than starting a new one over it.
+            // The summaries kept from other templates go out of date with it.
             if ((seamSample > 0L || hadWords) && !stageOnly && added > 0) {
                 runCatching {
                     store.mutateIf(meeting.id) { m ->
-                        if (m.summary.isNotBlank() && !m.summaryStale) {
-                            m.summaryStale = true
-                            true
-                        } else {
-                            false
-                        }
+                        com.meetily.mobile.data.SummaryAlternatives.markStale(m)
                     }
                 }
             }

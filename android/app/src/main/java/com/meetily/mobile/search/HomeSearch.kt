@@ -14,8 +14,8 @@ import com.meetily.mobile.data.Meeting
  * field per meeting per keystroke. The same string tells a matching row
  * which line to quote ([moment]).
  *
- * It covers what people remember a meeting by: title, notes, summary,
- * attendees, tags, the transcript with its speaker labels, the text read
+ * It covers what people remember a meeting by: title, notes, summary (and
+ * the summaries kept from other templates), attendees, tags, the transcript with its speaker labels, the text read
  * from attached photos (whiteboards, slides), action items and their owners,
  * and the names of attached files. Every one of those is in the home list's
  * light listing (MeetingStore.listLight leaves out only word timings), so
@@ -50,6 +50,9 @@ object HomeSearch {
         line(out, meeting.title)
         line(out, meeting.notes)
         line(out, meeting.summary)
+        // The summaries kept from other templates: a word remembered from
+        // the sales-call summary still finds the meeting showing its standup.
+        for (saved in meeting.summaries) line(out, saved.text)
         line(out, meeting.attendeesText())
         line(out, meeting.tags.joinToString(" "))
         for (item in meeting.actionItems) {
@@ -169,6 +172,9 @@ object HomeSearch {
     private fun fieldMoment(meeting: Meeting, query: String): Moment? {
         fieldSnippet(meeting.notes, query)?.let { return Moment(Field.NOTES, -1, null, it, false) }
         fieldSnippet(meeting.summary, query)?.let { return Moment(Field.SUMMARY, -1, null, it, false) }
+        for (saved in meeting.summaries) {
+            fieldSnippet(saved.text, query)?.let { return Moment(Field.SUMMARY, -1, null, it, false) }
+        }
         for (item in meeting.actionItems) {
             val owner = item.owner
             val text = if (owner.isNullOrBlank()) item.task else "${item.task} — $owner"
