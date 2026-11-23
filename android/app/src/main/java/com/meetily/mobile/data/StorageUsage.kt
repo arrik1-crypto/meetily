@@ -19,6 +19,9 @@ object StorageUsage {
         NEMO_MODELS,
         SPEAKER_MODELS,
         LLM_MODELS,
+
+        /** The word re-timing model (AlignerModels). */
+        ALIGN_MODELS,
         CACHES,
         OTHER
     }
@@ -66,6 +69,7 @@ object StorageUsage {
             "diarization-models" -> Area.SPEAKER_MODELS
             // litert-models: left by a withdrawn runtime; RecapApp removes it.
             "llm-models", "litert-models" -> Area.LLM_MODELS
+            "aligner-models" -> Area.ALIGN_MODELS
             else -> Area.OTHER
         }
     }
@@ -82,9 +86,10 @@ object StorageUsage {
         return out
     }
 
-    /** True for the four downloaded-model rows. */
+    /** True for the downloaded-model rows. */
     fun isModels(area: Area): Boolean = area == Area.WHISPER_MODELS ||
-        area == Area.NEMO_MODELS || area == Area.SPEAKER_MODELS || area == Area.LLM_MODELS
+        area == Area.NEMO_MODELS || area == Area.SPEAKER_MODELS || area == Area.LLM_MODELS ||
+        area == Area.ALIGN_MODELS
 
     /**
      * One meeting's kept audio, for the largest-meetings list.

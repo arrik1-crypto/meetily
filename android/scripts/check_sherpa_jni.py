@@ -38,7 +38,10 @@ With --jni-src DIR (the sherpa-onnx/jni directory of the same tag, fetched
 by hand when bumping), it also audits every GetFieldID and constructor
 GetMethodID the JNI sources use against the vendored classes: name and JVM
 type. That catches the NoSuchFieldError class of mismatch, which no symbol
-table shows.
+table shows. The files audited are the recognizers', the speaker embedding
+extractor's, the denoiser's and the forced aligner's (_SEEDS); a constructor
+the JNI calls may be a primary or a secondary one (the aligner's result
+classes are built through their array constructors).
 
     python3 android/scripts/check_sherpa_jni.py
     python3 android/scripts/check_sherpa_jni.py --print-natives
@@ -459,15 +462,29 @@ def _split_top(s):
     return parts
 
 
+def _param_types(params):
+    """The Kotlin types of a constructor's parameter list (the text between
+    its parentheses)."""
+    types = []
+    for p in _split_top(params):
+        pm = re.match(r"\s*(?:@\w+\s+)*(?:vararg\s+)?(\w+)\s*:\s*([^=]+?)\s*(?:=.*)?$", p, re.S)
+        if pm:
+            types.append(pm.group(2))
+    return types
+
+
 def kotlin_classes(vendored):
-    """{class: {"fields": {name: kotlin type}, "ctor": [kotlin types]}} from
-    primary constructors and class-body properties."""
+    """{class: {"fields": {name: kotlin type}, "ctor": [kotlin types],
+    "ctors": [[kotlin types], ...]}} from primary constructors, secondary
+    constructors (`constructor(...)` in the class body: JNI may build an
+    object through one, as the aligner's results do with arrays) and
+    class-body properties. "ctors" holds the primary constructor first."""
     raw = {}
     for f in sorted(vendored.glob("*.kt")):
         code = kotlin_code(f.read_text(encoding="utf-8"))
         for m in re.finditer(r"\bclass\s+(\w+)\s*(?:\(|\{)", code):
             name, i = m.group(1), m.end() - 1
-            fields, ctor = {}, []
+            fields, ctor, secondary = {}, [], []
             if code[i] == "(":
                 depth, j = 0, i
                 while j < len(code):
@@ -507,10 +524,19 @@ def kotlin_classes(vendored):
                         d -= 1
                     elif d == 0:
                         flat.append(ch)
+                flat = "".join(flat)
                 for pm in re.finditer(r"\b(?:val|var)\s+(\w+)\s*:\s*([\w<>?, \[\]]+?)\s*(?:=|\n)",
-                                      "".join(flat)):
+                                      flat):
                     fields.setdefault(pm.group(1), pm.group(2))
-            raw[name] = {"fields": fields, "ctor": ctor}
+                for cm in re.finditer(r"\bconstructor\s*\(", flat):
+                    depth, j = 0, cm.end() - 1
+                    while j < len(flat):
+                        depth += {"(": 1, ")": -1}.get(flat[j], 0)
+                        if depth == 0:
+                            break
+                        j += 1
+                    secondary.append(_param_types(flat[cm.end():j]))
+            raw[name] = {"fields": fields, "ctor": ctor, "ctors": [ctor] + secondary}
     return raw
 
 
@@ -540,6 +566,13 @@ _SEEDS = {
     # same "model" field, so it is checked against the offline class.
     "speech-denoiser.cc": {"config": "OfflineSpeechDenoiserConfig",
                            "model": "OfflineSpeechDenoiserModelConfig"},
+    # The forced aligner: its options reader takes "options" (the
+    # ForcedAlignmentOptions object), its config reader "config"; the result
+    # classes are found through FindClass and built with their array
+    # constructors (secondary constructors in Kotlin).
+    "forced-aligner.cc": {"config": "ForcedAlignerConfig",
+                          "_config": "ForcedAlignerConfig",
+                          "options": "ForcedAlignmentOptions"},
 }
 _SEED_CLASSES = {"model_config_cls": ("online-recognizer.cc", "OnlineModelConfig")}
 
@@ -607,10 +640,11 @@ def audit_jni_sources(jni_src, vendored):
                 if info is None:
                     problems.append(f"FAIL: {where}: constructor of unvendored class {cls}")
                     continue
-                types = [jvm_type(t, local) for t in info["ctor"]]
-                have = "(" + "".join(t or "?" for t in types) + ")V"
-                if have != sig:
-                    problems.append(f"FAIL: {where}: {cls} constructor is {have}, JNI wants {sig}")
+                have = ["(" + "".join(jvm_type(t, local) or "?" for t in ctor) + ")V"
+                        for ctor in info["ctors"]]
+                if sig not in have:
+                    problems.append(f"FAIL: {where}: {cls} constructors are {', '.join(have)}, "
+                                    f"JNI wants {sig}")
     return checks, problems
 
 

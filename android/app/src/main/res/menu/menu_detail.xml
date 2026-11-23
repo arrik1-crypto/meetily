@@ -71,6 +71,12 @@
         android:id="@+id/action_check_accuracy"
         android:title="@string/check_accuracy"
         app:showAsAction="never" />
+    <!-- Shown while a line's word timings are estimated or missing (AlignUi). -->
+    <item
+        android:id="@+id/align_action_retime"
+        android:title="@string/align_menu_all"
+        android:visible="false"
+        app:showAsAction="never" />
     <item
         android:id="@+id/storage_action_remove_audio"
         android:title="@string/storage_remove_audio"

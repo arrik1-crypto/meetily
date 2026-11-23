@@ -19,6 +19,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.meetily.mobile.licences.ModelTerms
 import com.meetily.mobile.llm.LocalLlmModels
+import com.meetily.mobile.whisper.AlignerModels
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.WhisperModels
 
@@ -152,6 +153,7 @@ class ModelDownloadService : Service() {
     private fun displayName(kind: String, key: String): String = when (kind) {
         KIND_DIARIZE -> DiarizationModels.byKey(key).displayName
         KIND_LLM -> LocalLlmModels.byKey(key).displayName
+        KIND_ALIGN -> AlignerModels.byKey(key).displayName
         // "whisper" kind covers all transcription models; NeMo keys route
         // to their own registry.
         else -> com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
@@ -191,6 +193,9 @@ class ModelDownloadService : Service() {
                     )
                     KIND_LLM -> LocalLlmModels.download(
                         this, LocalLlmModels.byKey(key), onProgress, { cancelled }
+                    )
+                    KIND_ALIGN -> AlignerModels.download(
+                        this, AlignerModels.byKey(key), onProgress, { cancelled }
                     )
                     else -> {
                         val nemo = com.meetily.mobile.whisper.NemoModels.byKeyOrNull(key)
@@ -496,6 +501,9 @@ class ModelDownloadService : Service() {
         const val KIND_WHISPER = "whisper"
         const val KIND_DIARIZE = "diarize"
         const val KIND_LLM = "llm"
+
+        /** The word re-timing model (AlignerModels), downloaded and unpacked. */
+        const val KIND_ALIGN = "align"
 
         /**
          * Starts the download of [key] of [kind], or queues it behind the one

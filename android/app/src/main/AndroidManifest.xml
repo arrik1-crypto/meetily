@@ -252,6 +252,14 @@
             android:exported="false"
             android:foregroundServiceType="dataSync|mediaProcessing" />
 
+        <!-- Re-time words: one meeting's edited lines aligned against its
+             recording on the phone, as ImportService's types
+             (mediaProcessing from Android 15, dataSync below). -->
+        <service
+            android:name=".AlignService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync|mediaProcessing" />
+
         <service
             android:name=".ModelDownloadService"
             android:exported="false"

@@ -33,7 +33,13 @@ data class TranscriptSegment(
     /** Offset into the meeting's audio file, for tap-to-play seek. */
     val audioMs: Long? = null,
     /** Word timings for word-level tap-to-seek; re-aligned when text is edited (WordRealign). */
-    val words: List<WordStamp>? = null
+    val words: List<WordStamp>? = null,
+    /**
+     * Where [words] came from, when known: estimated by an edit or measured
+     * by "Re-time words" (WordTimes). Null is unknown: as the recogniser
+     * timed them, or saved before this was recorded.
+     */
+    val wordTimes: WordTimes? = null
 )
 
 data class QaEntry(
@@ -374,6 +380,7 @@ data class Meeting(
                 }
                 s.put("words", wordsArr)
             }
+            seg.wordTimes?.let { s.put("wordTimes", it.json) }
             return s
         }
 
@@ -396,7 +403,10 @@ data class Meeting(
                         }
                     }
                     out.ifEmpty { null }
-                }
+                },
+                // Absent before it was recorded, and on every line a
+                // recogniser timed: unknown. An unknown value reads the same.
+                wordTimes = WordTimes.parse(s.optString("wordTimes", ""))
             )
         }
 

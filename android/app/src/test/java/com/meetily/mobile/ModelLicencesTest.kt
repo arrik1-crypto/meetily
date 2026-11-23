@@ -4,6 +4,7 @@ import com.meetily.mobile.licences.Licence
 import com.meetily.mobile.licences.ModelLicences
 import com.meetily.mobile.licences.TermsFamily
 import com.meetily.mobile.llm.LocalLlmModels
+import com.meetily.mobile.whisper.AlignerModels
 import com.meetily.mobile.whisper.DiarizationModels
 import com.meetily.mobile.whisper.NemoModels
 import com.meetily.mobile.whisper.WhisperModels
@@ -27,7 +28,8 @@ class ModelLicencesTest {
         WhisperModels.ALL.map { it.key } +
             NemoModels.ALL.map { it.key } +
             DiarizationModels.ALL.map { it.key } +
-            LocalLlmModels.ALL.map { it.key }
+            LocalLlmModels.ALL.map { it.key } +
+            AlignerModels.ALL.map { it.key }
 
     @Test
     fun everyDownloadableModelHasALicence() {
@@ -232,6 +234,7 @@ class ModelLicencesTest {
             "titanet-en" to "NeMo TitaNet large / small",
             "campplus-zh-en" to "3D-Speaker CAM++ (English + Chinese)",
             "campplus-zh-en-v2" to "3D-Speaker CAM++ (English + Chinese)",
+            "english-mfa-v3.0.0" to "English MFA acoustic model and dictionary v3.0.0",
             "qwen2.5-0.5b" to "Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct",
             "qwen2.5-1.5b" to "Qwen 2.5 0.5B Instruct, Qwen 2.5 1.5B Instruct",
             "qwen35-2b" to "Qwen 3.5 2B, Qwen 3.5 4B",

@@ -48,12 +48,15 @@ object AudioRemoval {
      * Their next write would put the audio reference back (RecordingService
      * and ImportService write it on every save), and the copy reads the
      * recording and writes its own reference when it ends
-     * (ClearVoiceService). The rule for removing the audio, deleting the
-     * meeting and cleaning it up. The copy never touches the content, which
-     * is why Find & replace asks [isWritingContent] instead.
+     * (ClearVoiceService). Words being re-timed (AlignService) count too:
+     * the run reads the recording and saves into the meeting when it ends.
+     * The rule for removing the audio, deleting the meeting and cleaning it
+     * up. Neither touches the content's wording, which is why Find &
+     * replace asks [isWritingContent] instead.
      */
     fun isWriting(context: Context, meetingId: String): Boolean =
-        isWritingContent(context, meetingId) || ClearVoiceService.isPreparing(meetingId)
+        isWritingContent(context, meetingId) || ClearVoiceService.isPreparing(meetingId) ||
+            AlignService.isAligning(meetingId)
 
     /**
      * Meetings whose audio something is still waiting for: a queued or

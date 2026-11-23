@@ -251,9 +251,11 @@ object FindReplace {
                 if (edits.isEmpty()) continue
                 val text = WordRealign.applyText(segment.text, edits).trim()
                 if (text.isBlank()) continue
+                val words = WordRealign.applyEdits(segment.text, segment.words, edits)
                 val after = segment.copy(
                     text = text,
-                    words = WordRealign.applyEdits(segment.text, segment.words, edits)
+                    words = words,
+                    wordTimes = WordTimes.afterEdit(segment.wordTimes, segment.words, words)
                 )
                 meeting.segments[i] = after
                 lines.add(LineChange(i, segment, after))
@@ -409,7 +411,8 @@ object FindReplace {
             }
             meeting.segments[at] = meeting.segments[at].copy(
                 text = change.before.text,
-                words = change.before.words
+                words = change.before.words,
+                wordTimes = change.before.wordTimes
             )
             taken.add(at)
             restored++

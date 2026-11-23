@@ -622,15 +622,16 @@ class PassageService : Service() {
 
         /**
          * Something other than a passage run works on [meetingId] or waits
-         * for its audio: its recording, import or accuracy check, summary or
-         * clear-voice copy, a queued or interrupted job for it, or a staged
-         * accuracy check still to review.
+         * for its audio: its recording, import or accuracy check, summary,
+         * clear-voice copy or words being re-timed, a queued or interrupted
+         * job for it, or a staged accuracy check still to review.
          */
         private fun othersBusy(context: Context, meetingId: String): Boolean =
             (RecordingService.isRunning && MeetingStore(context).activeId() == meetingId) ||
                 (ImportService.isRunning && ImportService.currentMeetingId == meetingId) ||
                 (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
                 ClearVoiceService.isPreparing(meetingId) ||
+                AlignService.isAligning(meetingId) ||
                 meetingId in AudioRemoval.waitingForAudio(context, listOf(meetingId))
 
         /**
