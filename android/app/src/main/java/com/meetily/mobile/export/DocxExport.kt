@@ -27,7 +27,8 @@ import java.util.zip.ZipOutputStream
  * the transcript with each line's time and speaker.
  *
  * The summary and notes are Markdown as the app writes them (NotesMarkdown):
- * headings become Word headings one level below the section's, "- ", "* ",
+ * headings become Word headings one level below the section's (the
+ * shallowest heading level in the text as Heading2), "- ", "* ",
  * "+ " and "• " lines become a bulleted list, "1." or "1)" lines a numbered
  * list that keeps its first number, "- [ ]" and "- [x]" lines checkboxes,
  * and **bold**, *italic* and `code` runs keep their style.
@@ -174,7 +175,7 @@ object DocxExport {
 
     /** A paragraph of the summary or notes, as mapped from their Markdown. */
     sealed class Block {
-        /** [level] 1 is the section's own sub-heading. */
+        /** [level] is the number of "#": 1 for "# ". */
         data class Heading(val text: String, val level: Int) : Block()
         data class Bullet(val text: String, val depth: Int) : Block()
         data class Numbered(val text: String, val number: Int, val depth: Int) : Block()
@@ -401,17 +402,25 @@ object DocxExport {
         }
     }
 
-    /** The summary or notes, mapped through [blocks] into the styles below. */
+    /**
+     * The summary or notes, mapped through [blocks] into the styles below.
+     * Headings count from the shallowest one in [source], which becomes
+     * Heading2 under the section's own Heading1: the summary templates
+     * write their sections as "## ", and the outline should not skip a
+     * level.
+     */
     private fun markdown(body: Body, source: String) {
+        val blocks = blocks(source)
+        val top = blocks.filterIsInstance<Block.Heading>().minOfOrNull { it.level } ?: 1
         // The numbered list being written, until something other than one of
         // its items or a bullet nested under them ends it.
         var numbered: Int? = null
-        for (block in blocks(source)) {
+        for (block in blocks) {
             val keepsList = block is Block.Numbered || (block is Block.Bullet && block.depth > 0)
             if (!keepsList) numbered = null
             when (block) {
                 is Block.Heading -> body.paragraph(
-                    if (block.level <= 1) "Heading2" else "Heading3", runs(block.text)
+                    if (block.level <= top) "Heading2" else "Heading3", runs(block.text)
                 )
                 is Block.Bullet -> body.paragraph("ListBullet", runs(block.text), BULLET_NUM_ID, block.depth)
                 is Block.Numbered -> {

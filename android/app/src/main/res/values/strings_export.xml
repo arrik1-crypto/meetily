@@ -12,7 +12,7 @@
          meeting has a time in the recording; tapping it explains why. -->
     <string name="export_subtitles_unavailable">Subtitles (not available for this meeting)</string>
     <string name="export_subtitles_untimed_title">No subtitles for this meeting</string>
-    <string name="export_subtitles_untimed_message">Subtitles need to know when each line was said in the recording, and none of this meeting\'s lines have that. Lines typed by hand and lines from Android\'s speech service carry no timing.</string>
+    <string name="export_subtitles_untimed_message">Subtitles need to know when each line was said in the recording, and none of this meeting\'s lines have that. Lines only get it when the meeting\'s audio is kept while recording (Settings, Keep meeting audio) or when the meeting is imported from an audio file. Lines from Android\'s speech service never have it.</string>
     <!-- After a subtitle export: %d transcript lines had no timing and are not in the file. -->
     <plurals name="export_subtitles_left_out">
         <item quantity="one">Exported. %d line with no time in the recording was left out.</item>

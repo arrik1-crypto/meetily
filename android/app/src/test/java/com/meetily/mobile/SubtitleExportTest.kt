@@ -245,8 +245,109 @@ class SubtitleExportTest {
         assertEquals(2, rows.size)
         assertTrue(rows.all { it.length <= SubtitleExport.MAX_LINE_CHARS })
         assertEquals("one two three four five six seven eight nine ten eleven", rows.joinToString(" "))
-        val solid = "x".repeat(60)
-        assertEquals(listOf(solid), SubtitleExport.wrap(solid))
+        // A run with no space and no other place to cut is halved rather than left one long row.
+        assertEquals(listOf("x".repeat(30), "x".repeat(30)), SubtitleExport.wrap("x".repeat(60)))
+        // Words that each fit a row are never cut, even when no space leaves both rows short enough.
+        val words = List(5) { "abcdefghij" }.joinToString(" ")
+        val tight = SubtitleExport.wrap(words, 20)
+        assertEquals(2, tight.size)
+        assertEquals(words, tight.joinToString(" "))
+        assertTrue(tight.all { row -> row.split(" ").all { it == "abcdefghij" } })
+    }
+
+    @Test
+    fun wrap_cutsUnspacedTextBetweenCharactersNotBeforePunctuation() {
+        // 45 characters, no space; the first of the two even cuts would put "。" first on row two.
+        val text = "あ".repeat(22) + "。" + "い".repeat(22)
+        val rows = SubtitleExport.wrap(text)
+        assertEquals(listOf("あ".repeat(22) + "。", "い".repeat(22)), rows)
+    }
+
+    @Test
+    fun wrap_keepsThaiMarksWithTheirLetters() {
+        // Each "กิ" is a consonant and a vowel mark; the exact middle falls between them.
+        val text = "กิ".repeat(25)
+        val rows = SubtitleExport.wrap(text)
+        assertEquals(2, rows.size)
+        assertEquals(text, rows.joinToString(""))
+        assertTrue(rows.all { it.length <= SubtitleExport.MAX_LINE_CHARS })
+        assertFalse(rows[1].startsWith("ิ"))
+    }
+
+    @Test
+    fun fitsTwoRows_needsACutThatLeavesBothRowsShortEnough() {
+        assertTrue(SubtitleExport.fitsTwoRows("short"))
+        assertTrue(SubtitleExport.fitsTwoRows("one two three four five six seven eight nine ten eleven"))
+        // 83 characters, but the best space still leaves a row of 47.
+        assertFalse(SubtitleExport.fitsTwoRows(List(7) { "abcdefghijk" }.joinToString(" ")))
+    }
+
+    // --- Lengths a row can hold ------------------------------------------------
+
+    private fun srtRows(srt: String): List<String> =
+        srt.split("\r\n").filter { it.isNotEmpty() && !it.contains(" --> ") && it.toIntOrNull() == null }
+
+    @Test
+    fun cueText_alwaysWrapsIntoRowsOfAtMost42() {
+        val text = List(7) { "abcdefghijk" }.joinToString(" ")
+        for (speaker in listOf(null, "Ana", "Alexandra Featherstonehaugh")) {
+            val cues = SubtitleExport.cues(listOf(line(0L, text, speaker = speaker)))
+            assertEquals(text, cues.joinToString(" ") { it.text })
+            val rows = srtRows(SubtitleExport.srt(cues))
+            assertTrue("$speaker: $rows", rows.all { it.length <= SubtitleExport.MAX_LINE_CHARS })
+            val vttRows = SubtitleExport.vtt(cues).split("\n")
+                .filter { it.isNotEmpty() && it != "WEBVTT" && !it.contains(" --> ") }
+                .map { it.replace(Regex("^<v [^>]*>"), "") }
+            assertTrue("$speaker: $vttRows", vttRows.all { it.length <= SubtitleExport.MAX_LINE_CHARS })
+        }
+    }
+
+    // --- Scripts without spaces -------------------------------------------------
+
+    @Test
+    fun unspacedLineWithWordTimings_isCutAtItsWords() {
+        // 40 timed words of Japanese, one every 600 ms: 24 s and 120 characters with no space.
+        val words = (0 until 40).map { WordStamp(it * 600L, "会議で") }
+        val text = words.joinToString("") { it.text }
+        val cues = SubtitleExport.cues(listOf(line(10_000L, text, words = words)))
+        assertTrue(cues.size >= 4)
+        assertOrdered(cues)
+        // Nothing lost, nothing added: no spaces between the pieces.
+        assertEquals(text, cues.joinToString("") { it.text })
+        assertTrue(cues.none { it.text.contains(' ') })
+        for (cue in cues) {
+            assertTrue(cue.endMs - cue.startMs <= SubtitleExport.MAX_CUE_MS)
+            assertTrue(SubtitleExport.fitsTwoRows(cue.text))
+            // Each cue starts with a word, at that word's time.
+            assertTrue(cue.text.startsWith("会議で"))
+            assertEquals(0L, (cue.startMs - 10_000L) % 600L)
+        }
+        // The speech is covered to its end rather than cut off after 7 s.
+        assertTrue(cues.last().endMs >= 10_000L + 39 * 600L)
+        assertTrue(srtRows(SubtitleExport.srt(cues)).all { it.length <= SubtitleExport.MAX_LINE_CHARS })
+    }
+
+    @Test
+    fun unspacedLineWithoutWordTimings_isCutBetweenCharacters() {
+        val text = "我们今天讨论了新的项目计划。".repeat(8)
+        val cues = SubtitleExport.cues(listOf(line(0L, text)))
+        assertTrue(cues.size > 1)
+        assertOrdered(cues)
+        assertEquals(text, cues.joinToString("") { it.text })
+        for (cue in cues) {
+            assertTrue(SubtitleExport.fitsTwoRows(cue.text))
+            assertFalse(cue.text.startsWith("。"))
+        }
+    }
+
+    @Test
+    fun spacedLineWithAStrayWordStamp_isNotCutInsideAWord() {
+        // An edit left a stamp ("ohn") that is found inside "John".
+        val words = listOf(WordStamp(0L, "Ask"), WordStamp(300L, "ohn"), WordStamp(600L, "today"))
+        val text = "Ask John today " + (1..20).joinToString(" ") { "word$it" }
+        val cues = SubtitleExport.cues(listOf(line(0L, text, words = words)))
+        assertEquals(text, cues.joinToString(" ") { it.text })
+        assertTrue(cues.none { it.text.startsWith("ohn") })
     }
 
     @Test

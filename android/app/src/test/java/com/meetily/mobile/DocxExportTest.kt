@@ -188,6 +188,34 @@ class DocxExportTest {
         )
     }
 
+    /** The pStyle of the paragraph whose text is [text], in word/document.xml. */
+    private fun styleOf(document: String, text: String): String? {
+        val paragraphs = parse(document).getElementsByTagNameNS(W_NS, "p")
+        for (i in 0 until paragraphs.length) {
+            val p = paragraphs.item(i) as org.w3c.dom.Element
+            if (p.textContent != text) continue
+            val style = p.getElementsByTagNameNS(W_NS, "pStyle")
+            return if (style.length == 0) null else (style.item(0) as org.w3c.dom.Element).getAttributeNS(W_NS, "val")
+        }
+        return null
+    }
+
+    @Test
+    fun headings_countFromTheShallowestSoTheOutlineSkipsNoLevel() {
+        // The summary templates write their sections as "## ".
+        val templated = meeting().apply { summary = "## Executive Summary\nShipped.\n### Detail\n## Key Decisions\n- Ship" }
+        val document = DocxExport.parts(templated, emptyList(), "d").getValue("word/document.xml")
+        assertEquals("Heading1", styleOf(document, "Summary"))
+        assertEquals("Heading2", styleOf(document, "Executive Summary"))
+        assertEquals("Heading3", styleOf(document, "Detail"))
+        assertEquals("Heading2", styleOf(document, "Key Decisions"))
+        // Notes with "# " and "## " keep the levels they had.
+        val notes = meeting().apply { notes = "# Top\n## Under" }
+        val noted = DocxExport.parts(notes, emptyList(), "d").getValue("word/document.xml")
+        assertEquals("Heading2", styleOf(noted, "Top"))
+        assertEquals("Heading3", styleOf(noted, "Under"))
+    }
+
     @Test
     fun runs_keepBoldItalicAndCode() {
         assertEquals(

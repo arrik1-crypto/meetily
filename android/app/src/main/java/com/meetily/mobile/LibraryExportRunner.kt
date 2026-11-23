@@ -2,6 +2,7 @@ package com.meetily.mobile
 
 import android.content.ContentResolver
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
@@ -22,8 +23,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  * picked with the system's folder picker (Settings, Data).
  *
  * One run at a time, on its own thread, owned by the process rather than by
- * the Settings screen: a rotation or leaving Settings does not stop it, and
- * the screen shows its progress again when it comes back ([listener]). It
+ * the Settings screen: a rotation or leaving Settings (Back, Up, Save, Home)
+ * does not stop it, and the screen shows its progress again when it comes
+ * back ([listener]). The picker's access to the folder belongs to the
+ * Settings screen that received it, and Android takes it back when that
+ * screen closes, so the run holds the access itself while it lasts
+ * ([holdFolder]) and gives it back at the end. It
  * is short-lived work like the backup export beside it (text files only,
  * no audio), so it runs as plain background work, the way that export
  * does, rather than as a foreground service: no new service type, no
@@ -80,6 +85,14 @@ object LibraryExportRunner {
     /** Give up after this many files in a row fail: the folder itself has gone. */
     private const val MAX_FAILURES_IN_A_ROW = 3
 
+    /** The access the folder picker grants, and the run holds. */
+    private const val FOLDER_ACCESS =
+        Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+
+    /** Remembers the folder a run holds, so a run the process did not finish can give it back. */
+    private const val PREFS = "meetily_library_export"
+    private const val KEY_HELD_FOLDER = "held_folder"
+
     /** Written on the main thread only. */
     private var state = State(running = false, done = 0, total = 0, cancelling = false, result = null)
 
@@ -100,11 +113,57 @@ object LibraryExportRunner {
     @MainThread
     fun start(context: Context, tree: Uri): Boolean {
         if (state.running) return false
+        val app = context.applicationContext
+        val held = holdFolder(app, tree)
         cancel.set(false)
         state = State(running = true, done = 0, total = 0, cancelling = false, result = null)
-        val app = context.applicationContext
-        Thread({ run(app, tree) }, "library-export").start()
+        Thread({ run(app, tree, held) }, "library-export").start()
         return true
+    }
+
+    /**
+     * Keeps write access to [tree] for the length of the run. The picker
+     * grants it to the Settings screen that asked, and Android revokes it
+     * when that screen finishes (Back, Up or Save), while this run still
+     * has files to create there. A persisted grant is the app's own, so it
+     * outlives the screen; [releaseFolder] gives it back when the run ends,
+     * so the export stays one-shot. Called while the picker's grant is
+     * still held (from its result). A grant the app already held for the
+     * folder is left alone and not given back; one left by a run the
+     * process did not live to finish is given back first. True when the
+     * grant was taken here.
+     */
+    @MainThread
+    private fun holdFolder(app: Context, tree: Uri): Boolean {
+        val resolver = app.contentResolver
+        val prefs = app.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val left = prefs.getString(KEY_HELD_FOLDER, null)
+        if (left != null && left != tree.toString()) releaseFolder(app, Uri.parse(left))
+        val heldAlready = left != tree.toString() && try {
+            resolver.persistedUriPermissions.any { it.uri == tree && it.isWritePermission }
+        } catch (_: Exception) {
+            false
+        }
+        if (heldAlready) return false
+        return try {
+            resolver.takePersistableUriPermission(tree, FOLDER_ACCESS)
+            prefs.edit().putString(KEY_HELD_FOLDER, tree.toString()).apply()
+            true
+        } catch (_: Exception) {
+            // Not persistable: the run goes on with the picker's grant,
+            // which lasts while Settings stays open.
+            false
+        }
+    }
+
+    /** Gives back the grant [holdFolder] took for [tree]. */
+    private fun releaseFolder(app: Context, tree: Uri) {
+        try {
+            app.contentResolver.releasePersistableUriPermission(tree, FOLDER_ACCESS)
+        } catch (_: Exception) {
+            // Already gone: revoked, or the folder's app was removed.
+        }
+        app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_HELD_FOLDER).apply()
     }
 
     /** Asks the run to stop after the meeting it is writing. */
@@ -151,7 +210,7 @@ object LibraryExportRunner {
     }
 
     @WorkerThread
-    private fun run(app: Context, tree: Uri) {
+    private fun run(app: Context, tree: Uri, held: Boolean) {
         var total = 0
         var written = 0
         var busy = 0
@@ -204,6 +263,7 @@ object LibraryExportRunner {
             // provider gone).
             folderFailed = true
         } finally {
+            if (held) releaseFolder(app, tree)
             val result = Result(total, written, busy, failed, cancel.get() && !folderFailed, folderFailed)
             main.post { finish(app, result) }
         }

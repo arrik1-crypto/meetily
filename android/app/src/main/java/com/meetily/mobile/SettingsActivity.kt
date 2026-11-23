@@ -101,8 +101,9 @@ class SettingsActivity : AppCompatActivity() {
 
     /**
      * "Export library as Markdown": the folder picked here goes straight to
-     * LibraryExportRunner. The grant lasts for this one export, so it is
-     * not persisted.
+     * LibraryExportRunner, while this screen still holds the picker's
+     * grant. The runner holds the access for the length of that one export
+     * (so leaving Settings does not cut it off) and gives it back after.
      */
     private val exportLibrary =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
