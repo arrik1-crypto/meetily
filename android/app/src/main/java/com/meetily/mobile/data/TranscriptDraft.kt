@@ -17,8 +17,9 @@ import java.io.File
  * A partial draft survives only where a later pass can carry it on: one the
  * charger stopped (requeued), or one left by a pass that died with the
  * process (offered back). Never marked ready, it holds where it stopped
- * ([Draft.resumeMs]), and a pass of the same model continues from there
- * instead of starting over (TranscriptResume).
+ * ([Draft.resumeMs]), and a pass of the same model, reading the same audio
+ * ([Draft.clearVoice]), continues from there instead of starting over
+ * (TranscriptResume).
  */
 object TranscriptDraft {
 
@@ -41,7 +42,14 @@ object TranscriptDraft {
          * model continues from, keeping the lines before it. See
          * TranscriptResume.
          */
-        val resumeMs: Long? = null
+        val resumeMs: Long? = null,
+        /**
+         * Set while [complete] is false: the pass decoded the meeting's
+         * clear-voice copy (ClearVoice), as the user chose, rather than its
+         * recording. Only a pass on the same audio carries the words on;
+         * one on the other starts over rather than join the two.
+         */
+        val clearVoice: Boolean = false
     )
 
     private fun dir(context: Context): File =
@@ -67,7 +75,9 @@ object TranscriptDraft {
         language: String? = null,
         translated: Boolean = false,
         /** Where an unfinished pass stopped; see [Draft.resumeMs]. */
-        resumeMs: Long? = null
+        resumeMs: Long? = null,
+        /** The pass reads the clear-voice copy; see [Draft.clearVoice]. */
+        clearVoice: Boolean = false
     ) {
         // A check still running on a meeting the user has deleted must not
         // write its draft back: deleteAll just removed it, and a stray draft
@@ -80,6 +90,7 @@ object TranscriptDraft {
         if (!language.isNullOrBlank()) obj.put("language", language)
         if (translated) obj.put("translated", true)
         if (!complete && resumeMs != null && resumeMs >= 0L) obj.put("resumeMs", resumeMs)
+        if (!complete && clearVoice) obj.put("clearVoice", true)
         val arr = JSONArray()
         for (segment in segments) arr.put(Meeting.segmentToJson(segment))
         obj.put("segments", arr)
@@ -126,7 +137,9 @@ object TranscriptDraft {
                     obj.optLong("resumeMs", -1L).takeIf { it >= 0L }
                 } else {
                     null
-                }
+                },
+                // Absent in drafts written before this: the recording.
+                clearVoice = obj.optBoolean("clearVoice", false)
             )
         } catch (_: Exception) {
             null

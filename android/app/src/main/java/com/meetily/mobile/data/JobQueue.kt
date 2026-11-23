@@ -175,7 +175,9 @@ object JobQueue {
      * power, to carry on from [resumeFromMs]. Never trimmed when it is a
      * recording's only transcript, or when it carries on a check whose
      * partial draft was kept for it: dropped, that draft would stay behind
-     * with nothing to finish or remove it.
+     * with nothing to finish or remove it. A check the user ran on the
+     * clear-voice copy stays one ([clearVoice]): its kept draft was made
+     * from the copy, and only a pass on the copy carries it on.
      */
     fun chargingRequeue(
         meetingId: String,
@@ -183,14 +185,16 @@ object JobQueue {
         nowMs: Long,
         firstTranscript: Boolean,
         language: String,
-        resumeFromMs: Long
+        resumeFromMs: Long,
+        clearVoice: Boolean = false
     ): Job = Job(
         KIND_CHECK, meetingId, modelKey, nowMs,
         chargingOnly = true,
         firstTranscript = firstTranscript,
         required = firstTranscript || resumeFromMs > 0L,
         language = language,
-        resumeFromMs = resumeFromMs
+        resumeFromMs = resumeFromMs,
+        clearVoice = clearVoice
     )
 
     fun remove(existing: List<Job>, kind: String, meetingId: String): List<Job> =
@@ -385,14 +389,20 @@ object JobQueue {
         /** The run's language choice, so a restart offered later keeps it. */
         language: String = "",
         /** Where the run continues an unfinished transcription from; see [Job.resumeFromMs]. */
-        resumeFromMs: Long = 0L
+        resumeFromMs: Long = 0L,
+        /**
+         * The run transcribes the clear-voice copy ([Job.clearVoice]), so a
+         * restart offered later does too, and the copy is kept for it
+         * (AudioRemoval.copyInUse).
+         */
+        clearVoice: Boolean = false
     ) {
         enqueue(
             context,
             Job(
                 kind, meetingId, payload, System.currentTimeMillis(), interrupted = true,
                 firstTranscript = firstTranscript, language = language,
-                resumeFromMs = resumeFromMs
+                resumeFromMs = resumeFromMs, clearVoice = clearVoice
             )
         )
     }

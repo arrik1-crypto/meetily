@@ -206,4 +206,29 @@ class ClearVoiceTest {
         assertEquals(1, queue.size)
         assertTrue(queue.single().clearVoice)
     }
+
+    @Test
+    fun aCheckOnTheCopyStaysOnItThroughTheQueueAndAnUnplug() {
+        // Queued on the copy and part-way through (TranscriptResume), beside
+        // a plain check: both come back from the stored queue as they were.
+        val copy = JobQueue.Job(
+            JobQueue.KIND_CHECK, "m1", "base", queuedAtMs = 1L,
+            resumeFromMs = 600_000L, clearVoice = true
+        )
+        val plain = JobQueue.Job(JobQueue.KIND_CHECK, "m2", "base", queuedAtMs = 2L)
+        assertEquals(listOf(copy, plain), JobQueue.decode(JobQueue.encode(listOf(copy, plain))))
+        // A row queued before the field reads as the recording.
+        assertFalse(JobQueue.decode("""[{"kind":"check","meetingId":"m1"}]""").single().clearVoice)
+        // The charger stopped it: it carries its kept draft on from the copy
+        // that made it, not from the recording.
+        val requeued = JobQueue.chargingRequeue(
+            "m1", "base", 3L, firstTranscript = false, language = "",
+            resumeFromMs = 600_000L, clearVoice = true
+        )
+        assertTrue(requeued.clearVoice)
+        assertTrue(requeued.required)
+        assertEquals(600_000L, requeued.resumeFromMs)
+        // One on the recording stays on the recording.
+        assertFalse(JobQueue.chargingRequeue("m1", "base", 3L, false, "", 600_000L).clearVoice)
+    }
 }

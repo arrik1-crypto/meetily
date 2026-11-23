@@ -152,23 +152,25 @@ whisper.cpp {WHISPER_VER}
     MIT License
     Copyright (c) 2023-2026 The ggml authors
     https://github.com/ggml-org/whisper.cpp
-    Compiled into the native library libmeetily_whisper.so. The speech
-    detector's self-test clip vad_probe.pcm, included in the app, is 1.5
-    seconds of the project's samples/jfk.wav (President John F. Kennedy's
-    inaugural address, 1961).
+    Compiled, with llama.cpp, into the native library libmeetily_native.so
+    (libmeetily_native_v82.so on arm64 phones with dot-product and
+    half-precision instructions). The speech detector's self-test clip
+    vad_probe.pcm, included in the app, is 1.5 seconds of the project's
+    samples/jfk.wav (President John F. Kennedy's inaugural address, 1961).
 
 llama.cpp {LLAMA_VER}
     MIT License
     Copyright (c) 2023-2026 The ggml authors
     https://github.com/ggml-org/llama.cpp
-    Compiled into the native library libmeetily_llama.so.
+    Compiled, with whisper.cpp, into the native library libmeetily_native.so
+    (or libmeetily_native_v82.so).
 
 ggml
     MIT License
     Copyright (c) 2023-2026 The ggml authors
     https://github.com/ggml-org/ggml
-    The tensor library underneath whisper.cpp and llama.cpp; built as part of
-    both.
+    The tensor library underneath whisper.cpp and llama.cpp; built once into
+    that library and shared by both.
 
 Arm KleidiAI {KLEIDIAI_VER}
     Apache License 2.0
@@ -176,8 +178,8 @@ Arm KleidiAI {KLEIDIAI_VER}
     Copyright (c) 2026 Fujitsu Limited
     Copyright (c) 2026 Meta Platforms, Inc. and affiliates
     https://github.com/ARM-software/kleidiai
-    Optimised matrix-multiplication kernels, compiled into both native
-    libraries on arm64 phones and used by ggml when the processor supports
+    Optimised matrix-multiplication kernels, compiled into that native
+    library on arm64 phones and used by ggml when the processor supports
     them.
 
 Silero VAD {SILERO_VER}

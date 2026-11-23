@@ -37,10 +37,12 @@ import java.util.concurrent.atomic.AtomicBoolean
  *
  * Meetings are read one at a time from the store, newest first. A meeting
  * that a recording, import, accuracy check or summary is writing right now
- * (AudioRemoval.isWriting) is left out and counted, so no half-written
- * meeting is exported. Each file is created new in the folder (names that
- * are already there are avoided) and nothing in the folder is overwritten
- * or deleted, except a file this run created and then failed to fill.
+ * (AudioRemoval.isWritingContent) is left out and counted, so no
+ * half-written meeting is exported. One whose clear-voice copy is being
+ * made is not: the copy never touches the text this writes. Each file is
+ * created new in the folder (names that are already there are avoided) and
+ * nothing in the folder is overwritten or deleted, except a file this run
+ * created and then failed to fill.
  *
  * Cancel stops between meetings. Every file written stays. The final count
  * (written, left out, failed) is shown on the Settings screen, or as a
@@ -231,7 +233,7 @@ object LibraryExportRunner {
             var failuresInARow = 0
             for ((index, id) in ids.withIndex()) {
                 if (cancel.get()) break
-                if (AudioRemoval.isWriting(app, id)) {
+                if (AudioRemoval.isWritingContent(app, id)) {
                     busy++
                 } else {
                     // Gone since the list was read: deleted, so not part of the library.

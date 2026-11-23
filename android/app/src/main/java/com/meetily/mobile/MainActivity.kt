@@ -824,10 +824,13 @@ class MainActivity : AppCompatActivity() {
                         this, job.meetingId, job.payload, false, required = true
                     )
                 } else {
+                    // A check the user ran on the clear-voice copy runs on
+                    // it again, and carries on the draft the copy made.
                     JobGate.requestCheck(
                         this, job.meetingId, job.payload, false,
                         required = true, firstTranscript = job.firstTranscript,
-                        language = job.language, resumeFromMs = continueFrom ?: 0L
+                        language = job.language, resumeFromMs = continueFrom ?: 0L,
+                        clearVoice = job.clearVoice
                     )
                 }
             }

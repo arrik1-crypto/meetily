@@ -175,12 +175,14 @@ class AudioFileImporter(
          * (TranscriptResume). Where it stopped is stored with its words: on
          * the meeting for its own transcript, in the draft for a staged
          * check. Only the model that made them carries on, in the language
-         * they were made in; anything else starts from the beginning.
+         * they were made in, and for a check only on the audio they were
+         * made from (the recording, or the clear-voice copy the user chose);
+         * anything else starts from the beginning.
          */
         val draft = if (stageOnly) recheckTarget?.let { TranscriptDraft.load(context, it.id) } else null
         val continueFromMs: Long? = when {
             recheckTarget == null -> null
-            stageOnly -> draft?.takeIf { !it.complete }?.let {
+            stageOnly -> draft?.takeIf { !it.complete && it.clearVoice == clearVoice }?.let {
                 TranscriptResume.continueFrom(
                     it.resumeMs, it.modelKey, selectedKey, it.language, language
                 )
@@ -365,7 +367,8 @@ class AudioFileImporter(
             if (stageOnly) {
                 TranscriptDraft.save(
                     context, meeting.id, selectedKey, meeting.segments, complete,
-                    meeting.language, meeting.translated, unfinishedAt
+                    meeting.language, meeting.translated, unfinishedAt,
+                    clearVoice = clearVoice
                 )
             } else {
                 meeting.transcriptResumeMs = unfinishedAt

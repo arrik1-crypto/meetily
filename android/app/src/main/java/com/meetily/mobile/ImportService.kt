@@ -257,7 +257,8 @@ class ImportService : Service() {
                         recheckMeetingId!!, modelKey.orEmpty(),
                         firstTranscript = firstTranscript,
                         language = language.orEmpty(),
-                        resumeFromMs = resumeFromMs
+                        resumeFromMs = resumeFromMs,
+                        clearVoice = clearVoice
                     )
                 }
                 // A queued import left the queue when it was drained; until
@@ -636,7 +637,9 @@ class ImportService : Service() {
     /**
      * @see SummaryService.requeueForCharging. [firstTranscript] travels with
      * the job so the resumed pass still writes the meeting's transcript and
-     * starts its summary, instead of staging an accuracy check.
+     * starts its summary, instead of staging an accuracy check. So does the
+     * choice of the clear-voice copy, so the pass that carries a kept draft
+     * on reads what made it.
      */
     private fun requeueForCharging(
         meetingId: String,
@@ -649,7 +652,8 @@ class ImportService : Service() {
             // Never trimmed when it carries a kept partial draft on; see there.
             com.meetily.mobile.data.JobQueue.chargingRequeue(
                 meetingId, modelKey.orEmpty(), System.currentTimeMillis(),
-                firstTranscript, language.orEmpty(), resumeFromMs
+                firstTranscript, language.orEmpty(), resumeFromMs,
+                clearVoice = clearVoice
             )
         )
         ChargingJobService.schedule(this)

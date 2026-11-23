@@ -4,6 +4,8 @@ import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.SubtitleImport
 import com.meetily.mobile.data.SubtitleImport.Problem
 import com.meetily.mobile.data.SubtitleImport.Result
+import com.meetily.mobile.data.TranscriptSegment
+import com.meetily.mobile.export.SubtitleExport
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -374,5 +376,31 @@ class SubtitleImportTest {
         assertEquals(m.attendees, back.attendees)
         assertNull(back.audioFile)
         assertEquals(m.createdAtMs, back.createdAtMs)
+    }
+
+    // --- Recap's own subtitle export -----------------------------------------
+
+    /**
+     * What the subtitle export writes (SubtitleExport) reads back as the same
+     * lines, in both formats: where each starts, who said it and its words,
+     * a cue wrapped onto two rows joined again, and escaped characters.
+     */
+    @Test
+    fun ourOwnSubtitleExportReadsBackAsTheSameLines() {
+        val lines = listOf(
+            TranscriptSegment(1_000L, "Morning, everyone.", speaker = "Jane Smith", audioMs = 1_000L),
+            TranscriptSegment(
+                4_000L, "The budget review moved to Thursday afternoon.",
+                speaker = "John Lee", audioMs = 4_000L
+            ),
+            TranscriptSegment(9_500L, "Noted: Q&A after lunch.", speaker = "Jane Smith", audioMs = 9_500L)
+        )
+        val cues = SubtitleExport.cues(lines)
+        for (text in listOf(SubtitleExport.srt(cues), SubtitleExport.vtt(cues))) {
+            val back = SubtitleImport.toMeeting("m", "t", ok(text).cues, 60_000L).segments
+            assertEquals(lines.map { it.audioMs }, back.map { it.audioMs })
+            assertEquals(lines.map { it.speaker }, back.map { it.speaker })
+            assertEquals(lines.map { it.text }, back.map { it.text })
+        }
     }
 }
