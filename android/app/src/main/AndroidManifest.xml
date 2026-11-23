@@ -121,8 +121,10 @@
             android:name=".LockActivity"
             android:exported="false" />
 
-        <!-- Import an audio file (share sheet or in-app picker) and
-             transcribe it offline. Portrait on phones only: from
+        <!-- Import audio or video (only its sound is kept) and transcribe it
+             offline, or a WebVTT/SRT transcript as a meeting without audio:
+             one file or several, from the share sheet, "Open with" (content
+             URIs only) or the in-app picker. Portrait on phones only: from
              targetSdk 36, Android 16 ignores screenOrientation on displays
              600dp and wider, so a rotation there re-creates the activity,
              and ImportActivity restores its state for that (see onCreate).
@@ -135,8 +137,21 @@
             android:parentActivityName=".MainActivity">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SEND_MULTIPLE" />
                 <category android:name="android.intent.category.DEFAULT" />
                 <data android:mimeType="audio/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="text/vtt" />
+                <data android:mimeType="application/x-subrip" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:mimeType="audio/*" />
+                <data android:mimeType="video/*" />
+                <data android:mimeType="text/vtt" />
+                <data android:mimeType="application/x-subrip" />
             </intent-filter>
         </activity>
 

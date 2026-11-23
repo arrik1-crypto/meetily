@@ -42,6 +42,9 @@ class RecapApp : Application() {
             runCatching { com.meetily.mobile.whisper.DiarizationModels.retireLegacySelection(this) }
             // A force-stop cancels the daily clean-up job with every other.
             runCatching { RetentionJobService.ensureScheduled(this) }
+            // A video's sound remuxed by a process that died before an import
+            // adopted it; this process's own files are told apart and kept.
+            runCatching { com.meetily.mobile.whisper.VideoAudioExtractor.sweepStale(this) }
         }.start()
     }
 

@@ -224,6 +224,11 @@ object JobGate {
             if (job.language.isNotBlank()) {
                 intent.putExtra(ImportService.EXTRA_LANGUAGE, job.language)
             }
+            // "File 2 of 5" in its progress; see JobQueue.Job.batchIndex.
+            if (job.batchSize > 0) {
+                intent.putExtra(ImportService.EXTRA_BATCH_INDEX, job.batchIndex)
+                    .putExtra(ImportService.EXTRA_BATCH_SIZE, job.batchSize)
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
             } else {

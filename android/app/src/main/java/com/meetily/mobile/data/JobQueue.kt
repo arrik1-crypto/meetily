@@ -112,7 +112,15 @@ object JobQueue {
          * Check only: transcribe the meeting's clear-voice copy instead of
          * its recording, which the user chose explicitly (ClearVoice).
          */
-        val clearVoice: Boolean = false
+        val clearVoice: Boolean = false,
+        /**
+         * Import only: this file is number [batchIndex] (from 1) of
+         * [batchSize] handed over together (ImportQueue.stageBatch), so its
+         * run's progress says "File 2 of 5". 0 for a file on its own, which
+         * is what every job queued before these fields was.
+         */
+        val batchIndex: Int = 0,
+        val batchSize: Int = 0
     )
 
     /**
@@ -278,7 +286,10 @@ object JobQueue {
             // Absent in older rows: 0, from the beginning, as they ran.
             resumeFromMs = o.optLong("resumeFromMs").coerceAtLeast(0L),
             // Absent in older rows: the recording, as before.
-            clearVoice = o.optBoolean("clearVoice")
+            clearVoice = o.optBoolean("clearVoice"),
+            // Absent in older rows: 0, not part of a batch.
+            batchIndex = o.optInt("batchIndex").coerceAtLeast(0),
+            batchSize = o.optInt("batchSize").coerceAtLeast(0)
         )
     }
 
@@ -298,6 +309,10 @@ object JobQueue {
             .put("language", job.language)
             .put("clearVoice", job.clearVoice)
         if (job.resumeFromMs > 0L) o.put("resumeFromMs", job.resumeFromMs)
+        if (job.batchSize > 0) {
+            o.put("batchIndex", job.batchIndex)
+            o.put("batchSize", job.batchSize)
+        }
         return o
     }
 

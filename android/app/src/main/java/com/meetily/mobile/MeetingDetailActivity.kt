@@ -2807,6 +2807,15 @@ class MeetingDetailActivity : AppCompatActivity() {
         menu.findItem(R.id.replace_action_undo)?.isVisible = replace.canUndo(meeting?.id)
         menu.findItem(R.id.resume_action_continue)?.isVisible =
             meeting?.let { ContinueTranscription.offeredAt(this, it) } != null
+        // No audio (removed, never kept, or a transcript imported from
+        // captions): nothing to share, check or remove, as the Audio tab
+        // already says by not being there.
+        val hasAudio = !meeting?.audioFile.isNullOrBlank()
+        for (id in intArrayOf(
+            R.id.action_share_audio, R.id.action_check_accuracy, R.id.storage_action_remove_audio
+        )) {
+            menu.findItem(id)?.isVisible = hasAudio
+        }
         return super.onPrepareOptionsMenu(menu)
     }
 
@@ -2946,6 +2955,8 @@ class MeetingDetailActivity : AppCompatActivity() {
             // is audio to run it on (LanguagePicker.bindChip).
             renderMeta(current)
             renderTranscript(current)
+            // The audio items go from the menu with it (onPrepareOptionsMenu).
+            invalidateOptionsMenu()
             val app = applicationContext
             val id = current.id
             SYNC_EXECUTOR.execute {

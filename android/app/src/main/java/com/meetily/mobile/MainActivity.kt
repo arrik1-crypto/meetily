@@ -468,13 +468,38 @@ class MainActivity : AppCompatActivity() {
         showOptions = { meeting -> showMeetingActions(meeting) }
     )
 
+    /**
+     * The import picker: several files at once, of any type ImportActivity
+     * takes (audio, video, WebVTT and SRT captions; ImportBatch.PICKER_TYPES).
+     * GetMultipleContents filters by one type, so the list goes in as extra
+     * types over all of them, which the system picker honours.
+     */
+    private class PickImports : ActivityResultContracts.GetMultipleContents() {
+        override fun createIntent(context: android.content.Context, input: String): Intent =
+            super.createIntent(context, "*/*")
+                .putExtra(Intent.EXTRA_MIME_TYPES, com.meetily.mobile.data.ImportBatch.PICKER_TYPES)
+    }
+
     private val pickAudio =
-        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-            if (uri != null) {
+        registerForActivityResult(PickImports()) { uris ->
+            val picked = uris.distinct()
+            if (picked.size == 1) {
                 startActivity(
                     Intent(this, ImportActivity::class.java)
-                        .setData(uri)
+                        .setData(picked.first())
                         .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                )
+            } else if (picked.isNotEmpty()) {
+                // As a share of several would arrive; the clip data carries
+                // the read grant for each of them.
+                val clip = android.content.ClipData.newRawUri("", picked.first())
+                for (uri in picked.drop(1)) clip.addItem(android.content.ClipData.Item(uri))
+                startActivity(
+                    Intent(this, ImportActivity::class.java)
+                        .setAction(Intent.ACTION_SEND_MULTIPLE)
+                        .putParcelableArrayListExtra(Intent.EXTRA_STREAM, ArrayList(picked))
+                        .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        .also { it.clipData = clip }
                 )
             }
         }
@@ -586,7 +611,7 @@ class MainActivity : AppCompatActivity() {
                 return@setOnClickListener
             }
             try {
-                pickAudio.launch("audio/*")
+                pickAudio.launch("*/*")
             } catch (_: Exception) {
                 Toast.makeText(this, R.string.import_no_picker, Toast.LENGTH_SHORT).show()
             }
@@ -616,7 +641,7 @@ class MainActivity : AppCompatActivity() {
 
         if (intent?.action == ACTION_IMPORT_PICK && savedInstanceState == null) {
             try {
-                pickAudio.launch("audio/*")
+                pickAudio.launch("*/*")
             } catch (_: Exception) {
                 Toast.makeText(this, R.string.import_no_picker, Toast.LENGTH_SHORT).show()
             }
@@ -712,10 +737,14 @@ class MainActivity : AppCompatActivity() {
             !com.meetily.mobile.data.AudioStore.exists(this, deadImport.stagedFile)
         ) {
             if (deadImport.meetingId.isNotBlank() && !store.exists(deadImport.meetingId)) {
+                // Named as the importer renames it: by the staged file's
+                // extension (a video's sound is staged as .m4a or the like).
                 com.meetily.mobile.data.AudioStore.delete(
                     this,
-                    com.meetily.mobile.data.AudioStore
-                        .newImportFile(this, deadImport.meetingId, deadImport.sourceName).name
+                    com.meetily.mobile.data.AudioStore.newImportFile(
+                        this, deadImport.meetingId,
+                        deadImport.stagedFile.ifBlank { deadImport.sourceName }
+                    ).name
                 )
             }
             queue.dequeueStaged(this, deadImport.stagedFile)

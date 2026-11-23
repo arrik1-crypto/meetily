@@ -92,8 +92,9 @@ class AudioFileImporter(
          */
         firstTranscript: Boolean = false,
         /**
-         * A copy already staged in AudioStore by the import queue. Renamed
-         * into place rather than copied again — it is the same bytes.
+         * A copy already staged in AudioStore by the import queue, or a
+         * video's sound remuxed there (VideoAudioExtractor). Renamed into
+         * place rather than copied again — it is the same bytes.
          */
         adoptFile: String? = null,
         /**
@@ -404,8 +405,10 @@ class AudioFileImporter(
             // revoked once the sharing activity goes away, but our own file
             // cannot.
             // Built outside the try (it is only a path) so a copy that dies
-            // part-way can be removed: nothing else ever points at it.
-            val audioCopy = AudioStore.newImportFile(context, meeting.id, sourceName)
+            // part-way can be removed: nothing else ever points at it. An
+            // adopted file names the format: a video's sound is staged as
+            // .m4a or the like (VideoAudio), whatever the video was called.
+            val audioCopy = AudioStore.newImportFile(context, meeting.id, adoptFile ?: sourceName)
             try {
                 val staged = adoptFile?.let { AudioStore.fileFor(context, it) }
                 if (staged != null && staged.length() > 0 && staged.renameTo(audioCopy)) {
