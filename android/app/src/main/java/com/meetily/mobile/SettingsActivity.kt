@@ -447,7 +447,11 @@ class SettingsActivity : AppCompatActivity() {
                 importBackup.launch("*/*")
             } catch (e: Exception) {
                 Toast.makeText(
-                    this, getString(R.string.restore_failed, e.message ?: "no file picker"),
+                    this,
+                    getString(
+                        R.string.restore_failed,
+                        e.message ?: getString(R.string.platform_error_no_picker)
+                    ),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -566,7 +570,11 @@ class SettingsActivity : AppCompatActivity() {
                 exportLibrary.launch(null)
             } catch (e: Exception) {
                 Toast.makeText(
-                    this, getString(R.string.export_failed, e.message ?: "no file picker"),
+                    this,
+                    getString(
+                        R.string.export_failed,
+                        e.message ?: getString(R.string.platform_error_no_picker)
+                    ),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -1115,7 +1123,11 @@ class SettingsActivity : AppCompatActivity() {
                     exportBackupEncrypted.launch(getString(R.string.backup_enc_file_name))
                 } catch (e: Exception) {
                     Toast.makeText(
-                        this, getString(R.string.backup_failed, e.message ?: "no file picker"),
+                        this,
+                        getString(
+                            R.string.backup_failed,
+                            e.message ?: getString(R.string.platform_error_no_picker)
+                        ),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -1125,7 +1137,11 @@ class SettingsActivity : AppCompatActivity() {
                     exportBackup.launch(getString(R.string.backup_file_name))
                 } catch (e: Exception) {
                     Toast.makeText(
-                        this, getString(R.string.backup_failed, e.message ?: "no file picker"),
+                        this,
+                        getString(
+                            R.string.backup_failed,
+                            e.message ?: getString(R.string.platform_error_no_picker)
+                        ),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -1185,10 +1201,10 @@ class SettingsActivity : AppCompatActivity() {
                     } else {
                         BackupManager.export(this, it)
                     }
-                } ?: throw RuntimeException("could not open destination")
+                } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
                 null
             } catch (e: Exception) {
-                e.message ?: "unknown error"
+                e.message ?: getString(R.string.platform_error_unknown)
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1217,7 +1233,7 @@ class SettingsActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 // A file that cannot even be opened is a failure to report,
                 // not a hint that it is unencrypted.
-                error = e.message ?: "unknown error"
+                error = e.message ?: getString(R.string.platform_error_unknown)
                 false
             }
             runOnUiThread {
@@ -1273,7 +1289,7 @@ class SettingsActivity : AppCompatActivity() {
             } catch (e: BackupCrypto.WrongPassphraseException) {
                 getString(R.string.restore_wrong_passphrase)
             } catch (e: Exception) {
-                e.message ?: "unknown error"
+                e.message ?: getString(R.string.platform_error_unknown)
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -1769,7 +1785,8 @@ class SettingsActivity : AppCompatActivity() {
                             getString(
                                 R.string.model_card_meta,
                                 model.approxSizeMb,
-                                "Speaker ID", // language is in each model's name
+                                // The language is in each model's name.
+                                getString(R.string.platform_model_speaker_id),
                                 "sherpa-onnx"
                             )
                         ),

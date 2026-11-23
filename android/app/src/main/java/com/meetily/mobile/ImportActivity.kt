@@ -129,7 +129,9 @@ class ImportActivity : AppCompatActivity() {
                 else -> {
                     Toast.makeText(
                         this@ImportActivity,
-                        getString(R.string.import_failed, error ?: "unknown error"),
+                        getString(
+                            R.string.import_failed, error ?: getString(R.string.platform_error_unknown)
+                        ),
                         Toast.LENGTH_LONG
                     ).show()
                     finish()

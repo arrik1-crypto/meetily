@@ -37,7 +37,10 @@ class TermsActivity : AppCompatActivity() {
             val text = try {
                 assets.open(ASSET).bufferedReader().use { it.readText() }
             } catch (e: Exception) {
-                getString(R.string.licences_terms_unavailable, e.message ?: "read failed")
+                getString(
+                    R.string.licences_terms_unavailable,
+                    e.message ?: getString(R.string.platform_error_read_failed)
+                )
             }
             runOnUiThread {
                 if (!isFinishing && !isDestroyed) body.text = text

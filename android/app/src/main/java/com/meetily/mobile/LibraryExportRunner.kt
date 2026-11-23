@@ -254,6 +254,7 @@ object LibraryExportRunner {
             val zone = ZoneId.systemDefault()
             val throttle = ProgressThrottle(250L)
             var failuresInARow = 0
+            val exportText = com.meetily.mobile.export.ExportTextResources.load(app)
             for ((index, id) in ids.withIndex()) {
                 if (cancel.get()) break
                 if (AudioRemoval.isWritingContent(app, id)) {
@@ -264,7 +265,7 @@ object LibraryExportRunner {
                     if (meeting != null) {
                         val notices = AiDisclaimers.texts(app, AiDisclaimers.categories(meeting))
                         val name = LibraryExport.fileName(meeting, zone, taken)
-                        val text = LibraryExport.document(meeting, notices, zone)
+                        val text = LibraryExport.document(meeting, notices, zone, exportText)
                         if (writeFile(resolver, folder, name, text)) {
                             written++
                             failuresInARow = 0

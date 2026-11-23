@@ -209,7 +209,7 @@ class ModelDownloadService : Service() {
                 // Cancelled: the partial file is kept, so the next attempt
                 // resumes from where this one stopped (ResumableDownload).
             } catch (e: Exception) {
-                error = e.message ?: "network error"
+                error = e.message ?: getString(R.string.platform_error_network)
             }
             main.post { finishRun(kind, key, name, error) }
         }.apply {

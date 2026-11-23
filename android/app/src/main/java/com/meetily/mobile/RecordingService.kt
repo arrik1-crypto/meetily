@@ -880,7 +880,10 @@ class RecordingService : Service() {
             listening = true
             setStatus(Status.LISTENING, getString(R.string.status_listening))
         } catch (e: Exception) {
-            setStatus(Status.ERROR, getString(R.string.status_error, e.message ?: "unknown"))
+            setStatus(
+                Status.ERROR,
+                getString(R.string.status_error, e.message ?: getString(R.string.platform_status_unknown))
+            )
             scheduleRestart(1500)
         }
     }
@@ -949,7 +952,10 @@ class RecordingService : Service() {
                     setStatus(Status.ERROR, getString(R.string.mic_permission_denied))
 
                 else -> {
-                    setStatus(Status.ERROR, getString(R.string.status_error, "code $error"))
+                    setStatus(
+                        Status.ERROR,
+                        getString(R.string.status_error, getString(R.string.platform_status_code, error))
+                    )
                     scheduleRestart(1200)
                 }
             }

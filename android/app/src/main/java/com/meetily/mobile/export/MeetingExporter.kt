@@ -28,26 +28,33 @@ object MeetingExporter {
     /**
      * [notices] are the summary's fixed disclaimers (AiDisclaimers), written
      * directly under the Summary heading, ahead of the summary itself. One
-     * the summary already carries word for word is not repeated.
+     * the summary already carries word for word is not repeated. [text] is
+     * the headings and labels (ExportText: English unless the caller loads
+     * them from resources).
      */
-    fun markdown(meeting: Meeting, notices: List<String> = emptyList()): String {
+    fun markdown(
+        meeting: Meeting,
+        notices: List<String> = emptyList(),
+        text: ExportText = ExportText()
+    ): String {
         val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(meeting.createdAtMs))
         return buildString {
             append("# ").append(meeting.title).append("\n\n")
-            append("**Date:** ").append(date).append("\n\n")
+            append("**").append(text.date).append("** ").append(date).append("\n\n")
             if (meeting.attendees.isNotEmpty()) {
-                append("**Attendees:** ").append(meeting.attendeesText()).append("\n\n")
+                append("**").append(text.attendees).append("** ")
+                    .append(meeting.attendeesText()).append("\n\n")
             }
             if (meeting.summary.isNotBlank()) {
-                append("## Summary\n\n")
+                append("## ").append(text.summary).append("\n\n")
                 for (notice in newNotices(meeting.summary, notices)) {
                     append("> ").append(notice).append("\n\n")
                 }
                 append(meeting.summary).append("\n\n")
             }
             if (meeting.actionItems.isNotEmpty()) {
-                append("## Action items\n\n")
+                append("## ").append(text.actionItems).append("\n\n")
                 for (item in meeting.actionItems) {
                     append(if (item.done) "- [x] " else "- [ ] ")
                     append(item.task)
@@ -59,10 +66,10 @@ object MeetingExporter {
                 append('\n')
             }
             if (meeting.notes.isNotBlank()) {
-                append("## Notes\n\n").append(meeting.notes).append("\n\n")
+                append("## ").append(text.notes).append("\n\n").append(meeting.notes).append("\n\n")
             }
             if (meeting.segments.isNotEmpty()) {
-                append("## Transcript\n\n")
+                append("## ").append(text.transcript).append("\n\n")
                 for (seg in meeting.segments) {
                     append("- ")
                     if (seg.highlighted) append("★ ")
@@ -75,14 +82,19 @@ object MeetingExporter {
             }
             if (meeting.photos.isNotEmpty()) {
                 append("\n_")
-                append(meeting.photos.size)
-                append(" photo attachment(s) stored in the Meetily app._\n")
+                append(text.count(text.photosMarkdown, meeting.photos.size))
+                append("_\n")
             }
         }
     }
 
-    /** [notices] as in [markdown]. */
-    fun writePdf(meeting: Meeting, out: OutputStream, notices: List<String> = emptyList()) {
+    /** [notices] and [text] as in [markdown]. */
+    fun writePdf(
+        meeting: Meeting,
+        out: OutputStream,
+        notices: List<String> = emptyList(),
+        text: ExportText = ExportText()
+    ) {
         val date = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT)
             .format(Date(meeting.createdAtMs))
         val doc = PdfDocument()
@@ -98,14 +110,14 @@ object MeetingExporter {
             writer.block(metaLine, 10f, bold = false, spacingAfter = 16f)
 
             if (meeting.summary.isNotBlank()) {
-                writer.block("Summary", 13f, bold = true, spacingAfter = 4f)
+                writer.block(text.summary, 13f, bold = true, spacingAfter = 4f)
                 for (notice in newNotices(meeting.summary, notices)) {
                     writer.block(notice, 9.5f, bold = true, spacingAfter = 8f)
                 }
                 writer.block(meeting.summary, 10.5f, bold = false, spacingAfter = 14f)
             }
             if (meeting.actionItems.isNotEmpty()) {
-                writer.block("Action items", 13f, bold = true, spacingAfter = 4f)
+                writer.block(text.actionItems, 13f, bold = true, spacingAfter = 4f)
                 val actions = meeting.actionItems.joinToString("\n") { item ->
                     val box = if (item.done) "[x]" else "[ ]"
                     val owner = if (item.owner.isNullOrBlank()) "" else " — ${item.owner}"
@@ -114,11 +126,11 @@ object MeetingExporter {
                 writer.block(actions, 10.5f, bold = false, spacingAfter = 14f)
             }
             if (meeting.notes.isNotBlank()) {
-                writer.block("Notes", 13f, bold = true, spacingAfter = 4f)
+                writer.block(text.notes, 13f, bold = true, spacingAfter = 4f)
                 writer.block(meeting.notes, 10.5f, bold = false, spacingAfter = 14f)
             }
             if (meeting.segments.isNotEmpty()) {
-                writer.block("Transcript", 13f, bold = true, spacingAfter = 4f)
+                writer.block(text.transcript, 13f, bold = true, spacingAfter = 4f)
                 val transcript = meeting.segments.joinToString("\n") { seg ->
                     buildString {
                         if (seg.highlighted) append("★ ")

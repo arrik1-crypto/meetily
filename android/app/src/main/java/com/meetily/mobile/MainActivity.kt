@@ -533,6 +533,7 @@ class MainActivity : AppCompatActivity() {
         val recycler = findViewById<RecyclerView>(R.id.meetingList)
         recycler.layoutManager = LinearLayoutManager(this)
         adapter = MeetingAdapter(
+            context = this,
             onClick = { meeting ->
                 if (homeSelection.active) {
                     homeSelection.toggle(meeting)

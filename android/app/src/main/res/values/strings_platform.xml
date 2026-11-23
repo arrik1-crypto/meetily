@@ -24,4 +24,47 @@
     <!-- Fallbacks shown inside an error message when the error itself gave
          no reason. They complete sentences such as "Export failed: %1$s". -->
     <string name="platform_error_unknown">unknown error</string>
+    <!-- No app on the phone could pick a file or folder. -->
+    <string name="platform_error_no_picker">no file picker</string>
+    <!-- The chosen file could not be opened for writing. -->
+    <string name="platform_error_no_destination">could not open destination</string>
+    <!-- A file bundled with the app could not be read. -->
+    <string name="platform_error_read_failed">read failed</string>
+    <!-- A model download stopped without saying why. -->
+    <string name="platform_error_network">network error</string>
+    <!-- Topic detection's request to the AI failed without saying why. -->
+    <string name="platform_error_ai_request">AI request failed</string>
+
+    <!-- The recognizer's error, inside "Recognition error (%1$s), retrying…".
+         The first when it gave no reason; the second with Android's error
+         number, %1$d. -->
+    <string name="platform_status_unknown">unknown</string>
+    <string name="platform_status_code">code %1$d</string>
+
+    <!-- Home list: the dateline over today's and yesterday's meetings
+         (older days show their date). -->
+    <string name="platform_home_today">Today</string>
+    <string name="platform_home_yesterday">Yesterday</string>
+    <!-- Home list: how many meetings a day holds, beside its dateline. -->
+    <plurals name="platform_home_meetings">
+        <item quantity="one">%d meeting</item>
+        <item quantity="other">%d meetings</item>
+    </plurals>
+    <!-- Home list: a meeting's meta line, its parts joined with " · ", for
+         example "42 lines · 3 speakers · summary ready". -->
+    <plurals name="platform_home_lines">
+        <item quantity="one">%d line</item>
+        <item quantity="other">%d lines</item>
+    </plurals>
+    <plurals name="platform_home_speakers">
+        <item quantity="one">%d speaker</item>
+        <item quantity="other">%d speakers</item>
+    </plurals>
+    <string name="platform_home_summary_ready">summary ready</string>
+    <!-- The meta line of a meeting with no transcript, summary or tags. -->
+    <string name="platform_home_notes_only">notes only</string>
+
+    <!-- Settings, a speaker-recognition model's card: what the model does,
+         between its size and its engine ("110 MB · Speaker ID · sherpa-onnx"). -->
+    <string name="platform_model_speaker_id">Speaker ID</string>
 </resources>

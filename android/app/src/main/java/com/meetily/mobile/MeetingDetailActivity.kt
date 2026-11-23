@@ -2324,7 +2324,11 @@ class MeetingDetailActivity : AppCompatActivity() {
                     entries[which].second()
                 } catch (e: Exception) {
                     Toast.makeText(
-                        this, getString(R.string.export_failed, e.message ?: "no file picker"),
+                        this,
+                        getString(
+                            R.string.export_failed,
+                            e.message ?: getString(R.string.platform_error_no_picker)
+                        ),
                         Toast.LENGTH_LONG
                     ).show()
                 }
@@ -2343,12 +2347,13 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun writeActionItemsIcs(uri: Uri) {
         val m = meeting ?: return
         val ics = com.meetily.mobile.export.TaskExport.ics(
-            openActionItems(m), System.currentTimeMillis()
+            openActionItems(m), System.currentTimeMillis(),
+            com.meetily.mobile.export.ExportTextResources.load(this)
         )
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 out.write(ics.toByteArray(Charsets.UTF_8))
-            } ?: throw RuntimeException("could not open destination")
+            } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
         }
     }
 
@@ -2365,7 +2370,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                 write()
                 null
             } catch (e: Exception) {
-                e.message ?: "unknown error"
+                e.message ?: getString(R.string.platform_error_unknown)
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
@@ -2411,14 +2416,15 @@ class MeetingDetailActivity : AppCompatActivity() {
         // while, and the live meeting keeps changing under it.
         val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
         val notices = meetingNotices(m)
+        val text = com.meetily.mobile.export.ExportTextResources.load(this)
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
                 if (isPdf) {
-                    MeetingExporter.writePdf(m, out, notices)
+                    MeetingExporter.writePdf(m, out, notices, text)
                 } else {
-                    out.write(MeetingExporter.markdown(m, notices).toByteArray(Charsets.UTF_8))
+                    out.write(MeetingExporter.markdown(m, notices, text).toByteArray(Charsets.UTF_8))
                 }
-            } ?: throw RuntimeException("could not open destination")
+            } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
         }
     }
 
@@ -2426,10 +2432,11 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun writeDocx(uri: Uri) {
         val m = com.meetily.mobile.data.MeetingMerge.snapshot(meeting ?: return)
         val notices = meetingNotices(m)
+        val text = com.meetily.mobile.export.ExportTextResources.load(this)
         runExport {
             contentResolver.openOutputStream(uri)?.use { out ->
-                DocxExport.write(m, out, notices)
-            } ?: throw RuntimeException("could not open destination")
+                DocxExport.write(m, out, notices, text = text)
+            } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
         }
     }
 
@@ -2455,7 +2462,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             val text = if (vtt) SubtitleExport.vtt(cues) else SubtitleExport.srt(cues)
             contentResolver.openOutputStream(uri)?.use { out ->
                 out.write(text.toByteArray(Charsets.UTF_8))
-            } ?: throw RuntimeException("could not open destination")
+            } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
         }
     }
 
@@ -2526,7 +2533,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     attendees, history, question, languageClause
                 )
             } catch (e: Exception) {
-                getString(R.string.ask_failed, e.message ?: "unknown error")
+                getString(R.string.ask_failed, e.message ?: getString(R.string.platform_error_unknown))
             }
             // SAVE FIRST, on this thread, against the stored copy. A local
             // model can take minutes on a long transcript; rotating the phone
@@ -4991,7 +4998,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                         }
                     if (chapters.size < 2) chapters = emptyList() else usedLlm = true
                 } catch (e: Exception) {
-                    failure = e.message ?: "AI request failed"
+                    failure = e.message ?: getString(R.string.platform_error_ai_request)
                 }
             }
             if (chapters.isEmpty()) {

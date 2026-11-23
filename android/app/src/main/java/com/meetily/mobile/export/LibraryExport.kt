@@ -28,9 +28,17 @@ object LibraryExport {
     /** Longest title part of a file name, in characters, before the date and ".md". */
     const val MAX_TITLE_CHARS = 80
 
-    /** The whole Markdown file for [meeting]: front matter, then the meeting's Markdown. */
-    fun document(meeting: Meeting, notices: List<String>, zone: ZoneId): String =
-        frontMatter(meeting, zone) + "\n" + MeetingExporter.markdown(meeting, notices)
+    /**
+     * The whole Markdown file for [meeting]: front matter, then the meeting's
+     * Markdown, with [text]'s headings. The front matter's keys are
+     * machine-read and stay as they are in every language.
+     */
+    fun document(
+        meeting: Meeting,
+        notices: List<String>,
+        zone: ZoneId,
+        text: ExportText = ExportText()
+    ): String = frontMatter(meeting, zone) + "\n" + MeetingExporter.markdown(meeting, notices, text)
 
     /** "---", the meeting's fields one per line, "---". */
     fun frontMatter(meeting: Meeting, zone: ZoneId): String = buildString {
