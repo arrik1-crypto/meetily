@@ -22,7 +22,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
@@ -101,7 +100,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
      */
     private var photoAwaitingService: File? = null
     private val takePicture =
-        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        registerForActivityResult(TakePictureWithGrant()) { success ->
             val file = pendingPhotoFile
             pendingPhotoFile = null
             if (success && file != null && file.exists() && file.length() > 0) {

@@ -735,7 +735,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     /** The camera's answer, held while the meeting is read; saved with the state. */
     private var pendingPhotoResult: Boolean? = null
     private val takePicture =
-        registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        registerForActivityResult(TakePictureWithGrant()) { success ->
             onPhotoResult(success)
         }
 
