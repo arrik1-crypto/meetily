@@ -231,7 +231,8 @@ class MeetingStore(context: Context) {
      * editable for the whole run, so what is stored before the seam is
      * kept, with only the pass's speaker relabelling applied, and the
      * pass's own lines follow it (TranscriptResume.continued). Stored lines
-     * past where an unfinished pass has got stay after them.
+     * past where an unfinished pass has got stay after them, without their
+     * speaker numbers.
      */
     fun saveTranscription(meeting: Meeting, seam: TranscriptResume.Seam? = null): Boolean {
         return AtomicJson.exclusive {
@@ -267,6 +268,8 @@ class MeetingStore(context: Context) {
             } else {
                 meeting.segments
             }
+            // Read before the stored lines are replaced below.
+            val marksSeamMs = TranscriptResume.placedBefore(onDisk.segments, seam?.resumeMs)
             onDisk.segments.clear()
             onDisk.segments.addAll(segments)
             onDisk.audioFile = meeting.audioFile
@@ -281,15 +284,20 @@ class MeetingStore(context: Context) {
             onDisk.transcriptResumeMs = meeting.transcriptResumeMs
             // Highlights tapped while an audio-only recording had no lines to
             // star land on the lines this pass just produced; a mark past
-            // where the words stop waits for the pass that reaches it. An
-            // earlier pass already placed every mark before the seam (its own
-            // resume point), and the kept lines are the user's to edit, so a
-            // continuing pass places only the marks it is the first to reach.
-            // Otherwise a star the user removed comes back at every batch.
+            // where the words stop waits for the pass that reaches it. When a
+            // timed line is kept before the seam, an earlier pass already
+            // placed every mark before the seam on a kept line, and those are
+            // the user's to edit, so a continuing pass leaves those marks
+            // alone: a star the user removed there does not come back at
+            // every batch. With no such line, the earlier pass starred
+            // nothing that is kept, so this pass places them too
+            // (TranscriptResume.placedBefore). A mark from the seam on that
+            // comes before this pass's first line still resolves to the last
+            // kept line, at every save of the run.
             HighlightMarks.apply(
                 onDisk.segments,
                 TranscriptResume.marksToPlace(
-                    onDisk.highlightMarksMs, onDisk.transcriptResumeMs, seam?.resumeMs
+                    onDisk.highlightMarksMs, onDisk.transcriptResumeMs, marksSeamMs
                 )
             )
             val saved = save(onDisk)

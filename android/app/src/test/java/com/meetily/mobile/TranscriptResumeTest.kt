@@ -1,6 +1,7 @@
 package com.meetily.mobile
 
 import com.meetily.mobile.data.BulkActions
+import com.meetily.mobile.data.HighlightMarks
 import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingLanguage
@@ -278,7 +279,7 @@ class TranscriptResumeTest {
         // The stopped pass's lines run far past its resume point, one of
         // them edited since.
         val stored = listOf(
-            seg(0L, "a"),
+            seg(0L, "a", cluster = 2),
             seg(65_000L, "old 65"),
             seg(95_000L, "old 95"),
             seg(130_000L, "old 130, fixed by hand", cluster = 7, speaker = "Bo"),
@@ -293,9 +294,13 @@ class TranscriptResumeTest {
             listOf("a", "new 60", "new 100", "old 130, fixed by hand", "old 170"),
             saved.map { it.text }
         )
-        // Kept as they are: the stopped pass's clusters and names.
+        // Kept with their words and names, but not the stopped pass's
+        // cluster numbers: this pass's voice 7 need not be that one.
         assertEquals("Bo", saved[3].speaker)
-        assertEquals(7, saved[3].clusterId)
+        assertNull(saved[3].clusterId)
+        assertNull(saved[4].clusterId)
+        // The kept lines before the seam keep theirs.
+        assertEquals(2, saved[0].clusterId)
         // Nothing it has not reached is lost, and nothing appears twice.
         assertEquals(saved.size, saved.map { it.text }.toSet().size)
     }
@@ -370,6 +375,102 @@ class TranscriptResumeTest {
         assertEquals(marks, TranscriptResume.marksToPlace(marks, null, null))
     }
 
+    /**
+     * One save of a pass, as MeetingStore.saveTranscription makes it: the
+     * lines (TranscriptResume.continued for a continuation), then the marks
+     * it places.
+     */
+    private fun saveLike(
+        stored: List<TranscriptSegment>,
+        ours: List<TranscriptSegment>,
+        seam: TranscriptResume.Seam?,
+        marks: List<Long>,
+        resumeMs: Long?
+    ): List<TranscriptSegment> {
+        val marksSeamMs = TranscriptResume.placedBefore(stored, seam?.resumeMs)
+        val out = if (seam == null) {
+            ours.toMutableList()
+        } else {
+            TranscriptResume.continued(
+                stored, ours, seam.resumeMs, seam.baseMs, seam.relabel, seam.reachedMs
+            ).toMutableList()
+        }
+        HighlightMarks.apply(out, TranscriptResume.marksToPlace(marks, resumeMs, marksSeamMs))
+        return out
+    }
+
+    @Test
+    fun marksBeforeTheSeamAreLeftToTheEarlierPassOnlyWhenATimedLineIsKeptThere() {
+        val seamMs = 60_000L
+        assertEquals(
+            seamMs,
+            TranscriptResume.placedBefore(listOf(seg(59_999L, "a"), seg(70_000L, "b")), seamMs)
+        )
+        // Lines only from the seam on, none at all, or none with an offset.
+        assertNull(TranscriptResume.placedBefore(listOf(seg(60_000L, "a"), seg(70_000L, "b")), seamMs))
+        assertNull(TranscriptResume.placedBefore(emptyList(), seamMs))
+        val untimed = TranscriptSegment(timestampMs = base + 10_000L, text = "typed")
+        assertNull(TranscriptResume.placedBefore(listOf(untimed, seg(70_000L, "b")), seamMs))
+        // Not a continuation.
+        assertNull(TranscriptResume.placedBefore(listOf(seg(0L, "a")), null))
+    }
+
+    @Test
+    fun aMarkInAQuietLeadInKeepsItsStarWhenTheLineItStarredIsMadeAgain() {
+        // Nobody spoke for the first 2:00, and the mark is at 0:40. The first
+        // pass cut at silence up to 2:00, then only at the length limit, and
+        // stopped with its resume point at 2:00: it starred its first line.
+        val marks = listOf(40_000L)
+        val first = saveLike(
+            emptyList(),
+            listOf(seg(120_000L, "A 2:00"), seg(148_000L, "A 2:28")),
+            null, marks, resumeMs = 120_000L
+        )
+        assertEquals(listOf(true, false), first.map { it.highlighted })
+        // Continued from 2:00: this pass's first line replaces that one.
+        val seam = TranscriptResume.Seam(120_000L, base, reachedMs = 148_000L)
+        val partial = saveLike(first, listOf(seg(120_000L, "B 2:00")), seam, marks, 120_000L)
+        assertEquals(listOf("B 2:00", "A 2:28"), partial.map { it.text })
+        assertEquals(listOf(true, false), partial.map { it.highlighted })
+        val complete = saveLike(
+            partial,
+            listOf(seg(120_000L, "B 2:00"), seg(148_000L, "B 2:28"), seg(176_000L, "B 2:56")),
+            seam.copy(reachedMs = null), marks, null
+        )
+        assertEquals(listOf(true, false, false), complete.map { it.highlighted })
+    }
+
+    @Test
+    fun aMarkIsPlacedByTheContinuationWhenTheStoppedPassSavedNoLines() {
+        // Stopped before its first lines were saved, at a quiet cut at 1:00.
+        val marks = listOf(30_000L)
+        val first = saveLike(emptyList(), emptyList(), null, marks, resumeMs = 60_000L)
+        assertTrue(first.isEmpty())
+        val seam = TranscriptResume.Seam(60_000L, base, reachedMs = 90_000L)
+        val ours = listOf(seg(60_000L, "first words"), seg(75_000L, "more"))
+        val partial = saveLike(first, ours, seam, marks, 60_000L)
+        assertEquals(listOf(true, false), partial.map { it.highlighted })
+        val complete = saveLike(
+            partial, ours + seg(100_000L, "end"), seam.copy(reachedMs = null), marks, null
+        )
+        assertEquals(listOf(true, false, false), complete.map { it.highlighted })
+    }
+
+    @Test
+    fun aStarTheUserTookOffAKeptLineIsNotPutBack() {
+        // The stopped pass starred its 0:30 line for the mark at 0:40, and
+        // the user has taken the star off since.
+        val marks = listOf(40_000L)
+        val stored = listOf(seg(30_000L, "kept"), seg(65_000L, "old 65"))
+        val seam = TranscriptResume.Seam(60_000L, base, reachedMs = 80_000L)
+        val ours = listOf(seg(30_000L, "kept"), seg(60_000L, "new 60"))
+        val partial = saveLike(stored, ours, seam, marks, 60_000L)
+        assertEquals(listOf("kept", "new 60"), partial.map { it.text })
+        assertEquals(listOf(false, false), partial.map { it.highlighted })
+        val complete = saveLike(partial, ours, seam.copy(reachedMs = null), marks, null)
+        assertEquals(listOf(false, false), complete.map { it.highlighted })
+    }
+
     // --- Whether a pass carries on ----------------------------------------------
 
     @Test
@@ -428,6 +529,22 @@ class TranscriptResumeTest {
         // Jobs from before resuming existed, and checks, run as they did.
         assertTrue(TranscriptResume.stillWanted(true, 0L, null))
         assertTrue(TranscriptResume.stillWanted(false, 60_000L, null))
+    }
+
+    @Test
+    fun anAnswerToContinuesQuestionStandsOnlyWhileTheTranscriptStopsWhereItDid() {
+        assertTrue(TranscriptResume.stillAsAsked(2_530_000L, 2_530_000L))
+        // Finished from another meeting screen, or an accuracy check applied,
+        // while the question was up: a pass now would start it over.
+        assertFalse(TranscriptResume.stillAsAsked(2_530_000L, null))
+        // Stopped again somewhere else, further on: the question was about
+        // other lines.
+        assertFalse(TranscriptResume.stillAsAsked(2_530_000L, 3_000_000L))
+        // Asked to start over (it never reached a pause), finished since.
+        assertTrue(TranscriptResume.stillAsAsked(0L, 0L))
+        assertFalse(TranscriptResume.stillAsAsked(0L, null))
+        // stillWanted alone lets that one through.
+        assertTrue(TranscriptResume.stillWanted(true, 0L, null))
     }
 
     @Test

@@ -169,7 +169,8 @@ left out of backups. Every export, Markdown, PDF, Word, subtitles and the
 library as Markdown, is written only to a file or folder the user picks
 in the system picker (action items as text go to the share sheet the
 user opens), like the existing exports; the library export holds the
-folder grant only while it runs. sherpa-onnx v2.0.3 and ONNX Runtime
+folder grant only while it runs, or, if Android stops Recap mid-run,
+until Recap next starts. sherpa-onnx v2.0.3 and ONNX Runtime
 1.28.2 are prebuilt native code fetched by the build machine, not the
 app, and make no network requests of their own. The new `meetily_native`
 log lines, and whisper.cpp's warnings now under `meetily_ggml`, carry no
@@ -1766,12 +1767,15 @@ Continuing interrupted transcriptions (3.19.0-beta1):
   the last line. Edit a line past the point, then Continue: a question
   says how many lines from the point on are transcribed again. Accept,
   then Cancel again soon after: the lines past where the new pass got,
-  the edited one among them, are still there, and none appears twice.
+  the edited one among them, are still there (with no speaker number
+  until they are transcribed again), and none appears twice.
 - [ ] Run an accuracy check on an unfinished meeting and let it finish
-  without reviewing it: Continue says to review the check first. Review
-  it while a continuation of the same meeting runs (start the
-  continuation first): Apply says the meeting is still being
-  transcribed, and the check is still offered once the run ends.
+  without reviewing it: Continue says to review the check first. Then
+  make a summary of the same meeting (with the on-device engine or a
+  long meeting, so it is still running), open the check's review
+  (⋮ → Check accuracy) and tap Apply while the summary runs: it says the
+  meeting is still being transcribed or summarized and changes nothing,
+  and the check is still offered, and applies, once the summary ends.
 - [ ] Queue an accuracy check on an unfinished meeting while a recording
   runs, stop the recording and go back to that meeting without opening
   the home screen: Continue says a check is waiting and starts it; the
@@ -1801,8 +1805,11 @@ Continuing interrupted transcriptions (3.19.0-beta1):
   in the meeting, stop the transcription before it reaches that moment,
   and open the meeting: no line is starred for it yet. Continue: the star
   lands on the right line. Save something on the meeting screen in
-  between (rename, a note): the mark is not lost. Un-star a line starred
-  by an earlier mark before continuing: it stays un-starred.
+  between (rename, a note): the mark is not lost. Un-star a line before
+  the point it continues from that an earlier mark starred, then
+  continue: it stays un-starred. A mark tapped during a long silence at
+  the start still stars the first line after Continue, also when the
+  transcription was cancelled before it saved any line.
 
 Exports (3.19.0-beta1):
 
@@ -1941,9 +1948,9 @@ Accessibility:
   (Summary, Transcript and Audio tabs), settings, import and
   accuracy-check screens, and from 3.18.0-beta1 on the Storage screen,
   the home selection bar, the find bar and the Find & replace dialog;
-  from 3.19.0-beta1 also the player's Clear voice row, the "Transcription
-  stopped at …" card, the import screen while a batch is being added, and
-  Settings → Data during a library export.
+  from 3.19.0-beta1 also the player's Clear voice row, the "This
+  transcript is unfinished" card, the import screen while a batch is
+  being added, and Settings → Data during a library export.
   Check touch targets, missing labels and contrast (contrast was not part
   of this change).
 - [ ] TalkBack pass on a real device: start/pause/resume/stop a recording

@@ -155,7 +155,8 @@ as Markdown files in a folder) are written only to a file or folder you pick
 in Android's picker, and Recap sends them nowhere. If you pick a location
 backed by a cloud service, that provider's own terms apply. For a library
 export, Recap keeps access to the folder you picked only while the export
-runs.
+runs; if Android stops Recap during an export, Recap gives the access back
+the next time it starts.
 
 ## No analytics, ads or accounts
 

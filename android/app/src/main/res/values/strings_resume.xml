@@ -36,6 +36,10 @@
     <!-- A finished accuracy check of this meeting is waiting for review; a
          continuation would change the transcript it was compared against. -->
     <string name="resume_check_pending">Review this meeting\'s accuracy check first: it was made from the transcript as it is now.</string>
+    <!-- Continue's question was answered after the transcript changed
+         under it (finished from another meeting screen, an accuracy check
+         applied, or stopped again elsewhere), so nothing was started. -->
+    <string name="resume_changed">This transcript changed while the question was open, so nothing was started. Look at it again before continuing.</string>
 
     <!-- Asked before a continuation replaces lines the transcript already
          has from where it carries on. %1$d is how many, %2$s where it
@@ -70,15 +74,16 @@
          meeting's title, %2$s where its words now stop. -->
     <string name="resume_unplugged_continue">“%1$s” will carry on from %2$s next time you charge.</string>
     <!-- An import or transcription that failed part-way, with its words
-         kept. %1$s is where they stop. -->
-    <string name="resume_stopped_early">Transcription stopped at %1$s. The audio was saved — open the meeting and tap “Continue transcription” to try the rest.</string>
+         kept. %1$s is where it can carry on from (lines can run past
+         it). -->
+    <string name="resume_stopped_early">Transcription stopped part-way; it can carry on from %1$s. The audio was saved — open the meeting and tap “Continue transcription” to try the rest.</string>
     <!-- Offered after Recap closed mid-transcription. %1$s is the meeting's
          title, %2$s where its words stop. -->
     <string name="resume_job_continue_body">“%1$s” was still being transcribed when Recap closed. Its transcript can carry on from %2$s.</string>
 
     <!-- Added to "Remove audio" for a meeting whose transcript is
-         unfinished. %1$s is where its words stop. -->
-    <string name="resume_remove_audio_warning">Its transcription stopped at %1$s and is unfinished. Without the audio it can never be completed: the rest of the recording will never be transcribed.</string>
+         unfinished. %1$s is where it can carry on from. -->
+    <string name="resume_remove_audio_warning">Its transcription is unfinished (it can carry on from %1$s). Without the audio it can never be completed: the rest of the recording will never be transcribed.</string>
     <!-- The same, for a transcript that stopped before it reached any pause
          it could carry on from. -->
     <string name="resume_remove_audio_warning_restart">Its transcription stopped part-way and is unfinished. Without the audio it can never be completed: the rest of the recording will never be transcribed.</string>

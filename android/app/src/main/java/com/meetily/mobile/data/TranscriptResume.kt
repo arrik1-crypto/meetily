@@ -210,10 +210,11 @@ object TranscriptResume {
      * made to them meanwhile.
      *
      * [reachedMs], while the pass is unfinished, is how far it has got: its
-     * own lines all start before it. Stored lines from there on are kept as
-     * they are, after the pass's, so a pass that stops again never leaves
-     * the transcript shorter than it found it. Null once the pass is
-     * complete: then every stored line from the seam on is replaced.
+     * own lines all start before it. Stored lines from there on are kept,
+     * after the pass's, so a pass that stops again never leaves the
+     * transcript shorter than it found it; only their speaker numbers go
+     * (see below). Null once the pass is complete: then every stored line
+     * from the seam on is replaced.
      */
     fun continued(
         stored: List<TranscriptSegment>,
@@ -226,10 +227,16 @@ object TranscriptResume {
         val kept = prefix(stored, resumeMs, baseMs).map { relabel.apply(it) }
         val made = carryNames(kept + ours.filter { after(it, resumeMs, baseMs) }, resumeMs, baseMs)
         if (reachedMs == null) return made
-        // Untouched: their clusters are the stopped pass's, so neither this
-        // pass's relabelling nor its carried names apply to them.
+        // Kept for their words and any names given to them, but not their
+        // clusters: those are the stopped pass's numbering, which this pass's
+        // need not match, so "Speaker 2" past here could be another voice
+        // than "Speaker 2" before it, and renaming one would rename both
+        // (and feed the wrong voice to a profile). Neither this pass's
+        // relabelling nor its carried names apply to them. They are at or
+        // after the next pass's seam, so it makes them again.
         val from = maxOf(reachedMs, resumeMs)
         return made + stored.filter { offsetOf(it, baseMs) >= from }
+            .map { if (it.clusterId == null) it else it.copy(clusterId = null) }
     }
 
     /**
@@ -254,15 +261,29 @@ object TranscriptResume {
 
     /**
      * The marks a save places: those [marksReached] for [resumeMs], less,
-     * for a pass that continues at [seamMs], the ones before its seam. An
-     * earlier pass placed those (its own resume point was this seam), and
-     * the lines it starred are the user's to edit: placing them again would
-     * star a line the user un-starred, at every save.
+     * for a pass that continues at [seamMs] (see [placedBefore]), the ones
+     * before its seam. An earlier pass placed those on a line still kept,
+     * and the lines it starred are the user's to edit: placing them again
+     * would star a line the user un-starred, at every save.
      */
     fun marksToPlace(marks: List<Long>, resumeMs: Long?, seamMs: Long?): List<Long> {
         val reached = marksReached(marks, resumeMs)
         return if (seamMs == null) reached else reached.filter { it >= seamMs }
     }
+
+    /**
+     * The seam [marksToPlace] skips marks before, for a continuing pass's
+     * save over [stored] (the transcript stored before this save) at
+     * [seamMs]: [seamMs] when a line with an audio offset is stored before
+     * it, else null. With one, HighlightMarks resolved every earlier mark
+     * to one of those kept lines. With none, the earlier pass starred
+     * nothing that is kept: it made no line (an empty transcript stars
+     * nothing), or a mark in a quiet lead-in went to its first line, at or
+     * after the seam, which this pass makes again unstarred. So this pass
+     * places them itself, on its first line, as an uninterrupted pass would.
+     */
+    fun placedBefore(stored: List<TranscriptSegment>, seamMs: Long?): Long? =
+        seamMs?.takeIf { at -> stored.any { s -> s.audioMs.let { it != null && it < at } } }
 
     /**
      * Whether a pass asked to run in [requested] ("auto", a code, or blank
@@ -325,6 +346,18 @@ object TranscriptResume {
      */
     fun stillWanted(firstTranscript: Boolean, jobResumeMs: Long, storedResumeMs: Long?): Boolean =
         !(firstTranscript && jobResumeMs > 0L && storedResumeMs == null)
+
+    /**
+     * Whether an answer to Continue's question, asked about a transcript
+     * that stopped at [askedAtMs], still stands now that it stops at
+     * [storedResumeMs]. The question can stay up while the transcript is
+     * finished elsewhere (null), or stopped again or started over at
+     * another point. The pass takes its seam from what is stored, so a
+     * "continue" or "start over" answered about a transcript finished
+     * since would start the finished one over.
+     */
+    fun stillAsAsked(askedAtMs: Long, storedResumeMs: Long?): Boolean =
+        storedResumeMs == askedAtMs
 
     enum class Action { CONTINUE, START_OVER, NO_MODEL }
 

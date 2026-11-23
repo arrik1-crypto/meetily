@@ -36,8 +36,8 @@ class RecapApp : Application() {
         // reads every meeting file to find a handful of reminders.
         Thread { com.meetily.mobile.reminders.Reminders.rescheduleAllIfCleared(this) }.start()
         com.meetily.mobile.llm.LocalLlm.init(this)
-        // A library export holds the folder it writes to only while it runs;
-        // one the process did not live to finish gives it back here. On this
+        // A library export holds the folder it writes to while it runs; one
+        // the process did not live to finish gives it back here. On this
         // thread, not the one below: a run started from Settings meanwhile
         // records its own folder, which a late release would take from it.
         runCatching { LibraryExportRunner.releaseLeftover(this) }

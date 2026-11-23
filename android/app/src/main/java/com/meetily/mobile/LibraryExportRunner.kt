@@ -167,9 +167,10 @@ object LibraryExportRunner {
     /**
      * Gives back a folder grant left by a run the process did not live to
      * finish (Android stopped it in the background, or it was swiped away or
-     * force-stopped mid-run), so the access lasts no longer than the run
-     * even then. Called when the app starts (RecapApp), on the main thread,
-     * where no run can be going yet; a run that is going keeps its grant.
+     * force-stopped mid-run), so the access lasts no longer than the next
+     * app start even then. Called when the app starts (RecapApp), on the
+     * main thread, where no run can be going yet; a run that is going keeps
+     * its grant.
      */
     @MainThread
     fun releaseLeftover(context: Context) {
