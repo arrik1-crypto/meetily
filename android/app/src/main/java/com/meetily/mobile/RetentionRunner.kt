@@ -114,7 +114,8 @@ object RetentionRunner {
                     0L
                 },
                 starred = meeting.starred,
-                audioBytes = meeting.audioFile?.let { AudioStore.fileFor(context, it).length() } ?: 0L,
+                // With its clear-voice copy, which goes with it.
+                audioBytes = AudioStore.bytesWithCopy(context, meeting.audioFile),
                 hasFutureReminder = meeting.actionItems.any {
                     !it.done && (it.remindAtMs ?: 0L) > nowMs
                 },
@@ -131,15 +132,16 @@ object RetentionRunner {
     /**
      * Meetings something is working on or has queued: the recording (or one
      * a crash left marked, not yet recovered), a running import, accuracy
-     * check or summary, every queued or interrupted job, and every meeting
-     * open on a meeting screen (OpenMeetings), whose edits are still to be
-     * saved over the stored copy however old that copy is.
+     * check, summary or clear-voice copy, every queued or interrupted job,
+     * and every meeting open on a meeting screen (OpenMeetings), whose edits
+     * are still to be saved over the stored copy however old that copy is.
      */
     private fun busyIds(context: Context, store: MeetingStore): Set<String> {
         val ids = HashSet<String>(OpenMeetings.ids())
         store.activeId()?.let { ids.add(it) }
         if (ImportService.isRunning) ImportService.currentMeetingId?.let { ids.add(it) }
         if (SummaryService.isRunning) ids.add(SummaryService.currentMeetingId)
+        ClearVoiceService.preparingId()?.let { ids.add(it) }
         for (job in JobQueue.load(context)) {
             if (job.meetingId.isNotBlank()) ids.add(job.meetingId)
         }
@@ -182,7 +184,7 @@ object RetentionRunner {
                     // The stored copy names every photo and attachment.
                     val meeting = store.load(candidate.id) ?: continue
                     if (meeting.starred) continue
-                    bytes += meeting.audioFile?.let { AudioStore.fileFor(context, it).length() } ?: 0L
+                    bytes += AudioStore.bytesWithCopy(context, meeting.audioFile)
                     MeetingAssets.deleteAll(context, meeting)
                     store.delete(meeting.id)
                     count++

@@ -189,10 +189,17 @@ class HomeSelection(
     private fun live(): Boolean = !activity.isFinishing && !activity.isDestroyed
 
     /**
+     * How many of the meetings handed to the latest [prepare] callback have
+     * a clear-voice copy (counted in its bytes). Set on the main thread just
+     * before that callback runs, and read by it.
+     */
+    private var preparedClearVoiceCopies = 0
+
+    /**
      * Works out on [worker] which of the selected meetings [action] may
      * touch, then calls [onReady] on the main thread with them, how many
-     * were left out, and the audio bytes the eligible ones hold. Nothing
-     * happens if the screen went away meanwhile.
+     * were left out, and the audio bytes the eligible ones hold (clear-voice
+     * copies included). Nothing happens if the screen went away meanwhile.
      */
     private fun prepare(
         action: BulkActions.Action,
@@ -205,15 +212,20 @@ class HomeSelection(
             val recordingId = if (RecordingService.isRunning) MeetingStore(app).activeId() else null
             val waiting = AudioRemoval.waitingForAudio(app, meetings.map { it.id })
             val audioBytes = HashMap<String, Long>()
+            val withCopy = HashSet<String>()
             val items = meetings.map { meeting ->
                 val bytes = meeting.audioFile?.let { AudioStore.fileFor(app, it).length() } ?: 0L
-                audioBytes[meeting.id] = bytes
+                // The clear-voice copy goes with the recording (AudioStore.delete).
+                val total = if (bytes > 0L) AudioStore.bytesWithCopy(app, meeting.audioFile) else 0L
+                if (total > bytes) withCopy.add(meeting.id)
+                audioBytes[meeting.id] = total
                 BulkActions.Item(
                     id = meeting.id,
                     hasAudio = bytes > 0L,
                     recording = meeting.id == recordingId,
                     busy = (ImportService.isRunning && ImportService.currentMeetingId == meeting.id) ||
-                        (SummaryService.isRunning && SummaryService.currentMeetingId == meeting.id),
+                        (SummaryService.isRunning && SummaryService.currentMeetingId == meeting.id) ||
+                        ClearVoiceService.isPreparing(meeting.id),
                     queued = meeting.id in waiting,
                     // The list's copy has every transcript line (only word
                     // timings are left out).
@@ -223,11 +235,13 @@ class HomeSelection(
             val split = BulkActions.split(action, items)
             val eligible = meetings.filter { it.id in split.eligible }
             val bytes = eligible.sumOf { audioBytes[it.id] ?: 0L }
+            val copies = eligible.count { it.id in withCopy }
             activity.runOnUiThread {
                 if (!live()) return@runOnUiThread
                 if (eligible.isEmpty()) {
                     Toast.makeText(activity, R.string.storage_bulk_none, Toast.LENGTH_LONG).show()
                 } else {
+                    preparedClearVoiceCopies = copies
                     onReady(eligible, split.skipped.size, bytes)
                 }
             }
@@ -289,7 +303,10 @@ class HomeSelection(
 
     private fun bulkRemoveAudio() {
         prepare(BulkActions.Action.REMOVE_AUDIO) { eligible, skipped, bytes ->
-            AudioRemoval.confirm(activity, eligible.size, bytes, skipped) {
+            AudioRemoval.confirm(
+                activity, eligible.size, bytes, skipped,
+                clearVoiceCopies = preparedClearVoiceCopies
+            ) {
                 val app = activity.applicationContext
                 val ids = eligible.map { it.id }
                 worker.execute {

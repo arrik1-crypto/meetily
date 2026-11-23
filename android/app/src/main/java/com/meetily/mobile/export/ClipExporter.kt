@@ -3,6 +3,7 @@ package com.meetily.mobile.export
 import android.content.Context
 import android.net.Uri
 import com.meetily.mobile.data.AudioStore
+import com.meetily.mobile.data.ClearVoice
 import com.meetily.mobile.whisper.AudioFileDecoder
 import java.io.BufferedOutputStream
 import java.io.File
@@ -27,8 +28,26 @@ object ClipExporter {
      * Blocking (decode runs far above realtime, but call off the main
      * thread). Returns the written WAV, or null if nothing was decodable
      * inside the window.
+     *
+     * [source] is the meeting's recording. With [useEnhanced] the window is
+     * cut from its clear-voice copy instead (ClearVoice), which keeps the
+     * recording's timeline; the meeting screen passes what its player is
+     * playing. Without a copy on disk the recording is used. Either way the
+     * clip is named after the recording, so [deleteFor] finds it.
      */
-    fun export(context: Context, source: File, startMs: Long, endMs: Long): File? {
+    fun export(
+        context: Context,
+        source: File,
+        startMs: Long,
+        endMs: Long,
+        useEnhanced: Boolean = false
+    ): File? {
+        val decodeFrom = if (useEnhanced) {
+            File(source.parentFile, ClearVoice.copyNameFor(source.name)).takeIf { it.length() > 0 }
+                ?: source
+        } else {
+            source
+        }
         val start = startMs.coerceAtLeast(0)
         val end = (if (endMs > start) endMs else start + 10_000L)
             .coerceAtMost(start + MAX_CLIP_MS)
@@ -41,7 +60,7 @@ object ClipExporter {
         try {
             AudioFileDecoder.decode(
                 context,
-                Uri.fromFile(source),
+                Uri.fromFile(decodeFrom),
                 onPcm = { chunk ->
                     val chunkStart = position
                     position += chunk.size

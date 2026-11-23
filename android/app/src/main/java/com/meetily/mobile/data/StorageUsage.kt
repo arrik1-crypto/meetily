@@ -35,7 +35,9 @@ object StorageUsage {
      * Everything Android may clear on its own (cacheDir, codeCacheDir) is a
      * cache, and so are two things that only look like meeting audio: shared
      * clips (export/ClipExporter keeps the last few) and the waveform's
-     * `.peaks` sidecars, both rebuilt from the audio on demand. A file
+     * `.peaks` sidecars, both rebuilt from the audio on demand. Clear-voice
+     * copies (ClearVoice) are audio: minutes of work to make again, and
+     * removed with their recording, so they count where it does. A file
      * directly in filesDir, or in a directory nothing here knows, is OTHER
      * (voice profiles, crash reports), as is the copy of the bundled speech
      * detector in no-backup storage.
@@ -87,22 +89,29 @@ object StorageUsage {
      * One meeting's kept audio, for the largest-meetings list.
      * [hasTranscript] false is a recording not transcribed yet, which
      * removing the audio would leave empty (AudioRemoval.confirm says so).
+     * [clearVoiceBytes] is its clear-voice copy, 0 when none was made.
      */
     data class MeetingAudio(
         val id: String,
         val title: String,
         val audioBytes: Long,
-        val hasTranscript: Boolean
-    )
+        val hasTranscript: Boolean,
+        val clearVoiceBytes: Long = 0L
+    ) {
+        /** What removing the audio frees: the recording and its copy go together. */
+        val removableBytes: Long
+            get() = audioBytes.coerceAtLeast(0L) + clearVoiceBytes.coerceAtLeast(0L)
+    }
 
     /**
-     * The [limit] meetings whose audio takes the most room, largest first.
-     * Meetings with no audio on disk are left out; equal sizes keep a stable
-     * order by id, so the list does not reshuffle between scans.
+     * The [limit] meetings whose audio takes the most room, largest first,
+     * counting each one's clear-voice copy with its recording. Meetings with
+     * no recording on disk are left out; equal sizes keep a stable order by
+     * id, so the list does not reshuffle between scans.
      */
     fun largestByAudio(meetings: List<MeetingAudio>, limit: Int = 5): List<MeetingAudio> =
         meetings.filter { it.audioBytes > 0L }
-            .sortedWith(compareByDescending<MeetingAudio> { it.audioBytes }.thenBy { it.id })
+            .sortedWith(compareByDescending<MeetingAudio> { it.removableBytes }.thenBy { it.id })
             .take(limit.coerceAtLeast(0))
 
     /** The model catalogues, each with its own directory. */

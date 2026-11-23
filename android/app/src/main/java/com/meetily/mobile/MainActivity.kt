@@ -1090,7 +1090,7 @@ class MainActivity : AppCompatActivity() {
             ActionSheet.Item(
                 ACTION_DELETE,
                 getString(R.string.delete_meeting_title),
-                subtitle = if (busy) getString(R.string.meeting_busy_delete) else null,
+                subtitle = if (busy) getString(busyDeleteText(meeting.id)) else null,
                 enabled = !busy,
                 destructive = true,
                 separated = true
@@ -1151,7 +1151,7 @@ class MainActivity : AppCompatActivity() {
                 // Checked again: a job may have started on this meeting while
                 // the dialog was up.
                 if (isBusy(meeting.id)) {
-                    Toast.makeText(this, R.string.meeting_busy_delete, Toast.LENGTH_LONG).show()
+                    Toast.makeText(this, busyDeleteText(meeting.id), Toast.LENGTH_LONG).show()
                     return@setPositiveButton
                 }
                 // The stored copy, not the list's: it names every photo and
@@ -1173,10 +1173,16 @@ class MainActivity : AppCompatActivity() {
     private fun isBusy(meetingId: String): Boolean =
         isRecording(meetingId) ||
             (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
-            (ImportService.isRunning && ImportService.currentMeetingId == meetingId)
+            (ImportService.isRunning && ImportService.currentMeetingId == meetingId) ||
+            ClearVoiceService.isPreparing(meetingId)
 
     private fun isRecording(meetingId: String): Boolean =
         RecordingService.isRunning && store.activeId() == meetingId
+
+    /** Why [isBusy] holds a delete back, in words that name the job. */
+    private fun busyDeleteText(meetingId: String): Int =
+        if (ClearVoiceService.isPreparing(meetingId)) R.string.clearvoice_busy
+        else R.string.meeting_busy_delete
 
     /**
      * True when nothing this app does with a recording would leave the phone

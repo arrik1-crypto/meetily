@@ -45,7 +45,11 @@ object BackupManager {
             // be read twice to precompute a CRC.
             zip.setLevel(Deflater.NO_COMPRESSION)
             addDir(zip, File(context.filesDir, "photos"), PHOTOS) { true }
-            addDir(zip, File(context.filesDir, "audio"), AUDIO) { true }
+            // Not the clear-voice copies (ClearVoice): each is made again
+            // from its recording, which is in the backup, and would add
+            // about 29 MB an hour to it. A restored meeting that names one
+            // plays its recording until the copy is made again.
+            addDir(zip, File(context.filesDir, "audio"), AUDIO) { !ClearVoice.isCopyName(it) }
             addDir(zip, File(context.filesDir, "attachments"), ATTACHMENTS) { true }
             addDir(zip, File(context.filesDir, "voiceprint-audio"), VOICE_AUDIO) { true }
             zip.setLevel(Deflater.DEFAULT_COMPRESSION)
@@ -240,6 +244,7 @@ object BackupManager {
         SafeFiles.isPlainName(fileName) &&
             fileName == "${meeting.id}.json" &&
             (meeting.audioFile == null || SafeFiles.isPlainName(meeting.audioFile)) &&
+            (meeting.clearVoiceFile == null || SafeFiles.isPlainName(meeting.clearVoiceFile)) &&
             meeting.photos.all { SafeFiles.isPlainName(it) } &&
             meeting.attachmentsList.all { SafeFiles.isPlainName(it.file) }
 

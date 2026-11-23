@@ -534,6 +534,12 @@ _SEEDS = {
                              "model_config": "OnlineModelConfig"},
     "speaker-embedding-extractor.cc": {"config": "SpeakerEmbeddingExtractorConfig",
                                        "_config": "SpeakerEmbeddingExtractorConfig"},
+    # The offline denoiser's config readers and DenoisedAudio's constructor
+    # (offline-speech-denoiser.cc itself only calls these). The online
+    # denoiser's reader in the same file takes "config" too; it reads the
+    # same "model" field, so it is checked against the offline class.
+    "speech-denoiser.cc": {"config": "OfflineSpeechDenoiserConfig",
+                           "model": "OfflineSpeechDenoiserModelConfig"},
 }
 _SEED_CLASSES = {"model_config_cls": ("online-recognizer.cc", "OnlineModelConfig")}
 

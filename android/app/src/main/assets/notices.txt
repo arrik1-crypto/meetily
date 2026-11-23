@@ -6,11 +6,11 @@ licences, and where they came from.
 
 Recap's own source is available under the MIT License.
 
-Apart from the small Silero speech detector and ML Kit's text-recognition
-model, both listed in part one, models are not shipped inside the app. They
-are downloaded from the sources listed in part two only when you choose to
-install them. A model's licence is set by its publisher and can change; the
-linked page is authoritative.
+Apart from the small Silero speech detector, the small GTCRN speech enhancer
+and ML Kit's text-recognition model, all listed in part one, models are not
+shipped inside the app. They are downloaded from the sources listed in part
+two only when you choose to install them. A model's licence is set by its
+publisher and can change; the linked page is authoritative.
 
 
 Built with Llama
@@ -39,8 +39,8 @@ sherpa-onnx v2.0.3
     Copyright (c) 2023 Xiaomi Corporation
     https://github.com/k2-fsa/sherpa-onnx
     Included as the native library libsherpa-onnx-jni.so, and as the Kotlin
-    API vendored under com.k2fsa.sherpa.onnx. Runs Parakeet, Nemotron and the
-    speaker-embedding models.
+    API vendored under com.k2fsa.sherpa.onnx. Runs Parakeet, Nemotron, the
+    speaker-embedding models and the GTCRN speech enhancer.
 
 ONNX Runtime 1.28.2
     MIT License
@@ -88,6 +88,16 @@ Silero VAD v6.2
     in the ggml form the whisper.cpp project publishes at
     https://huggingface.co/ggml-org/whisper-vad. Run on the phone through
     whisper.cpp to skip silence and noise before transcription.
+
+GTCRN (gtcrn_simple)
+    MIT License
+    Copyright (c) 2024 Rong Xiaobin
+    https://github.com/Xiaobin-Rong/gtcrn
+    Included in the app as the speech-enhancement model gtcrn_simple.onnx,
+    with the metadata the sherpa-onnx project adds, as published at
+    https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
+    Run on the phone through sherpa-onnx when you ask for a meeting's clear
+    voice copy, for playback and clips.
 
 AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric)
     Apache License 2.0
@@ -389,6 +399,32 @@ MIT License - Silero VAD
 MIT License
 
 Copyright (c) 2020-present Silero Team
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+--------------------------------------------------------------------------------
+MIT License - GTCRN
+--------------------------------------------------------------------------------
+
+MIT License
+
+Copyright (c) 2024 Rong Xiaobin
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

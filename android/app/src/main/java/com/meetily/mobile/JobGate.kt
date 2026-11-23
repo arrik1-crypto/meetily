@@ -160,13 +160,15 @@ object JobGate {
         /** The recording's only transcript; see [JobQueue.Job.firstTranscript]. */
         firstTranscript: Boolean = false,
         /** Spoken language for this run; see [JobQueue.Job.language]. */
-        language: String = ""
+        language: String = "",
+        /** Transcribe the clear-voice copy; see [JobQueue.Job.clearVoice]. */
+        clearVoice: Boolean = false
     ) {
         val app = context.applicationContext
         val job = JobQueue.Job(
             JobQueue.KIND_CHECK, meetingId, modelKey, System.currentTimeMillis(),
             chargingOnly = whenCharging, firstTranscript = firstTranscript,
-            required = required, language = language
+            required = required, language = language, clearVoice = clearVoice
         )
         if (whenCharging && !Power.isCharging(app)) {
             queue(app, job)
@@ -279,6 +281,7 @@ object JobGate {
             if (job.language.isNotBlank()) {
                 intent.putExtra(ImportService.EXTRA_LANGUAGE, job.language)
             }
+            if (job.clearVoice) intent.putExtra(ImportService.EXTRA_CLEAR_VOICE, true)
             pendingStartAt = android.os.SystemClock.elapsedRealtime()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)

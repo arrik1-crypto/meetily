@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Clear voice: a copy of a meeting's audio with the background noise
+         removed on the phone (ClearVoiceService, SpeechEnhancer), switched to
+         from the meeting screen's player bar and used for clips. The
+         recording itself is never changed. -->
+
+    <!-- The player bar's chip, and what a screen reader hears it do. -->
+    <string name="clearvoice_chip">Clear voice</string>
+    <string name="clearvoice_action_make">Make a clear-voice copy</string>
+    <string name="clearvoice_action_play_copy">Play the clear-voice copy</string>
+    <string name="clearvoice_action_play_original">Play the original recording</string>
+    <string name="clearvoice_action_stop">Stop preparing clear voice</string>
+    <!-- The status line beside the chip; %1$d is a percentage. -->
+    <string name="clearvoice_progress">Preparing clear voice… %1$d%%</string>
+    <!-- %1$d is a percentage, %2$s a time such as "12 min". -->
+    <string name="clearvoice_progress_eta">Preparing clear voice… %1$d%%, about %2$s left</string>
+    <!-- Which of the two the player uses, under the chip. -->
+    <string name="clearvoice_using_copy">Using the clear-voice copy</string>
+    <string name="clearvoice_using_original">Using the original recording</string>
+    <string name="clearvoice_other_meeting">Preparing clear voice for another meeting…</string>
+
+    <!-- Asked before a copy is made. -->
+    <string name="clearvoice_confirm_title">Make a clear-voice copy?</string>
+    <string name="clearvoice_confirm_message">Recap removes background noise from this meeting\'s audio, on your phone, and saves the result beside the original recording, which is not changed. Nothing leaves the phone.\n\nYou can switch between the two in the player, and delete the copy at any time. Denoising can make some sounds clipped or muffled, so the transcript is never made from the copy unless you choose it.</string>
+    <!-- Added to the message: %1$s is a size such as "58 MB". -->
+    <string name="clearvoice_confirm_size">The copy takes about %1$s.</string>
+    <!-- Added to the message for a long meeting: %1$s is a length such as "2 h 5 min". -->
+    <string name="clearvoice_confirm_long">This meeting is %1$s long, so the copy can take a while. It keeps going if you leave this screen, and plugging the phone in saves battery.</string>
+    <string name="clearvoice_confirm_start">Make copy</string>
+
+    <!-- Stopping a copy being made. -->
+    <string name="clearvoice_stop_title">Stop preparing clear voice?</string>
+    <string name="clearvoice_stop_message">The part made so far is deleted. The original recording is not affected.</string>
+    <string name="clearvoice_stop">Stop</string>
+    <string name="clearvoice_keep_going">Keep going</string>
+
+    <!-- Deleting the copy (the 48dp button beside the chip). -->
+    <string name="clearvoice_delete">Delete clear-voice copy</string>
+    <string name="clearvoice_delete_title">Delete the clear-voice copy?</string>
+    <!-- %1$s is a size such as "58 MB". -->
+    <string name="clearvoice_delete_message">Deletes this meeting\'s clear-voice copy and frees %1$s. The original recording, the transcript and everything else stay, and you can make the copy again from the player.</string>
+    <string name="clearvoice_deleted">Clear-voice copy deleted</string>
+
+    <!-- How a run ended, and why one could not start. -->
+    <string name="clearvoice_ready">Clear voice is ready. Tap Clear voice in the player to switch.</string>
+    <string name="clearvoice_cancelled">Clear voice stopped. Nothing was kept.</string>
+    <string name="clearvoice_failed">Could not make the clear-voice copy. The original recording is unchanged.</string>
+    <string name="clearvoice_no_space">Not enough free space for the clear-voice copy. Free some space and try again.</string>
+    <string name="clearvoice_timed_out">Clear voice stopped: Android limits how long apps may process media each day. Nothing was kept; try again later.</string>
+    <string name="clearvoice_gone">This meeting\'s audio was removed or replaced, so no clear-voice copy was kept.</string>
+    <string name="clearvoice_blocked_recording">Clear voice can be prepared once the recording has finished.</string>
+    <string name="clearvoice_blocked_other">Clear voice is being prepared for another meeting. Try again when it has finished.</string>
+    <string name="clearvoice_blocked_busy">This meeting is being recorded, transcribed or summarized. Try again once that has finished.</string>
+    <string name="clearvoice_busy">Clear voice is being prepared for this meeting. Stop it from the player, or try again when it has finished.</string>
+
+    <!-- The foreground notification while a copy is made, and after. -->
+    <string name="clearvoice_channel">Clear voice</string>
+    <string name="clearvoice_notif_title">Preparing clear voice</string>
+    <string name="clearvoice_notif_ready">Clear voice ready</string>
+    <string name="clearvoice_notif_not_made">Clear voice not made</string>
+
+    <!-- Under Remove audio's question when the meetings have copies. -->
+    <plurals name="clearvoice_remove_audio_note">
+        <item quantity="one">This includes %1$d clear-voice copy, which goes with its recording.</item>
+        <item quantity="other">This includes %1$d clear-voice copies, which go with their recordings.</item>
+    </plurals>
+
+    <!-- The accuracy check's opt-in, shown only when a copy exists. -->
+    <string name="clearvoice_check_use_copy">Transcribe the clear-voice copy instead</string>
+    <string name="clearvoice_check_use_copy_note">Off unless you tick it. Denoising can remove parts of words, so the copy may transcribe worse than the original. You compare the result before anything changes.</string>
+    <string name="clearvoice_check_unavailable">The clear-voice copy is no longer available. Check the original recording instead.</string>
+</resources>

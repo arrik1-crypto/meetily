@@ -138,7 +138,15 @@ data class Meeting(
      * The transcript came from Whisper's translate task, so its text is
      * English whatever [language] says. Summaries follow the text.
      */
-    var translated: Boolean = false
+    var translated: Boolean = false,
+    /**
+     * Filename in AudioStore of the clear-voice copy of [audioFile]: the
+     * recording with background noise removed on the phone, for playback
+     * and clips (ClearVoice). Written only once the copy is complete, and
+     * playable only while it still belongs to [audioFile]
+     * (ClearVoice.copyOf); the recording itself is never replaced.
+     */
+    var clearVoiceFile: String? = null
 ) {
     /**
      * True for a copy read by MeetingStore's light listings, which leave out
@@ -215,6 +223,9 @@ data class Meeting(
         obj.put("photos", photosArr)
         if (!audioFile.isNullOrBlank()) {
             obj.put("audioFile", audioFile)
+        }
+        if (!clearVoiceFile.isNullOrBlank()) {
+            obj.put("clearVoiceFile", clearVoiceFile)
         }
         if (tags.isNotEmpty()) {
             val tagsArr = JSONArray()
@@ -394,6 +405,8 @@ data class Meeting(
                 if (name.isNotBlank()) meeting.photos.add(name)
             }
             meeting.audioFile = obj.optString("audioFile", "").ifBlank { null }
+            // Absent before clear voice existed: no copy, which is the truth.
+            meeting.clearVoiceFile = obj.optString("clearVoiceFile", "").ifBlank { null }
             val tagsArr = obj.optJSONArray("tags") ?: JSONArray()
             for (i in 0 until tagsArr.length()) {
                 val tag = tagsArr.optString(i, "")

@@ -3,6 +3,9 @@ package com.meetily.mobile.whisper
 import com.k2fsa.sherpa.onnx.FeatureConfig
 import com.k2fsa.sherpa.onnx.OfflineModelConfig
 import com.k2fsa.sherpa.onnx.OfflineRecognizerConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserGtcrnModelConfig
+import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiserModelConfig
 import com.k2fsa.sherpa.onnx.OfflineTransducerModelConfig
 import com.k2fsa.sherpa.onnx.OnlineModelConfig
 import com.k2fsa.sherpa.onnx.OnlineRecognizerConfig
@@ -82,5 +85,21 @@ object SherpaConfigs {
         numThreads = 2,
         debug = false,
         provider = "cpu"
+    )
+
+    /**
+     * The bundled GTCRN speech enhancer (SpeechEnhancer), with DPDFNet and
+     * VoxLock left empty. One thread: GTCRN runs one small graph per 16 ms
+     * frame, and on host one thread was the fastest (RTF 0.042, against
+     * 0.048 with two or four). It also keeps the work on the calling
+     * thread, whose background priority then applies to it.
+     */
+    fun denoiser(modelPath: String) = OfflineSpeechDenoiserConfig(
+        model = OfflineSpeechDenoiserModelConfig(
+            gtcrn = OfflineSpeechDenoiserGtcrnModelConfig(model = modelPath),
+            numThreads = 1,
+            debug = false,
+            provider = "cpu"
+        )
     )
 }

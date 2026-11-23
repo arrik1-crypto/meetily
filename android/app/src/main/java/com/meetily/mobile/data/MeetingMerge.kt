@@ -134,6 +134,9 @@ object MeetingMerge {
             },
             photos = pick(base.photos, ours.photos, disk.photos).toMutableList(),
             audioFile = pick(base.audioFile, ours.audioFile, disk.audioFile),
+            // Made in the background (ClearVoiceService), deleted from the
+            // meeting screen: whichever side changed it since base wins.
+            clearVoiceFile = pick(base.clearVoiceFile, ours.clearVoiceFile, disk.clearVoiceFile),
             tags = pick(base.tags, ours.tags, disk.tags).toMutableList(),
             chapters = pick(base.chapters, ours.chapters, disk.chapters).toMutableList(),
             photoTexts = pick(base.photoTexts, ours.photoTexts, disk.photoTexts).toMutableMap(),

@@ -27,88 +27,140 @@
         android:paddingBottom="48dp"
         android:scrollbars="none" />
 
-    <!-- Audio player bar; visible only when the meeting kept its audio. -->
+    <!-- Audio player bar; visible only when the meeting kept its audio. The
+         transport row, then the clear-voice row (shown with the bar). -->
     <LinearLayout
         android:id="@+id/playerBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="?attr/colorSurface"
         android:elevation="8dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="8dp"
-        android:paddingEnd="16dp"
+        android:orientation="vertical"
         android:paddingTop="4dp"
         android:paddingBottom="4dp"
         android:visibility="gone">
 
-        <ImageButton
-            android:id="@+id/playPauseButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/play_audio"
-            android:src="@drawable/ic_play"
-            app:tint="?attr/colorPrimary" />
-
-        <SeekBar
-            android:id="@+id/playerSeek"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="16dp">
 
-        <TextView
-            android:id="@+id/playerTime"
-            android:layout_width="wrap_content"
+            <ImageButton
+                android:id="@+id/playPauseButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/play_audio"
+                android:src="@drawable/ic_play"
+                app:tint="?attr/colorPrimary" />
+
+            <SeekBar
+                android:id="@+id/playerSeek"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1" />
+
+            <TextView
+                android:id="@+id/playerTime"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurfaceVariant" />
+
+            <!-- Cycles 1× → 1.25× → 1.5× → 2× → 3× → 0.5× -->
+            <TextView
+                android:id="@+id/playerSpeed"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="10dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:gravity="center"
+                android:minWidth="48dp"
+                android:textAppearance="?attr/textAppearanceLabelLarge"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold" />
+
+            <!-- Cycles off → +4 → +8 → +12 dB above the system volume ceiling. -->
+            <TextView
+                android:id="@+id/playerBoost"
+                android:layout_width="wrap_content"
+                android:layout_height="48dp"
+                android:layout_marginStart="6dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/playback_boost"
+                android:gravity="center"
+                android:minWidth="48dp"
+                android:textAppearance="?attr/textAppearanceLabelLarge"
+                android:textColor="?attr/colorPrimary"
+                android:textStyle="bold" />
+
+            <!-- Follow-along: highlights and scrolls the transcript with playback. -->
+            <ImageButton
+                android:id="@+id/followButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/follow_playback"
+                android:src="@drawable/ic_follow"
+                app:tint="?attr/colorOnSurfaceVariant" />
+
+            <!-- Skip-silence toggle: jumps playback over non-speech stretches. -->
+            <ImageButton
+                android:id="@+id/skipSilenceButton"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/skip_silence"
+                android:src="@drawable/ic_skip_silence"
+                app:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
+
+        <!-- Clear voice: the chip switches between the recording and its
+             clear-voice copy (or makes one), the line says what is playing
+             or how far the copy is, and the button deletes the copy. -->
+        <LinearLayout
+            android:id="@+id/clearVoiceRow"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:textAppearance="?attr/textAppearanceLabelMedium"
-            android:textColor="?attr/colorOnSurfaceVariant" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:visibility="gone">
 
-        <!-- Cycles 1× → 1.25× → 1.5× → 2× → 3× → 0.5× -->
-        <TextView
-            android:id="@+id/playerSpeed"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_marginStart="10dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:gravity="center"
-            android:minWidth="48dp"
-            android:textAppearance="?attr/textAppearanceLabelLarge"
-            android:textColor="?attr/colorPrimary"
-            android:textStyle="bold" />
+            <TextView
+                android:id="@+id/clearVoiceChip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:maxLines="1"
+                android:text="@string/clearvoice_chip"
+                android:textAppearance="?attr/textAppearanceLabelLarge"
+                android:textColor="?attr/colorOnSurface" />
 
-        <!-- Cycles off → +4 → +8 → +12 dB above the system volume ceiling. -->
-        <TextView
-            android:id="@+id/playerBoost"
-            android:layout_width="wrap_content"
-            android:layout_height="48dp"
-            android:layout_marginStart="6dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/playback_boost"
-            android:gravity="center"
-            android:minWidth="48dp"
-            android:textAppearance="?attr/textAppearanceLabelLarge"
-            android:textColor="?attr/colorPrimary"
-            android:textStyle="bold" />
+            <TextView
+                android:id="@+id/clearVoiceStatus"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_weight="1"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textAppearance="?attr/textAppearanceLabelMedium"
+                android:textColor="?attr/colorOnSurfaceVariant" />
 
-        <!-- Follow-along: highlights and scrolls the transcript with playback. -->
-        <ImageButton
-            android:id="@+id/followButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/follow_playback"
-            android:src="@drawable/ic_follow"
-            app:tint="?attr/colorOnSurfaceVariant" />
-
-        <!-- Skip-silence toggle: jumps playback over non-speech stretches. -->
-        <ImageButton
-            android:id="@+id/skipSilenceButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/skip_silence"
-            android:src="@drawable/ic_skip_silence"
-            app:tint="?attr/colorOnSurfaceVariant" />
+            <ImageButton
+                android:id="@+id/clearVoiceDelete"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="@string/clearvoice_delete"
+                android:src="@drawable/ic_delete"
+                android:visibility="gone"
+                app:tint="?attr/colorOnSurfaceVariant" />
+        </LinearLayout>
     </LinearLayout>
 </LinearLayout>

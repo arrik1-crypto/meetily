@@ -95,7 +95,12 @@ object JobQueue {
          * or "auto" to detect even when Settings pins one). Blank means no
          * choice was made and the Settings value applies when it runs.
          */
-        val language: String = ""
+        val language: String = "",
+        /**
+         * Check only: transcribe the meeting's clear-voice copy instead of
+         * its recording, which the user chose explicitly (ClearVoice).
+         */
+        val clearVoice: Boolean = false
     )
 
     /**
@@ -211,7 +216,9 @@ object JobQueue {
                 auto = o.optBoolean("auto"),
                 // Absent in older rows; blank is "use the setting", which
                 // is what every run did before the choice existed.
-                language = o.optString("language")
+                language = o.optString("language"),
+                // Absent in older rows: the recording, as before.
+                clearVoice = o.optBoolean("clearVoice")
             )
         }
     } catch (_: Exception) {
@@ -235,6 +242,7 @@ object JobQueue {
                     .put("required", job.required)
                     .put("auto", job.auto)
                     .put("language", job.language)
+                    .put("clearVoice", job.clearVoice)
             )
         }
         prefs(context).edit().putString("jobs", array.toString()).apply()

@@ -7,14 +7,15 @@ import androidx.annotation.WorkerThread
 import androidx.appcompat.app.AlertDialog
 import com.meetily.mobile.data.AudioStore
 import com.meetily.mobile.data.JobQueue
+import com.meetily.mobile.data.MeetingAssets
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.TranscriptDraft
 import com.meetily.mobile.export.ClipExporter
 
 /**
  * "Remove audio (keep transcript)": a meeting's recording goes, with its
- * waveform cache and every clip cut from it, and everything else stays —
- * transcript, summary, notes, photos, attachments.
+ * waveform cache, its clear-voice copy and every clip cut from it, and
+ * everything else stays — transcript, summary, notes, photos, attachments.
  *
  * Shared by the meeting's menu (MeetingDetailActivity, whose own copy also
  * drops the reference through its merge save), the Storage screen's largest
@@ -28,12 +29,15 @@ object AudioRemoval {
     /**
      * True when a recording, import, accuracy check or summary is writing
      * [meetingId] right now. Their next write would put the audio reference
-     * back (RecordingService and ImportService write it on every save).
+     * back (RecordingService and ImportService write it on every save). A
+     * clear-voice copy being made counts too: it reads the recording and
+     * writes the copy's reference when it ends (ClearVoiceService).
      */
     fun isWriting(context: Context, meetingId: String): Boolean =
         (RecordingService.isRunning && MeetingStore(context).activeId() == meetingId) ||
             (ImportService.isRunning && ImportService.currentMeetingId == meetingId) ||
-            (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId)
+            (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
+            ClearVoiceService.isPreparing(meetingId)
 
     /**
      * Meetings whose audio something is still waiting for: a queued or
@@ -62,12 +66,25 @@ object AudioRemoval {
         isWriting(context, meetingId) || meetingId in waitingForAudio(context, listOf(meetingId))
 
     /**
+     * True when the clear-voice copy of [meetingId] may not be deleted right
+     * now: something is writing the meeting (an accuracy check running on
+     * the copy among them), or a queued or interrupted check is to
+     * transcribe the copy. Reads the job queue once.
+     */
+    fun copyInUse(context: Context, meetingId: String): Boolean =
+        isWriting(context, meetingId) || JobQueue.load(context).any {
+            it.kind == JobQueue.KIND_CHECK && it.meetingId == meetingId && it.clearVoice
+        }
+
+    /**
      * Asks before removing the audio of [count] meetings, freeing [bytes],
      * and says exactly what stops working. [skipped] selected meetings the
      * removal does not apply to are named as left out. [untranscribed] is
      * one meeting with no transcript yet, whose recording is all it holds:
      * the question then says so instead of promising a transcript is kept.
      * (Multi-select and the automatic clean-up leave such meetings out.)
+     * [clearVoiceCopies] of the meetings have a clear-voice copy, which goes
+     * with the recording and is counted in [bytes]; the question says so.
      * [onConfirm] runs on the main thread.
      */
     fun confirm(
@@ -76,6 +93,7 @@ object AudioRemoval {
         bytes: Long,
         skipped: Int = 0,
         untranscribed: Boolean = false,
+        clearVoiceCopies: Int = 0,
         onConfirm: () -> Unit
     ) {
         val size = Formatter.formatShortFileSize(activity, bytes.coerceAtLeast(0L))
@@ -91,6 +109,11 @@ object AudioRemoval {
             else R.string.storage_remove_audio_message,
             size
         )
+        if (clearVoiceCopies > 0) {
+            message += "\n\n" + activity.resources.getQuantityString(
+                R.plurals.clearvoice_remove_audio_note, clearVoiceCopies, clearVoiceCopies
+            )
+        }
         if (skipped > 0) {
             message += "\n\n" + activity.resources.getQuantityString(
                 R.plurals.storage_bulk_skipped, skipped, skipped
@@ -119,6 +142,7 @@ object AudioRemoval {
     fun remove(context: Context, store: MeetingStore, meetingId: String): Long {
         if (isBlocked(context, meetingId)) return -1L
         var name: String? = null
+        var copy: String? = null
         // Written only when there is a reference to clear, so a meeting with
         // none keeps its file time (the clean-up's "changed recently").
         val saved = store.mutateIf(meetingId) { meeting ->
@@ -127,27 +151,35 @@ object AudioRemoval {
                 false
             } else {
                 name = audio
+                copy = meeting.clearVoiceFile
                 meeting.audioFile = null
+                // The clear-voice copy is made from the recording and goes
+                // with it (deleteFiles).
+                meeting.clearVoiceFile = null
                 true
             }
         }
         val removed = name
         if (!saved || removed.isNullOrBlank()) return -1L
-        return deleteFiles(context, removed)
+        return deleteFiles(context, removed, copy)
     }
 
     /**
-     * Deletes the audio file [name], its waveform sidecar and the clips cut
-     * from it. Returns the bytes the audio file held. Call once nothing
-     * refers to [name] any more.
+     * Deletes the audio file [name], its waveform sidecar, its clear-voice
+     * copy and the clips cut from either. Returns the bytes the recording
+     * and the copy held. [clearVoiceFile] is the copy the meeting named,
+     * when it was not made from [name] (ClearVoice.copyOf): it goes too.
+     * Call once nothing refers to [name] any more.
      */
     @WorkerThread
-    fun deleteFiles(context: Context, name: String): Long {
-        val bytes = AudioStore.fileFor(context, name).length()
+    fun deleteFiles(context: Context, name: String, clearVoiceFile: String? = null): Long {
+        val bytes = AudioStore.bytesWithCopy(context, name)
         // Clips are named after the audio file, so they go while the name is
         // still in hand (see MeetingAssets.deleteAll).
         ClipExporter.deleteFor(context, name)
+        // Also the copy named after it (AudioStore.delete).
         AudioStore.delete(context, name)
+        MeetingAssets.deleteStaleClearVoice(context, name, clearVoiceFile)
         return bytes
     }
 }

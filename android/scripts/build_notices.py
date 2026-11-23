@@ -7,8 +7,9 @@ copy of the License, and MIT on reproducing its notice exactly. Retyping is
 how those stop being verbatim.
 
 Run this after bumping a native pin in app/src/main/cpp/CMakeLists.txt, the
-sherpa-onnx version in scripts/fetch_sherpa_libs.sh or the bundled Silero VAD
-model (SILERO_VER below), then commit the result. Needs network access.
+sherpa-onnx version in scripts/fetch_sherpa_libs.sh, the bundled Silero VAD
+model (SILERO_VER below) or the bundled GTCRN speech enhancer (GTCRN_REV), then
+commit the result. Needs network access.
 
     python3 android/scripts/build_notices.py
 
@@ -54,6 +55,11 @@ KLEIDIAI_VER = "v1.32.0"
 # The Silero VAD release whose weights app/src/main/assets/ggml-silero-v6.2.0.bin
 # carries (whisper.cpp's ggml conversion; SileroAssetTest pins its bytes).
 SILERO_VER = "v6.2"
+# The GTCRN commit whose LICENSE covers app/src/main/assets/gtcrn_simple.onnx
+# (the model from that repository's stream/onnx_models, with the metadata
+# sherpa-onnx adds; SpeechEnhanceAssetTest pins its bytes). The only commit
+# that has touched LICENSE.
+GTCRN_REV = "faf210c9309fcf11c150f8732c40551b202a5838"
 
 # ScanCode keeps plain-text copies of licences that are only published as web
 # pages. Each file opens with YAML front matter, stripped before use.
@@ -68,6 +74,7 @@ SOURCES = {
     "mit_ort": "https://raw.githubusercontent.com/microsoft/onnxruntime/main/LICENSE",
     "mit_openai": "https://raw.githubusercontent.com/openai/whisper/main/LICENSE",
     "mit_silero": f"https://raw.githubusercontent.com/snakers4/silero-vad/{SILERO_VER}/LICENSE",
+    "mit_gtcrn": f"https://raw.githubusercontent.com/Xiaobin-Rong/gtcrn/{GTCRN_REV}/LICENSE",
     "llama3_2": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_2/LICENSE",
     "llama3_1": "https://raw.githubusercontent.com/meta-llama/llama-models/main/models/llama3_1/LICENSE",
     "gemma": SCANCODE + "gemma-tou-2025-03-24.LICENSE",
@@ -99,11 +106,11 @@ licences, and where they came from.
 
 Recap's own source is available under the MIT License.
 
-Apart from the small Silero speech detector and ML Kit's text-recognition
-model, both listed in part one, models are not shipped inside the app. They
-are downloaded from the sources listed in part two only when you choose to
-install them. A model's licence is set by its publisher and can change; the
-linked page is authoritative.
+Apart from the small Silero speech detector, the small GTCRN speech enhancer
+and ML Kit's text-recognition model, all listed in part one, models are not
+shipped inside the app. They are downloaded from the sources listed in part
+two only when you choose to install them. A model's licence is set by its
+publisher and can change; the linked page is authoritative.
 
 
 Built with Llama
@@ -132,8 +139,8 @@ sherpa-onnx {SHERPA_VER}
     Copyright (c) 2023 Xiaomi Corporation
     https://github.com/k2-fsa/sherpa-onnx
     Included as the native library libsherpa-onnx-jni.so, and as the Kotlin
-    API vendored under com.k2fsa.sherpa.onnx. Runs Parakeet, Nemotron and the
-    speaker-embedding models.
+    API vendored under com.k2fsa.sherpa.onnx. Runs Parakeet, Nemotron, the
+    speaker-embedding models and the GTCRN speech enhancer.
 
 ONNX Runtime {ORT_VER}
     MIT License
@@ -181,6 +188,16 @@ Silero VAD {SILERO_VER}
     in the ggml form the whisper.cpp project publishes at
     https://huggingface.co/ggml-org/whisper-vad. Run on the phone through
     whisper.cpp to skip silence and noise before transcription.
+
+GTCRN (gtcrn_simple)
+    MIT License
+    Copyright (c) 2024 Rong Xiaobin
+    https://github.com/Xiaobin-Rong/gtcrn
+    Included in the app as the speech-enhancement model gtcrn_simple.onnx,
+    with the metadata the sherpa-onnx project adds, as published at
+    https://github.com/k2-fsa/sherpa-onnx/releases/tag/speech-enhancement-models
+    Run on the phone through sherpa-onnx when you ask for a meeting's clear
+    voice copy, for playback and clips.
 
 AndroidX (core-ktx, appcompat, constraintlayout, recyclerview, biometric)
     Apache License 2.0
@@ -557,6 +574,8 @@ def main() -> int:
         texts["mit_openai"],
         rule("MIT License - Silero VAD"),
         texts["mit_silero"],
+        rule("MIT License - GTCRN"),
+        texts["mit_gtcrn"],
         rule(
             "Apache License 2.0 - sherpa-onnx, Arm KleidiAI, AndroidX, Material Components, Kotlin"
         ).rstrip("\n") + "\n",

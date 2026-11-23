@@ -26,11 +26,25 @@ object MeetingAssets {
         // Shared clips are cut from the audio file and named after it, so
         // they go first, while the name is still in hand.
         com.meetily.mobile.export.ClipExporter.deleteFor(context, meeting.audioFile)
-        // Also removes the .peaks waveform sidecar.
+        // Also removes the .peaks waveform sidecar and the clear-voice copy
+        // named after the recording.
         AudioStore.delete(context, meeting.audioFile)
+        deleteStaleClearVoice(context, meeting.audioFile, meeting.clearVoiceFile)
         TranscriptDraft.delete(context, meeting.id)
         // Staged speaker names, left behind when the meeting is deleted
         // before its suggestions were reviewed.
         SpeakerSuggestions.delete(context, meeting.id)
+    }
+
+    /**
+     * Deletes [clearVoiceFile] when it is a clear-voice copy that was not
+     * made from [audioFile] (one AudioStore.delete would not find by name),
+     * such as a copy left from an earlier recording. Only a copy's name is
+     * ever taken, so stored data cannot point this at any other file.
+     */
+    fun deleteStaleClearVoice(context: Context, audioFile: String?, clearVoiceFile: String?) {
+        if (clearVoiceFile.isNullOrBlank() || !ClearVoice.isCopyName(clearVoiceFile)) return
+        if (ClearVoice.copyOf(audioFile, clearVoiceFile) != null) return
+        AudioStore.fileFor(context, clearVoiceFile).delete()
     }
 }

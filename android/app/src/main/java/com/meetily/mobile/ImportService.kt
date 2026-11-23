@@ -88,6 +88,9 @@ class ImportService : Service() {
     /** This run is giving an audio-only recording its first transcript. */
     private var firstTranscript = false
 
+    /** This check transcribes the meeting's clear-voice copy; see [EXTRA_CLEAR_VOICE]. */
+    private var clearVoice = false
+
     /**
      * Set by onTimeout. The instance is finished for good: the worker is
      * unwinding and must be allowed to land before anything else runs here.
@@ -198,6 +201,7 @@ class ImportService : Service() {
                     .ifBlank { getString(R.string.import_title) }
                 modelKey = intent.getStringExtra(EXTRA_MODEL)
                 language = intent.getStringExtra(EXTRA_LANGUAGE)?.takeIf { it.isNotBlank() }
+                clearVoice = recheckMeetingId != null && intent.getBooleanExtra(EXTRA_CLEAR_VOICE, false)
                 createChannel()
                 startForegroundCompat(buildNotification(0))
                 // Whisper or NeMo is about to load. An idle on-device LLM from
@@ -309,6 +313,7 @@ class ImportService : Service() {
                     firstTranscript = firstTranscript,
                     adoptFile = adoptFile,
                     language = language,
+                    clearVoice = clearVoice,
                     onMeetingCreated = { id ->
                         currentMeetingId = id
                         adoptFile?.let {
@@ -783,6 +788,11 @@ class ImportService : Service() {
          * or "auto" to detect even when Settings pins one. Absent: Settings.
          */
         const val EXTRA_LANGUAGE = "spoken_language"
+        /**
+         * Accuracy checks only: transcribe the meeting's clear-voice copy
+         * rather than its recording. Only ever set by an explicit choice.
+         */
+        const val EXTRA_CLEAR_VOICE = "clear_voice"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45

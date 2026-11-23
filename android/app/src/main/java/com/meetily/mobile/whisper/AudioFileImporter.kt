@@ -86,6 +86,12 @@ class AudioFileImporter(
          * even when Settings pins one, a code pins it. See MeetingLanguage.
          */
         language: String? = null,
+        /**
+         * Recheck only: decode the meeting's clear-voice copy instead of its
+         * recording (ClearVoice), as the user chose. The words still point
+         * into the recording, which the copy keeps the timeline of.
+         */
+        clearVoice: Boolean = false,
         /** Fires as soon as the target meeting id is known. */
         onMeetingCreated: ((String) -> Unit)? = null,
         /** [detail] is a human-readable "how far, how much longer" line. */
@@ -117,6 +123,12 @@ class AudioFileImporter(
             }
             if (recheckTarget.audioFile.isNullOrBlank()) {
                 throw ImportException("No audio was kept for this meeting")
+            }
+            if (clearVoice && AudioStore.clearVoiceCopy(
+                    context, recheckTarget.audioFile, recheckTarget.clearVoiceFile
+                ) == null
+            ) {
+                throw ImportException("The clear-voice copy is no longer available")
             }
         }
         val recheck = recheckTarget != null
@@ -328,7 +340,14 @@ class AudioFileImporter(
                 meeting.audioFile = null
             }
         }
-        val decodeUri = meeting.audioFile?.let {
+        // Checked above to exist, when asked for; it plays and decodes on
+        // the recording's timeline.
+        val clearCopy = if (recheck && clearVoice) {
+            AudioStore.clearVoiceCopy(context, recheckTarget?.audioFile, recheckTarget?.clearVoiceFile)
+        } else {
+            null
+        }
+        val decodeUri = clearCopy?.let { Uri.fromFile(it) } ?: meeting.audioFile?.let {
             Uri.fromFile(AudioStore.fileFor(context, it))
         } ?: uri
 
