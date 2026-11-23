@@ -6,6 +6,7 @@ import java.io.ByteArrayOutputStream
 import java.io.EOFException
 import java.io.File
 import java.io.IOException
+import java.io.InputStream
 import java.nio.file.Files
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -215,6 +216,66 @@ class TarExtractTest {
     fun stopsWhenCancelled() {
         try {
             extract(tar(file("model/meta.json", "{}")), cancelled = { true })
+            fail("not cancelled")
+        } catch (_: InterruptedException) {
+        }
+    }
+
+    @Test
+    fun refusesAnUnwantedEntryOverItsCapBeforeReadingIt() {
+        // A header alone: the cap is checked before a byte of the entry is read.
+        val over = header("model/en.wav", TarExtract.MAX_OTHER_BYTES + 1, '0', posix = false)
+        assertUnsafe(over)
+        val dirOver = header("model/", TarExtract.MAX_OTHER_BYTES + 1, '5', posix = false)
+        assertUnsafe(dirOver)
+        // A global pax record is header data, held to the same cap as the others.
+        assertUnsafe(header("pax", 64L * 1024 + 1, 'g', posix = true))
+        // At the cap, an unwanted entry is read past (the archive then ends early here).
+        try {
+            extract(header("model/en.wav", TarExtract.MAX_OTHER_BYTES, '0', posix = false))
+            fail("an archive ending inside an entry was accepted")
+        } catch (_: EOFException) {
+        }
+    }
+
+    /** Counts the bytes [extract] takes from [bytes]. */
+    private class Counting(bytes: ByteArray) : InputStream() {
+        private val inner = ByteArrayInputStream(bytes)
+        var read = 0L
+
+        override fun read(): Int = inner.read().also { if (it >= 0) read++ }
+
+        override fun read(b: ByteArray, off: Int, len: Int): Int =
+            inner.read(b, off, len).also { if (it > 0) read += it }
+    }
+
+    @Test
+    fun aCancelIsHeardWhileAnUnwantedEntryIsReadPast() {
+        val big = ByteArray(1024 * 1024)
+        val bytes = tar(Triple("model/en.wav", '0', big), file("model/meta.json", "{}"))
+        val input = Counting(bytes)
+        var asked = 0
+        try {
+            // Not at the first header; from the next question on.
+            TarExtract.extract(input, out, wanted, cancelled = { asked++ > 0 })
+            fail("not cancelled")
+        } catch (_: InterruptedException) {
+        }
+        // Stopped inside the entry, not at the header after it.
+        assertTrue("read ${input.read} bytes", input.read < 512L + big.size)
+        assertFalse(File(out, "meta.json").exists())
+    }
+
+    @Test
+    fun aCancelIsHeardWhileAWantedFileIsWritten() {
+        val bytes = tar(file("model/lexicon.txt", "x".repeat(1000)))
+        var asked = 0
+        try {
+            TarExtract.extract(
+                ByteArrayInputStream(bytes), out,
+                listOf(TarExtract.Wanted("lexicon.txt", 1024)),
+                cancelled = { asked++ > 0 }
+            )
             fail("not cancelled")
         } catch (_: InterruptedException) {
         }

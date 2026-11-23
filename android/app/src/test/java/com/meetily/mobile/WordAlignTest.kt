@@ -103,6 +103,49 @@ class WordAlignTest {
     }
 
     @Test
+    fun theMenuAndTheRunTakeTheSameLines() {
+        // An untimed cue of symbols only: nothing to align, so neither the
+        // menu (AlignUi.offersAll asks needsRetime) nor the run takes it.
+        val cue = line("\u266A\u266A")
+        assertFalse(WordAlign.needsRetime(cue))
+        assertFalse(WordAlign.offersLine(cue, unknownOffered = true))
+        assertEquals(emptyList<Int>(), WordAlign.linesToRetime(listOf(cue, line("— …", stamp = 2))))
+    }
+
+    @Test
+    fun oneLineIsOfferedWhenItsTimingsMayHaveBeenEstimatedBeforeTheFlag() {
+        val words = listOf(WordStamp(0, "Hello"), WordStamp(300, "John"))
+        // Timings of unknown origin: the recogniser's, or a Find & replace
+        // saved before lines carried the flag. Offered one line at a time
+        // when the meeting could be re-timed, never taken in bulk.
+        val unknown = line("Hello John", words = words)
+        assertTrue(WordAlign.offersLine(unknown, unknownOffered = true))
+        assertFalse(WordAlign.offersLine(unknown, unknownOffered = false))
+        assertFalse(WordAlign.needsRetime(unknown))
+        // Estimated or missing: offered whatever the meeting (a tap explains).
+        val estimated = line("Hello John", words = words, times = WordTimes.ESTIMATED)
+        assertTrue(WordAlign.offersLine(estimated, unknownOffered = false))
+        assertTrue(WordAlign.offersLine(line("Hello John"), unknownOffered = false))
+        // Re-timed already: not offered until an edit estimates it again.
+        val aligned = line("Hello John", words = words, times = WordTimes.ALIGNED)
+        assertFalse(WordAlign.offersLine(aligned, unknownOffered = true))
+        // No place in the recording, or nothing to align.
+        assertFalse(WordAlign.offersLine(line("Hello John", audioMs = null, words = words), unknownOffered = true))
+        assertFalse(WordAlign.offersLine(line("— …", words = words), unknownOffered = true))
+    }
+
+    @Test
+    fun linesOfUnknownOriginAreOfferedInMeetingsThatCouldBeRetimed() {
+        assertTrue(WordAlign.mayRetimeUnknown(true, WordAlign.Speech.ENGLISH))
+        // The user is asked whether it is English.
+        assertTrue(WordAlign.mayRetimeUnknown(true, WordAlign.Speech.UNKNOWN))
+        // Every line would only say why it cannot run.
+        assertFalse(WordAlign.mayRetimeUnknown(true, WordAlign.Speech.OTHER))
+        assertFalse(WordAlign.mayRetimeUnknown(true, WordAlign.Speech.TRANSLATED))
+        assertFalse(WordAlign.mayRetimeUnknown(false, WordAlign.Speech.ENGLISH))
+    }
+
+    @Test
     fun linesToRetimeAreTheIndicesInOrder() {
         val timed = listOf(WordStamp(0, "fine"))
         val segments = listOf(

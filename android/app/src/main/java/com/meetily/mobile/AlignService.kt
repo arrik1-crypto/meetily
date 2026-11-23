@@ -25,7 +25,6 @@ import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.WordAlign
 import com.meetily.mobile.whisper.AlignerModels
 import com.meetily.mobile.whisper.AudioFileDecoder
-import java.io.File
 import java.util.concurrent.CopyOnWriteArraySet
 
 /**
@@ -56,12 +55,14 @@ import java.util.concurrent.CopyOnWriteArraySet
  * edited meanwhile simply keeps its edit, because results are matched to
  * lines by their wording when they are saved (WordAlign.apply).
  *
- * Results are saved through the store's lock onto what is stored, and
- * handed to the meeting screen when it shows the meeting, which applies
- * them to its own copy by the same rule and saves through its merge
- * (MeetingDetailActivity.persist), so neither a screen edit nor a result
- * is lost. A trashed or deleted meeting is not in the store, and is not
- * written.
+ * Results are saved through the store's lock onto what is stored, after
+ * each pass through the recording (so a run ended part-way keeps what it
+ * measured), and all of them are handed to the meeting screen at the end
+ * when it shows the meeting, which applies them to its own copy by the
+ * same rule and saves through its merge (MeetingDetailActivity.persist),
+ * so neither a screen edit nor a result is lost. A trashed or deleted
+ * meeting is not in the store, and is not written. The recording is
+ * opened once for the whole run (AudioFileDecoder.Reader).
  */
 class AlignService : Service() {
 
@@ -268,45 +269,67 @@ class AlignService : Service() {
         } catch (_: Throwable) {
             return Outcome(Result.LOAD_FAILED, skipped = skipped, total = indices.size)
         }
+        // Every result, for the meeting screen's copy (Outcome.retimed).
         val retimed = ArrayList<WordAlign.Retimed>(jobs.size)
         var unaligned = 0
+        var saved = 0
+        // The recording, opened once for every pass: opening raw ADTS walks
+        // the whole file (AudioFileDecoder.Reader). Null until the first
+        // pass, and again after a read that failed.
+        var reader: AudioFileDecoder.Reader? = null
         try {
             var measured = 0
-            publish(meetingId, measured, indices.size)
+            // Out of the lines that are measured: a line skipped (too long,
+            // outside the recording) never moves the count, so the total
+            // leaves it out too, and a run ends at its total.
+            publish(meetingId, measured, jobs.size)
             val runs = WordAlign.runs(jobs.map { it.span.clipStartMs to it.span.clipEndMs })
             for (run in runs) {
                 if (stopping()) break
                 val members = run.items.map { jobs[it] }
-                decodeRun(app, audio, run.startMs, members) { job ->
+                val runResults = ArrayList<WordAlign.Retimed>(members.size)
+                val open = reader ?: try {
+                    AudioFileDecoder.Reader(app, Uri.fromFile(audio))
+                } catch (_: Throwable) {
+                    // Unreadable now: this pass's lines get no audio, so
+                    // they keep their timings; the next pass tries again.
+                    null
+                }
+                reader = open
+                val readable = decodeRun(open, run.startMs, members) { job ->
                     val mapped = align(aligner, job)
                     if (mapped != null) {
-                        retimed.add(WordAlign.Retimed(job.target, mapped.words))
+                        runResults.add(WordAlign.Retimed(job.target, mapped.words))
                     } else {
                         unaligned++
                     }
                     measured++
                     renewWakeLockIfStale()
-                    publish(meetingId, measured, indices.size)
+                    publish(meetingId, measured, jobs.size)
                 }
+                if (!readable) {
+                    try {
+                        open?.close()
+                    } catch (_: Throwable) {
+                    }
+                    reader = null
+                }
+                // Saved pass by pass, so a run the system ends (or native
+                // code aborts) part-way keeps what it measured before.
+                retimed.addAll(runResults)
+                saved += save(store, meetingId, runResults)
             }
         } finally {
+            try {
+                reader?.close()
+            } catch (_: Throwable) {
+            }
             try {
                 aligner.release()
             } catch (_: Throwable) {
             }
         }
 
-        // What was measured is kept even when the run was stopped.
-        val saved = if (retimed.isEmpty()) {
-            0
-        } else {
-            var count = 0
-            store.mutateIf(meetingId) { stored ->
-                count = WordAlign.apply(stored.segments, retimed)
-                count > 0
-            }
-            count
-        }
         val result = when {
             timedOut -> Result.TIMED_OUT
             cancelRequested -> Result.CANCELLED
@@ -317,25 +340,46 @@ class AlignService : Service() {
 
     private fun stopping(): Boolean = cancelRequested || timedOut
 
+    /**
+     * Puts one pass's [results] into the stored meeting under the store's
+     * lock (WordAlign.apply: only onto lines that still read as they did).
+     * Returns how many lines took theirs. Kept even when the run was
+     * stopped: what was measured stays measured.
+     */
+    @WorkerThread
+    private fun save(store: MeetingStore, meetingId: String, results: List<WordAlign.Retimed>): Int {
+        if (results.isEmpty()) return 0
+        var count = 0
+        store.mutateIf(meetingId) { stored ->
+            count = WordAlign.apply(stored.segments, results)
+            count > 0
+        }
+        return count
+    }
+
     private fun stopped(skipped: Int, total: Int): Outcome =
         Outcome(if (timedOut) Result.TIMED_OUT else Result.CANCELLED, skipped = skipped, total = total)
 
     /**
-     * Decodes the recording from [startMs] (a seek, unless it is the start)
-     * through the clips of [jobs], handing each to [onClip] as soon as it
-     * is whole, and the rest when the recording ends before them (their
-     * clips are then shorter: clamped to the recording). A sample is placed
-     * at its own time, so a decoder that starts a little late leaves
-     * silence at a clip's start rather than shifting it.
+     * Decodes the recording with [reader] from [startMs] (a seek, unless it
+     * is the start of a reader's first read) through the clips of [jobs],
+     * handing each to [onClip] as soon as it is whole, and the rest when
+     * the recording ends before them (their clips are then shorter: clamped
+     * to the recording). A sample is placed at its own time, so a decoder
+     * that starts a little late leaves silence at a clip's start rather
+     * than shifting it. With no [reader] (the recording could not be
+     * opened) every clip is handed over empty, and counts as not aligned.
+     *
+     * Returns false when the read failed, so [reader] is not to be read
+     * again; what it read before the failure counts.
      */
     @WorkerThread
     private fun decodeRun(
-        app: Context,
-        audio: File,
+        reader: AudioFileDecoder.Reader?,
         startMs: Long,
         jobs: List<Job>,
         onClip: (Job) -> Unit
-    ) {
+    ): Boolean {
         var position = 0L
         fun finish(job: Job) {
             if (job.finished) return
@@ -345,39 +389,42 @@ class AlignService : Service() {
             onClip(job)
             job.samples = null
         }
-        try {
-            AudioFileDecoder.decode(
-                app,
-                Uri.fromFile(audio),
-                onPcm = { pcm ->
-                    val chunkStart = position
-                    position += pcm.size
-                    for (job in jobs) {
-                        if (job.finished) continue
-                        val end = job.startSample + job.capacity
-                        val from = maxOf(chunkStart, job.startSample)
-                        val to = minOf(position, end)
-                        if (from < to) {
-                            val into = job.samples ?: FloatArray(job.capacity).also { job.samples = it }
-                            System.arraycopy(
-                                pcm, (from - chunkStart).toInt(),
-                                into, (from - job.startSample).toInt(),
-                                (to - from).toInt()
-                            )
-                            job.filled = maxOf(job.filled, (to - job.startSample).toInt())
+        var readable = true
+        if (reader != null) {
+            try {
+                reader.decode(
+                    onPcm = { pcm ->
+                        val chunkStart = position
+                        position += pcm.size
+                        for (job in jobs) {
+                            if (job.finished) continue
+                            val end = job.startSample + job.capacity
+                            val from = maxOf(chunkStart, job.startSample)
+                            val to = minOf(position, end)
+                            if (from < to) {
+                                val into = job.samples ?: FloatArray(job.capacity).also { job.samples = it }
+                                System.arraycopy(
+                                    pcm, (from - chunkStart).toInt(),
+                                    into, (from - job.startSample).toInt(),
+                                    (to - from).toInt()
+                                )
+                                job.filled = maxOf(job.filled, (to - job.startSample).toInt())
+                            }
+                            if (position >= end) finish(job)
                         }
-                        if (position >= end) finish(job)
-                    }
-                },
-                onProgress = {},
-                cancelled = { stopping() || jobs.all { it.finished } },
-                startUs = if (startMs > 0L) startMs * 1000L else 0L,
-                onStartUs = { us -> position = us * AudioFileDecoder.TARGET_RATE / 1_000_000 }
-            )
-        } catch (_: Throwable) {
-            // A decoder error ends this run's audio here; what was read counts.
+                    },
+                    onProgress = {},
+                    cancelled = { stopping() || jobs.all { it.finished } },
+                    startUs = if (startMs > 0L) startMs * 1000L else 0L,
+                    onStartUs = { us -> position = us * AudioFileDecoder.TARGET_RATE / 1_000_000 }
+                )
+            } catch (_: Throwable) {
+                // A decoder error ends this run's audio here; what was read counts.
+                readable = false
+            }
         }
         if (!stopping()) for (job in jobs) finish(job)
+        return readable
     }
 
     /** Aligns one clip; null when it gives nothing to go on. The stream is always released. */

@@ -61,6 +61,17 @@ class AlignerModelsTest {
     }
 
     @Test
+    fun aDamagedArchiveCannotWriteFarBeyondTheSpaceCheck() {
+        val mb = 1024L * 1024L
+        val total = AlignerModels.WANTED.sumOf { it.maxBytes }
+        // Every wanted file at its cap: 172 MB, against the 101 MB the
+        // space check asks for. Other entries are read past, never written.
+        assertEquals(172L * mb, total)
+        assertTrue(total < 2L * AlignerModels.spaceNeededMb(model) * mb)
+        assertEquals(128L * mb, AlignerModels.WANTED.first { it.name == "final.alimdl" }.maxBytes)
+    }
+
+    @Test
     fun itFitsAnyPhoneAndSaysItIsEnglishOnly() {
         val need = AlignerModels.need(model)
         assertTrue(need.englishOnly)

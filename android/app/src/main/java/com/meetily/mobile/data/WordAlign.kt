@@ -9,7 +9,11 @@ import java.text.Normalizer
  * Kotlin, unit-tested.
  *
  * - Which lines: those whose timings an edit estimated (WordTimes.ESTIMATED)
- *   or that have none, with a place in the recording and something to say.
+ *   or that have none, with a place in the recording and something to say
+ *   ([needsRetime]: "Re-time edited lines" takes them all). One line at a
+ *   time, also a line whose timings nobody recorded the origin of
+ *   ([offersLine]): an edit saved before lines carried the flag looks
+ *   exactly like the recogniser's timings.
  * - What to decode: the line from its own start to the next line's (or an
  *   estimate of its end), with [MARGIN_MS] either side, clamped to the
  *   recording; nearby lines share one pass through the file ([runs]).
@@ -130,9 +134,11 @@ object WordAlign {
         segment.audioMs != null && words(segment.text).any { tokens(it).isNotEmpty() }
 
     /**
-     * True when [segment]'s timings are worth measuring again: an edit
-     * estimated some of them, or it has none. A line whose timings came
-     * from the recogniser, or whose origin nobody recorded, is not offered.
+     * True when [segment]'s timings are known to be worth measuring again:
+     * an edit estimated some of them, or it has none. These are the lines
+     * "Re-time edited lines" takes. A line whose timings came from the
+     * recogniser, or whose origin nobody recorded, is not taken; see
+     * [offersLine] for the one-line action.
      */
     fun needsRetime(segment: TranscriptSegment): Boolean =
         // The flag first: it is asked for every line the screen binds.
@@ -142,6 +148,37 @@ object WordAlign {
     /** The indices of the lines "Re-time edited lines" takes, in order. */
     fun linesToRetime(segments: List<TranscriptSegment>): List<Int> =
         segments.indices.filter { needsRetime(segments[it]) }
+
+    /**
+     * True when a meeting's lines of unknown origin get "Re-time words"
+     * ([offersLine]): it keeps a recording ([audioKept], the field, not a
+     * stat of the file) and its speech is English or not recorded (the
+     * user is asked). Another language, or a translation, would only be
+     * told it cannot run, on every line.
+     */
+    fun mayRetimeUnknown(audioKept: Boolean, speech: Speech): Boolean =
+        audioKept && (speech == Speech.ENGLISH || speech == Speech.UNKNOWN)
+
+    /**
+     * True when line [segment] gets the one-line "Re-time words" action:
+     *
+     * - a line that [needsRetime], always (a tap explains anything that
+     *   stops it: no recording, another language, no model);
+     * - a line with timings of unknown origin (words, no
+     *   TranscriptSegment.wordTimes) when [unknownOffered]
+     *   ([mayRetimeUnknown]). Those are the recogniser's timings, or an
+     *   edit's estimate saved before lines recorded which they were (a
+     *   Find & replace before this feature, say); only the user can tell
+     *   them apart, so they are offered line by line and never taken in
+     *   bulk;
+     * - not a line re-timed already, until an edit estimates it again.
+     */
+    fun offersLine(segment: TranscriptSegment, unknownOffered: Boolean): Boolean = when {
+        segment.audioMs == null -> false
+        segment.words.isNullOrEmpty() || segment.wordTimes == WordTimes.ESTIMATED -> alignable(segment)
+        segment.wordTimes == null -> unknownOffered && alignable(segment)
+        else -> false
+    }
 
     // --- Language -------------------------------------------------------------
 

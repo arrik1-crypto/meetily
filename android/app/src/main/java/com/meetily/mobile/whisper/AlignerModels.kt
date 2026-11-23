@@ -75,15 +75,23 @@ object AlignerModels {
      */
     const val WORKING_SET_MB = 200
 
-    /** The files taken out of the archive, with a cap on each. */
+    /**
+     * The files taken out of the archive, with a cap on each: more than
+     * twice its size in v3.0.0 (final.alimdl 50,223,203 bytes, lexicon.txt
+     * 5,530,360, tree 514,250, the rest under 15 KB), so a repackaging
+     * fits, while an archive that is damaged or not what it claims writes
+     * 172 MB at most, however it is made (the space check asks for 101 MB).
+     * Anything else in it is read past, not kept, and refused above
+     * TarExtract.MAX_OTHER_BYTES.
+     */
     private const val MB = 1024L * 1024L
     val WANTED: List<TarExtract.Wanted> = listOf(
         TarExtract.Wanted("meta.json", MB),
-        TarExtract.Wanted("final.alimdl", 256 * MB),
-        TarExtract.Wanted("tree", 32 * MB),
-        TarExtract.Wanted("lda.mat", 8 * MB),
+        TarExtract.Wanted("final.alimdl", 128 * MB),
+        TarExtract.Wanted("tree", 8 * MB),
+        TarExtract.Wanted("lda.mat", MB),
         TarExtract.Wanted("phones.txt", MB),
-        TarExtract.Wanted("lexicon.txt", 64 * MB),
+        TarExtract.Wanted("lexicon.txt", 32 * MB),
         TarExtract.Wanted("README.md", MB)
     )
 

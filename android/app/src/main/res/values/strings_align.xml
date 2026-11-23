@@ -4,7 +4,7 @@
          against the recording again after an edit estimated them. -->
     <string name="align_line_action">Re-time words</string>
     <string name="align_menu_all">Re-time edited lines</string>
-    <string name="align_none_to_retime">No line here needs re-timing: every line\'s word timings came from the transcription or were re-timed already.</string>
+    <string name="align_none_to_retime">No line here has word timings an edit estimated, or none. To re-time another line, tap it and choose Re-time words.</string>
     <string name="align_line_untimed">This line has no place in the recording, so its words can\'t be re-timed.</string>
     <string name="align_no_audio">Re-timing words needs this meeting\'s recording, and it has none any more.</string>
     <string name="align_not_english">Re-timing words works for English speech only, and this meeting\'s language is another.</string>

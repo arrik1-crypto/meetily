@@ -18,8 +18,10 @@ import java.io.InputStream
  * that name. On top of that, an archive is refused as a whole when any
  * entry names an absolute path, a parent directory ("..") or a backslash,
  * is a link or a device, a wanted file appears twice or above its size
- * cap, or a header's checksum is wrong; files it already wrote are then
- * the caller's to delete (it extracts into a fresh directory).
+ * cap, an entry it does not want is above [MAX_OTHER_BYTES], or a header's
+ * checksum is wrong; files it already wrote are then the caller's to
+ * delete (it extracts into a fresh directory). Entries it does not want
+ * are read past, not written, and a cancel is heard while they are.
  *
  * Reads POSIX ustar, GNU (long names) and pax (path records) headers.
  * Pure JVM; unit-tested.
@@ -36,6 +38,16 @@ object TarExtract {
 
     /** Long names and pax records beyond this are refused rather than read. */
     private const val MAX_META_BYTES = 64 * 1024
+
+    /**
+     * An entry not asked for (a directory, a test recording) above this is
+     * refused rather than read past: decompressing it would keep the
+     * caller busy for nothing, and no archive this reads needs one.
+     */
+    const val MAX_OTHER_BYTES = 64L * 1024 * 1024
+
+    /** How much is read at a time, and so how often a cancel is heard. */
+    private const val CHUNK = 64 * 1024
 
     /**
      * The path components of entry name [path] with "." and empty ones
@@ -60,9 +72,10 @@ object TarExtract {
      * Reads the tar stream [input] to its end, writing each [wanted] file
      * found into [outDir] under its wanted name. Wanted files may sit at
      * the top or one directory down (an archive's own folder); anything
-     * else is read past. [cancelled] is asked between blocks: true stops
-     * with InterruptedException. [onEntryBytes] hears the data bytes read
-     * so far. Returns the names written.
+     * else is read past. [cancelled] is asked before every header and
+     * every 64 KB of an entry, written or read past: true stops with
+     * InterruptedException. [onEntryBytes] hears the data bytes read so
+     * far. Returns the names written.
      */
     fun extract(
         input: InputStream,
@@ -74,7 +87,7 @@ object TarExtract {
         val byName = wanted.associateBy { it.name }
         val written = LinkedHashSet<String>()
         val header = ByteArray(BLOCK)
-        val buffer = ByteArray(64 * 1024)
+        val buffer = ByteArray(CHUNK)
         var longName: String? = null
         var paxPath: String? = null
         var dataBytes = 0L
@@ -92,16 +105,17 @@ object TarExtract {
             when (type) {
                 // A GNU long name, or a pax record set, for the entry after it.
                 'L' -> {
-                    longName = readMeta(input, size).trimEnd('\u0000')
+                    longName = readMeta(input, size, buffer, cancelled).trimEnd('\u0000')
                     continue
                 }
                 'x' -> {
-                    paxPath = paxRecord(readMeta(input, size), "path") ?: paxPath
+                    paxPath = paxRecord(readMeta(input, size, buffer, cancelled), "path") ?: paxPath
                     continue
                 }
                 // Global pax records and GNU long link names change no path read here.
                 'g', 'K' -> {
-                    skip(input, padded(size))
+                    if (size > MAX_META_BYTES) throw UnsafeArchiveException("tar header record too large")
+                    skip(input, padded(size), buffer, cancelled)
                     continue
                 }
             }
@@ -112,14 +126,16 @@ object TarExtract {
             when (type) {
                 '0', '\u0000', '7' -> Unit
                 '5' -> {
-                    skip(input, padded(size))
+                    if (size > MAX_OTHER_BYTES) throw UnsafeArchiveException("tar directory entry larger than expected")
+                    skip(input, padded(size), buffer, cancelled)
                     continue
                 }
                 else -> throw UnsafeArchiveException("tar entry of type '$type' is not a plain file")
             }
             val want = parts.lastOrNull()?.takeIf { parts.size <= 2 }?.let { byName[it] }
             if (want == null) {
-                skip(input, padded(size))
+                if (size > MAX_OTHER_BYTES) throw UnsafeArchiveException("tar entry larger than expected")
+                skip(input, padded(size), buffer, cancelled)
                 dataBytes += size
                 onEntryBytes(dataBytes)
                 continue
@@ -140,7 +156,7 @@ object TarExtract {
                 output.fd.sync()
             }
             written.add(want.name)
-            skip(input, padded(size) - size)
+            skip(input, padded(size) - size, buffer, cancelled)
         }
     }
 
@@ -160,17 +176,18 @@ object TarExtract {
         return true
     }
 
-    private fun skip(input: InputStream, count: Long) {
+    /** Reads past [count] bytes into [scratch], asking [cancelled] before every read. */
+    private fun skip(input: InputStream, count: Long, scratch: ByteArray, cancelled: () -> Boolean) {
         var left = count
-        val scratch = ByteArray(8192)
         while (left > 0L) {
+            if (cancelled()) throw InterruptedException("Extraction cancelled")
             val n = input.read(scratch, 0, minOf(scratch.size.toLong(), left).toInt())
             if (n < 0) throw EOFException("tar archive ends inside an entry")
             left -= n
         }
     }
 
-    private fun readMeta(input: InputStream, size: Long): String {
+    private fun readMeta(input: InputStream, size: Long, scratch: ByteArray, cancelled: () -> Boolean): String {
         if (size < 0L || size > MAX_META_BYTES) throw UnsafeArchiveException("tar header record too large")
         val bytes = ByteArray(size.toInt())
         var read = 0
@@ -179,7 +196,7 @@ object TarExtract {
             if (n < 0) throw EOFException("tar archive ends inside a header record")
             read += n
         }
-        skip(input, padded(size) - size)
+        skip(input, padded(size) - size, scratch, cancelled)
         return String(bytes, Charsets.UTF_8)
     }
 

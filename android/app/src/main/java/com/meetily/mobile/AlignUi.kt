@@ -82,19 +82,30 @@ class AlignUi(
         progressDialog = null
     }
 
-    /** True when line [segment] gets the "Re-time words" action. */
-    fun offers(segment: TranscriptSegment): Boolean = WordAlign.needsRetime(segment)
+    /**
+     * True when line [segment] gets the "Re-time words" action
+     * (WordAlign.offersLine): estimated or missing timings always, and
+     * timings of unknown origin in a meeting that keeps its recording and
+     * whose speech is English or not recorded. Asked on every bind: reads
+     * fields only, and splits the line into words only when it qualifies.
+     */
+    fun offers(segment: TranscriptSegment): Boolean {
+        val m = host.liveMeeting()
+        val unknownOffered = m != null && WordAlign.mayRetimeUnknown(
+            !m.audioFile.isNullOrBlank(),
+            WordAlign.speech(m.language, m.translated)
+        )
+        return WordAlign.offersLine(segment, unknownOffered)
+    }
 
     /**
      * True when the menu's "Re-time edited lines" shows: the meeting has a
-     * recording and a line whose timings were estimated or are missing.
-     * Cheap: no line is split into words here.
+     * recording and a line the run would take (WordAlign.needsRetime, the
+     * same rule [retimeEdited] counts with). Only lines with estimated or
+     * missing timings are split into words, and only until one qualifies.
      */
     fun offersAll(m: Meeting?): Boolean =
-        m != null && !m.audioFile.isNullOrBlank() && m.segments.any {
-            it.audioMs != null && it.text.isNotBlank() &&
-                (it.words.isNullOrEmpty() || it.wordTimes == com.meetily.mobile.data.WordTimes.ESTIMATED)
-        }
+        m != null && !m.audioFile.isNullOrBlank() && m.segments.any { WordAlign.needsRetime(it) }
 
     /** "Re-time words" on transcript line [index]. */
     fun retimeLine(index: Int) {
