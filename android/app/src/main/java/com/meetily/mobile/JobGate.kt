@@ -294,6 +294,15 @@ object JobGate {
                 // allowed to start because the phone was on power.
                 .putExtra(ImportService.EXTRA_CHARGING_ONLY, job.chargingOnly)
                 .putExtra(ImportService.EXTRA_FIRST_TRANSCRIPT, job.firstTranscript)
+                // A pass the user asked for by hand (Yes to the interrupted-
+                // work prompt, or Re-transcribe or Continue tapped while
+                // other work ran) is theirs, as a picked file queued then
+                // is: a Live Update on Android 16. Never one that waited for
+                // a charger, nor the automatic passes.
+                .putExtra(
+                    ImportService.EXTRA_USER_STARTED,
+                    LiveUpdates.queuedPassUserStarted(job.required, job.chargingOnly)
+                )
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             if (job.language.isNotBlank()) {
                 intent.putExtra(ImportService.EXTRA_LANGUAGE, job.language)

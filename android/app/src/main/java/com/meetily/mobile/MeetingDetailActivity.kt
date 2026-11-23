@@ -4304,6 +4304,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             .putExtra(ImportService.EXTRA_NAME, m.title)
             .putExtra(ImportService.EXTRA_MODEL, modelKey)
             .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, m.id)
+            .putExtra(ImportService.EXTRA_USER_STARTED, true)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         language?.let { start.putExtra(ImportService.EXTRA_LANGUAGE, it) }
         if (copy != null) start.putExtra(ImportService.EXTRA_CLEAR_VOICE, true)

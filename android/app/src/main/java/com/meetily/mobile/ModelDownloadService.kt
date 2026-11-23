@@ -73,6 +73,12 @@ class ModelDownloadService : Service() {
     /** (display name, error-or-null) per finished item, for the summary. */
     private val finished = mutableListOf<Pair<String, String?>>()
 
+    /**
+     * The user swiped this run's Live Update away: it stays an ordinary
+     * notification until the queue is done (LiveUpdates). Main thread.
+     */
+    private var liveUpdateDismissed = false
+
     /** Mirrors [queue] into [queuedCount] and [queuedItems]. Main thread. */
     private fun publishQueue() {
         queuedCount = queue.size
@@ -88,7 +94,13 @@ class ModelDownloadService : Service() {
                 cancelled = true
                 dropQueue()
                 publishQueue()
-                if (!isRunning) stopSelf()
+                // With this start's id: a bare stopSelf() would also drop a
+                // start still on its way (a model picked as the last one
+                // ended), which then never reaches startForeground.
+                if (!isRunning) stopSelfResult(startId)
+            }
+            ACTION_LIVE_DISMISSED -> {
+                if (isRunning) liveUpdateDismissed = true else stopSelfResult(startId)
             }
             ACTION_START -> {
                 val kind = intent.getStringExtra(EXTRA_KIND).orEmpty()
@@ -113,6 +125,7 @@ class ModelDownloadService : Service() {
                 }
                 cancelled = false
                 finished.clear()
+                liveUpdateDismissed = false
                 isRunning = true
                 currentKind = kind
                 currentKey = key
@@ -328,7 +341,7 @@ class ModelDownloadService : Service() {
             Intent(this, ModelDownloadService::class.java).setAction(ACTION_CANCEL),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setContentTitle(getString(R.string.download_notif_title, name))
             .setContentText(
@@ -338,12 +351,29 @@ class ModelDownloadService : Service() {
                     getString(R.string.download_status_queued, progress, queue.size)
                 }
             )
-            .setProgress(100, progress, progress == 0)
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openIntent)
             .addAction(0, getString(android.R.string.cancel), cancelIntent)
-            .build()
+        // Only ever started from the user's pick in Settings or the first-run
+        // setup: a Live Update on Android 16 (LiveUpdates). One bar per model;
+        // the models waiting behind it vary too much in size to share one.
+        val live = isRunning && LiveUpdates.requestsPromotion(
+            LiveUpdates.Job.MODEL_DOWNLOAD, userStarted = true,
+            sdkInt = Build.VERSION.SDK_INT, dismissed = liveUpdateDismissed
+        )
+        LiveUpdateBar.setBar(this, builder, live, LiveUpdates.progress(progress), progress)
+        if (live) {
+            LiveUpdateBar.requestPromotion(
+                builder,
+                PendingIntent.getService(
+                    this, 6,
+                    Intent(this, ModelDownloadService::class.java).setAction(ACTION_LIVE_DISMISSED),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        }
+        return builder.build()
     }
 
     private fun updateNotification(name: String, progress: Int) {
@@ -458,6 +488,9 @@ class ModelDownloadService : Service() {
 
         const val ACTION_START = "com.meetily.mobile.download.START"
         const val ACTION_CANCEL = "com.meetily.mobile.download.CANCEL"
+
+        /** The user swiped the run's Live Update away (its delete intent). */
+        const val ACTION_LIVE_DISMISSED = "com.meetily.mobile.download.LIVE_DISMISSED"
         const val EXTRA_KIND = "kind"
         const val EXTRA_KEY = "model_key"
         const val KIND_WHISPER = "whisper"

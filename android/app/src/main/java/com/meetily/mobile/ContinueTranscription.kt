@@ -331,6 +331,8 @@ object ContinueTranscription {
             .putExtra(ImportService.EXTRA_RECHECK_MEETING_ID, m.id)
             // Its words go into the meeting, as the first pass's did.
             .putExtra(ImportService.EXTRA_FIRST_TRANSCRIPT, true)
+            // Tapped just now: a Live Update on Android 16 (LiveUpdates).
+            .putExtra(ImportService.EXTRA_USER_STARTED, true)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         if (fromMs > 0L) start.putExtra(ImportService.EXTRA_RESUME_FROM_MS, fromMs)
         try {

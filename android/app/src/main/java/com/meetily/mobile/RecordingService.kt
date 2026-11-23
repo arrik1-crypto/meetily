@@ -22,6 +22,7 @@ import android.speech.SpeechRecognizer
 import android.view.View
 import android.widget.RemoteViews
 import androidx.core.app.NotificationCompat
+import androidx.core.app.NotificationManagerCompat
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.ElapsedTime
 import com.meetily.mobile.data.Meeting
@@ -212,6 +213,16 @@ class RecordingService : Service() {
                 return START_NOT_STICKY
             }
             ACTION_FINISH -> finishAndSave(null)
+            ACTION_LIVE_DISMISSED -> if (active) {
+                // Swiped away: not posted as a Live Update again this
+                // session (LiveUpdates). Nothing is reposted now; the next
+                // change of state posts the ordinary notification.
+                liveUpdateDismissed = true
+            } else {
+                // As for a Mark that raced the end of a session.
+                stopSelf(startId)
+                return START_NOT_STICKY
+            }
         }
         return START_STICKY
     }
@@ -292,6 +303,7 @@ class RecordingService : Service() {
         micWarned = false
         deviceAudioEnded = false
         markConfirmation = null
+        liveUpdateDismissed = false
         main.removeCallbacks(clearMarkConfirmation)
         // The notification line reads it (an ERROR is not "recording device
         // audio"), so a previous session's must not carry over.
@@ -404,6 +416,9 @@ class RecordingService : Service() {
 
     /** "Marked at 0:12:34" while the notification shows it; null otherwise. */
     private var markConfirmation: String? = null
+
+    /** The user swiped this session's Live Update away; see [ACTION_LIVE_DISMISSED]. */
+    private var liveUpdateDismissed = false
 
     private val clearMarkConfirmation = Runnable {
         markConfirmation = null
@@ -1695,10 +1710,51 @@ class RecordingService : Service() {
         )
     }
 
+    private val liveDismissedIntent: PendingIntent by lazy {
+        PendingIntent.getService(
+            this, 4,
+            Intent(this, RecordingService::class.java).setAction(ACTION_LIVE_DISMISSED),
+            pendingFlags()
+        )
+    }
+
+    /**
+     * On Android 16 a Live Update whenever it can be one (LiveUpdates): its
+     * chip runs the recording's clock in the status bar and it heads the
+     * shade, lock screen and always-on display. A custom lock-screen
+     * stand-in rules a Live Update out, so that version's stand-in is a
+     * standard one without the Mark button. The classic notification, button
+     * and all, stays wherever a Live Update is out of reach anyway: before
+     * Android 16, with Live Updates turned off for the app, on a release or
+     * device that would not promote it, or once the user swiped it away.
+     */
     private fun buildNotification(): Notification {
+        val requested = LiveUpdates.requestsPromotion(
+            LiveUpdates.Job.RECORDING, userStarted = true,
+            sdkInt = Build.VERSION.SDK_INT, dismissed = liveUpdateDismissed
+        )
+        // Anything unexpected from the new platform calls falls back to the
+        // classic notification: the foreground start must never fail on it.
+        try {
+            val canPost = requested &&
+                NotificationManagerCompat.from(this).canPostPromotedNotifications()
+            if (canPost) {
+                val live = buildNotification(liveUpdate = true)
+                val promotable = NotificationCompat.hasPromotableCharacteristics(live)
+                if (!LiveUpdates.recordingKeepsLockScreenMark(requested, canPost, promotable)) {
+                    return live
+                }
+            }
+        } catch (_: RuntimeException) {
+        }
+        return buildNotification(liveUpdate = false)
+    }
+
+    private fun buildNotification(liveUpdate: Boolean): Notification {
         val line = notificationLine()
         val ended = line == DeviceAudioLock.NotificationLine.DEVICE_AUDIO_ENDED
         val markOffered = NotificationMark.offered(line, finishing)
+        val chip = if (liveUpdate) chipText(line) else null
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_mic)
             .setContentTitle(title.ifBlank { getString(R.string.app_name) })
@@ -1713,28 +1769,17 @@ class RecordingService : Service() {
             // notifications" choice.
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(
-                NotificationCompat.Builder(this, CHANNEL_ID)
-                    .setSmallIcon(R.drawable.ic_mic)
-                    // The lock screen is where an ended device-audio capture
-                    // is first seen, since from Android 15 locking is what
-                    // usually ended it.
-                    .setContentTitle(
-                        getString(
-                            if (ended) R.string.devaudio_notif_ended_public
-                            else R.string.notif_recording
-                        )
-                    )
-                    .setOngoing(true)
-                    .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-                    // A lock screen showing notification content shows the
-                    // full version, Mark included, and its tap needs no
-                    // unlock. One hiding it draws this version, collapsed,
-                    // and SystemUI never draws a collapsed view's actions,
-                    // so Mark is a button in the content view instead.
-                    .setStyle(NotificationCompat.DecoratedCustomViewStyle())
-                    .setCustomContentView(publicContentView(ended, markOffered))
-                    .build()
+                if (liveUpdate) {
+                    livePublicVersion(line, markOffered, chip)
+                } else {
+                    classicPublicVersion(ended, markOffered)
+                }
             )
+        if (liveUpdate) {
+            builder.setRequestPromotedOngoing(true)
+                .setShortCriticalText(chip)
+                .setDeleteIntent(liveDismissedIntent)
+        }
         if (!ended) {
             // No Resume once Android has ended device audio: nothing could
             // be resumed. Finish is all that is left.
@@ -1803,6 +1848,78 @@ class RecordingService : Service() {
         return builder.build()
     }
 
+    /** The lock screen's stand-in for the classic notification, Mark button and all. */
+    private fun classicPublicVersion(ended: Boolean, markOffered: Boolean): Notification =
+        NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_mic)
+            // The lock screen is where an ended device-audio capture
+            // is first seen, since from Android 15 locking is what
+            // usually ended it.
+            .setContentTitle(
+                getString(
+                    if (ended) R.string.devaudio_notif_ended_public
+                    else R.string.notif_recording
+                )
+            )
+            .setOngoing(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            // A lock screen showing notification content shows the
+            // full version, Mark included, and its tap needs no
+            // unlock. One hiding it draws this version, collapsed,
+            // and SystemUI never draws a collapsed view's actions,
+            // so Mark is a button in the content view instead.
+            .setStyle(NotificationCompat.DecoratedCustomViewStyle())
+            .setCustomContentView(publicContentView(ended, markOffered))
+            .build()
+
+    /**
+     * The Live Update's stand-in for a lock screen that hides notification
+     * contents. Standard, since a custom one rules the Live Update out, so
+     * there is no Mark button on it: Mark is on the full notification, which
+     * a lock screen showing contents draws expanded. It names nothing about
+     * the meeting, only the state and the recording's clock, which the chip
+     * and the always-on display take from here while contents are hidden.
+     */
+    private fun livePublicVersion(
+        line: DeviceAudioLock.NotificationLine,
+        markOffered: Boolean,
+        chip: String?
+    ): Notification {
+        val ended = line == DeviceAudioLock.NotificationLine.DEVICE_AUDIO_ENDED
+        val paused = line == DeviceAudioLock.NotificationLine.PAUSED
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_mic)
+            .setContentTitle(
+                getString(
+                    if (ended) R.string.devaudio_notif_ended_public
+                    else R.string.notif_recording
+                )
+            )
+            .setOngoing(true)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setShortCriticalText(chip)
+        val confirmation = markConfirmation
+        when {
+            markOffered && confirmation != null -> builder.setContentText(confirmation)
+            paused -> builder.setContentText(getString(R.string.status_paused))
+        }
+        if (!ended && !paused) {
+            builder.setWhen(System.currentTimeMillis() - elapsedMs())
+            builder.setUsesChronometer(true)
+        }
+        return builder.build()
+    }
+
+    /** The Live Update's status-bar chip in words; null runs the clock there instead. */
+    private fun chipText(line: DeviceAudioLock.NotificationLine): String? =
+        when (LiveUpdates.recordingChip(line, finishing)) {
+            LiveUpdates.RecordingChip.ELAPSED -> null
+            LiveUpdates.RecordingChip.PAUSED -> getString(R.string.liveupdates_chip_paused)
+            LiveUpdates.RecordingChip.NO_MIC -> getString(R.string.liveupdates_chip_no_mic)
+            LiveUpdates.RecordingChip.ENDED -> getString(R.string.liveupdates_chip_ended)
+            LiveUpdates.RecordingChip.SAVING -> getString(R.string.liveupdates_chip_saving)
+        }
+
     /**
      * The redacted version's content: a line naming nothing about the meeting
      * and Mark alone, the one action harmless in a stranger's hands. Pause
@@ -1868,6 +1985,9 @@ class RecordingService : Service() {
 
         /** The notification's Mark moment; a no-op with no session running. */
         const val ACTION_HIGHLIGHT = "com.meetily.mobile.action.HIGHLIGHT"
+
+        /** The user swiped the session's Live Update away (its delete intent). */
+        const val ACTION_LIVE_DISMISSED = "com.meetily.mobile.action.LIVE_DISMISSED"
         const val EXTRA_DEVICE_AUDIO = "device_audio"
 
         /** Title to open the session with; blank means "use the date". */

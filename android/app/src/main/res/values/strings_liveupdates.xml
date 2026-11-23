@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Android 16 Live Updates (see LiveUpdates): the status-bar chip of a
+         recording or a long job. The chip shows its text whole only below
+         7 characters and drops it when less than half fits, so keep each of
+         these to 6 characters or fewer. They show on a locked phone too, so
+         they must never name anything about the meeting. -->
+
+    <!-- The recording's chip while it is paused (its timer stops). -->
+    <string name="liveupdates_chip_paused">Paused</string>
+    <!-- The recording's chip while the microphone carries no signal at all,
+         usually because another app has taken it. -->
+    <string name="liveupdates_chip_no_mic">No mic</string>
+    <!-- The recording's chip once Android has ended device-audio capture and
+         only Finish is left. -->
+    <string name="liveupdates_chip_ended">Ended</string>
+    <!-- The recording's chip while Finish is saving it. -->
+    <string name="liveupdates_chip_saving">Saving</string>
+    <!-- A job's chip: how far it has got. %1$d is a whole number, 0 to 100. -->
+    <string name="liveupdates_chip_percent">%1$d%%</string>
+
+    <!-- Title of the stand-in a locked phone shows for a transcription in
+         progress when notification contents are hidden there: never the
+         meeting's or file's name. -->
+    <string name="liveupdates_public_transcribing">Transcribing a recording</string>
+</resources>
