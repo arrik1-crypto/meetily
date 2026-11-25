@@ -33,6 +33,21 @@ object ImportQueue {
     private val main = Handler(Looper.getMainLooper())
 
     /**
+     * Batches whose run the user cancelled with "Cancel all" while their
+     * files were still being staged (ImportService.cancelBatch): the files
+     * not staged yet come back CANCELLED instead of joining the queue
+     * behind the cancel. Removed when the batch's staging ends; an id added
+     * after that is a few dozen bytes for the life of the process.
+     */
+    private val stoppedBatches: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet()
+
+    /** Stops staging the rest of batch [batchId]; see [stoppedBatches]. */
+    fun stopBatch(batchId: String) {
+        if (batchId.isNotBlank()) stoppedBatches.add(batchId)
+    }
+
+    /**
      * Copies [uri] and queues it. Blocking work happens on a worker thread;
      * [onResult] is delivered on the main thread.
      *
@@ -76,8 +91,9 @@ object ImportQueue {
      * order. The import cap is checked again for each file: one the queue is
      * full for comes back TOO_MANY. Each file is queued as soon as it is
      * staged and the queue drained, so the first starts while the rest are
-     * still being copied. After [cancelled], files not yet staged come back
-     * CANCELLED.
+     * still being copied. After [cancelled], or [stopBatch] for this batch,
+     * files not yet staged come back CANCELLED. The jobs share one batch id
+     * (JobQueue.Job.batchId).
      */
     fun stageBatch(
         context: Context,
@@ -89,10 +105,12 @@ object ImportQueue {
         onResults: (List<Result>) -> Unit
     ) {
         val app = context.applicationContext
+        val batchId = UUID.randomUUID().toString()
+        val stopped = { cancelled() || batchId in stoppedBatches }
         Thread {
             val results = ArrayList<Result>(files.size)
             for ((i, file) in files.withIndex()) {
-                if (cancelled()) {
+                if (stopped()) {
                     results.add(Result.CANCELLED)
                     continue
                 }
@@ -102,8 +120,8 @@ object ImportQueue {
                         Result.TOO_MANY
                     } else {
                         stage(
-                            app, file.uri, file.sourceName, modelKey, cancelled, language,
-                            batchIndex = i + 1, batchSize = files.size
+                            app, file.uri, file.sourceName, modelKey, stopped, language,
+                            batchIndex = i + 1, batchSize = files.size, batchId = batchId
                         )
                     }
                 results.add(result)
@@ -111,6 +129,7 @@ object ImportQueue {
                 // now rather than once the whole batch is copied.
                 if (result == Result.QUEUED) main.post { JobGate.drain(app) }
             }
+            stoppedBatches.remove(batchId)
             main.post { onResults(results) }
         }.apply {
             name = "import-stage-batch"
@@ -132,7 +151,8 @@ object ImportQueue {
         cancelled: () -> Boolean,
         language: String,
         batchIndex: Int = 0,
-        batchSize: Int = 0
+        batchSize: Int = 0,
+        batchId: String = ""
     ): Result {
         // Outside the try so a copy that dies part-way (a dropped cloud
         // stream, a full disk) is deleted: no job ever names it.
@@ -190,7 +210,8 @@ object ImportQueue {
                         sourceName = sourceName,
                         language = language,
                         batchIndex = batchIndex,
-                        batchSize = batchSize
+                        batchSize = batchSize,
+                        batchId = batchId
                     )
                 )
                 Result.QUEUED

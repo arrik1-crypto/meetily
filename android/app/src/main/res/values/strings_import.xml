@@ -41,6 +41,37 @@
     <string name="import_batch_left_cancelled">Not added, because you cancelled: %1$s.</string>
     <string name="import_batch_unsupported_one">That file is not audio, video or a WebVTT or SRT transcript.</string>
 
+    <!-- "Cancel all" on a file of a batch: this file and the ones after it
+         (ImportService.cancelBatch). Plain Cancel stops this file only. -->
+    <string name="import_cancel_all">Cancel all</string>
+    <string name="import_stop_batch_title">Stop the other files too?</string>
+    <string name="import_stop_batch_body">File %1$d of %2$d is being transcribed. The files after it have not started yet.</string>
+    <string name="import_stop_batch_all">Stop all</string>
+    <string name="import_stop_batch_this">Only this file</string>
+    <string name="import_batch_stopped_title">Import stopped</string>
+    <plurals name="import_batch_stopped_body">
+        <item quantity="one">%d more file of this batch was not imported. Share or pick it again to import it.</item>
+        <item quantity="other">%d more files of this batch were not imported. Share or pick them again to import them.</item>
+    </plurals>
+
+    <!-- Queued imports whose model was deleted, with no Settings model to
+         run them instead (JobGate.drain keeps them queued). -->
+    <plurals name="import_waiting_model_title">
+        <item quantity="one">%d import is waiting for a transcription model</item>
+        <item quantity="other">%d imports are waiting for a transcription model</item>
+    </plurals>
+    <string name="import_waiting_model_body">The model chosen for them is no longer on this phone. Download a transcription model in Settings, then open Recap, and they are transcribed with it.</string>
+
+    <!-- What failed, when it was not an import (ImportService). -->
+    <string name="check_failed_notif">Transcript check failed</string>
+    <string name="transcription_failed_notif">Transcription failed</string>
+    <string name="check_failed">Transcript check failed: %1$s</string>
+    <string name="transcription_failed">Transcription failed: %1$s</string>
+
+    <!-- Android's daily limit stopped an accuracy check: its draft is
+         deleted, so nothing was kept (ImportService.postTimeoutNotification). -->
+    <string name="fgs_timeout_check">Android stopped this after its daily background time limit. Your transcript is unchanged — run the check again later.</string>
+
     <!-- A WebVTT or SRT transcript (Zoom, Teams) as a meeting without audio. -->
     <string name="import_sub_done">Imported \u201c%1$s\u201d.</string>
     <string name="import_sub_failed_one">Couldn\'t import %1$s: %2$s</string>

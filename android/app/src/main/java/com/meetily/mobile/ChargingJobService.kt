@@ -23,9 +23,13 @@ class ChargingJobService : JobService() {
 
     override fun onStartJob(params: JobParameters?): Boolean {
         try {
-            // A batch job still running hands over to the queue itself when
-            // it finishes, so telling the user to open the app would be noise.
-            if (!ImportService.isRunning && !SummaryService.isRunning) {
+            // A batch job still running (a passage removal or a re-timing
+            // too) hands over to the queue itself when it finishes, so
+            // telling the user to open the app would be noise. A recording
+            // does not, so the notice still comes then.
+            if (!ImportService.isRunning && !SummaryService.isRunning &&
+                !PassageService.isBusy() && !AlignService.isBusy()
+            ) {
                 QueuedWorkNotice.onPowerConnected(this)
             }
         } catch (_: Throwable) {

@@ -135,7 +135,9 @@ class SummaryService : Service() {
         // decode.
         LocalLlm.clearAbort()
         currentMeetingId = meetingId
-        currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
+        // The title only, from the head of the file: this is the main
+        // thread, before startForeground.
+        currentTitle = MeetingStore(this).loadHeader(meetingId)?.title.orEmpty()
         percent = -1
         stage = getString(
             when (currentMode) {

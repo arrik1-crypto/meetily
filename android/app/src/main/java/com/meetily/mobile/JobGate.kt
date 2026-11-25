@@ -34,6 +34,9 @@ object JobGate {
      */
     private const val PENDING_START_WINDOW_MS = 10_000L
 
+    /** The meeting fields [startCheck] reads; see MeetingStore.loadFields. */
+    private val CHECK_START_FIELDS = setOf("title", "audioFile", "transcriptResumeMs")
+
     /**
      * When a foreground start was issued but the service has not yet reported
      * itself running. See [canStartBatch].
@@ -96,8 +99,14 @@ object JobGate {
         // otherwise merely opening the app off-charger runs the work the
         // setting was meant to hold back.
         val charging = Power.isCharging(app)
+        // An import whose model has gone, with no Settings model to run it
+        // instead, stays queued with its staged copy until a model is back,
+        // and does not hold up the work behind it.
+        val startable = { job: JobQueue.Job ->
+            job.kind != JobQueue.KIND_IMPORT || importModel(app, job) != null
+        }
         while (true) {
-            val next = JobQueue.nextPending(app, charging) ?: break
+            val next = JobQueue.nextPending(app, charging, startable) ?: break
             // Taken off the queue first: a job that fails to start must not
             // spin forever on every drain trigger.
             if (next.kind == JobQueue.KIND_IMPORT) {
@@ -126,7 +135,22 @@ object JobGate {
         // wakes it. The finish of a job queued while busy on the charger is
         // the case that would otherwise never be armed.
         if (!charging && JobQueue.hasChargingOnly(app)) ChargingJobService.schedule(app)
+        // Nothing could start: say so when files wait for a model.
+        QueuedWorkNotice.onImportsWaitingForModel(
+            app,
+            JobQueue.pending(app).filter { it.kind == JobQueue.KIND_IMPORT && !startable(it) }
+        )
     }
+
+    /**
+     * The model a queued import runs with now; see JobQueue.importModel.
+     * Files on disk only, never the native runtime: this is on the main
+     * thread at every drain.
+     */
+    private fun importModel(context: Context, job: JobQueue.Job): String? =
+        JobQueue.importModel(job.payload, AppSettings(context).whisperModel) {
+            com.meetily.mobile.whisper.TranscriptionModels.isDownloaded(context, it)
+        }
 
     /**
      * Starts a summary now, or queues it. [whenCharging] holds the job back
@@ -219,12 +243,18 @@ object JobGate {
         try {
             val file = AudioStore.fileFor(context, job.stagedFile)
             if (!file.exists() || file.length() <= 0L) return
+            // drain passed it over without a model; this is the same check
+            // made again, so a model deleted in between keeps the file too.
+            val model = importModel(context, job) ?: run {
+                JobQueue.enqueue(context, job)
+                return
+            }
             pendingStartAt = android.os.SystemClock.elapsedRealtime()
             val intent = Intent(context, ImportService::class.java)
                 .setAction(ImportService.ACTION_START)
                 .setData(android.net.Uri.fromFile(file))
                 .putExtra(ImportService.EXTRA_NAME, job.sourceName)
-                .putExtra(ImportService.EXTRA_MODEL, job.payload)
+                .putExtra(ImportService.EXTRA_MODEL, model)
                 // The importer renames this into place rather than copying a
                 // second time; the service deletes it if the run never gets
                 // that far.
@@ -236,6 +266,10 @@ object JobGate {
             if (job.batchSize > 0) {
                 intent.putExtra(ImportService.EXTRA_BATCH_INDEX, job.batchIndex)
                     .putExtra(ImportService.EXTRA_BATCH_SIZE, job.batchSize)
+            }
+            // What "Cancel all" takes off the queue; see JobQueue.Job.batchId.
+            if (job.batchId.isNotBlank()) {
+                intent.putExtra(ImportService.EXTRA_BATCH_ID, job.batchId)
             }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(intent)
@@ -281,7 +315,10 @@ object JobGate {
     private fun startCheck(context: Context, job: JobQueue.Job) {
         val meetingId = job.meetingId
         try {
-            val meeting = MeetingStore(context).load(meetingId) ?: return
+            // Only what the start needs: this is on the main thread (every
+            // drain), and a full parse of a long meeting takes seconds on a
+            // low-end phone, which the service would then pay again.
+            val meeting = MeetingStore(context).loadFields(meetingId, CHECK_START_FIELDS) ?: return
             val audio = meeting.audioFile ?: return
             if (!AudioStore.exists(context, audio)) return
             // Queued to continue a transcript that has been finished since:

@@ -130,4 +130,12 @@ object ImportBatch {
 
     /** Whether a run is one of a batch, so its progress says which file it is. */
     fun showsPosition(index: Int, size: Int): Boolean = size > 1 && index in 1..size
+
+    /**
+     * Whether file [index] of [size] offers "Cancel all": one of a batch
+     * (an id to find the rest by; none on jobs queued before ids) with
+     * files after it. The last file's Cancel already stops everything.
+     */
+    fun offersCancelAll(batchId: String, index: Int, size: Int): Boolean =
+        batchId.isNotBlank() && size > 1 && index in 1 until size
 }

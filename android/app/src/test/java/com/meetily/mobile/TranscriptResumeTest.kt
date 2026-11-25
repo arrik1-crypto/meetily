@@ -514,6 +514,25 @@ class TranscriptResumeTest {
     }
 
     @Test
+    fun startingOverKeepsTheLanguageTheWordsWereMadeIn() {
+        // Picked German for the file while Settings pins English: Continue's
+        // start-over asks for German, so the Settings pin does not apply.
+        val asked = TranscriptResume.rerunLanguage("de", madeEnglishOnly = false)
+        assertEquals("de", asked)
+        assertEquals("de", MeetingLanguage.pinFor(asked, "en"))
+        // Nothing recorded: blank, which leaves it to Settings as before.
+        assertEquals("", TranscriptResume.rerunLanguage(null, madeEnglishOnly = false))
+        assertEquals("en", MeetingLanguage.pinFor("", "en"))
+        // An English-only model records "en" whatever was spoken.
+        assertEquals("", TranscriptResume.rerunLanguage("en", madeEnglishOnly = true))
+        // A continuation asked for the stored language still continues.
+        assertEquals(
+            60_000L,
+            TranscriptResume.continueFrom(60_000L, "small", "small", "de", asked)
+        )
+    }
+
+    @Test
     fun aPassThatNeverReachedAPauseCanOnlyStartOver() {
         assertTrue(TranscriptResume.canContinue(42_000L))
         assertFalse(TranscriptResume.canContinue(0L))

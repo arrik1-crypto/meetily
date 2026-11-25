@@ -2,13 +2,17 @@ package com.meetily.mobile.whisper
 
 import android.content.Context
 import android.net.Uri
+import com.meetily.mobile.data.TranscriptResume
 import java.io.File
 
 /**
  * Pulls one time window out of a saved meeting-audio file as 16 kHz mono
  * float PCM — used to compute a voiceprint for a transcript line the user
  * tagged after the fact. Seeks to just before the window, decodes from
- * there and stops as soon as the window is filled.
+ * there and stops as soon as the window is filled. An MP3 (an imported
+ * file keeps its format) is decoded from the top instead: its seeks land
+ * seconds away from where its timestamps say (TranscriptResume.seekable),
+ * and the window would hold someone else's speech.
  */
 object AudioWindowExtractor {
 
@@ -24,10 +28,12 @@ object AudioWindowExtractor {
         val window = FloatArray((endSample - startSample).toInt())
         var position = 0L
         var filled = 0
+        val uri = Uri.fromFile(file)
+        val seekUs = seekUs(start, AudioFileDecoder.audioMime(context, uri))
         try {
             AudioFileDecoder.decode(
                 context,
-                Uri.fromFile(file),
+                uri,
                 onPcm = { pcm ->
                     val chunkStart = position
                     position += pcm.size
@@ -40,9 +46,15 @@ object AudioWindowExtractor {
                 onProgress = {},
                 cancelled = { filled >= window.size },
                 // Seek rather than decode everything ahead of the window;
-                // counting then starts from wherever the seek landed.
-                startUs = start * 1000,
-                onStartUs = { us -> position = us * SAMPLE_RATE / 1_000_000 }
+                // counting then starts from wherever the seek landed. From
+                // the top, counting starts at 0 and the audio before the
+                // window is skipped as it comes.
+                startUs = seekUs,
+                onStartUs = if (seekUs > 0L) {
+                    { us: Long -> position = us * SAMPLE_RATE / 1_000_000 }
+                } else {
+                    null
+                }
             )
         } catch (_: Throwable) {
             return null
@@ -50,4 +62,12 @@ object AudioWindowExtractor {
         if (filled < SAMPLE_RATE * 3 / 2) return null // < 1.5 s: too short to embed
         return if (filled == window.size) window else window.copyOf(filled)
     }
+
+    /**
+     * Where the decode of a window starting at [startMs] begins, in µs: the
+     * window itself when a seek lands where it says, else 0 (the top of the
+     * file) for a format whose seeks do not ([mime] MP3, or unknown).
+     */
+    internal fun seekUs(startMs: Long, mime: String?): Long =
+        if (TranscriptResume.seekable(mime)) startMs.coerceAtLeast(0L) * 1000 else 0L
 }

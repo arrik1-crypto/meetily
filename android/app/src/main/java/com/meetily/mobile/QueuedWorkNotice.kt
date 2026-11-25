@@ -26,6 +26,13 @@ object QueuedWorkNotice {
 
     private const val CHANNEL_ID = "queued"
     private const val NOTIF_ID = 60
+    private const val NEEDS_MODEL_NOTIF_ID = 61
+
+    /**
+     * The staged files the waiting-for-a-model notice was last posted for,
+     * in this process; a new process posts it once more. Main thread.
+     */
+    private var needsModelPosted = ""
 
     fun onPowerConnected(context: Context) {
         val app = context.applicationContext
@@ -39,9 +46,51 @@ object QueuedWorkNotice {
         notifyWaiting(app, pending.size)
     }
 
-    private fun notifyWaiting(context: Context, count: Int) {
+    /**
+     * Files queued for import with no model on the phone to transcribe them
+     * (JobGate.drain passes them over and keeps them): one quiet notice
+     * whose tap opens Settings, posted again only when the files waiting
+     * change, and taken down once none do. Called on the main thread at
+     * every drain that started nothing.
+     */
+    fun onImportsWaitingForModel(context: Context, waiting: List<JobQueue.Job>) {
+        val key = waiting.map { it.stagedFile }.sorted().joinToString("\n")
+        if (key == needsModelPosted) return
+        needsModelPosted = key
         val manager =
             context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (waiting.isEmpty()) {
+            manager.cancel(NEEDS_MODEL_NOTIF_ID)
+            return
+        }
+        ensureChannel(context, manager)
+        val open = PendingIntent.getActivity(
+            context, 10,
+            Intent(context, SettingsActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val body = context.getString(R.string.import_waiting_model_body)
+        val notification = NotificationCompat.Builder(context, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setContentTitle(
+                context.resources.getQuantityString(
+                    R.plurals.import_waiting_model_title, waiting.size, waiting.size
+                )
+            )
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setContentIntent(open)
+            .build()
+        try {
+            manager.notify(NEEDS_MODEL_NOTIF_ID, notification)
+        } catch (_: SecurityException) {
+        }
+    }
+
+    private fun ensureChannel(context: Context, manager: NotificationManager) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             manager.createNotificationChannel(
                 NotificationChannel(
@@ -51,6 +100,12 @@ object QueuedWorkNotice {
                 ).apply { setShowBadge(false) }
             )
         }
+    }
+
+    private fun notifyWaiting(context: Context, count: Int) {
+        val manager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        ensureChannel(context, manager)
         val open = PendingIntent.getActivity(
             context, 9,
             Intent(context, MainActivity::class.java)

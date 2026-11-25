@@ -120,7 +120,14 @@ object JobQueue {
          * is what every job queued before these fields was.
          */
         val batchIndex: Int = 0,
-        val batchSize: Int = 0
+        val batchSize: Int = 0,
+        /**
+         * Import only: which batch this file came with (ImportQueue.stageBatch),
+         * so "Cancel all" on one of its runs can take the rest off the queue.
+         * Blank for a file on its own, and for every job queued before this
+         * field.
+         */
+        val batchId: String = ""
     )
 
     /**
@@ -215,6 +222,37 @@ object JobQueue {
     fun importCount(existing: List<Job>): Int =
         existing.count { it.kind == KIND_IMPORT }
 
+    /**
+     * The imports of batch [batchId] still waiting on the queue: the files
+     * after the one running. None for a blank id, which is a file on its own.
+     */
+    fun batchImports(existing: List<Job>, batchId: String): List<Job> =
+        if (batchId.isBlank()) {
+            emptyList()
+        } else {
+            existing.filter { it.kind == KIND_IMPORT && !it.interrupted && it.batchId == batchId }
+        }
+
+    /** [existing] without [batchImports]; in-flight markers stay. */
+    fun removeBatch(existing: List<Job>, batchId: String): List<Job> {
+        val dropped = batchImports(existing, batchId)
+        return if (dropped.isEmpty()) existing else existing.filterNot { it in dropped }
+    }
+
+    /**
+     * The model a queued import runs with: the one chosen for it when it is
+     * still on the phone, else the Settings model when that one is, else
+     * null and the import waits for a model. A model can be deleted while
+     * files wait for it, and running one without its model failed it and
+     * deleted the staged copy, the only one Recap had.
+     */
+    fun importModel(chosen: String, settingsModel: String, downloaded: (String) -> Boolean): String? =
+        when {
+            chosen.isNotBlank() && downloaded(chosen) -> chosen
+            settingsModel.isNotBlank() && downloaded(settingsModel) -> settingsModel
+            else -> null
+        }
+
     /** Deferred work, oldest first — what the drain walks. */
     fun runnable(existing: List<Job>): List<Job> = existing.filterNot { it.interrupted }
 
@@ -293,7 +331,9 @@ object JobQueue {
             clearVoice = o.optBoolean("clearVoice"),
             // Absent in older rows: 0, not part of a batch.
             batchIndex = o.optInt("batchIndex").coerceAtLeast(0),
-            batchSize = o.optInt("batchSize").coerceAtLeast(0)
+            batchSize = o.optInt("batchSize").coerceAtLeast(0),
+            // Absent in older rows and for a file on its own.
+            batchId = o.optString("batchId")
         )
     }
 
@@ -317,6 +357,7 @@ object JobQueue {
             o.put("batchIndex", job.batchIndex)
             o.put("batchSize", job.batchSize)
         }
+        if (job.batchId.isNotBlank()) o.put("batchId", job.batchId)
         return o
     }
 
@@ -341,6 +382,15 @@ object JobQueue {
         save(context, removeStaged(load(context), stagedFile))
     }
 
+    /** Takes the rest of batch [batchId] off the queue; see [batchImports]. */
+    @Synchronized
+    fun dequeueBatch(context: Context, batchId: String): List<Job> {
+        val existing = load(context)
+        val dropped = batchImports(existing, batchId)
+        if (dropped.isNotEmpty()) save(context, removeBatch(existing, batchId))
+        return dropped
+    }
+
     /**
      * Whether [job]'s target still exists. A stat, not a parse: this runs on
      * the main thread from every home-screen resume, and loading each queued
@@ -356,11 +406,17 @@ object JobQueue {
 
     /**
      * The next job that may start now, or null. The power filter runs before
-     * the existence check, so jobs that cannot run yet cost nothing.
+     * the existence check, so jobs that cannot run yet cost nothing. A job
+     * [startable] turns down stays queued and is passed over, as one waiting
+     * for a charger is.
      */
-    fun nextPending(context: Context, charging: Boolean): Job? =
+    fun nextPending(
+        context: Context,
+        charging: Boolean,
+        startable: (Job) -> Boolean = { true }
+    ): Job? =
         runnable(load(context)).firstOrNull {
-            (!it.chargingOnly || charging) && targetExists(context, it)
+            (!it.chargingOnly || charging) && targetExists(context, it) && startable(it)
         }
 
     /** Whether anything queued is waiting for a charger. */
