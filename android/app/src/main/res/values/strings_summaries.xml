@@ -54,4 +54,18 @@
          another style, not in the one the meeting shows (MeetingAdapter). -->
     <string name="moment_snippet_other_summary">Other summary</string>
     <string name="moment_snippet_a11y_other_summary">Match in another summary of this meeting: %1$s</string>
+
+    <!-- A summary could not start because Android's daily background time
+         for this kind of work is used up (Android 15 and later); it is back
+         on the queue (SummaryService). Notification text under
+         summary_timeout_notif. -->
+    <string name="summary_fgs_exhausted_queued">Android\'s daily background time limit is used up. The summary will run once you open Recap again.</string>
+
+    <!-- Ask your library: no written answer, for a reason other than an AI
+         server out of reach. %1$s is that reason, as the error gives it. -->
+    <string name="ask_llm_failed_reason">Couldn\'t get a written answer (%1$s). Showing the matching moments instead:</string>
+    <!-- The same, when a local AI server was out of reach. %1$s is a whole
+         sentence saying so (platform_lan_unreachable or
+         platform_lan_needs_permission). -->
+    <string name="ask_llm_failed_lan">%1$s Showing the matching moments instead:</string>
 </resources>

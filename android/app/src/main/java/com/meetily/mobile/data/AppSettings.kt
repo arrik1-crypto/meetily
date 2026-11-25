@@ -35,9 +35,32 @@ class AppSettings(context: Context) {
     val llmConfigured: Boolean
         get() = llmEngine == "local" || llmBaseUrl.isNotBlank()
 
+    /**
+     * The endpoint's address, blank until the user types one. The example
+     * address in the field's hint used to be the stored default as well, so
+     * turning on "Use AI" and saving sent meetings, over plain http, to
+     * whatever machine had that address on the current network.
+     */
     var llmBaseUrl: String
-        get() = prefs.getString("llm_base_url", "http://192.168.1.100:11434/v1") ?: ""
+        get() = prefs.getString("llm_base_url", "") ?: ""
         set(value) = prefs.edit().putString("llm_base_url", value).apply()
+
+    /**
+     * One-shot upgrade step: clears the old example address where Save
+     * stored it while no endpoint was in use (see [EndpointExample]). Runs
+     * from RecapApp.onCreate, before anything reads [llmBaseUrl].
+     */
+    fun migrateEndpointExample() {
+        if (prefs.getBoolean(EndpointExample.KEY_MIGRATED, false)) return
+        val edit = prefs.edit().putBoolean(EndpointExample.KEY_MIGRATED, true)
+        if (EndpointExample.shouldClear(
+                prefs.getString("llm_base_url", null), useLlm, llmEngine
+            )
+        ) {
+            edit.putString("llm_base_url", "")
+        }
+        edit.apply()
+    }
 
     var llmApiKey: String
         get() = prefs.getString("llm_api_key", "") ?: ""

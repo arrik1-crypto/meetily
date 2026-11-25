@@ -24,6 +24,8 @@ class RecapApp : Application() {
         AppSettings(this).migrateEngineDefault {
             java.io.File(filesDir, "meetings").list()?.any { it.endsWith(".json") } == true
         }
+        // The old example AI endpoint address, saved but never in use, goes.
+        AppSettings(this).migrateEndpointExample()
 
         // Night-mode preference is process-wide state; reapply on every start.
         ThemeManager.applyNightMode(AppSettings(this).themeMode)

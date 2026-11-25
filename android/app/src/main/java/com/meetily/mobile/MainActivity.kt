@@ -1015,7 +1015,10 @@ class MainActivity : AppCompatActivity() {
             .groupBy { it.lowercase() }
             .map { (_, variants) -> variants.first() }
             .sortedBy { it.lowercase() }
-        val series = MeetingGroups.series(allMeetings)
+        // Untitled recordings are not a series (MeetingGroups.isSeriesKey).
+        val series = MeetingGroups.series(
+            allMeetings, defaultTitle = getString(R.string.default_meeting_title, "")
+        )
         // Drop a stale selection (tag removed, series dissolved).
         if (selectedTag != null && tags.none { it.equals(selectedTag, true) }) {
             selectedTag = null

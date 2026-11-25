@@ -1,22 +1,24 @@
 package com.meetily.mobile
 
+import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.View
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.search.LibrarySearch
+import com.meetily.mobile.security.LocalNetworkAccess
 import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.LlmClient
 import java.text.DateFormat
 import java.util.Date
+import java.util.concurrent.FutureTask
 
 /**
  * Ask a question across the whole meeting library. Retrieval is fully
@@ -36,6 +38,12 @@ class AskLibraryActivity : AppCompatActivity() {
     private lateinit var sourcesList: LinearLayout
 
     @Volatile private var asking = false
+
+    /**
+     * The question whose run this screen shows or waits on, kept across a
+     * recreation so the new screen picks the same run back up ([runs]).
+     */
+    private var asked: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,12 +72,45 @@ class AskLibraryActivity : AppCompatActivity() {
             ask()
             true
         }
+        // Recreated (rotation, fold, theme): wait on the run the old screen
+        // started, or show the answer it already had, rather than drop it.
+        savedInstanceState?.getString(STATE_ASKED)?.let { question ->
+            runs.existing(question)?.let { attach(question, it) }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        asked?.let { outState.putString(STATE_ASKED, it) }
+    }
+
+    override fun onDestroy() {
+        // Left for good: nothing will come back for the answer.
+        if (isFinishing) asked?.let { runs.forget(it) }
+        super.onDestroy()
     }
 
     private fun ask() {
         if (asking) return
         val question = input.text.toString().trim()
         if (question.isBlank()) return
+        val useLlm = settings.useLlm && settings.llmConfigured
+        // Plain values only: the run outlives this screen.
+        val app = applicationContext
+        val baseUrl = settings.llmBaseUrl
+        val apiKey = settings.llmApiKey
+        val model = settings.llmModel
+        val localOnly = settings.localOnlyLlm
+        val modelKey = AiReport.currentModelKey(this)
+        val run = runs.start(question, "ask-library") {
+            answer(app, question, useLlm, baseUrl, apiKey, model, localOnly, modelKey)
+        }
+        attach(question, run)
+    }
+
+    /** Shows [run] in progress, then its result, on this screen. */
+    private fun attach(question: String, run: FutureTask<Answer>) {
+        asked = question
         asking = true
         progress.visibility = View.VISIBLE
         answerView.visibility = View.GONE
@@ -77,59 +118,28 @@ class AskLibraryActivity : AppCompatActivity() {
         sourcesList.removeAllViews()
         reportButton?.visibility = View.GONE
         sendButton.isEnabled = false
-
-        val useLlm = settings.useLlm && settings.llmConfigured
-        val baseUrl = settings.llmBaseUrl
-        val apiKey = settings.llmApiKey
-        val model = settings.llmModel
-        val localOnly = settings.localOnlyLlm
-        val modelKey = AiReport.currentModelKey(this)
-
         Thread {
-            // The light listing: everything retrieval, the answer's context
-            // and its notices read, without the word timings (most of a
-            // transcribed meeting's bytes and parse) that none of them use.
-            val hits = LibrarySearch.search(store.listLight(), question)
-            var answer: String? = null
-            var llmFailed = false
-            val notices = AiDisclaimers.texts(this, AiDisclaimers.union(hits.map { it.meeting }))
-            if (useLlm && hits.isNotEmpty()) {
-                try {
-                    val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
-                    val blocks = hits.map { hit ->
-                        val m = hit.meeting
-                        val label = "${m.title} — ${dateFormat.format(Date(m.createdAtMs))}"
-                        // Matching moments first: on-device each block is cut
-                        // to a small share of the window from its head, and
-                        // the lines that matched the question matter most.
-                        val content = buildString {
-                            if (hit.excerpts.isNotEmpty()) {
-                                append("Matching moments:\n")
-                                for (excerpt in hit.excerpts) {
-                                    append("- ").append(excerpt).append("\n")
-                                }
-                                append("\n")
-                            }
-                            if (m.summary.isNotBlank()) {
-                                append("Summary:\n").append(m.summary).append("\n\n")
-                            }
-                            append("Transcript:\n")
-                            append(m.transcriptTextWithSpeakers())
-                        }
-                        label to content
-                    }
-                    answer = LlmClient.askLibrary(baseUrl, apiKey, model, localOnly, blocks, question)
-                } catch (_: Exception) {
-                    llmFailed = true
-                }
+            val result: Any = try {
+                run.get()
+            } catch (e: Exception) {
+                // The retrieval itself failed. A failed written answer is
+                // caught inside the run and shown with the moments instead.
+                e.cause ?: e
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 asking = false
                 sendButton.isEnabled = true
                 progress.visibility = View.GONE
-                renderResult(hits, answer, llmFailed)
-                renderReport(question, answer, modelKey, notices)
+                if (result is Answer) {
+                    renderResult(result.hits, result.answer, result.failure)
+                    renderReport(question, result.answer, result.modelKey, result.notices)
+                } else {
+                    val why = (result as? Throwable)?.message
+                        ?: getString(R.string.platform_error_unknown)
+                    answerView.text = getString(R.string.ask_failed, why)
+                    answerView.visibility = View.VISIBLE
+                }
             }
         }.start()
     }
@@ -178,7 +188,7 @@ class AskLibraryActivity : AppCompatActivity() {
     private fun renderResult(
         hits: List<LibrarySearch.Hit>,
         answer: String?,
-        llmFailed: Boolean
+        failure: Exception?
     ) {
         if (hits.isEmpty()) {
             answerView.text = getString(R.string.ask_no_matches)
@@ -187,7 +197,7 @@ class AskLibraryActivity : AppCompatActivity() {
         }
         answerView.text = when {
             answer != null -> answer
-            llmFailed -> getString(R.string.ask_llm_failed)
+            failure != null -> failureText(failure)
             else -> getString(R.string.ask_matches_only)
         }
         answerView.visibility = View.VISIBLE
@@ -220,8 +230,95 @@ class AskLibraryActivity : AppCompatActivity() {
             }
             sourcesList.addView(row)
         }
-        if (hits.isEmpty()) {
-            Toast.makeText(this, R.string.ask_no_matches, Toast.LENGTH_SHORT).show()
+    }
+
+    /**
+     * Why there is no written answer, above the matching moments. Only a
+     * server that was never reached is "couldn't be reached": an on-device
+     * model not downloaded, Local-only AI refusing an address or a rejected
+     * key say what they are, so the user knows what to fix.
+     */
+    private fun failureText(failure: Exception): String {
+        LocalNetworkUi.failureText(this, failure)?.let {
+            return getString(R.string.ask_llm_failed_lan, it)
+        }
+        if (LocalNetworkAccess.unreachableIn(failure) != null) {
+            return getString(R.string.ask_llm_failed)
+        }
+        return getString(
+            R.string.ask_llm_failed_reason,
+            failure.message ?: getString(R.string.platform_error_unknown)
+        )
+    }
+
+    /** What one run found and, with an LLM, wrote; [failure] is why it wrote nothing. */
+    private class Answer(
+        val hits: List<LibrarySearch.Hit>,
+        val answer: String?,
+        val failure: Exception?,
+        val notices: List<String>,
+        val modelKey: String
+    )
+
+    companion object {
+        private const val STATE_ASKED = "asked"
+
+        /** The run for the question asked last; see [RetainedRun]. */
+        private val runs = RetainedRun<String, Answer>()
+
+        /**
+         * Retrieval, then (with an LLM) the written answer. Runs on its own
+         * thread and holds nothing of the screen: [app] is the application
+         * context.
+         */
+        private fun answer(
+            app: Context,
+            question: String,
+            useLlm: Boolean,
+            baseUrl: String,
+            apiKey: String,
+            model: String,
+            localOnly: Boolean,
+            modelKey: String
+        ): Answer {
+            // The light listing: everything retrieval, the answer's context
+            // and its notices read, without the word timings (most of a
+            // transcribed meeting's bytes and parse) that none of them use.
+            val hits = LibrarySearch.search(MeetingStore(app).listLight(), question)
+            var answer: String? = null
+            var failure: Exception? = null
+            val notices = AiDisclaimers.texts(app, AiDisclaimers.union(hits.map { it.meeting }))
+            if (useLlm && hits.isNotEmpty()) {
+                try {
+                    val dateFormat = DateFormat.getDateInstance(DateFormat.MEDIUM)
+                    val blocks = hits.map { hit ->
+                        val m = hit.meeting
+                        val label = "${m.title} — ${dateFormat.format(Date(m.createdAtMs))}"
+                        // Matching moments first: on-device each block is cut
+                        // to a small share of the window from its head, and
+                        // the lines that matched the question matter most.
+                        val content = buildString {
+                            if (hit.excerpts.isNotEmpty()) {
+                                append("Matching moments:\n")
+                                for (excerpt in hit.excerpts) {
+                                    append("- ").append(excerpt).append("\n")
+                                }
+                                append("\n")
+                            }
+                            if (m.summary.isNotBlank()) {
+                                append("Summary:\n").append(m.summary).append("\n\n")
+                            }
+                            append("Transcript:\n")
+                            append(m.transcriptTextWithSpeakers())
+                        }
+                        label to content
+                    }
+                    answer = LlmClient.askLibrary(baseUrl, apiKey, model, localOnly, blocks, question)
+                } catch (e: Exception) {
+                    failure = e
+                }
+            }
+            return Answer(hits, answer, failure, notices, modelKey)
         }
     }
 }

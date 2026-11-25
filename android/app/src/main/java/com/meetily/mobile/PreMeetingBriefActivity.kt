@@ -1,5 +1,6 @@
 package com.meetily.mobile
 
+import android.content.Context
 import android.content.Intent
 import android.graphics.Paint
 import android.os.Bundle
@@ -12,6 +13,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.CompleteActionItem
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.reminders.Reminders
@@ -22,6 +24,7 @@ import com.meetily.mobile.summarize.LlmClient
 import com.meetily.mobile.summarize.QuotedAiText
 import java.text.DateFormat
 import java.util.Date
+import java.util.concurrent.FutureTask
 
 /**
  * Prep before a recurring meeting: what happened last time, the open action
@@ -33,9 +36,17 @@ class PreMeetingBriefActivity : AppCompatActivity() {
 
     private lateinit var store: MeetingStore
     private lateinit var settings: AppSettings
+    /**
+     * The series as listed: titles, dates, action items and the fields the
+     * notices need (loadSeries). Transcripts are read only for the meetings
+     * shown or sent, never for the whole series.
+     */
     private var series: List<Meeting> = emptyList()
     private var seriesName: String = ""
     private var query: String = ""
+
+    /** A brief for [query] is shown or on its way; kept across a recreation. */
+    private var briefAsked = false
 
     /**
      * Series matching scans every meeting file, so it runs here rather than
@@ -59,6 +70,16 @@ class PreMeetingBriefActivity : AppCompatActivity() {
             finish()
         }
         query = intent.getStringExtra(EXTRA_QUERY).orEmpty()
+        // Recreated (rotation, fold, theme): wait on the brief the old
+        // screen started, or show the one it already had.
+        if (savedInstanceState?.getBoolean(STATE_BRIEF) == true) {
+            briefRuns.existing(query)?.let { attachBrief(it) }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_BRIEF, briefAsked)
     }
 
     override fun onResume() {
@@ -67,7 +88,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         // behind the long-press navigation.
         loader.execute {
             val loaded = try {
-                loadSeries(query)
+                loadSeries(store, query, defaultTitle())
             } catch (_: Throwable) {
                 return@execute
             }
@@ -84,24 +105,13 @@ class PreMeetingBriefActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         loader.shutdown()
+        // Left for good: nothing will come back for the brief.
+        if (isFinishing && briefAsked) briefRuns.forget(query)
         super.onDestroy()
     }
 
-    /**
-     * The series for [query], newest first, in full. Matched on titles alone,
-     * so only the few matching meetings are ever read whole.
-     */
-    private fun loadSeries(query: String): List<Meeting> =
-        matchSeries(store.listPartial(MeetingStore.HEADER_FIELDS), query)
-            .mapNotNull { store.load(it.id) }
-
-    /** Past meetings whose normalized title matches [query], newest first. */
-    private fun matchSeries(all: List<Meeting>, query: String): List<Meeting> {
-        val key = MeetingGroups.normalizeTitle(query)
-        if (key.isBlank()) return emptyList()
-        return all.filter { MeetingGroups.normalizeTitle(it.title) == key }
-            .sortedByDescending { it.createdAtMs }
-    }
+    /** What every untitled recording is called, with its date left out. */
+    private fun defaultTitle(): String = getString(R.string.default_meeting_title, "")
 
     private fun render(query: String, lastBody: String) {
         val nameView = findViewById<TextView>(R.id.briefSeriesName)
@@ -128,14 +138,16 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         }
     }
 
+    /** [last] is as listed; its transcript is read only when it has no summary. */
     private fun lastBodyFor(last: Meeting): String =
         last.summary.ifBlank {
             // No saved summary: fall back to quick extractive key points.
             try {
+                val full = store.load(last.id) ?: return@ifBlank ""
                 ExtractiveSummarizer.summarize(
-                    last.transcriptText(), last.notes, last.highlightedTexts(), false,
+                    full.transcriptText(), full.notes, full.highlightedTexts(), false,
                     com.meetily.mobile.data.MeetingLanguage
-                        .englishHeuristics(last.transcriptLanguage())
+                        .englishHeuristics(full.transcriptLanguage())
                 )
             } catch (_: Exception) {
                 ""
@@ -253,90 +265,62 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         }
     }
 
-    /** Same reload-then-write pattern as FollowUpsActivity. */
+    /** As FollowUpsActivity.completeItem: one locked write, off the main thread. */
     private fun completeItem(meetingId: String, index: Int, task: String) {
-        val meeting = store.load(meetingId) ?: return
-        val at = when {
-            index in meeting.actionItems.indices &&
-                meeting.actionItems[index].task == task -> index
-            else -> meeting.actionItems.indexOfFirst { it.task == task && !it.done }
-        }
-        if (at < 0) return
-        meeting.actionItems[at] = meeting.actionItems[at].copy(done = true)
-        store.save(meeting)
-        if (meeting.actionItems[at].remindAtMs != null) {
-            Reminders.cancelActionItem(this, meetingId, task)
+        val app = applicationContext
+        loader.execute {
+            if (CompleteActionItem.markDone(store, meetingId, index, task)) {
+                Reminders.cancelActionItem(app, meetingId, task)
+            }
         }
     }
 
     private fun generateBrief() {
+        // Plain values only: the run outlives this screen.
+        val app = applicationContext
+        val store = this.store
+        val query = this.query
+        val series = seriesName
+        val defaultTitle = defaultTitle()
+        val baseUrl = settings.llmBaseUrl
+        val apiKey = settings.llmApiKey
+        val model = settings.llmModel
+        val localOnly = settings.localOnlyLlm
+        val modelKey = AiReport.currentModelKey(this)
+        val run = briefRuns.start(query, "pre-brief") {
+            brief(
+                app, store, query, series, defaultTitle,
+                baseUrl, apiKey, model, localOnly, modelKey
+            )
+        }
+        attachBrief(run)
+    }
+
+    /** Shows [run] in progress, then the brief or why there is none. */
+    private fun attachBrief(run: FutureTask<Brief>) {
+        briefAsked = true
         val button = findViewById<MaterialButton>(R.id.generateBriefButton)
         val progress = findViewById<View>(R.id.briefProgress)
         val output = findViewById<TextView>(R.id.briefText)
         button.isEnabled = false
         progress.visibility = View.VISIBLE
-        val series = seriesName
         Thread {
-            // Fresh copies: items may have been checked off moments ago. Read
-            // here, not before the thread: it scans the library.
-            val fresh = try {
-                loadSeries(query)
-            } catch (_: Throwable) {
-                emptyList()
-            }
-            val blocks = fresh.take(4).map { meeting ->
-                val label = meeting.title + ", " +
-                    DateFormat.getDateInstance(DateFormat.MEDIUM)
-                        .format(Date(meeting.createdAtMs))
-                val content = buildString {
-                    if (meeting.summary.isNotBlank()) {
-                        append("Summary:\n").append(meeting.summary.take(4_000)).append("\n\n")
-                    }
-                    val openItems = meeting.actionItems.filter { !it.done }
-                    if (openItems.isNotEmpty()) {
-                        append("Open action items:\n")
-                        for (item in openItems) {
-                            append("- ").append(item.task)
-                            if (!item.owner.isNullOrBlank()) {
-                                append(" (").append(item.owner).append(')')
-                            }
-                            append('\n')
-                        }
-                        append('\n')
-                    }
-                    append("Transcript:\n").append(meeting.transcriptTextWithSpeakers())
-                }
-                label to content
-            }
-            val modelKey = AiReport.currentModelKey(this)
-            // The model's own words, for a report: the notices appended
-            // below are the app's fixed text, not its output.
-            var rawBrief: String? = null
             val result = try {
-                val brief = LlmClient.preBrief(
-                    settings.llmBaseUrl, settings.llmApiKey, settings.llmModel,
-                    settings.localOnlyLlm, series, blocks
-                )
-                rawBrief = brief
-                // Built from these summaries, so it carries their notices.
-                AiDisclaimers.appendTo(
-                    brief, AiDisclaimers.texts(this, AiDisclaimers.union(fresh.take(4)))
-                )
+                run.get()
             } catch (e: Exception) {
-                getString(
-                    R.string.brief_failed, e.message ?: getString(R.string.platform_error_unknown)
-                )
+                val why = (e.cause ?: e).message ?: getString(R.string.platform_error_unknown)
+                Brief(getString(R.string.brief_failed, why), null, "")
             }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 progress.visibility = View.GONE
                 button.isEnabled = true
                 output.visibility = View.VISIBLE
-                output.text = result
-                showBriefReport(rawBrief, modelKey)
+                output.text = result.text
+                showBriefReport(result.raw, result.modelKey)
             }
         }.apply {
-            name = "pre-brief"
+            name = "pre-brief-wait"
             start()
         }
     }
@@ -371,7 +355,120 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * One generated brief: [text] as shown (with the notices of the
+     * summaries it was built from), [raw] the model's own words for a report,
+     * null when it failed and [text] says why.
+     */
+    private class Brief(val text: String, val raw: String?, val modelKey: String)
+
     companion object {
         const val EXTRA_QUERY = "query"
+        private const val STATE_BRIEF = "brief"
+
+        /** The brief asked for last, by query; see [RetainedRun]. */
+        private val briefRuns = RetainedRun<String, Brief>()
+
+        /**
+         * The series for [query], newest first: titles, dates, action items
+         * and the notice fields, read as one partial listing. A year of a
+         * weekly meeting is fifty transcripts with every word timing, and
+         * none of that is needed to list it.
+         */
+        private fun loadSeries(
+            store: MeetingStore,
+            query: String,
+            defaultTitle: String
+        ): List<Meeting> = matchSeries(
+            store.listPartial(MeetingStore.ACTION_FIELDS + MeetingStore.NOTICE_FIELDS),
+            query,
+            defaultTitle
+        )
+
+        /**
+         * Past meetings whose normalized title matches [query], newest first.
+         * Untitled recordings are not a series (MeetingGroups.isSeriesKey):
+         * every one of them would otherwise be "last time" for the others.
+         */
+        private fun matchSeries(
+            all: List<Meeting>,
+            query: String,
+            defaultTitle: String
+        ): List<Meeting> {
+            val key = MeetingGroups.normalizeTitle(query)
+            if (!MeetingGroups.isSeriesKey(key, defaultTitle)) return emptyList()
+            return all.filter { MeetingGroups.normalizeTitle(it.title) == key }
+                .sortedByDescending { it.createdAtMs }
+        }
+
+        /**
+         * Reads the newest meetings of the series and asks for the brief.
+         * Runs on its own thread and holds nothing of the screen: [app] is
+         * the application context.
+         */
+        private fun brief(
+            app: Context,
+            store: MeetingStore,
+            query: String,
+            series: String,
+            defaultTitle: String,
+            baseUrl: String,
+            apiKey: String,
+            model: String,
+            localOnly: Boolean,
+            modelKey: String
+        ): Brief {
+            // Fresh copies: items may have been checked off moments ago. Only
+            // the four the brief is built from are read whole.
+            val recent = try {
+                loadSeries(store, query, defaultTitle).take(4).mapNotNull { store.load(it.id) }
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            val blocks = recent.map { meeting ->
+                val label = meeting.title + ", " +
+                    DateFormat.getDateInstance(DateFormat.MEDIUM)
+                        .format(Date(meeting.createdAtMs))
+                val content = buildString {
+                    if (meeting.summary.isNotBlank()) {
+                        append("Summary:\n").append(meeting.summary.take(4_000)).append("\n\n")
+                    }
+                    val openItems = meeting.actionItems.filter { !it.done }
+                    if (openItems.isNotEmpty()) {
+                        append("Open action items:\n")
+                        for (item in openItems) {
+                            append("- ").append(item.task)
+                            if (!item.owner.isNullOrBlank()) {
+                                append(" (").append(item.owner).append(')')
+                            }
+                            append('\n')
+                        }
+                        append('\n')
+                    }
+                    append("Transcript:\n").append(meeting.transcriptTextWithSpeakers())
+                }
+                label to content
+            }
+            return try {
+                val brief = LlmClient.preBrief(baseUrl, apiKey, model, localOnly, series, blocks)
+                // Built from these summaries, so it carries their notices.
+                Brief(
+                    AiDisclaimers.appendTo(
+                        brief, AiDisclaimers.texts(app, AiDisclaimers.union(recent))
+                    ),
+                    brief,
+                    modelKey
+                )
+            } catch (e: Exception) {
+                Brief(
+                    app.getString(
+                        R.string.brief_failed,
+                        e.message ?: app.getString(R.string.platform_error_unknown)
+                    ),
+                    null,
+                    modelKey
+                )
+            }
+        }
     }
 }
