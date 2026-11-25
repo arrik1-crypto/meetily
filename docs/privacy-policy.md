@@ -33,7 +33,9 @@ All of this is kept in Recap's private storage, which other apps cannot read:
 - Meetings you delete, kept in Recently deleted with their audio, photos
   and files for 30 days (longer if the phone's clock was once set ahead)
   unless you erase them sooner (see Deleting your data).
-- Meeting audio, when kept. On-device transcription keeps it by default.
+- Meeting audio, when kept. On-device transcription keeps it by default. If
+  you turn off Keep meeting audio, a recording made to be transcribed after
+  the meeting is kept only until its transcript is made.
 - Files you import: a recording, the sound of a video (only the sound is
   kept when it can be taken out on the phone; otherwise the whole file),
   or a WebVTT or SRT transcript, which becomes a meeting without audio.
@@ -157,7 +159,10 @@ Recap keeps no copy of it.
 
 When you share or export a meeting, audio, a clip, action items, a digest or a
 backup, it goes where you choose and is then outside Recap's control. Recap
-never shares your content on its own.
+never shares your content on its own. A meeting too long to share as text is
+shared as a text file, which Recap keeps in its private storage only until
+your next share, until you erase the meeting or remove a passage from it, or
+until Recap starts again more than an hour later.
 
 Exports of every kind (Markdown, PDF, Word, subtitles, and your whole library
 as Markdown files in a folder) are written only to a file or folder you pick

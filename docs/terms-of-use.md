@@ -1,0 +1,148 @@
+# Recap — Terms of Use
+
+_Last updated: 22 November 2026_
+
+<!-- This page is the web copy of the in-app terms
+     (android/app/src/main/assets/terms_of_use.txt, shown under
+     Settings → Terms of use). They must say the same thing: change both
+     together, "Last updated" included. -->
+
+These terms apply to your use of the Recap app. By using Recap you agree to
+them. If you do not agree, do not use the app.
+
+## 1. What Recap does
+
+Recap records, transcribes and summarises meetings on your phone.
+Transcripts, speaker labels, summaries, action items and answers are produced
+automatically by speech and language models. They can be wrong or
+incomplete, and words can be attributed to the wrong person.
+
+## 2. Drafts, not advice
+
+Everything Recap generates is a draft for you to check. It is not medical,
+legal, financial or other professional advice, and it does not replace the
+judgement of a qualified professional or an official record. Review it
+before you rely on it, act on it or share it.
+
+## 3. Recording other people
+
+You are responsible for telling the people you record, for getting their
+consent where the law requires it, and for following the laws on recording
+and on personal data that apply to you and to them. Nothing in Recap does
+this for you.
+
+## 4. Models you download
+
+Apart from a small speech detector and a small speech enhancer built into the
+app (Silero VAD and GTCRN, both MIT License, listed under Settings >
+Open-source licences), the speech and language models Recap uses are not
+part of the app. When you choose one in Settings, it is downloaded from its
+publisher or from a third-party repository. Settings > Open-source licences
+lists each model, where it comes from and the licence it is published under.
+Each model is its publisher's work and is provided under its publisher's
+licence, not by Recap. By downloading a model you accept its licence.
+
+## 5. Model use restrictions
+
+Some model licences restrict what the model may be used for, and require
+those restrictions to be passed on to everyone who uses the model. The terms
+below are incorporated into these terms by reference. You agree to follow
+them whenever you use, through Recap, a model they cover.
+
+**Gemma models (Gemma 3):** the Gemma Terms of Use, including the Gemma
+Prohibited Use Policy. You must not use Gemma, or a model derived from it,
+for the restricted uses set out in that policy, or in violation of
+applicable laws and regulations.
+<https://ai.google.dev/gemma/terms>
+<https://ai.google.dev/gemma/prohibited_use_policy>
+
+**MedGemma:** the Health AI Developer Foundations Terms of Use, including the
+Health AI Developer Foundations Prohibited Use Policy. You must not use
+MedGemma for the restricted uses set out in that policy, for any use that
+could cause a health regulatory authority to deem Google to be a
+manufacturer of a medical device, or in violation of applicable laws and
+regulations.
+<https://developers.google.com/health-ai-developer-foundations/terms>
+<https://developers.google.com/health-ai-developer-foundations/prohibited-use-policy>
+
+**Llama 3.2:** the Llama 3.2 Community License Agreement, including the
+Llama 3.2 Acceptable Use Policy.
+<https://github.com/meta-llama/llama-models/blob/main/models/llama3_2/LICENSE>
+<https://www.llama.com/llama3_2/use-policy>
+
+**Llama 3.1:** the Llama 3.1 Community License Agreement, including the
+Llama 3.1 Acceptable Use Policy.
+<https://github.com/meta-llama/llama-models/blob/main/models/llama3_1/LICENSE>
+<https://llama.meta.com/llama3_1/use-policy>
+
+The Llama agreements, and copies of the Gemma and Health AI Developer
+Foundations terms, are reproduced under Settings > Open-source licences.
+Their publishers may update them; the current versions at the links above
+apply.
+
+In plain terms, among other things these policies forbid using the models
+to:
+
+- break the law, or infringe anyone's rights, including their privacy and
+  intellectual property;
+- create or promote content that sexually exploits or endangers children;
+- harass, threaten, bully or defame people, or discriminate against them;
+- plan, promote or assist violence, terrorism, weapons or other activities
+  that risk death or injury;
+- deceive or defraud people, including by presenting generated text as
+  written by a person;
+- practise medicine, law, accounting, finance or another profession without
+  the licence it requires;
+- collect, infer or disclose sensitive information about people without the
+  right to do so;
+- get around a model's safety measures.
+
+This list is a summary. Where it differs from a policy, the policy governs.
+
+Recap adds one rule of its own: do not use MedGemma, or any model in Recap,
+to diagnose or treat anyone. A clinical-style summary is a draft for a
+qualified professional to check.
+
+Before your first download of a model under one of these licences, Recap
+asks you to accept that licence, and remembers your answer for it on this
+device. You are responsible for what you do with a model's output.
+
+## 6. Built with Llama
+
+Recap can run Meta's Llama 3.2 and Llama 3.1 models on your phone.
+
+Llama 3.2 is licensed under the Llama 3.2 Community License, Copyright ©
+Meta Platforms, Inc. All Rights Reserved.
+
+Llama 3.1 is licensed under the Llama 3.1 Community License, Copyright ©
+Meta Platforms, Inc. All Rights Reserved.
+
+## 7. Your recordings and data
+
+Settings > Privacy policy explains how Recap handles your recordings,
+transcripts and other data. You are responsible for what you record, keep
+and share.
+
+## 8. No warranty
+
+To the extent the law allows, Recap, the speech detector and speech enhancer
+built into it and the models it can download are provided "as is", without
+warranties of any kind. Model publishers give no warranty through Recap
+either; see each model's licence.
+
+## 9. Limitation of liability
+
+To the extent the law allows, Recap's developer is not liable for indirect
+or consequential loss, or for loss caused by relying on a transcript, summary
+or other generated output. Nothing in these terms limits liability that the
+law does not allow to be limited, or takes away your rights as a consumer.
+
+## 10. Changes
+
+These terms may change when the app is updated. The version in the app you
+are using applies to you.
+
+## 11. Contact
+
+Questions about these terms can be sent to the support address on Recap's
+Google Play listing.

@@ -1,8 +1,16 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Current release:
-**3.21.0-beta1** (versionCode 116), targetSdk 36 (Android 16): Batch 7
+App ID: **com.recap.mobile** (permanent). Next release:
+**3.22.0-beta1** (versionCode 117), targetSdk 36 (Android 16):
+pre-release review fixes. For users: a restore asks before replacing
+meetings already on the phone, a recording keeps its first words and
+its audio when the microphone or the live model fails, reminders and
+nudges arrive on time without exact alarms, and many smaller fixes
+land in backups, imports, downloads, the app lock, summaries and the
+meeting screen. Until the maintainer's version bump, a separate commit
+right after the one that adds these notes, the build still reads
+**3.21.0-beta1** (versionCode 116), the current release: Batch 7
 (Re-time words, which measures the timings of edited transcript words
 against the recording on the phone with an optional English
 forced-alignment model; a Baseline Profile with androidx.profileinstaller
@@ -40,6 +48,9 @@ reports, mediaProcessing for ImportService, JNI-only native exports).
 Before the first submission, work through the **owner checklist in
 section 11**: the Play Console declarations, placeholders, legal reviews
 and device checks that the code cannot settle on its own.
+[RELEASE_BLOCKERS.md](RELEASE_BLOCKERS.md) sorts that checklist by what
+blocks the first submission, and [DEVICE_TEST_PLAN.md](DEVICE_TEST_PLAN.md)
+is the device pass to run before every upload.
 
 ## 1. One-time: create the upload key and add the secrets
 
@@ -113,10 +124,51 @@ import the backup. After that, updates install in place.
 
 ## 2. Build the signed bundle
 
-GitHub → Actions → **Release Android (signed AAB)** → Run workflow (on the
-default branch or this branch). Download the `meetily-android-release`
-artifact; it contains `app-release.aab` (upload this to Play) and signed
-APKs (for sideload checks).
+Push a tag named `android-v<versionName>` on the commit to release, from
+any branch. For 3.22.0-beta1, once the version bump is in:
+
+```bash
+git tag android-v3.22.0-beta1 <release commit>
+git push origin android-v3.22.0-beta1
+```
+
+A tag push runs **Release Android (signed AAB)** from the tagged commit's
+own copy of `.github/workflows/release-android.yml`, so it works from the
+Android branch. The run warns, without failing, when the tag does not
+match that commit's `versionName`, which usually means the tag is on the
+wrong commit. It needs the four signing secrets (section 1) and fails
+early without them. To build the same version again, delete the tag
+(`git push --delete origin android-v3.22.0-beta1` and `git tag -d
+android-v3.22.0-beta1`) and push it again.
+GitHub → Actions → Release Android (signed AAB) → that run → download
+the `meetily-android-release` artifact: `app-release.aab` (upload this
+to Play), the signed APKs (for sideload checks) and
+`native-debug-symbols.zip` (keep it with the AAB, section 10; the
+artifact is kept 30 days). Run workflow (workflow_dispatch) appears in
+the Actions UI only once `release-android.yml` is on the repository's
+default branch, and `main`, the upstream desktop app, does not have it.
+
+The workflow has never run in CI, so no AAB has been built there yet.
+Push a tag for a dry run well before the first upload and read the
+whole log: `bundleRelease -PuncompressedNativeLibs`, the JNI export
+check on the `.aab`, the 16 KB alignment check of every arm64-v8a and
+x86_64 library in the AAB and APKs (`scripts/check_16kb_alignment.py`)
+and the baseline profile check (section 11, Version and build).
+
+How CI is set up: `Build Android APK` (`build-android.yml`, every push
+touching `android/`) has a read-only build job that keeps no git
+credentials, because it runs CMake code fetched from outside the
+repository. Only its `publish` job, which runs on the Android branch
+and has `contents: write`, pushes `android/dist/meetily-android.apk`
+and creates the GitHub prerelease, tagged `v<versionName>` from the
+built commit; its notes say whether the APK carries the upload key or
+a throwaway debug key. The release workflow is read-only too and
+decodes the keystore only for the signing build step, removing it
+straight after. That step still runs the third-party CMake configure
+(llama.cpp and whisper.cpp, fetched by tag with no content hash, and the
+MD5-checked KleidiAI) while the keystore is on disk, in both workflows: a
+remaining risk until the two engine sources are hash-pinned (section 11,
+Version and build).
 
 ## 3. Create the app in Play Console
 
@@ -125,17 +177,44 @@ game), **Paid** — this is the one-way door: a free app can never become
 paid, so it must be Paid from creation (see section 9 for price setup).
 Then complete "Set up your app":
 
-- **Privacy policy URL**: publish `docs/privacy-policy.md` publicly first.
-  It has been rewritten to match the in-app policy (PrivacyPolicyDriftTest
-  keeps their sections in step); set its effective date and contact before
-  publishing (section 11).
-  Easiest: repo → Settings → Pages → deploy from branch → `main` `/docs`,
-  then use `https://<user>.github.io/<repo>/privacy-policy` — or simply use
-  the raw GitHub URL to the file. The URL must be reachable without login.
-  Publish the Terms of Use (`android/app/src/main/assets/terms_of_use.txt`)
-  the same way, e.g. as a `terms` page beside the policy. Play Console only
-  asks for the privacy policy URL, so link the terms from the website in
-  the listing's contact details or from the description.
+- **Privacy policy URL**: publish `docs/privacy-policy.md` publicly first,
+  with the Terms of Use beside it: `docs/terms-of-use.md`, the web copy
+  of the in-app `android/app/src/main/assets/terms_of_use.txt` (change
+  the two together). The policy says word for word what the in-app
+  policy says (PrivacyPolicyDriftTest checks that their sections match);
+  set its effective date and contact before publishing (section 11). Both
+  pages exist only on the Android branch,
+  `claude/meeting-summarizer-android-apk-41ewdo`: `main` is the upstream
+  desktop app, has no `docs/privacy-policy.md`, and its `docs/` holds the
+  desktop app's pages, so GitHub Pages from `main` would publish no
+  policy. Publish from the Android branch:
+  1. Push the Android branch with the release merged into it and the
+     policy's effective date and contact filled in (section 11,
+     Placeholders).
+  2. GitHub → the repository → Settings → Pages → Build and deployment →
+     Source **Deploy from a branch** → branch
+     `claude/meeting-summarizer-android-apk-41ewdo`, folder `/docs` →
+     Save. Pages needs a public repository (this one is a public fork)
+     or a plan that offers it for private ones.
+  3. Wait for the "pages build and deployment" run under Actions to
+     pass. Pages renders Markdown files without front matter, so the
+     pages are `https://<owner>.github.io/<repo>/privacy-policy` and
+     `https://<owner>.github.io/<repo>/terms-of-use` (with or without
+     `.html`). The rest of `docs/` (the desktop app's pages and images)
+     is published too, which is harmless.
+  4. Open both URLs in a private browser window: they must load without
+     a login and show the filled-in date and contact.
+  5. Once the app exists (below), enter the policy URL under Policy →
+     App content → Privacy policy. Play Console asks only for the
+     privacy policy, so link the terms from the website in the
+     listing's contact details or from the description.
+  A change pushed to that branch goes live at the same URLs. Pages
+  serves one branch per repository: if `main` ever needs Pages for the
+  desktop app, move the two pages to a repository or branch of their own
+  first and update the URLs. Without Pages, the file's GitHub page
+  (`https://github.com/<owner>/<repo>/blob/claude/meeting-summarizer-android-apk-41ewdo/docs/privacy-policy.md`)
+  also opens without a login in a public repository, inside GitHub's
+  code view; prefer the Pages URL.
 - **App access**: all functionality is available without credentials —
   select "All functionality is available without special access".
 - **Ads**: No, the app contains no ads.
@@ -170,7 +249,23 @@ developer receives nothing from the app. "No data collected" is still not
 the right answer: the bundled Google ML Kit text-recognition SDK, which
 reads text in photos, sends Google diagnostics. The answers below match the
 code on this branch; re-check them whenever an SDK or a network path
-changes. Re-checked for 3.21.0-beta1: no change; owner to confirm
+changes. Re-checked for 3.22.0-beta1 (the pre-release review fixes): no
+change; owner to confirm against the merged build. It adds no
+permission, no foreground service type, no library, no data type and
+no network path. A restore now asks before replacing a meeting already
+on the phone, and backups leave out the staged copies of queued
+imports; both stay on the phone or go only to the file the user picks.
+With "Keep meeting audio" off, the recording of a meeting transcribed
+after it ends is deleted on the phone once its transcript exists, which
+only removes data. A meeting too long to share as text is written to
+app-private cache for the share the user starts and deleted afterwards
+(the privacy policy now says so); the share itself is user-initiated,
+as before. The reminder delivery record now keeps a digest of each task
+instead of its text, on the phone. The AI endpoint field starts empty
+(the example address is only a hint), which sends nothing. The CI
+permission changes, the release workflow's 16 KB check and the
+nlohmann/json notice change the build, not what the app sends.
+Re-checked for 3.21.0-beta1: no change; owner to confirm
 against the merged build. It adds no permission (`ACCESS_LOCAL_NETWORK`
 is deliberately not declared at targetSdk 36), no foreground service
 type, no data type, and no network path beyond one more optional model
@@ -527,8 +622,15 @@ The console will ask about these (all have in-app justifications):
   long-running user-initiated work.
   Keep this declaration: dataSync is still declared and used.
 - **SCHEDULE_EXACT_ALARM**: user-set action-item reminders and calendar
-  nudges (falls back to inexact windows when not permitted). This is an
-  allowed use case (user-facing alarms/reminders).
+  nudges. When exact alarms are not permitted (Android 14 and later deny
+  them to a new install until the user allows Alarms & reminders), Recap
+  uses inexact alarms that are re-armed in steps as their time
+  approaches, so they land within a few minutes of it. From 3.22.0-beta1
+  every reminder is re-armed when the user grants the permission (the
+  system's `SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED` broadcast,
+  which needs no permission of its own) and, after a revoke, which ends
+  Recap's process, at the next start. This is an allowed use case
+  (user-facing alarms/reminders).
 - **READ_CALENDAR**: optional pre-fill/nudges, read-only, declared in the
   privacy policy.
 - **ACCESS_NETWORK_STATE**: a normal permission, with no console
@@ -541,6 +643,16 @@ The console will ask about these (all have in-app justifications):
   before a large model download over a metered connection and to say so
   when the phone is offline. Recap's own use keeps and sends nothing
   about the network. The privacy policy's PERMISSIONS list names it.
+- **3.22.0-beta1** adds no permission and no foreground service type.
+  The recording screen becomes `launchMode="singleTop"` (the Quick
+  Settings tile, the widget and a nudge reach the recording already on
+  screen), and BootReceiver also receives
+  `android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED`;
+  neither is a permission. The import notification of a batch gains a
+  second action, Cancel all, beside Cancel (optional to show in the
+  mediaProcessing video). SummaryService and the import screen now
+  queue their work, instead of closing the app, when Android refuses a
+  foreground start. No new Play Console declaration is expected.
 - **3.21.0-beta1** adds no permission and no foreground service type. Its
   one new service, AlignService (Re-time words), uses the existing
   mediaProcessing and dataSync types and permissions (above), and posts
@@ -737,10 +849,28 @@ closed track and production checks).
    model page". When a publisher materially changes its terms, raise that
    `TermsFamily`'s version in `ModelLicences.kt` so everyone is asked to
    accept again.
-4. Run the **Release Android (signed AAB)** workflow; download the AAB.
-5. Play Console → the track → Create new release → upload AAB → release
+4. Push the tag `android-v<versionName>` on the release commit (section
+   2), which runs **Release Android (signed AAB)**; download the AAB
+   from that run.
+5. Run [DEVICE_TEST_PLAN.md](DEVICE_TEST_PLAN.md) on the build, at
+   least its core, before the upload.
+6. Play Console → the track → Create new release → upload AAB → release
    notes → roll out (after the accessibility pass in section 7 for
    anything beyond internal testing).
+
+Draft release notes for 3.22.0-beta1 (Play allows 500 characters per
+language; this is about 400):
+
+```
+• Restoring a backup asks before replacing meetings already on your phone
+• Recordings keep their first words, and their audio if the microphone or live transcription fails
+• Reminders and meeting nudges arrive on time even without exact alarms
+• Cancel all for batch imports, and cancel model downloads from Settings
+• Many smaller fixes to backups, app lock, summaries and the meeting screen
+```
+
+If 3.21.0-beta1 never reached a track, fold its notes (below) into these
+and keep the total under 500 characters.
 
 Draft release notes for 3.21.0-beta1 (Play allows 500 characters per
 language; this is about 360):
@@ -943,8 +1073,60 @@ Everything here needs the owner: a Play Console answer, a placeholder only
 you can fill, a legal or clinical review, or a check on a real device.
 Work through it before the first targetSdk 36 upload to any track.
 
+- Before every upload, run [DEVICE_TEST_PLAN.md](DEVICE_TEST_PLAN.md): a
+  60 to 90 minute pass on one phone that condenses the Device checks below.
+- [RELEASE_BLOCKERS.md](RELEASE_BLOCKERS.md) sorts this checklist by what
+  blocks the first submission, what can wait, and what is already done.
+
 ### Version and build
 
+- [ ] Bump `versionCode` to 117 and `versionName` to `3.22.0-beta1` in
+  `android/app/build.gradle.kts`, in its own commit right after the
+  pre-release review fixes and their docs (the maintainer's step; until
+  then the build reads 3.21.0-beta1, 116).
+- [ ] Run CI on the release commit of the pre-release review fixes
+  (`r1/integration`, merged into the Android branch): `testReleaseUnitTest`
+  (new AbortScope, ActionItemUpdates, AiSettingsFixes, AppLockRules,
+  BackupRestore, DownloadRunEnd, EditTargets, MeetingShareFile,
+  QueuedImport, RetainedRun and UnkeptAudio tests, plus changes to
+  ClearVoice, DeviceAudioLock, DeviceFit, DownloadSpace, LiveUpdates,
+  MeetingLanguage, NemoWords, NotificationMark, NudgeTiming,
+  ReminderReArm, ResumableDownload, Retention, StorageUsage,
+  SummarizerAndExport and TranscriptResume tests; 1,568 JVM tests passed
+  locally), then `assembleRelease` with `lintVital`, the native export
+  check (`llama_jni.c` changed: the empty-reply error now reports the
+  tokens sampled; only CI compiles native code) and the baseline profile
+  check (`baseline-prof.txt` has updated `JobQueue` signatures).
+  Nothing in these fixes went through Gradle, lint, aapt or R8: they
+  were compiled against Android's implementation jar and hand-written
+  AndroidX stubs, so fix anything the real build turns up. In
+  particular check the manifest (`launchMode="singleTop"` on
+  RecordingActivity, BootReceiver's
+  `SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED` filter, an API 31
+  constant that BootReceiver also compares, so expect at most an
+  InlinedApi warning), LockActivity's `ActivityManager.appTasks` with
+  `taskId` on API 29+ and `persistentId` below, and the new rows in
+  `activity_settings.xml` and `activity_storage.xml`.
+- [ ] Dry-run the release workflow by pushing an `android-v*` tag
+  (section 2) well before the first upload: neither
+  `bundleRelease -PuncompressedNativeLibs` nor `check_jni_exports.py` on
+  an `.aab` has ever run in CI. From the first AAB, check that both ABIs
+  pass the 16 KB check (item below), that the native debug symbols in
+  BUNDLE-METADATA include `libmeetily_native_v82.so`, and keep the
+  `check_jni_exports.py` output for the `.aab` (its per-ABI totals give
+  the AAB's size for Notes and gotchas).
+- [ ] Pin the engine sources. On a machine that can reach github.com
+  archives, run
+  `curl -fsSL https://github.com/ggml-org/llama.cpp/archive/refs/tags/v1.0.0.tar.gz | sha256sum`
+  and the same for
+  `https://github.com/ggml-org/whisper.cpp/archive/refs/tags/b5907.tar.gz`,
+  add `URL_HASH SHA256=<digest>` to both `FetchContent_Declare` calls in
+  `app/src/main/cpp/CMakeLists.txt`, and update both digests with any tag
+  bump; optionally switch to commit-SHA archive URLs. These are build
+  inputs, not model downloads. The digests could not be computed in the
+  review environment (GitHub's archive downloads were refused there).
+  Until then the signing step of both workflows runs that unpinned
+  third-party CMake with the upload keystore on disk (section 2).
 - [x] Bump `versionCode` to 116 and `versionName` to `3.21.0-beta1` in
   `android/app/build.gradle.kts` (done; 115 / 3.20.0-beta1,
   114 / 3.19.0-beta1, 113 / 3.18.0-beta1, 112 / 3.17.0-beta1 and
@@ -1110,8 +1292,20 @@ Work through it before the first targetSdk 36 upload to any track.
   user a dialog. AGP 8.10 adds an Aligned16KB lint warning for
   dependencies. From Batch 5, CI's `check_sherpa_jni.py` step already
   fails the build if a LOAD segment of `libsherpa-onnx-jni.so` or
-  `libonnxruntime.so` is aligned below 16 KB; the check here still
-  covers the packaged APK/AAB and ML Kit's library.
+  `libonnxruntime.so` is aligned below 16 KB. From 3.22.0-beta1 the
+  release workflow also fails if any arm64-v8a or x86_64 `.so` in the AAB
+  or APKs, ML Kit's included, has a LOAD `p_align` below 0x4000, or if
+  either ABI is missing (`scripts/check_16kb_alignment.py`). 32-bit `.so`
+  files that an AAR brings into the bundle are listed in that log but
+  not checked: read the list, since a 32-bit ABI in the AAB would make
+  Play offer the app to 32-bit devices that have no `libmeetily_native`.
+  What remains here: the AAB stores the libraries uncompressed
+  (`-PuncompressedNativeLibs`), so also check the 16 KB zip alignment of
+  the `.so` entries in the APKs generated from it (bundletool
+  `build-apks`, then `zipalign -c -P 16 -v 4` on each split, or Play
+  Console's App bundle explorer). The 3.21.0-beta1 sideload APK
+  (arm64 only, libraries compressed) already had every LOAD segment at
+  0x4000.
 - [ ] Fill the model pins (roadmap item B55, not part of this batch):
   every `sha256` and `revision` in WhisperModels, NemoModels,
   DiarizationModels and LocalLlmModels is still null. Run
@@ -1176,7 +1370,9 @@ Work through it before the first targetSdk 36 upload to any track.
   background playback, Recently deleted, several summaries and Remove a
   passage work on the phone, and by 3.21.0-beta1, whose Re-time words
   runs on the phone and whose optional model comes from GitHub with
-  nothing about the user sent; confirm this on the merged build). The data
+  nothing about the user sent, and by 3.22.0-beta1, whose review fixes
+  add no permission, data type or network path; confirm this on the
+  merged build). The data
   deletion question is a plain Yes or No about the data Recap collects,
   with no text to fill in: answer it as section 4 says (most likely No,
   since ML Kit's diagnostics are held by Google and Recap cannot delete
@@ -1244,7 +1440,9 @@ Work through it before the first targetSdk 36 upload to any track.
   mediaProcessing on Android 15+ and dataSync below. Add it to both
   descriptions with the wording and demo video in section 5. No new
   permission: FOREGROUND_SERVICE_MEDIA_PROCESSING and
-  FOREGROUND_SERVICE_DATA_SYNC were already declared.
+  FOREGROUND_SERVICE_DATA_SYNC were already declared. 3.22.0-beta1
+  changes no declaration; a batch import's notification now also has
+  Cancel all, which the mediaProcessing video may show.
 - [ ] **Target API 37** (Android 17), whenever Recap moves to it (AGP
   9.1.1 or later is needed; nothing in Batch 7 requires the move):
   - Add `<uses-permission android:name="android.permission.ACCESS_LOCAL_NETWORK" />`
@@ -1290,9 +1488,11 @@ Work through it before the first targetSdk 36 upload to any track.
   `[effective date]`) and the same date at the top of
   `docs/privacy-policy.md`.
 - [ ] Host the privacy policy (`docs/privacy-policy.md`) and the Terms of
-  Use (`android/app/src/main/assets/terms_of_use.txt`) at public URLs
-  reachable without login, then put the privacy policy URL in Play Console
-  and link the terms from the listing (section 3).
+  Use (`docs/terms-of-use.md`, the web copy of
+  `android/app/src/main/assets/terms_of_use.txt`) at public URLs
+  reachable without login, with GitHub Pages from the Android branch as
+  section 3 describes, then put the privacy policy URL in Play Console
+  and link the terms from the listing.
 - [ ] If the privacy policy is already published, republish it with a new
   effective date (in both places): 3.16.0-beta1 adds the network-state
   permission line and widens the crash-report paragraph to Android's own
@@ -1345,6 +1545,16 @@ Work through it before the first targetSdk 36 upload to any track.
   Permissions adds word re-timing to the notifications and background
   work. Nothing new leaves the phone. Nothing about local network
   access is added while Recap targets 36 (see Target API 37 above).
+  3.22.0-beta1 changes it again, in both copies together (same
+  headings, and word for word the same text): What is stored on your
+  phone says that with Keep meeting audio off, a recording made to be
+  transcribed after the meeting is kept only until its transcript is
+  made; Sharing and export says that a meeting too long to share as
+  text is shared as a text file kept in Recap's private storage only
+  until the next share, until the meeting is erased or a passage is
+  removed from it, or until Recap starts again more than an hour
+  later. Nothing new leaves the phone. The effective date is still the
+  placeholder in both places (the item above).
 - [ ] Set up a way to triage the "Recap AI output report" emails that
   arrive at the support address, and decide on a response time.
 
@@ -1469,8 +1679,17 @@ Work through it before the first targetSdk 36 upload to any track.
   Runtime licence-source item below).
 - [ ] Pre-existing licence gap, not caused by Batch 3: llama-common has
   compiled in nlohmann/json (MIT) and cpp-httplib (MIT) since llama.cpp
-  b10089, and neither has its own entry or copyright line in
-  `notices.txt`. Consider adding them to `build_notices.py`.
+  b10089. From 3.22.0-beta1 nlohmann/json 3.12.0 has its entry and MIT
+  text in `notices.txt` and `build_notices.py` (both libraries in the
+  3.21.0-beta1 APK carry its type names). cpp-httplib (MIT) is still not
+  listed: none of its strings were found in the shipped libraries, so
+  confirm whether any of it survives `--gc-sections` in
+  `libmeetily_native*.so`, and add it the same way if it does.
+  `build_notices.py` still fails as written on the ONNX Runtime licence
+  URL (item below), so `notices.txt` was produced by the script with the
+  committed ONNX Runtime text substituted (the unchanged script
+  reproduces the committed file byte for byte that way, and the edited
+  one adds only the nlohmann/json lines).
 - [ ] Fix `build_notices.py`'s ONNX Runtime licence source before the
   next regeneration: `mit_ort`
   (`https://raw.githubusercontent.com/microsoft/onnxruntime/main/LICENSE`)
@@ -1564,7 +1783,9 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] *Decision*: keep the safety stop that holds back an automatic
   clean-up run that would delete more than 10 whole meetings
   (`Retention.AUTO_MAX_MEETINGS`) and posts a "due for clean-up" review
-  notification instead? It is not in the roadmap spec; it was added
+  notification instead (from 3.22.0-beta1 the waiting batch also shows on
+  the Storage screen's clean-up card and in Settings until it is
+  reviewed or the rule changes)? It is not in the roadmap spec; it was added
   against data loss, for example after restoring a backup of old
   meetings or a clock change. It applies only to "Delete old meetings";
   "Remove old audio" has no cap.
@@ -1673,7 +1894,11 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] *Decision* (several summaries): every new summary still refreshes
   the meeting's one list of action items, so a run with another style
   can drop tasks it did not find and cancel their reminders, as a
-  regenerate always has. Confirm, or merge the lists. Kept summaries are
+  regenerate always has. From 3.22.0-beta1 a summary whose action-item
+  list never arrived (for example a reply cut off at the length limit)
+  keeps the meeting's items, ticks and reminders as they are, instead
+  of replacing them with guesses from the text. Confirm, or merge the
+  lists. Kept summaries are
   one per style, not one per style and language. Ask your library's
   ranking reads only the summary shown; home search reads the kept ones
   too.
@@ -1743,7 +1968,9 @@ Work through it before the first targetSdk 36 upload to any track.
   "Recap app"; both were kept byte-identical when the export text moved
   into resources. To change it, edit `ExportText.photosMarkdown`,
   `exporttext_photos_markdown` in `strings_exporttext.xml` and
-  ExportTextTest together.
+  ExportTextTest together. (The default backup file names, the other
+  place the old name showed, became `recap-backup.zip` and
+  `recap-backup.recapbak` in 3.22.0-beta1.)
 - [ ] Review the wording of Batch 7's new strings on a device:
   `strings_align.xml`, `strings_platform.xml` (the LAN hints, the error
   fallbacks, the home list's plurals) and `strings_exporttext.xml` (the
@@ -1815,6 +2042,62 @@ Work through it before the first targetSdk 36 upload to any track.
   (`android:intentMatchingFlags="enforceIntentFilter"`) after testing the
   share, Quick Settings tile, widget, boot and calendar receivers. Android
   16 does not require it.
+- [ ] *Decision* (3.22.0-beta1, restore): restoring a backup onto a
+  phone that already holds some of its meetings now asks first, with
+  "Keep this phone's" as the default answer and "Replace" as the other
+  (`restore_conflict_message` says what Replace loses). It used to
+  replace them silently. Confirm the default and the wording.
+- [ ] *Decision* (3.22.0-beta1, "Keep meeting audio" off): an
+  audio-only recording's audio is now removed automatically once its first
+  transcript is complete and has words (also when a live model failed to
+  load and the meeting was recorded as audio instead). Before, the switch
+  did nothing in the default mode and the audio was kept for good. A
+  transcription that fails or stops part-way keeps the audio so it can be
+  finished. `setting_save_audio_desc` says so. Confirm.
+- [ ] *Decision* (3.22.0-beta1, imports), confirm each: (1) Cancel all on a
+  batch deletes the staged copies of the files not yet started; they are
+  Recap's only copies (the originals stay in the app they came from), and
+  the notification says to share or pick them again. (2) A queued import
+  whose chosen model was deleted runs with the Settings model without
+  asking, and with no transcription model at all it waits with its copy
+  and shows a quiet notice; Settings does not warn when a model a queued
+  import names is deleted. (3) Continue transcription's start-over keeps
+  the transcript's stored language instead of the Settings pin. (4) The
+  home screen's Import a recording button always opens the picker and
+  queues the files behind a running pass, instead of opening that pass's
+  progress screen.
+- [ ] *Decision* (3.22.0-beta1, meeting page): line edits (Edit text,
+  Split, Delete line, the speaker tag, Name a voice everywhere, the
+  long-press highlight, applying suggested speakers) are refused with a
+  note while that meeting is being recorded or a transcription fills it,
+  because its saves rewrite the lines; edits during Remove a passage stay
+  allowed. Confirm.
+- [ ] *Decision* (3.22.0-beta1, automatic summary): with "Summarise after
+  the meeting" set to "When the meeting ends", a meeting that ends with
+  the battery under 40% and the phone not charging now waits for the
+  charger, through the same queue as "When charging", instead of getting
+  no summary. `setting_auto_summary_desc` does not mention it. Confirm,
+  and decide whether the description should.
+- [ ] *Decision* (on-device AI beside transcription, judged deliberate in
+  the pre-release review): interactive on-device AI may load the chat
+  model while live or batch transcription runs: Catch me up during a
+  recording, Ask this meeting, Ask your library, the pre-meeting brief and
+  auto-title. They run one at a time, the model is freed 60 s after the
+  last answer and released on memory pressure. The weekly digest and
+  speaker suggestions, by contrast, refuse to start while a heavy job
+  runs. Confirm after the 6 GB device check under Device checks
+  (pre-release review fixes); if that fails, gate those calls on
+  `JobGate.canStartBatch()` as DigestActivity does.
+- [ ] *Decision* (app lock and the Recents preview): with app lock on and
+  "Hide content from screenshots" off, the Recents card and the snapshot
+  Android shows while reopening Recap show the last screen, meeting text
+  included, until the lock screen covers it; turning on Hide content
+  blanks them. 3.22.0-beta1 removed the lock screen's slide-in animation,
+  so the lock covers the app from its first frame, but did not change the
+  preview. Should app lock also blank the Recents preview on its own
+  (`setRecentsScreenshotEnabled(false)` on Android 13+, or FLAG_SECURE
+  while app lock is on)? The README's security line now says that app
+  lock alone does not blank it.
 
 ### Device checks
 
@@ -1831,7 +2114,11 @@ Target API 36, large screens and back:
 - [ ] Smoke-test predictive back on Android 16, with gesture navigation and
   with 3-button long-press: RecordingActivity back sends the app to the
   background, TranscriptCheck holds back while applying, and LockActivity
-  sends the task to the background.
+  sends Recap's own task to the background. Opened over a share or Open
+  with from another app, or from Settings > Apps > Recap > Storage >
+  Manage space, Back on the lock screen returns to that app or to
+  Settings (3.22.0-beta1), and Recap's lock no longer covers that app
+  afterwards.
 - [ ] Look at non-Latin transcripts (Thai, Arabic, Tamil and others) on
   Android 16: `elegantTextHeight` is ignored at target 36, so line height
   can change in transcript lists and exports.
@@ -1956,7 +2243,8 @@ Background transcription as mediaProcessing (Android 15+):
   stays dataSync): both finish with the screen off, and Cancel keeps the
   partial transcript.
 - [ ] Queued check on the charger (ChargingJobService). Turn on Settings →
-  Check the transcript → Only while charging. Off the charger, finish an
+  Transcription → "Check the transcript after each meeting" and "Only
+  while charging", then Save settings. Off the charger, finish an
   audio-only recording, then lock the phone or swipe the app away so it
   is not in the foreground. The transcription is queued, not started.
   Plug in. The charging job can take a while to be scheduled; to force
@@ -2503,7 +2791,9 @@ Clear voice (3.19.0-beta1):
 - [ ] Android 15+: shorten the limit (`adb shell device_config put
   activity_manager media_processing_fgs_timeout_duration 60000`) and make
   a copy: it stops with the daily-limit message, keeps nothing, and is not
-  killed with ForegroundServiceDidNotStopInTimeException. While a copy
+  killed with ForegroundServiceDidNotStopInTimeException. From
+  3.22.0-beta1 a limit that arrives only after the copy was saved
+  reports the copy as ready, not "Nothing was kept". While a copy
   runs, `adb shell dumpsys activity services com.recap.mobile` lists
   ClearVoiceService as a mediaProcessing foreground service (dataSync on
   Android 14 and lower).
@@ -2775,7 +3065,9 @@ well as a Pixel:
 - [ ] Android 15+: shorten the limit (`adb shell device_config put
   activity_manager media_processing_fgs_timeout_duration 60000`) and run
   a long removal: it stops with the daily-limit message and changes
-  nothing. While it runs, `adb shell dumpsys activity services
+  nothing. From 3.22.0-beta1 a limit that arrives only after the swap
+  completed reports the passage as removed, not "Nothing was changed".
+  While it runs, `adb shell dumpsys activity services
   com.recap.mobile` lists PassageService as a mediaProcessing foreground
   service (dataSync on Android 14 and lower).
 
@@ -2955,6 +3247,231 @@ Android 17 and 18 readiness (3.21.0-beta1):
   insights lists an auto-detected voice apart from a person named
   "Speaker 2".
 
+Pre-release review fixes (3.22.0-beta1). DEVICE_TEST_PLAN.md calls this
+group RF: it walks many of these in its core and more in its extras, and
+lists the ones it leaves out; tick an item here only when a step covering
+it in full has passed. Backup, restore and clean-up:
+
+- [ ] Back up, edit a meeting's notes, then restore that backup: a
+  "Meetings already on this phone" dialog counts the meeting. Keep this
+  phone's keeps the edit and the meeting's files, and the result adds "1
+  meeting already on this phone was kept as it is here."; restore again
+  with Replace and the backup's copy comes back. A wrong passphrase is
+  reported before the question, and meetings that are not on the phone
+  are restored either way.
+- [ ] Start an export with audio, then Remove audio on a meeting (or let a
+  queued import start): the backup completes. Restore it on a clean
+  install: nothing is missing apart from that file, and no staged
+  `queued-*` import copy is in the zip.
+- [ ] Make an export fail (for example, pick a destination on a USB stick
+  and unplug it mid-export, or fill the storage): no partial
+  `recap-backup` file is left, or the message says the file is incomplete
+  and to delete it. Close Settings during a long export: the result toast
+  still shows. The picker suggests `recap-backup.zip` and
+  `recap-backup.recapbak`.
+- [ ] Encrypted export: after the picker, a 5-character passphrase ("Use at
+  least 6 characters.") or a mismatch ("Passphrases don't match.") keeps
+  the dialog open; Back, a tap outside or Cancel removes the empty
+  `.recapbak` ("Backup cancelled."); rotate with the dialog up and it is
+  asked again.
+- [ ] Held-back clean-up with notifications off: deny Recap's notifications
+  and turn on Delete old meetings at 30 days while nothing is due. Restore
+  a backup with more than 10 meetings older than 30 days, set the clock 8
+  days ahead (a restore counts as a change for a week) and force the run
+  (`adb shell cmd jobscheduler run -f com.recap.mobile 7302`). Nothing is
+  deleted, the Storage screen's clean-up card shows "N old meetings are
+  waiting for your review…" with Review, which opens the review, and
+  Settings → Data shows the same line under the rule. Switch the rule to
+  Remove old audio: the line, the card and any review notification go,
+  and a review notification still in the shade opens no review. Set the
+  clock back to automatic.
+- [ ] Cancel a transcription half-way (its audio kept), switch the Settings
+  model, then Storage → Delete unused models: the model the unfinished
+  transcript was made with is not offered, and Continue transcription
+  still works.
+- [ ] Star and unstar meetings on the home list quickly while an import
+  runs: the list stays responsive and the last tap wins after a restart.
+
+App lock and the home screen:
+
+- [ ] Turn on Require unlock to open, stay away more than 30 s, cancel the
+  prompt so the lock screen stays up, set Android's screen lock to None,
+  then return to Recap from the launcher and from Recents: the lock
+  screen closes and the library shows. Set a screen lock again: the lock
+  comes back after the next 30 s in the background.
+- [ ] With app lock engaged, share an audio file to Recap from another app
+  and press Back on the lock screen (once to cancel Android's prompt, then
+  again): you land back in the sending app, not on the home screen, and
+  reopening that app does not show Recap's lock. Repeat from Settings >
+  Apps > Recap > Storage > Manage space.
+- [ ] With app lock on and Hide content off, then on, return after more than
+  30 s from Recents, from a notification (Summary ready) and from the
+  launcher icon: the lock screen appears without a slide-in animation and
+  no meeting text is readable under it before it appears (see the Recents
+  preview decision under Product decisions).
+- [ ] Fresh install: back out of the welcome screen, then rotate the
+  phone, tap the home header's theme button and switch system dark mode:
+  the welcome screen does not reopen. It returns on the next cold start
+  until Get started or Choose later.
+- [ ] Export a meeting titled in Cyrillic, Greek or Japanese as Markdown,
+  and share a meeting long enough to go as a file: both suggested names
+  keep the title's letters (not "meeting" or "_.txt").
+
+Recording, reminders and nudges:
+
+- [ ] Start a recording from the orb, press Home, tap the Quick Settings
+  tile or the widget during it: the same recording screen opens, and after
+  Finish no stale recording screen is left behind in Back.
+- [ ] A 5-second audio-only recording gets its transcript queued and made.
+- [ ] Force-stop Recap mid audio-only recording and relaunch: the recovered
+  meeting is transcribed without a manual accuracy check.
+- [ ] Live transcription with a large model (Whisper Turbo or Parakeet):
+  speak from the first second; the opening words are in the transcript
+  and in the audio. Then make the live model fail to load (debug build:
+  truncate its file with `adb shell run-as`): the meeting is recorded as
+  audio, the screen says which model did not load, and the transcript is
+  made after Finish.
+- [ ] Unplug a USB or wired microphone chosen as the input mid-recording:
+  if Android ends the capture (some phones switch to the built-in
+  microphone instead), the notification reads "Recording stopped — tap
+  Finish to save", the clock stops, only Finish is left, and Finish keeps
+  what was recorded.
+- [ ] With exact alarms denied (a fresh Android 14+ install), a nudge for
+  a meeting an hour away and an action-item reminder an hour ahead arrive
+  within a few minutes of their time.
+- [ ] Set an action-item reminder with exact alarms allowed, revoke Alarms
+  & reminders, reopen Recap: the reminder still fires. Allow them again:
+  reminders already set are re-armed exact.
+- [ ] "Keep meeting audio" off, live transcription off: record a short
+  meeting; once its transcript is made the meeting has no audio (no
+  player, Storage shows no recording for it). Cancel the transcription
+  of another one half-way: its audio is kept and Continue works.
+
+Imports and transcription:
+
+- [ ] With only Parakeet (or one English-only model) downloaded, share a
+  file from a slow cloud provider and press Home at once: no crash, the
+  "queued" toast appears, and the file starts when Recap is next opened.
+- [ ] Batch of 5: tap Cancel all in the notification, and on the progress
+  screen try both Stop all and Only this file ("Stop the other files
+  too?"). Check the "N more files of this batch were not imported…"
+  notification and that nothing more starts. Also tap Cancel all while
+  files are still being added.
+- [ ] Queue a batch with model X, delete X in Settings while file 1 runs:
+  the rest run with the Settings model. Then, with files still queued,
+  delete every transcription model (Manage models → "Delete all
+  downloaded models"): the "N imports are waiting for a transcription model" notice
+  appears, the files are kept, and they run after a download once Recap
+  is opened.
+- [ ] Tap Import a recording on the home screen while a recording's
+  transcript runs: the picker opens and the file queues behind it.
+- [ ] Android 15+, limit shortened
+  (`media_processing_fgs_timeout_duration 60000`) during an accuracy
+  check: the notification says the transcript is unchanged. Make a check
+  fail (for example, delete the clear-voice copy while a check of it is
+  queued): it reads "Transcript check failed", not "Import failed".
+- [ ] A long imported VBR MP3: tag a line late in the meeting and Save
+  voice; the voice window matches the line, and the time taken is
+  acceptable.
+- [ ] Continue transcription's start-over (its model deleted) on a German
+  file transcribed on Auto-detect: the new pass stays German even with
+  Settings pinned to English. On a multilingual Whisper model with
+  Auto-detect, Stop a non-English import in its first seconds and
+  Continue: the rest is not transcribed as English.
+- [ ] Parakeet on English speech with numbers and product names ("in
+  2024", "use Zoom"): words are spaced, not glued together.
+- [ ] On a 6 GB phone with a large live model (Whisper Turbo or Parakeet)
+  and on-device AI selected, record with live transcription, tap Catch me
+  up a few minutes in, then ask a question on another meeting while an
+  import is transcribing. No ANR or low-memory kill; the recording
+  continues and is saved (Product decisions, on-device AI beside
+  transcription). Unplug the charger during an automatic summary set to
+  run "When charging" while an Ask answer is being written: only the
+  summary stops (it waits for the charger again), and the answer arrives.
+
+Summaries and AI:
+
+- [ ] Android 15+: with the dataSync allowance used up and Recap not opened
+  since (for example a long background model download that hit its time
+  limit, then an import finishing in the background with an automatic
+  summary queued), the summary start does not crash. A "Summary not
+  finished" notification says it runs once Recap is opened, and it runs
+  on the next app open.
+- [ ] Fresh install: Settings → Summaries → Private endpoint shows an empty
+  address with the example only as a hint. On an upgrade that had saved
+  the old example (`http://192.168.1.100:11434/v1`) while AI was off or
+  on-device, it is cleared; a real endpoint in use is kept.
+- [ ] "Summarise after the meeting" set to When the meeting ends: finish a
+  meeting with the battery under 40% off the charger; the summary waits
+  and runs when the phone is plugged in.
+- [ ] Two untitled recordings ("Meeting <date, time>"): no series chip on
+  home, no remembered template, no brief match between them.
+- [ ] Ask your library with the on-device model deleted, then with
+  Local-only AI refusing a cloud endpoint, then with a LAN server off:
+  each says why there is no written answer above the matching moments.
+  Rotate while an answer and while a pre-meeting brief is being written:
+  each arrives after the rotation.
+- [ ] Tick an action item in Follow-ups, and one in the pre-meeting brief,
+  while Enhance notes runs on that meeting: the ticks and the enhanced
+  notes all stay. Tick the last open item, then export Follow-ups as .ics:
+  "No open action items." and no calendar is written (the file the picker
+  created is left empty; delete it, and note it as a minor finding).
+
+Meeting page:
+
+- [ ] Open a meeting while it imports and try Edit text, the speaker tag
+  and a long-press highlight: each shows "This meeting is still being
+  recorded or transcribed. Lines can be edited once that finishes."
+- [ ] Open a line's Edit text, let a Remove a passage started from another
+  line finish (Hide its dialog), then tap OK: the line, or nothing,
+  changes, and a removed line gives "This line changed while the dialog
+  was open…". Start a new summary, open an action item's Remind me… or
+  Remove while it runs, and confirm after it has finished: the right task
+  changes, or "This task changed while the dialog was open…". The Remove
+  question names the task.
+- [ ] Tick a notes checkbox while Enhance notes runs: refused with "Notes
+  are being enhanced — editing unlocks when it finishes."
+- [ ] Share a meeting over 100,000 characters: it goes as a .txt named
+  after the title; the file is gone after the next share, Delete
+  permanently, Remove a passage, or the first app start more than an hour
+  later (debug build,
+  `adb shell run-as com.recap.mobile ls cache/shares`).
+- [ ] On the accuracy-check review of a multi-hour meeting, tap a clip's
+  play: no freeze, it is refused while a recording runs, it pauses for a
+  call and stops when another app plays audio. Rotate while the review is
+  being read: the review and the regenerate question survive.
+
+Clear voice:
+
+- [ ] Make a copy of a meeting with clear speech, then switch between copy
+  and original in the middle of a word while playing: no audio repeats
+  or is skipped. Follow-along on the copy highlights each word as it is
+  heard. Run Check transcript accuracy with "Transcribe the clear-voice
+  copy instead" ticked: the reviewed lines' times match the original's,
+  tapping a line on the original starts at its first word, and the Audio
+  tab's waveform is the recording's, unchanged. After a run, finished or
+  stopped, no `clearvoice-probe.m4a` is left in the app's cache directory
+  (debug build, `adb shell run-as`).
+
+Model downloads:
+
+- [ ] With POST_NOTIFICATIONS denied, start a large model download in
+  Settings and tap "Cancel download" under its progress bar: the section
+  reads "Stopping the download…", then returns to its old state, and the
+  partial file resumes on the next pick.
+- [ ] Cancel during a stalled download (airplane mode mid-download): it
+  stops within seconds, with no "Download failed" toast.
+- [ ] Re-pick the same model right after Cancel: once it finishes, it
+  becomes the live selection.
+- [ ] Tap the model that is already downloading: its progress shows, with
+  no "Queued" toast.
+- [ ] Queue a large model, then open Word re-timing (English) on a phone
+  with little free space: the space check counts the running download and
+  the queue ahead.
+- [ ] Android 15, if feasible: after the dataSync timeout, the summary
+  notification names the stopped model and any never-started ones, and
+  choosing the model again resumes from the kept partial file.
+
 Accessibility:
 
 - [ ] Run Accessibility Scanner on the home, recording, meeting detail
@@ -2989,8 +3506,11 @@ Accessibility:
 
 ## Notes and gotchas
 
-- **App size**: the AAB was ~26 MB at 3.16.0-beta1; Play splits
-  per-device. 3.17.0-beta1 adds about 0.9 MB for the bundled Silero
+- **App size**: no AAB has been built by CI yet (release-android.yml
+  has never run), and an earlier "~26 MB at 3.16.0-beta1" figure here
+  had no traceable source: record the size from the first
+  release-android.yml run, whose `check_jni_exports.py` step prints
+  per-ABI totals for the `.aab`. Play splits per-device. 3.17.0-beta1 adds about 0.9 MB for the bundled Silero
   speech detector, 48 KB for its self-test clip, a few KB of native code,
   and an as yet unmeasured amount for KleidiAI in the arm64 libraries
   (section 11 has the CI comparison). 3.19.0-beta1 adds about 1.2 MB of
@@ -3007,7 +3527,10 @@ Accessibility:
   (the forced aligner is in the sherpa-onnx library already shipped, and
   its model is an optional download), only Kotlin, androidx.profileinstaller
   (now direct, already carried transitively) and the compiled profile
-  files in `assets/dexopt/`; size not yet measured. Every other
+  files in `assets/dexopt/`; size not yet measured. 3.22.0-beta1 adds no
+  library, model or native code beyond a fix to one error message in
+  `llama_jni.c`, only Kotlin, strings, two layout rows and a licence
+  notice. Every other
   speech/AI model is
   downloaded in-app at runtime, so Play's size limits are a non-issue —
   but the listing should mention large optional downloads.
