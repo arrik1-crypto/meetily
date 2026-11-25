@@ -2,6 +2,7 @@ package com.meetily.mobile
 
 import android.content.Context
 import androidx.annotation.WorkerThread
+import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.MeetingStore
 
 /**
@@ -14,7 +15,8 @@ import com.meetily.mobile.data.MeetingStore
  * The recording stays until that transcript exists. A first pass that ends
  * cleanly with words removes it, as Remove audio (keep transcript) would; a
  * pass that fails, is cancelled or stops part-way keeps it, so the meeting
- * can still be transcribed or continued.
+ * can still be transcribed or continued. The switch as it stands when that
+ * transcript is made decides: turned back on by then, the recording is kept.
  *
  * Only meeting ids are kept here, never anything of a meeting's content.
  */
@@ -47,13 +49,21 @@ object UnkeptAudio {
     }
 
     /**
-     * Whether a meeting's recording goes now. Only a marked one, only once
-     * it has words, and only when its transcript is complete: one that
-     * stopped part-way ([unfinished]) still needs the audio to be finished.
-     * Pure, so it is unit-tested.
+     * Whether a meeting's recording goes now. Only a marked one, only while
+     * "Keep meeting audio" is still off ([keepAudio] is the switch as it is
+     * now, not as it was at recording time: turned back on before the
+     * transcript was made, it keeps the recording), only once it has words,
+     * and only when its transcript is complete: one that stopped part-way
+     * ([unfinished]) still needs the audio to be finished. Pure, so it is
+     * unit-tested.
      */
-    fun removesNow(marked: Boolean, hasWords: Boolean, unfinished: Boolean, hasAudio: Boolean): Boolean =
-        marked && hasWords && !unfinished && hasAudio
+    fun removesNow(
+        marked: Boolean,
+        keepAudio: Boolean,
+        hasWords: Boolean,
+        unfinished: Boolean,
+        hasAudio: Boolean
+    ): Boolean = marked && !keepAudio && hasWords && !unfinished && hasAudio
 
     /**
      * Called when a first transcript of [meetingId] has finished cleanly
@@ -74,12 +84,23 @@ object UnkeptAudio {
 
     @WorkerThread
     private fun removeNow(context: Context, meetingId: String) {
+        // The transcript can run hours or days after the meeting (waiting
+        // for a charger or for a model), and the user may have turned "Keep
+        // meeting audio" back on meanwhile. Deleting the recording for good
+        // against the switch as it now stands is not what they asked for:
+        // the recording is kept, and no longer marked.
+        val keepAudio = AppSettings(context).saveAudio
+        if (keepAudio) {
+            unmark(context, meetingId)
+            return
+        }
         var name: String? = null
         var copy: String? = null
         MeetingStore(context).mutateIf(meetingId) { meeting ->
             val audio = meeting.audioFile
             if (!removesNow(
                     marked = true,
+                    keepAudio = keepAudio,
                     hasWords = meeting.segments.isNotEmpty(),
                     unfinished = meeting.transcriptResumeMs != null,
                     hasAudio = !audio.isNullOrBlank()

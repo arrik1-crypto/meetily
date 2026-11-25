@@ -88,7 +88,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         // behind the long-press navigation.
         loader.execute {
             val loaded = try {
-                loadSeries(store, query, defaultTitle())
+                loadSeries(applicationContext, store, query)
             } catch (_: Throwable) {
                 return@execute
             }
@@ -109,9 +109,6 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         if (isFinishing && briefAsked) briefRuns.forget(query)
         super.onDestroy()
     }
-
-    /** What every untitled recording is called, with its date left out. */
-    private fun defaultTitle(): String = getString(R.string.default_meeting_title, "")
 
     private fun render(query: String, lastBody: String) {
         val nameView = findViewById<TextView>(R.id.briefSeriesName)
@@ -281,7 +278,6 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         val store = this.store
         val query = this.query
         val series = seriesName
-        val defaultTitle = defaultTitle()
         val baseUrl = settings.llmBaseUrl
         val apiKey = settings.llmApiKey
         val model = settings.llmModel
@@ -289,7 +285,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
         val modelKey = AiReport.currentModelKey(this)
         val run = briefRuns.start(query, "pre-brief") {
             brief(
-                app, store, query, series, defaultTitle,
+                app, store, query, series,
                 baseUrl, apiKey, model, localOnly, modelKey
             )
         }
@@ -376,29 +372,33 @@ class PreMeetingBriefActivity : AppCompatActivity() {
          * none of that is needed to list it.
          */
         private fun loadSeries(
+            app: Context,
             store: MeetingStore,
-            query: String,
-            defaultTitle: String
+            query: String
         ): List<Meeting> = matchSeries(
             store.listPartial(MeetingStore.ACTION_FIELDS + MeetingStore.NOTICE_FIELDS),
             query,
-            defaultTitle
+            MeetingGroups.Untitled.of(app)
         )
 
         /**
          * Past meetings whose normalized title matches [query], newest first.
-         * Untitled recordings are not a series (MeetingGroups.isSeriesKey):
+         * Untitled recordings are not a series (MeetingGroups.Untitled):
          * every one of them would otherwise be "last time" for the others.
+         * So none is a match, and an untitled recording's own title (the
+         * meeting screen's query) has no series at all.
          */
         private fun matchSeries(
             all: List<Meeting>,
             query: String,
-            defaultTitle: String
+            untitled: MeetingGroups.Untitled
         ): List<Meeting> {
             val key = MeetingGroups.normalizeTitle(query)
-            if (!MeetingGroups.isSeriesKey(key, defaultTitle)) return emptyList()
-            return all.filter { MeetingGroups.normalizeTitle(it.title) == key }
-                .sortedByDescending { it.createdAtMs }
+            if (key.isBlank() || untitled.hasDefaultForm(query)) return emptyList()
+            return all.filter {
+                MeetingGroups.normalizeTitle(it.title) == key &&
+                    !untitled.isUntitled(it.title, it.createdAtMs)
+            }.sortedByDescending { it.createdAtMs }
         }
 
         /**
@@ -411,7 +411,6 @@ class PreMeetingBriefActivity : AppCompatActivity() {
             store: MeetingStore,
             query: String,
             series: String,
-            defaultTitle: String,
             baseUrl: String,
             apiKey: String,
             model: String,
@@ -421,7 +420,7 @@ class PreMeetingBriefActivity : AppCompatActivity() {
             // Fresh copies: items may have been checked off moments ago. Only
             // the four the brief is built from are read whole.
             val recent = try {
-                loadSeries(store, query, defaultTitle).take(4).mapNotNull { store.load(it.id) }
+                loadSeries(app, store, query).take(4).mapNotNull { store.load(it.id) }
             } catch (_: Throwable) {
                 emptyList()
             }

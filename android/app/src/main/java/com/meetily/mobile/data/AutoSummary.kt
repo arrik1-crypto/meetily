@@ -27,7 +27,13 @@ object AutoSummary {
     /** Below this a "meeting" is a stray tap, not something to spend an LLM on. */
     const val MIN_SEGMENTS = 3
 
-    fun maybeStart(context: Context, meetingId: String, title: String, segmentCount: Int) {
+    fun maybeStart(
+        context: Context,
+        meetingId: String,
+        title: String,
+        createdAtMs: Long,
+        segmentCount: Int
+    ) {
         try {
             val settings = AppSettings(context)
             if (!settings.autoSummaryAllowed) return
@@ -37,11 +43,10 @@ object AutoSummary {
             )
             // Series memory still wins, so a standup keeps summarising as a
             // standup; otherwise the explicit automatic-summary style.
-            // Untitled recordings are not a series (MeetingGroups.isSeriesKey).
+            // Untitled recordings are not a series (MeetingGroups.Untitled).
             val seriesKey = MeetingGroups.normalizeTitle(title).takeIf {
-                MeetingGroups.isSeriesKey(
-                    it, context.getString(com.meetily.mobile.R.string.default_meeting_title, "")
-                )
+                it.isNotBlank() &&
+                    !MeetingGroups.Untitled.of(context).isUntitled(title, createdAtMs)
             }
             val template = seriesKey?.let { settings.seriesTemplate(it) }
                 ?: settings.autoSummaryTemplate

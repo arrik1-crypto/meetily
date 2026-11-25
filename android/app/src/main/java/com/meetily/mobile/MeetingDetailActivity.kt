@@ -2796,12 +2796,12 @@ class MeetingDetailActivity : AppCompatActivity() {
         // series preselects the sales report — falling back to the global
         // last-used template for one-off meetings. Untitled recordings are
         // not a series: a style picked for one is not remembered for all.
-        val seriesKey = meeting?.let {
+        // An empty key is neither read nor written (AppSettings).
+        val seriesKey = meeting?.takeUnless {
+            com.meetily.mobile.search.MeetingGroups.Untitled.of(this)
+                .isUntitled(it.title, it.createdAtMs)
+        }?.let {
             com.meetily.mobile.search.MeetingGroups.normalizeTitle(it.title)
-        }.orEmpty().takeIf {
-            com.meetily.mobile.search.MeetingGroups.isSeriesKey(
-                it, getString(R.string.default_meeting_title, "")
-            )
         }.orEmpty()
         val preferred = settings.seriesTemplate(seriesKey) ?: settings.summaryTemplate
         val current = templates

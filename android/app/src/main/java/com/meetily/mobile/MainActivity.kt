@@ -1026,9 +1026,9 @@ class MainActivity : AppCompatActivity() {
             .groupBy { it.lowercase() }
             .map { (_, variants) -> variants.first() }
             .sortedBy { it.lowercase() }
-        // Untitled recordings are not a series (MeetingGroups.isSeriesKey).
+        // Untitled recordings are not a series (MeetingGroups.Untitled).
         val series = MeetingGroups.series(
-            allMeetings, defaultTitle = getString(R.string.default_meeting_title, "")
+            allMeetings, untitled = MeetingGroups.Untitled.of(this)
         )
         // Drop a stale selection (tag removed, series dissolved).
         if (selectedTag != null && tags.none { it.equals(selectedTag, true) }) {
@@ -1142,7 +1142,13 @@ class MainActivity : AppCompatActivity() {
             }
         }
         selectedSeriesKey?.let { key ->
-            filtered = filtered.filter { MeetingGroups.normalizeTitle(it.title) == key }
+            // As the chip counted them: an untitled recording whose key
+            // happens to match is not one of the series.
+            val untitled = MeetingGroups.Untitled.of(this)
+            filtered = filtered.filter {
+                MeetingGroups.normalizeTitle(it.title) == key &&
+                    !untitled.isUntitled(it.title, it.createdAtMs)
+            }
         }
         if (query.isBlank()) {
             showFiltered(filtered)

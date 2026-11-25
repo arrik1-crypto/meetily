@@ -206,10 +206,16 @@ class ReminderReceiver : BroadcastReceiver() {
         }
     }
 
-    /** Normalized titles of every meeting in the library; titles only are read. */
+    /**
+     * Normalized titles of every meeting in the library; titles and dates
+     * only are read. Untitled recordings are no series, and the brief would
+     * find none for them (MeetingGroups.Untitled).
+     */
     private fun librarySeriesKeys(context: Context): Set<String> =
         try {
+            val untitled = com.meetily.mobile.search.MeetingGroups.Untitled.of(context)
             MeetingStore(context).listPartial(MeetingStore.HEADER_FIELDS)
+                .filterNot { untitled.isUntitled(it.title, it.createdAtMs) }
                 .mapTo(HashSet()) {
                     com.meetily.mobile.search.MeetingGroups.normalizeTitle(it.title)
                 }

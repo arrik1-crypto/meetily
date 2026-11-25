@@ -738,6 +738,7 @@ class RecordingService : Service() {
         val audioMs = lines.lastOrNull()?.audioMs ?: elapsedMs()
         val incomplete = liveIncomplete
         val meetingTitle = title
+        val createdAt = startedAtMs
         return {
             if (lines.isEmpty()) {
                 // Nothing was transcribed live, so the meeting is audio only
@@ -753,10 +754,10 @@ class RecordingService : Service() {
                 // whatever the accuracy-check setting says — without it the
                 // tail is gone.
                 queueFirstTranscript(app, id, audio)
-                maybeStartAutoSummary(app, id, meetingTitle, lines.size)
+                maybeStartAutoSummary(app, id, meetingTitle, createdAt, lines.size)
             } else {
                 maybeStartAutoCheck(app, id, audio, lines, audioMs)
-                maybeStartAutoSummary(app, id, meetingTitle, lines.size)
+                maybeStartAutoSummary(app, id, meetingTitle, createdAt, lines.size)
             }
         }
     }
@@ -822,8 +823,14 @@ class RecordingService : Service() {
      * as it stands, and accepting a check later marks it stale so the meeting
      * offers a regenerate.
      */
-    private fun maybeStartAutoSummary(context: Context, meetingId: String, title: String, lines: Int) {
-        com.meetily.mobile.data.AutoSummary.maybeStart(context, meetingId, title, lines)
+    private fun maybeStartAutoSummary(
+        context: Context,
+        meetingId: String,
+        title: String,
+        createdAtMs: Long,
+        lines: Int
+    ) {
+        com.meetily.mobile.data.AutoSummary.maybeStart(context, meetingId, title, createdAtMs, lines)
     }
 
     /** Discards the in-progress recording and its media entirely. */
@@ -2360,24 +2367,27 @@ class RecordingService : Service() {
     override fun onTaskRemoved(rootIntent: Intent?) {
         // If the user swipes the app away mid-recording, save and stop cleanly.
         if (active && !finished) {
-            finished = true
-            // A live transcript that gave up partway does not count as words.
-            if (whisperRecorder?.liveSuspended == true) liveIncomplete = true
-            // Swiping away is a finish, not a discard, and it queues what
-            // Finish queues. This path saved the audio and then stopped, so
-            // an audio-only recording — the default — was left with a file
-            // and no words, and nothing ever queued its transcription; a
-            // live one got no merge, accuracy check or summary.
-            applyClusterMerge()
-            // As at Finish, the service leaves the foreground once that
-            // work is issued (WorkThenStop): by the time of a swipe Recap is
-            // often long off screen, and nothing else would allow it.
-            teardownEngines(afterAudioClosed = WorkThenStop(workAfterSave(meetingId)))
-            saveAndDrain()
-            store.clearActive()
-            active = false
-            activeSpeaker = null
-            isRunning = false
+            // The removed task's screens are gone: none is opened when the
+            // meeting is saved (RecordingActivity.onFinished).
+            observer = null
+            // Swiping away is a finish, not a discard: it is Finish, barrier
+            // and all. This path saved the audio and then stopped, so an
+            // audio-only recording (the default) was left with a file and no
+            // words, and nothing ever queued its transcription. Doing it in
+            // place instead claimed the transcriber at once: the chunk being
+            // spoken was dropped from the live transcript with nothing to
+            // cover it, the queued ones kept decoding into the meeting after
+            // the summary had read it, and the summary or accuracy check
+            // started (isRunning off) with the live model still loaded.
+            // finishAndSave flushes the last chunk and waits for the queue,
+            // 15 s at most (with the audio kept, the rest is transcribed from
+            // it), and completeFinish then queues the work and leaves the
+            // foreground once it is issued (WorkThenStop). Meanwhile the
+            // foreground service keeps the process alive. A Finish already
+            // under way is left to do just that: its completeFinish has not
+            // run yet, so there is no pendingStop to wait for, and stopping
+            // here would cut it short.
+            finishAndSave(null)
         } else {
             isRunning = false
             // A finish still issuing its work stops the service when that is

@@ -55,7 +55,7 @@ D also lists two parts of items that stay open (the nlohmann/json half of
 a licence item, the backup-name half of a product decision).
 
 Not triaged here:
-- The 314 open **Device checks** under section 11, 47 of them new for
+- The 315 open **Device checks** under section 11, 48 of them new for
   3.22.0-beta1. Run [DEVICE_TEST_PLAN.md](DEVICE_TEST_PLAN.md) instead
   (A14): it condenses them into one 60 to 90 minute pass, and says which
   ones a step covers in full.

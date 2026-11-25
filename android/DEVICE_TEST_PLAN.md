@@ -32,7 +32,7 @@ plus optional extras: an older phone, an Android 17 beta, the Play build
 |---|---|---|
 | 1. Setup (after the untimed prep in 1.0) | 12 min, plus model downloads in the background | 18 min |
 | 2. P0 smoke test | 33 min | 40 min |
-| 3. P1 riskiest paths (Batches 2 to 7 and the review fixes) | 32 min | 60 min |
+| 3. P1 riskiest paths (Batches 2 to 7 and the review fixes) | 35 min | 63 min |
 | 4. P2 platform specifics | 8 min | 25 min |
 | W. Wrap-up: clean-install restore | 5 min | 10 min |
 | R. Final-build re-smoke (on the build you upload) | 5 min | 5 min |
@@ -567,7 +567,7 @@ off` (tag `meetily_vad`).
   Covers: RF 9 (full), STOR 1 (full).
   Keep the lock on for P1-5c; turn it off at the end of P1.
 
-## 3. P1 riskiest paths (32 min core)
+## 3. P1 riskiest paths (35 min core)
 
 Run these in order: the long import transcribes in the background while
 you do Clear voice and Remove a passage, and Re-time words waits until no
@@ -943,7 +943,8 @@ review are in extra A.
   no Audio tab, and Storage lists no recording for it (deliberate, PD:
   "Keep meeting audio" off; before 3.22.0-beta1 the audio was kept). Turn
   "Keep meeting audio" back on and save.
-  Covers: RF 20 (partial: no cancelled transcription).
+  Covers: RF 20 (partial: no cancelled transcription, and the switch not
+  turned back on before a transcript waiting for the charger).
 
 ### P1-12 AI safety and Report AI output (3 min)
 
@@ -971,6 +972,32 @@ Health apps declaration on the fixed clinical notice.
   **Expect:** "No email app found. The report was copied to the clipboard:
   paste it into a message to …". Re-enable the apps.
   Covers: AISAFE 1 (partial: the clipboard fallback).
+
+### P1-13 Leaving while a recording finishes (3 min, the review fixes)
+
+The work that follows a recording (here the automatic summary) is started
+by the recording's own foreground service, which now stays until it has
+started that work; and swiping Recap away mid-recording is a Finish, last
+words included.
+
+- [ ] **P1-13a** Settings → Transcription → "Transcribe live" on → **Save
+  settings**; then "Summarise after the meeting" on, set to When the
+  meeting ends (it saves at once). Stay on the charger or above 40 %
+  battery. Record about a minute, tap **Finish** and press Home at once.
+  **Expect:** a "Summarizing “…”" notification within seconds, not at the
+  next app open; the recording notification goes only once that work has
+  started (3.22.0-beta1).
+  Covers: RF 48 (partial, with P1-13b).
+- [ ] **P1-13b** Record again, press Home, and about a minute later, while
+  still speaking, swipe Recap away in Recents.
+  **Expect:** the recording notification stays while the last words are
+  transcribed (about 15 s at most), and the summary notification comes
+  only after it. Open the meeting: the sentence you were saying at the
+  swipe is in its transcript. Turn "Summarise after the meeting" and
+  "Transcribe live" off again (save), and let the summary finish before
+  P2.
+  Covers: RF 48 (partial: no accuracy check, and no swipe while a tapped
+  Finish still reads "Finishing transcription…").
 
 End of P1: turn app lock off (Settings → Security → "Require unlock to
 open" off → **Save settings**) and put the lock-screen notification
@@ -1382,7 +1409,9 @@ codes are the "Pre-release review fixes (3.22.0-beta1)" group in §11.
   times match the original's, and the Audio tab's waveform is unchanged
   (RF 41, full with P1-3b).
 - [ ] Two untitled recordings ("Meeting <date, time>"): no series chip on
-  home and no brief match (RF 33, full). "Summarise after the meeting"
+  home and no brief match; again with the phone's language set to
+  Portuguese or French, where the date has words ("Meeting 25 de nov. de
+  2026 10:30"), then set it back (RF 33, full). "Summarise after the meeting"
   When the meeting ends, battery under 40 % off the charger: the summary
   waits for the charger (RF 32, full).
 - [ ] Ask your library with the on-device model deleted: "Couldn't get a

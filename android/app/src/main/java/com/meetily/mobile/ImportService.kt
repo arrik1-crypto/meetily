@@ -631,14 +631,14 @@ class ImportService : Service() {
             // What the summary decision needs, without the word timings:
             // this is the main thread.
             val done = com.meetily.mobile.data.MeetingStore(this)
-                .loadFields(recheckId, setOf("title", "segments", "summary"))
+                .loadFields(recheckId, setOf("title", "createdAtMs", "segments", "summary"))
             // A continued transcript may already have a summary of the part
             // that was there, and one started over a summary of the lines it
             // replaced: either is marked out of date (AudioFileImporter), not
             // replaced, with its action items, ticks and reminders.
             if (done != null && !((continued || hadWords) && done.summary.isNotBlank())) {
                 com.meetily.mobile.data.AutoSummary.maybeStart(
-                    this, recheckId, done.title, done.segments.size
+                    this, recheckId, done.title, done.createdAtMs, done.segments.size
                 )
             }
             // A recording kept only so it could be transcribed ("Keep

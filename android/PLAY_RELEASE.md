@@ -1105,7 +1105,7 @@ Work through it before the first targetSdk 36 upload to any track.
   plus changes to ClearVoice, DeviceAudioLock, DeviceFit, DownloadSpace,
   LiveUpdates, MeetingLanguage, NemoWords, NotificationMark, NudgeTiming,
   ReminderReArm, ResumableDownload, Retention, StorageUsage,
-  SummarizerAndExport and TranscriptResume tests; 1,577 JVM tests passed
+  SummarizerAndExport and TranscriptResume tests; 1,582 JVM tests passed
   locally), then `assembleRelease` with `lintVital`, the native export
   check (`llama_jni.c` changed: the empty-reply error now reports the
   tokens sampled; only CI compiles native code) and the baseline profile
@@ -1118,8 +1118,10 @@ Work through it before the first targetSdk 36 upload to any track.
   `SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED` filter, an API 31
   constant that BootReceiver also compares, so expect at most an
   InlinedApi warning), LockActivity's `ActivityManager.appTasks` with
-  `taskId` on API 29+ and `persistentId` below, and the new rows in
-  `activity_settings.xml` and `activity_storage.xml`.
+  `taskId` on API 29+ and `persistentId` below, MeetingGroups.Untitled's
+  `LocaleList.getDefault()` and `Configuration.getLocales()` (both API
+  24, under minSdk 26), and the new rows in `activity_settings.xml` and
+  `activity_storage.xml`.
 - [ ] Dry-run the release workflow by pushing a dry-run tag such as
   `android-v3.22.0-beta1-dryrun` (section 2; not the release's own tag,
   and never upload its bundle) well before the first upload: neither
@@ -2067,7 +2069,12 @@ Work through it before the first targetSdk 36 upload to any track.
   load and the meeting was recorded as audio instead). Before, the switch
   did nothing in the default mode and the audio was kept for good. A
   transcription that fails or stops part-way keeps the audio so it can be
-  finished. `setting_save_audio_desc` says so. Confirm.
+  finished. The switch as it stands when that transcript is made decides,
+  not as it stood at recording time: turned back on before then (the
+  transcript can wait hours for a charger with "Only while charging", or
+  for a model to be downloaded), the recording is kept. Turning the switch
+  off never removes a recording made while it was on.
+  `setting_save_audio_desc` says so. Confirm.
 - [ ] *Decision* (3.22.0-beta1, imports), confirm each: (1) Cancel all on a
   batch deletes the staged copies of the files not yet started; they are
   Recap's only copies (the originals stay in the app they came from), and
@@ -3337,12 +3344,6 @@ Recording, reminders and nudges:
   tile or the widget during it: the same recording screen opens, and after
   Finish no stale recording screen is left behind in Back.
 - [ ] A 5-second audio-only recording gets its transcript queued and made.
-- [ ] With live transcription and the automatic accuracy check or summary
-  on, record a few minutes, tap Finish on the recording screen and press
-  Home at once: the check or summary notification still appears within
-  seconds, not at the next app open (the recording notification goes
-  only once that work has been started). Same after swiping Recap from
-  Recents mid-recording a minute after leaving it.
 - [ ] Force-stop Recap mid audio-only recording and relaunch: the recovered
   meeting is transcribed without a manual accuracy check.
 - [ ] Live transcription with a large model (Whisper Turbo or Parakeet):
@@ -3367,7 +3368,10 @@ Recording, reminders and nudges:
 - [ ] "Keep meeting audio" off, live transcription off: record a short
   meeting; once its transcript is made the meeting has no audio (no
   player, Storage shows no recording for it). Cancel the transcription
-  of another one half-way: its audio is kept and Continue works.
+  of another one half-way: its audio is kept and Continue works. With
+  "Only while charging" on as well, record one off the charger, then turn
+  "Keep meeting audio" back on and save before plugging in: once its
+  transcript is made, its audio is still there.
 
 Imports and transcription:
 
@@ -3427,7 +3431,9 @@ Summaries and AI:
   meeting with the battery under 40% off the charger; the summary waits
   and runs when the phone is plugged in.
 - [ ] Two untitled recordings ("Meeting <date, time>"): no series chip on
-  home, no remembered template, no brief match between them.
+  home, no remembered template, no brief match between them. Repeat with
+  the phone's language set to Portuguese or French, where the date has
+  words in it ("Meeting 25 de nov. de 2026 10:30").
 - [ ] Ask your library with the on-device model deleted, then with
   Local-only AI refusing a cloud endpoint, then with a LAN server off:
   each says why there is no written answer above the matching moments.
@@ -3494,6 +3500,21 @@ Model downloads:
 - [ ] Android 15, if feasible: after the dataSync timeout, the summary
   notification names the stopped model and any never-started ones, and
   choosing the model again resumes from the kept partial file.
+
+Recording, added after DEVICE_TEST_PLAN.md numbered this group (new
+items go here, at the end, so its RF codes keep their meaning):
+
+- [ ] With live transcription and the automatic accuracy check or summary
+  on, record a few minutes, tap Finish on the recording screen and press
+  Home at once: the check or summary notification still appears within
+  seconds, not at the next app open (the recording notification goes
+  only once that work has been started). Same after swiping Recap from
+  Recents mid-recording, a minute after leaving it and while still
+  speaking: the swipe is a Finish, so the recording notification stays
+  while the last words are transcribed (about 15 s at most), the check or
+  summary starts only after that, and the last sentence spoken before the
+  swipe is in the transcript. Also swipe Recap away while a tapped Finish
+  still reads "Finishing transcription…": the same.
 
 Accessibility:
 

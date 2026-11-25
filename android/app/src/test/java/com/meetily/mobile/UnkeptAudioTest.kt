@@ -14,14 +14,24 @@ class UnkeptAudioTest {
     @Test
     fun aMarkedRecordingGoesOnceItsTranscriptIsComplete() {
         assertTrue(
-            UnkeptAudio.removesNow(marked = true, hasWords = true, unfinished = false, hasAudio = true)
+            UnkeptAudio.removesNow(marked = true, keepAudio = false, hasWords = true, unfinished = false, hasAudio = true)
         )
     }
 
     @Test
     fun aRecordingTheUserKeepsStays() {
         assertFalse(
-            UnkeptAudio.removesNow(marked = false, hasWords = true, unfinished = false, hasAudio = true)
+            UnkeptAudio.removesNow(marked = false, keepAudio = false, hasWords = true, unfinished = false, hasAudio = true)
+        )
+    }
+
+    @Test
+    fun keepMeetingAudioTurnedBackOnBeforeTheTranscriptKeepsTheRecording() {
+        // Marked when it was recorded with the switch off, transcribed hours
+        // later (on the charger) after the user turned it back on: the
+        // recording is not deleted against the switch as it now stands.
+        assertFalse(
+            UnkeptAudio.removesNow(marked = true, keepAudio = true, hasWords = true, unfinished = false, hasAudio = true)
         )
     }
 
@@ -29,7 +39,7 @@ class UnkeptAudioTest {
     fun aRecordingWithoutWordsStays() {
         // A pass that heard nothing: the recording is all the meeting has.
         assertFalse(
-            UnkeptAudio.removesNow(marked = true, hasWords = false, unfinished = false, hasAudio = true)
+            UnkeptAudio.removesNow(marked = true, keepAudio = false, hasWords = false, unfinished = false, hasAudio = true)
         )
     }
 
@@ -37,14 +47,14 @@ class UnkeptAudioTest {
     fun anUnfinishedTranscriptKeepsItsRecording() {
         // Without the audio the rest could never be transcribed.
         assertFalse(
-            UnkeptAudio.removesNow(marked = true, hasWords = true, unfinished = true, hasAudio = true)
+            UnkeptAudio.removesNow(marked = true, keepAudio = false, hasWords = true, unfinished = true, hasAudio = true)
         )
     }
 
     @Test
     fun nothingToRemoveIsNotARemoval() {
         assertFalse(
-            UnkeptAudio.removesNow(marked = true, hasWords = true, unfinished = false, hasAudio = false)
+            UnkeptAudio.removesNow(marked = true, keepAudio = false, hasWords = true, unfinished = false, hasAudio = false)
         )
     }
 
