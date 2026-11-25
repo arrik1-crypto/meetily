@@ -163,11 +163,11 @@ HSPLcom/meetily/mobile/data/JobQueue;->fromJson(Lorg/json/JSONObject;)Lcom/meeti
 HSPLcom/meetily/mobile/data/JobQueue;->hasChargingOnly(Landroid/content/Context;)Z
 HSPLcom/meetily/mobile/data/JobQueue;->interrupted(Ljava/util/List;)Ljava/util/List;
 HSPLcom/meetily/mobile/data/JobQueue;->load(Landroid/content/Context;)Ljava/util/List;
-HSPLcom/meetily/mobile/data/JobQueue;->nextPending(Landroid/content/Context;Z)Lcom/meetily/mobile/data/JobQueue$Job;
+HSPLcom/meetily/mobile/data/JobQueue;->nextPending(Landroid/content/Context;ZLkotlin/jvm/functions/Function1;)Lcom/meetily/mobile/data/JobQueue$Job;
 HSPLcom/meetily/mobile/data/JobQueue;->prefs(Landroid/content/Context;)Landroid/content/SharedPreferences;
 HSPLcom/meetily/mobile/data/JobQueue;->runnable(Ljava/util/List;)Ljava/util/List;
 HSPLcom/meetily/mobile/data/JobQueue;->targetExists(Landroid/content/Context;Lcom/meetily/mobile/data/JobQueue$Job;)Z
-HSPLcom/meetily/mobile/data/JobQueue$Job;-><init>(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JZLjava/lang/String;Ljava/lang/String;ZZZZLjava/lang/String;JZII)V
+HSPLcom/meetily/mobile/data/JobQueue$Job;-><init>(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;JZLjava/lang/String;Ljava/lang/String;ZZZZLjava/lang/String;JZIILjava/lang/String;)V
 HSPLcom/meetily/mobile/data/JobQueue$Job;->getAuto()Z
 HSPLcom/meetily/mobile/data/JobQueue$Job;->getChargingOnly()Z
 HSPLcom/meetily/mobile/data/JobQueue$Job;->getFirstTranscript()Z

@@ -163,6 +163,21 @@ class MeetingLanguageTest {
     }
 
     @Test
+    fun detectedPin_onlyFromACallThatFinished() {
+        // A stopped or failed call: whisper.cpp still reports its initial
+        // language 0, English. It must not be read, let alone pinned.
+        var asked = false
+        assertNull(MeetingLanguage.detectedPin(callSucceeded = false) { asked = true; "en" })
+        assertFalse(asked)
+
+        assertEquals("de", MeetingLanguage.detectedPin(callSucceeded = true) { "de" })
+        // Nothing usable detected: keep detecting.
+        assertNull(MeetingLanguage.detectedPin(callSucceeded = true) { null })
+        assertNull(MeetingLanguage.detectedPin(callSucceeded = true) { "" })
+        assertNull(MeetingLanguage.detectedPin(callSucceeded = true) { "auto" })
+    }
+
+    @Test
     fun recorded_nemoKeepsThePinOrNothing() {
         assertNull(MeetingLanguage.nemoRecorded(null, englishOnly = false, languagePrompt = true))
         assertEquals(

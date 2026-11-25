@@ -88,6 +88,37 @@ class MeetingStore(context: Context) {
     }
 
     /**
+     * [id] with only [fields] (plus "id") read and no word timings, for a
+     * caller that needs a title, a path or a count and must not pay for the
+     * transcript: one on the main thread, such as a service starting or a
+     * receiver. Display-only, like [listPartial]: never save it. Null when
+     * the file is missing or unreadable.
+     */
+    fun loadFields(id: String, fields: Set<String>): Meeting? {
+        val file = fileFor(id) ?: return null
+        if (!file.exists()) return null
+        return try {
+            fromFields(file.readText(), fields)
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * [HEADER_FIELDS] of [id], read from the start of the file only: its
+     * title and date. Display-only; null when missing or unreadable.
+     */
+    fun loadHeader(id: String): Meeting? {
+        val file = fileFor(id) ?: return null
+        if (!file.exists()) return null
+        return try {
+            fromHeader(file.readText())
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
      * [load] for a screen that shows the title and date first. [onHeader]
      * gets a display-only copy ([Meeting.loadedPartially]) with just
      * [HEADER_FIELDS], read from the start of the file before the full parse,
@@ -499,6 +530,16 @@ class MeetingStore(context: Context) {
 
         /** [HEADER_FIELDS] plus the action items, for follow-ups and reminders. */
         val ACTION_FIELDS = HEADER_FIELDS + "actionItems"
+
+        /** [loadFields] on a meeting file's [text]. Pure, so it is unit-tested. */
+        internal fun fromFields(text: String, fields: Set<String>): Meeting =
+            Meeting.fromJson(LightJson.parse(text, fields + "id", WORD_TIMINGS))
+                .also { it.loadedPartially = true }
+
+        /** [loadHeader] on a meeting file's [text]. Pure, so it is unit-tested. */
+        internal fun fromHeader(text: String): Meeting =
+            Meeting.fromJson(LightJson.parseLeading(text, HEADER_FIELDS))
+                .also { it.loadedPartially = true }
 
         /**
          * What AiDisclaimers needs to decide the fixed notices of a summary

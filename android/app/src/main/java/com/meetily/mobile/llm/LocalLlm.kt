@@ -125,41 +125,46 @@ object LocalLlm {
     private val idleRelease by lazy { IdleReleaseTimer(IDLE_RELEASE_MS) { releaseIfIdle() } }
 
     /**
-     * True while a stop has been asked for and not yet cleared.
+     * Who a stop is for, and the native flag that carries it out.
      *
-     * Set from a thread other than the one generating — in practice the
-     * charger-unplugged broadcast, for a job that was only allowed to run
-     * because the phone was on power. Inference is one long JNI call, so
-     * without a flag the only way to end it is to wait it out at full CPU,
-     * which is exactly the cost the unplug is trying to stop paying.
+     * Asked for from a thread other than the one generating: in practice
+     * the charger-unplugged broadcast, for a job that was only allowed to
+     * run because the phone was on power. Inference is one long JNI call,
+     * so without a flag the only way to end it is to wait it out at full
+     * CPU, which is exactly the cost the unplug is trying to stop paying.
+     * The native flag is process-wide, so [AbortScope] keeps it on the run
+     * the stop was meant for.
      */
-    @Volatile
-    var abortRequested = false
-        private set
-
-    /** Ends the generation in flight, if any, within about a token. */
-    fun requestAbort() {
-        abortRequested = true
+    private val stops = AbortScope { on ->
         try {
-            LlamaBridge.setAbort(true)
+            LlamaBridge.setAbort(on)
         } catch (_: Throwable) {
-            // Older native library without the export. The Kotlin-side flag
-            // still stops the map-reduce loop between sections, so a long
-            // run ends at the next boundary rather than not at all.
+            // Older native library without the export. The Kotlin-side
+            // check still stops the map-reduce loop between sections, so a
+            // long run ends at the next boundary rather than not at all.
         }
     }
 
+    /** True while a stop is pending for the calling thread's run. */
+    private fun stopRequested(): Boolean = stops.requestedFor(Thread.currentThread())
+
     /**
-     * Clears the flag so the next run may proceed. The flag is sticky by
-     * design, so whoever asks for a stop must call this before the job is
-     * retried — otherwise the retry dies at its first decode.
+     * Ends [owner]'s generation within about a token: the one in flight if
+     * [owner] holds the model, else the first one it starts. A chat on any
+     * other thread (an Ask, a title) runs on untouched, before and after.
+     * Sticky for [owner] until [clearAbort].
+     */
+    fun requestAbort(owner: Thread) {
+        stops.request(owner)
+    }
+
+    /**
+     * Withdraws the stop so the next run may proceed. Whoever asks for a
+     * stop must call this before the job is retried on the same thread,
+     * otherwise the retry dies at its first decode.
      */
     fun clearAbort() {
-        abortRequested = false
-        try {
-            LlamaBridge.setAbort(false)
-        } catch (_: Throwable) {
-        }
+        stops.clear()
     }
 
     fun init(context: Context) {
@@ -212,6 +217,10 @@ object LocalLlm {
 
         lock.lock()
         try {
+            // The native stop flag now answers to this run alone: up if a
+            // stop is pending for this thread, down otherwise, whatever the
+            // previous holder left behind.
+            stops.enter(Thread.currentThread())
             // In use again: stop the idle clock. Inside the lock, so a chat
             // that was queued behind another cannot have the finishing one's
             // timer left running over it.
@@ -290,6 +299,7 @@ object LocalLlm {
             // blocking its caller; honour it now, off the main thread.
             if (releasePending) freeLocked()
             val stillLoaded = ptr != 0L
+            stops.exit()
             lock.unlock()
             // Every caller gets the idle release, not only the ones that
             // remember to call release() themselves.
@@ -398,7 +408,7 @@ object LocalLlm {
         val condensed = condense(payload) ?: return null
         // A pass with a failed section is not worth keeping: the next run
         // may well manage that section, and a cache would pin the gap.
-        if (!abortRequested && !condensed.contains(PromptShaping.SECTION_UNAVAILABLE)) {
+        if (!stopRequested() && !condensed.contains(PromptShaping.SECTION_UNAVAILABLE)) {
             condensedCache[key] = condensed
         }
         return condensed
@@ -433,7 +443,7 @@ object LocalLlm {
             )?.trim().orEmpty()
         },
         onSection = { index, total -> stageListener?.invoke(index, total) },
-        shouldStop = { abortRequested }
+        shouldStop = { stopRequested() }
     )
 
     /** @see PromptShaping.splitIntoChunks — kept here so callers and tests don't move. */

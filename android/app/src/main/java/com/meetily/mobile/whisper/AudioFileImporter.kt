@@ -676,9 +676,9 @@ class AudioFileImporter(
             // once and pin the answer for the rest of the file. Whisper is
             // also better placed to judge from the first real speech than
             // from every later batch of spliced, silence-stripped audio.
+            // Only from a call that finished: see MeetingLanguage.detectedPin.
             if (whisperLanguage == MeetingLanguage.AUTO) {
-                WhisperBridge.lastLanguage(contextPtr)
-                    ?.takeIf { it.isNotBlank() && it != MeetingLanguage.AUTO }
+                MeetingLanguage.detectedPin(raw != null) { WhisperBridge.lastLanguage(contextPtr) }
                     ?.let {
                         whisperLanguage = it
                         // Saved with the words from here on.
@@ -1051,8 +1051,10 @@ class AudioFileImporter(
             // the end), or audio kept outside the app.
             // decode() returns normally on a cancel, so check here: a prefix
             // would be stretched across the whole card, and on a recheck it
-            // would replace a correct sidecar.
-            if (!cancelled() && seamSample == 0L) {
+            // would replace a correct sidecar. Never from the clear-voice
+            // copy: these are the recording's bars, and the copy's
+            // denoised loudness would show its noisy stretches as silent.
+            if (!cancelled() && seamSample == 0L && clearCopy == null) {
                 meeting.audioFile?.let { name ->
                     runCatching {
                         com.meetily.mobile.data.Waveform.saveFrom(context, name, loudness)

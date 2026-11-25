@@ -104,6 +104,13 @@ class SummaryService : Service() {
     /** The newest start this instance was handed; see ImportService.lastStartId. */
     private var lastStartId = 0
 
+    /**
+     * The thread running this instance's current job. A stop names it, so
+     * an unplug or a timeout ends this job's generation and not an Ask or
+     * a title that holds, or is waiting for, the on-device model.
+     */
+    @Volatile private var worker: Thread? = null
+
     private val powerWatch = PowerWatch { stopForUnplug() }
 
     override fun onBind(intent: Intent?): IBinder = SummaryBinder()
@@ -135,7 +142,9 @@ class SummaryService : Service() {
         // decode.
         LocalLlm.clearAbort()
         currentMeetingId = meetingId
-        currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
+        // The title only, from the head of the file: this is the main
+        // thread, before startForeground.
+        currentTitle = MeetingStore(this).loadHeader(meetingId)?.title.orEmpty()
         percent = -1
         stage = getString(
             when (currentMode) {
@@ -229,6 +238,7 @@ class SummaryService : Service() {
             main.post { finishRun(meetingId, failed) }
         }.apply {
             name = "notes-enhance-service"
+            worker = this
             start()
         }
     }
@@ -278,6 +288,7 @@ class SummaryService : Service() {
             main.post { finishRun(meetingId, failed) }
         }.apply {
             name = "speaker-suggest-service"
+            worker = this
             start()
         }
     }
@@ -525,6 +536,7 @@ class SummaryService : Service() {
             main.post { finishRun(meetingId, failed = !saved) }
         }.apply {
             name = "summary-service"
+            worker = this
             start()
         }
     }
@@ -614,7 +626,7 @@ class SummaryService : Service() {
         // The worker is one long native call; without this it went on
         // generating after the service stopped, next to whatever heavy job
         // the gate let in once isRunning was cleared.
-        LocalLlm.requestAbort()
+        worker?.let { LocalLlm.requestAbort(it) }
         // Reported as a failure, because that is what it is from the user's
         // side: no summary, and re-running it is the way to get one.
         postTimeoutNotification(currentMeetingId)
@@ -638,7 +650,7 @@ class SummaryService : Service() {
         if (!isRunning || !unplugState.compareAndSet(RUN_ACTIVE, RUN_STOPPED)) return
         setProgress(percent, getString(R.string.unplugged_stopped_title))
         // The generation is one long native call; this is what ends it.
-        LocalLlm.requestAbort()
+        worker?.let { LocalLlm.requestAbort(it) }
     }
 
     /** [quiet]: nothing ran (withdrawn consent), so nothing is announced. */

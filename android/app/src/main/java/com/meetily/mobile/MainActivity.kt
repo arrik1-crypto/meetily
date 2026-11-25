@@ -610,12 +610,12 @@ class MainActivity : AppCompatActivity() {
             }
         }
         findViewById<View>(R.id.importButton).setOnClickListener {
-            if (ImportService.isRunning) {
-                // An import is in flight — show its progress screen instead
-                // of the picker (one import runs at a time).
-                startActivity(Intent(this, ImportActivity::class.java))
-                return@setOnClickListener
-            }
+            // Always the picker, as from the shortcut and the widget: a file
+            // picked while something else is transcribed is queued behind it
+            // (ImportActivity, JobGate.requestImport). This used to open the
+            // running pass's progress screen instead, a recording's
+            // transcript or an accuracy check titled "Import recording",
+            // whose Cancel then stopped that pass.
             try {
                 pickAudio.launch("*/*")
             } catch (_: Exception) {

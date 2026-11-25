@@ -114,8 +114,19 @@ class ImportService : Service() {
      * Which file of a batch this run is ([EXTRA_BATCH_INDEX], from 1) and how
      * many came together; 0 for a file on its own. See JobQueue.Job.batchIndex.
      */
-    private var batchIndex = 0
-    private var batchSize = 0
+    var batchIndex = 0
+        private set
+    var batchSize = 0
+        private set
+
+    /** The batch this file came with ([EXTRA_BATCH_ID]); blank for none. */
+    private var batchId = ""
+
+    /**
+     * The user chose "Cancel all": this file stops, and finishRun takes the
+     * files of its batch still waiting off the queue before it drains.
+     */
+    @Volatile private var cancelAll = false
 
     /**
      * A file the user picked and started straight away (ImportActivity),
@@ -192,6 +203,10 @@ class ImportService : Service() {
                 if (!isRunning) stopSelfResult(startId)
                 return START_NOT_STICKY
             }
+            ACTION_CANCEL_BATCH -> {
+                if (isRunning) cancelBatch() else stopSelfResult(startId)
+                return START_NOT_STICKY
+            }
             ACTION_LIVE_DISMISSED -> {
                 // Posted as an ordinary notification from now on, never
                 // promoted again in this run, nor in the rest of the batch
@@ -224,6 +239,7 @@ class ImportService : Service() {
                 // — or already cancelled.
                 done = false
                 cancelled = false
+                cancelAll = false
                 stoppedByUnplug = false
                 importerReturned = false
                 chargingOnly = intent.getBooleanExtra(EXTRA_CHARGING_ONLY, false)
@@ -239,16 +255,21 @@ class ImportService : Service() {
                 // transcript rather than a second opinion on an existing one.
                 // That distinction decides whether the summary should follow.
                 // The extra carries it across an unplug stop, after which the
-                // meeting holds the stopped pass's partial words.
+                // meeting holds the stopped pass's partial words. Lines only,
+                // never their word timings: this is the main thread, before
+                // startForeground, and a full parse of a long meeting takes
+                // seconds on a low-end phone.
                 firstTranscript = recheckMeetingId?.let { id ->
                     intent.getBooleanExtra(EXTRA_FIRST_TRANSCRIPT, false) ||
-                        com.meetily.mobile.data.MeetingStore(this).load(id)
+                        com.meetily.mobile.data.MeetingStore(this)
+                            .loadFields(id, setOf("segments"))
                             ?.segments?.isEmpty() == true
                 } ?: false
                 adoptFile = intent.getStringExtra(EXTRA_ADOPT_FILE)
                 directImport = recheckMeetingId == null && adoptFile == null
                 batchIndex = intent.getIntExtra(EXTRA_BATCH_INDEX, 0)
                 batchSize = intent.getIntExtra(EXTRA_BATCH_SIZE, 0)
+                batchId = intent.getStringExtra(EXTRA_BATCH_ID).orEmpty()
                 resumeFromMs = intent.getLongExtra(EXTRA_RESUME_FROM_MS, 0L).coerceAtLeast(0L)
                 isRecheck = recheckMeetingId != null
                 isFirstTranscript = firstTranscript
@@ -607,7 +628,10 @@ class ImportService : Service() {
         if (firstTranscript && recheckId != null &&
             !cancelled && error == null && warning == null
         ) {
-            val done = com.meetily.mobile.data.MeetingStore(this).load(recheckId)
+            // What the summary decision needs, without the word timings:
+            // this is the main thread.
+            val done = com.meetily.mobile.data.MeetingStore(this)
+                .loadFields(recheckId, setOf("title", "segments", "summary"))
             // A continued transcript may already have a summary of the part
             // that was there, and one started over a summary of the lines it
             // replaced: either is marked out of date (AudioFileImporter), not
@@ -637,6 +661,15 @@ class ImportService : Service() {
         } else if (!cancelled) {
             postCompletionNotification(meetingId, error, warning, wasFirstTranscript)
         }
+        // "Cancel all": the files of this batch still waiting go as well,
+        // before the drain below would start the next of them. Their staged
+        // copies are Recap's only ones, so the notice says how many.
+        if (cancelAll) {
+            val dropped = com.meetily.mobile.data.JobQueue.dequeueBatch(this, batchId)
+            for (job in dropped) com.meetily.mobile.data.AudioStore.delete(this, job.stagedFile)
+            if (dropped.isNotEmpty()) postBatchStoppedNotification(dropped.size)
+        }
+        cancelAll = false
         // isRecheck / currentMeetingId deliberately survive the run: an
         // observer that binds after the finish still needs to know what just
         // happened. Both are reset by the next ACTION_START.
@@ -665,6 +698,29 @@ class ImportService : Service() {
     }
 
     fun requestCancel() {
+        cancelled = true
+    }
+
+    /**
+     * Whether "Cancel all" applies to this run: a file of a batch with
+     * files after it (ImportBatch.offersCancelAll).
+     */
+    fun hasLaterBatchFiles(): Boolean =
+        isRunning && com.meetily.mobile.data.ImportBatch.offersCancelAll(batchId, batchIndex, batchSize)
+
+    /**
+     * Stops this file and the rest of its batch: the files still being
+     * staged are not queued (ImportQueue.stopBatch), and finishRun takes
+     * the queued ones off the queue. Plain Cancel stops this file only,
+     * and the next one starts.
+     */
+    fun cancelBatch() {
+        // Asked from a question left up past the run's end: nothing to stop.
+        if (!isRunning) return
+        if (batchId.isNotBlank()) {
+            cancelAll = true
+            ImportQueue.stopBatch(batchId)
+        }
         cancelled = true
     }
 
@@ -767,6 +823,18 @@ class ImportService : Service() {
             .addAction(0, getString(android.R.string.cancel), cancelIntent)
             .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
             .setPublicVersion(publicVersion.build())
+        // Cancel stops this file and the next one starts; this stops the
+        // files after it too.
+        if (hasLaterBatchFiles() && !timedOut) {
+            builder.addAction(
+                0, getString(R.string.import_cancel_all),
+                PendingIntent.getService(
+                    this, 15,
+                    Intent(this, ImportService::class.java).setAction(ACTION_CANCEL_BATCH),
+                    PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+                )
+            )
+        }
         LiveUpdateBar.setBar(this, builder, live, bar, progress)
         if (live) {
             LiveUpdateBar.requestPromotion(
@@ -840,7 +908,12 @@ class ImportService : Service() {
      */
     private fun postTimeoutNotification(meetingId: String?) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val body = getString(R.string.fgs_timeout_import)
+        // An accuracy check keeps nothing: finishRun deletes its draft, and
+        // the next one starts from the beginning.
+        val body = getString(
+            if (recheckMeetingId != null && !firstTranscript) R.string.fgs_timeout_check
+            else R.string.fgs_timeout_import
+        )
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setAutoCancel(true)
@@ -874,8 +947,9 @@ class ImportService : Service() {
 
     private fun postUnpluggedNotification(meetingId: String?, stoppedAtMs: Long?) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        // The title only, from the head of the file: this is the main thread.
         val title = meetingId
-            ?.let { com.meetily.mobile.data.MeetingStore(this).load(it)?.title }
+            ?.let { com.meetily.mobile.data.MeetingStore(this).loadHeader(it)?.title }
             ?.takeIf { it.isNotBlank() }
             ?: sourceName
         // 0: no pause reached to carry on from, so it starts over.
@@ -963,9 +1037,39 @@ class ImportService : Service() {
                     )
                 )
         } else {
-            builder.setContentTitle(getString(R.string.import_failed_notif))
+            // Named for what failed: not every run here is an import.
+            builder.setContentTitle(
+                getString(
+                    when {
+                        recheckMeetingId == null -> R.string.import_failed_notif
+                        wasFirstTranscript -> R.string.transcription_failed_notif
+                        else -> R.string.check_failed_notif
+                    }
+                )
+            )
                 .setContentText(error ?: "")
         }
+        try {
+            manager.notify(NOTIF_DONE_ID, builder.build())
+        } catch (_: SecurityException) {
+        }
+    }
+
+    /**
+     * After "Cancel all": how many files of the batch were taken off the
+     * queue, never imported. Their staged copies are gone, so the user has
+     * to share or pick them again.
+     */
+    private fun postBatchStoppedNotification(count: Int) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val body = resources.getQuantityString(R.plurals.import_batch_stopped_body, count, count)
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
+            .setSmallIcon(R.drawable.ic_download)
+            .setAutoCancel(true)
+            .setSilent(true)
+            .setContentTitle(getString(R.string.import_batch_stopped_title))
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
         try {
             manager.notify(NOTIF_DONE_ID, builder.build())
         } catch (_: SecurityException) {
@@ -1026,6 +1130,9 @@ class ImportService : Service() {
         const val ACTION_START = "com.meetily.mobile.import.START"
         const val ACTION_CANCEL = "com.meetily.mobile.import.CANCEL"
 
+        /** "Cancel all": this file and the rest of its batch; see [cancelBatch]. */
+        const val ACTION_CANCEL_BATCH = "com.meetily.mobile.import.CANCEL_BATCH"
+
         /** The user swiped the run's Live Update away (its delete intent). */
         const val ACTION_LIVE_DISMISSED = "com.meetily.mobile.import.LIVE_DISMISSED"
         const val EXTRA_NAME = "source_name"
@@ -1068,6 +1175,8 @@ class ImportService : Service() {
          */
         const val EXTRA_BATCH_INDEX = "batch_index"
         const val EXTRA_BATCH_SIZE = "batch_size"
+        /** String: the batch this file came with; see JobQueue.Job.batchId. */
+        const val EXTRA_BATCH_ID = "batch_id"
         private const val CHANNEL_ID = "import"
         private const val NOTIF_ID = 44
         private const val NOTIF_DONE_ID = 45

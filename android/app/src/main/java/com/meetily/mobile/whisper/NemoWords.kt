@@ -44,6 +44,9 @@ object NemoWords {
         var currentStartMs = 0L
         var currentSpaced = false
         var prevNoSpace = false
+        // A "▁" that came as a token of its own, still to be applied to the
+        // next piece with text.
+        var pendingMark = false
         fun flush() {
             val text = current.toString().trim()
             if (text.isNotEmpty()) {
@@ -54,8 +57,19 @@ object NemoWords {
         }
         for ((index, raw) in tokens.withIndex()) {
             if (raw.isEmpty()) continue
-            val marked = raw[0] == WORD_MARK || raw[0] == ' '
             val piece = raw.trimStart(WORD_MARK, ' ')
+            if (piece.isEmpty()) {
+                // The boundary alone ("▁", which sherpa-onnx hands over as
+                // " "). SentencePiece writes one before a piece that has no
+                // "▁" form of its own: digits, some symbols, capitals and
+                // accented letters. The space belongs to that next piece;
+                // dropped here, "in 2024" came out as "in2024".
+                flush()
+                pendingMark = true
+                continue
+            }
+            val marked = pendingMark || raw[0] == WORD_MARK || raw[0] == ' '
+            pendingMark = false
             // Punctuation, digits and byte-fallback pieces (<0x..>) are
             // COMMON: they stay on the word they follow.
             val script = piece.firstOrNull()?.let {

@@ -127,11 +127,16 @@ class ImportActivity : AppCompatActivity() {
                     finish()
                 }
                 else -> {
+                    // Named for what failed: the run observed may be a
+                    // check or a recording's transcript, not an import.
+                    val failed = when {
+                        !ImportService.isRecheck -> R.string.import_failed
+                        ImportService.isFirstTranscript -> R.string.transcription_failed
+                        else -> R.string.check_failed
+                    }
                     Toast.makeText(
                         this@ImportActivity,
-                        getString(
-                            R.string.import_failed, error ?: getString(R.string.platform_error_unknown)
-                        ),
+                        getString(failed, error ?: getString(R.string.platform_error_unknown)),
                         Toast.LENGTH_LONG
                     ).show()
                     finish()
@@ -176,6 +181,11 @@ class ImportActivity : AppCompatActivity() {
         findViewById<android.view.View>(R.id.importCancelButton).setOnClickListener {
             val svc = service
             when {
+                // One of a batch with files after it: this one, or all?
+                svc != null && svc.hasLaterBatchFiles() -> {
+                    askStopBatch(svc)
+                    return@setOnClickListener
+                }
                 svc != null -> svc.requestCancel()
                 // Started but not bound yet: the running job is ours.
                 startedRun -> startService(
@@ -277,6 +287,33 @@ class ImportActivity : AppCompatActivity() {
         }
         classifyAndStart(uris, permissionRequested = false)
     }
+
+    /**
+     * Cancel on a file of a batch with files after it. Cancel alone used to
+     * stop only this file, the next started at once, and nothing could stop
+     * the rest; Back leaves everything running.
+     */
+    private fun askStopBatch(svc: ImportService) {
+        fun stopping(stop: () -> Unit) {
+            stop()
+            A11y.setStatusText(statusView, getString(R.string.import_stopping), announce = true)
+        }
+        AlertDialog.Builder(this)
+            .setTitle(R.string.import_stop_batch_title)
+            .setMessage(getString(R.string.import_stop_batch_body, svc.batchIndex, svc.batchSize))
+            .setPositiveButton(R.string.import_stop_batch_all) { _, _ ->
+                stopping { svc.cancelBatch() }
+            }
+            .setNegativeButton(R.string.import_stop_batch_this) { _, _ ->
+                stopping { svc.requestCancel() }
+            }
+            .setOnDismissListener { stopBatchDialog = null }
+            .showSecure()
+            .also { stopBatchDialog = it }
+    }
+
+    /** askStopBatch's question while it is up; closed with this screen. */
+    private var stopBatchDialog: AlertDialog? = null
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
@@ -539,10 +576,7 @@ class ImportActivity : AppCompatActivity() {
     private fun startImport(uri: Uri, name: String, modelKey: String) {
         if (abandoned) return
         started = true
-        val queued = JobGate.requestImport(
-            this, uri, name, modelKey, cancelled = { abandoned },
-            language = importLanguage.orEmpty()
-        ) { result ->
+        val onQueued: (ImportQueue.Result) -> Unit = { result ->
             queueing = false
             when (result) {
                 ImportQueue.Result.QUEUED -> {
@@ -569,6 +603,10 @@ class ImportActivity : AppCompatActivity() {
             }
             finish()
         }
+        val queued = JobGate.requestImport(
+            this, uri, name, modelKey, cancelled = { abandoned },
+            language = importLanguage.orEmpty(), onQueued = onQueued
+        )
         if (queued) {
             queueing = true
             A11y.setStatusText(statusView, getString(R.string.import_queueing), announce = true)
@@ -582,10 +620,25 @@ class ImportActivity : AppCompatActivity() {
             .putExtra(ImportService.EXTRA_MODEL, modelKey)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         importLanguage?.let { start.putExtra(ImportService.EXTRA_LANGUAGE, it) }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(start)
-        } else {
-            startService(start)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(start)
+            } else {
+                startService(start)
+            }
+        } catch (_: RuntimeException) {
+            // Refused: the user left this screen while the file was being
+            // probed, and Android 12+ forbids starting a foreground service
+            // from the background. This screen still holds the read grant,
+            // so the file is copied to the queue instead, as when another
+            // job runs; the next resume of Recap starts it.
+            startedRun = false
+            queueing = true
+            A11y.setStatusText(statusView, getString(R.string.import_queueing), announce = true)
+            ImportQueue.stageAndQueue(
+                this, uri, name, modelKey, { abandoned }, importLanguage.orEmpty(), onQueued
+            )
+            return
         }
         bindService(Intent(this, ImportService::class.java), connection, Context.BIND_AUTO_CREATE)
         bound = true
@@ -1069,6 +1122,8 @@ class ImportActivity : AppCompatActivity() {
         // Re-created: the next instance shows the summary again.
         summaryDialog?.dismiss()
         summaryDialog = null
+        stopBatchDialog?.dismiss()
+        stopBatchDialog = null
         service?.removeObserver(observer)
         if (bound) {
             try {

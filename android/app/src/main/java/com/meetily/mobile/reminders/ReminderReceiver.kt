@@ -30,7 +30,19 @@ class ReminderReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         when (intent.action) {
-            Reminders.ACTION_ITEM_REMINDER -> fireActionItem(context, intent)
+            // Off the main thread too: it reads the meeting's file, which a
+            // long meeting makes megabytes.
+            Reminders.ACTION_ITEM_REMINDER -> {
+                val pending = goAsync()
+                Thread {
+                    try {
+                        fireActionItem(context, intent)
+                    } catch (_: Exception) {
+                    } finally {
+                        pending.finish()
+                    }
+                }.start()
+            }
             // Off the main thread: matching events against the library reads
             // every meeting file, and this fires as a meeting starts — just
             // when the user may be opening the recorder.
@@ -59,7 +71,8 @@ class ReminderReceiver : BroadcastReceiver() {
         val meetingId = intent.getStringExtra(Reminders.EXTRA_MEETING_ID) ?: return
         val task = intent.getStringExtra(Reminders.EXTRA_TASK) ?: return
         // Validate against current state: the item may be done or deleted.
-        val meeting = MeetingStore(context).load(meetingId) ?: return
+        // Its title and action items are all it needs.
+        val meeting = MeetingStore(context).loadFields(meetingId, MeetingStore.ACTION_FIELDS) ?: return
         val item = meeting.actionItems.firstOrNull { it.task == task } ?: return
         // Without exact alarms a reminder is approached in steps (see
         // Reminders.Approach): this is one of them, so arm the next.

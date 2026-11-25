@@ -306,10 +306,18 @@ object ContinueTranscription {
         val clock = TranscriptResume.clock(fromMs)
         // Asked again: one may have been queued while a question was up.
         if (refusedForQueuedCheck(activity, m.id)) return
+        // The language the words were made in, so a start-over is redone in
+        // it rather than in the Settings pin (a continuation takes it from
+        // the meeting anyway); blank leaves it to Settings, as before.
+        val language = TranscriptResume.rerunLanguage(
+            m.language,
+            m.transcriptModel?.takeIf { it.isNotBlank() }
+                ?.let { TranscriptionModels.englishOnly(it) } == true
+        )
         fun queue() {
             JobGate.requestCheck(
                 activity, m.id, modelKey, whenCharging = false, required = true,
-                firstTranscript = true, resumeFromMs = fromMs
+                firstTranscript = true, language = language, resumeFromMs = fromMs
             )
             Toast.makeText(
                 activity,
@@ -335,6 +343,7 @@ object ContinueTranscription {
             .putExtra(ImportService.EXTRA_USER_STARTED, true)
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         if (fromMs > 0L) start.putExtra(ImportService.EXTRA_RESUME_FROM_MS, fromMs)
+        if (language.isNotBlank()) start.putExtra(ImportService.EXTRA_LANGUAGE, language)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 activity.startForegroundService(start)

@@ -331,6 +331,19 @@ object TranscriptResume {
         storedLanguage ?: requested?.takeIf { it.isNotBlank() } ?: MeetingLanguage.AUTO
 
     /**
+     * The language Continue transcription asks for, start-over included:
+     * the one the stored words were made in ([storedLanguage], picked for
+     * the file or detected), so a pass redone with another model is not
+     * pinned to the Settings language instead. Blank, which leaves it to
+     * Settings, when none is known or the words came from an English-only
+     * model ([madeEnglishOnly]), whose "en" says nothing about what was
+     * spoken. A continuation runs in the stored language either way
+     * ([languageFor]).
+     */
+    fun rerunLanguage(storedLanguage: String?, madeEnglishOnly: Boolean): String =
+        if (madeEnglishOnly) "" else MeetingLanguage.normalize(storedLanguage).orEmpty()
+
+    /**
      * Whether a pass stopped at [resumeMs] reached a pause it can carry on
      * from. One that never did (a recording whose background never stays
      * quiet for long enough is cut only at the length limit) can only start
