@@ -8,9 +8,9 @@ meetings already on the phone, a recording keeps its first words and
 its audio when the microphone or the live model fails, reminders and
 nudges arrive on time without exact alarms, and many smaller fixes
 land in backups, imports, downloads, the app lock, summaries and the
-meeting screen. Until the maintainer's version bump, its own commit
-right after the last review-fix commit, the end-of-recording
-simplification on top of `8e9aecf`, the build still reads
+meeting screen. Until the maintainer's version bump, its own commit on
+top of the review-fix series (whose last code commit is `db0c8c8`,
+followed by a docs-only sync), the build still reads
 **3.21.0-beta1** (versionCode 116), the current release: Batch 7
 (Re-time words, which measures the timings of edited transcript words
 against the recording on the phone with an optional English
@@ -1101,12 +1101,15 @@ Work through it before the first targetSdk 36 upload to any track.
 ### Version and build
 
 - [ ] Bump `versionCode` to 117 and `versionName` to `3.22.0-beta1` in
-  `android/app/build.gradle.kts`, in its own commit right after the last
-  pre-release review fix commit, the end-of-recording simplification on
-  top of `8e9aecf` (the fix commits after `d4d1816` and its docs sync
-  are `fe3bcc5`, `8e9aecf` and that one; the maintainer's step; until
-  then the build reads 3.21.0-beta1, 116). Push the merge and the bump to the Android branch in one push,
-  or the bump first: `Build Android APK`
+  `android/app/build.gradle.kts`, in its own commit on top of the
+  pre-release review-fix series (the maintainer's step; until then the
+  build reads 3.21.0-beta1, 116). The fix commits after `d4d1816` and its
+  docs sync `8397802` are `fe3bcc5` and `8e9aecf`, then `3ae6dd0`, which
+  simplified the end-of-recording and recovery work of the earlier
+  rounds, and its three review rounds `efe8127`, `31f014f` and `db0c8c8`,
+  the last code commit; a docs-only sync follows it, and the bump goes
+  on top of that. Push the merge and the bump to the Android branch in
+  one push, or the bump first: `Build Android APK`
   uploads every Android-branch build to the release named after its
   versionName with `--clobber`, so the merge pushed alone replaces the
   real 3.21.0-beta1 APK (the upgrade baseline and what beta users
@@ -1126,9 +1129,10 @@ Work through it before the first targetSdk 36 upload to any track.
   `assembleRelease` with `lintVital`, the native export check
   (`llama_jni.c` changed: the empty-reply error now reports the
   tokens sampled; only CI compiles native code) and the baseline profile
-  check (`baseline-prof.txt` has updated `JobQueue` and
-  `RecordingService` signatures; `JobGate` is back to `canStartBatch()Z`,
-  as in 3.21.0-beta1).
+  check (`baseline-prof.txt` has updated `JobQueue` signatures, and its
+  recovery rules moved from `MainActivity` to `RecordingService`'s
+  companion; `JobGate` is back to `canStartBatch()Z`, as in
+  3.21.0-beta1).
   Nothing in these fixes went through Gradle, lint, aapt or R8: they
   were compiled against Android's implementation jar and hand-written
   AndroidX stubs, so fix anything the real build turns up. In

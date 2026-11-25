@@ -32,7 +32,7 @@ plus optional extras: an older phone, an Android 17 beta, the Play build
 |---|---|---|
 | 1. Setup (after the untimed prep in 1.0) | 12 min, plus model downloads in the background | 18 min |
 | 2. P0 smoke test | 33 min | 40 min |
-| 3. P1 riskiest paths (Batches 2 to 7 and the review fixes) | 35 min | 63 min |
+| 3. P1 riskiest paths (Batches 2 to 7 and the review fixes) | 35 min | 65 min |
 | 4. P2 platform specifics | 8 min | 25 min |
 | W. Wrap-up: clean-install restore | 5 min | 10 min |
 | R. Final-build re-smoke (on the build you upload) | 5 min | 5 min |
@@ -937,7 +937,7 @@ review are in extra A.
   (partial: audio-only, recovered by opening Recap; not the live-recording
   kill nor the tile start after a kill).
 
-### P1-10 (+) Live transcription (2 min, Batches 3 and 5, the review fixes)
+### P1-10 (+) Live transcription (4 min, Batches 3 and 5, the review fixes)
 
 - [ ] **P1-10a** Settings → Transcription → "Transcribe live" on → **Save
   settings**. Start a recording and speak from the very first second,
@@ -962,9 +962,10 @@ review are in extra A.
 - [ ] **P1-10b (+)** Turn "Keep meeting audio" off. With the same large
   model, start a recording, say one sentence, and tap Finish while the
   status still reads "Loading the model…".
-  **Expect:** "Finishing transcription…" on the screen and in the
-  notification, no buttons, until the model has loaded and then up to
-  15 s more (a minute after Finish at most); then the meeting opens with
+  **Expect:** "Finishing transcription…" on the screen, where Finish,
+  Pause and the star are disabled, and in the notification, which has no
+  buttons, until the model has loaded and then up to 15 s more (a minute
+  after Finish at most); then the meeting opens with
   that sentence in its transcript or, if it opens without it, the
   sentence is there when you go back and reopen the meeting a few
   seconds later. Turn "Keep meeting audio" back on, turn "Transcribe

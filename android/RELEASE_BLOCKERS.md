@@ -5,23 +5,23 @@ Dated 2026-11-25. This file sorts the owner checklist in
 Google Play submission. It reflects **3.22.0-beta1** (versionCode 117), the
 pre-release review fixes on `r1/integration`: five merged fix chains
 (merge tip `d3ddc47`), the docs commit that adds this file (`6891a73`),
-and the fix commits after it up to the last fix commit, the
-end-of-recording simplification on top of `8e9aecf`, which changes code
-and these docs together (all listed under D). Until the version bump,
-which the maintainer makes in its own commit right after the last fix
-commit, the build still reads 3.21.0-beta1 (versionCode 116). It is a
-snapshot: PLAY_RELEASE.md remains the source of truth.
+the fix commits after it up to `db0c8c8`, the last code commit (all
+listed under D), and a docs-only sync on top of them that brings this
+file and PLAY_RELEASE.md up to date. Until the version bump, which the
+maintainer makes in its own commit on top of this series, the build
+still reads 3.21.0-beta1 (versionCode 116). It is a snapshot:
+PLAY_RELEASE.md remains the source of truth.
 
 **Where the items come from.** Sections 1 to 10 of PLAY_RELEASE.md have no
 checkboxes, so every open item is in section 11. Some prose steps in
 sections 1 to 10 also block the first upload; they are added here and
 marked *prose*. Items are named by their PLAY_RELEASE.md section and first
-words, not by line number: the file grew by about 600 lines in this
+words, not by line number: the file grew by about 700 lines in this
 release, and line numbers move with every edit.
 
 **How each item was checked.** Against:
-- the code at the last fix commit, the end-of-recording simplification
-  on top of `8e9aecf` (3.21.0-beta1 at `818d523` plus every review fix);
+- the code at `db0c8c8`, the last code commit (3.21.0-beta1 at `818d523`
+  plus every review fix);
 - the APK that `818d523` published (`android/dist/meetily-android.apk`,
   arm64-v8a only, libraries compressed);
 - the log of the CI run that built it (Build Android APK, run 45216817663,
@@ -270,10 +270,10 @@ Not triaged here:
 1. **Version bump to 3.22.0-beta1 (117) and a green CI** (§11 Version and
    build, "Bump `versionCode` to 117" and "Run CI on the release commit")
    - Do: bump `versionCode` and `versionName` in
-     `android/app/build.gradle.kts` in its own commit right after the last
-     fix commit (the end-of-recording simplification), and push the
-     review-fix merge and the bump to the Android branch together, in one
-     push (or the bump first). CI
+     `android/app/build.gradle.kts` in its own commit on top of this
+     series (after `db0c8c8`, the last code commit, and the docs-only
+     sync that follows it), and push the review-fix merge and the bump to
+     the Android branch together, in one push (or the bump first). CI
      publishes every Android-branch build to the release named after its
      versionName, replacing that release's APK, so a push of the merge
      alone would overwrite the real 3.21.0-beta1 download with unbumped
@@ -424,9 +424,14 @@ none blocking; C2):
 
 The fix commits, for reference, all on `r1/integration`: the five merged
 fix chains (merge tip `d3ddc47`), then, after the docs commit `6891a73`,
-the post-fix review rounds and the settle rounds, then the
-end-of-recording simplification, the last fix commit, which changes code
-and docs together.
+the post-fix review rounds and the settle rounds (`8397802`, between
+`d4d1816` and `fe3bcc5`, only synced the docs). Then `3ae6dd0` simplified
+the end-of-recording and recovery work of those earlier rounds: it took
+out most of what they had added there and went back to 3.21.0-beta1's
+shape, keeping every originally confirmed fix. Three review rounds of
+that simplification follow, each changing code and docs together;
+`db0c8c8` is the last code commit. A docs-only sync of this file and
+PLAY_RELEASE.md sits on top, and the version bump comes after it.
 
 | Commit | Area |
 |---|---|
@@ -442,14 +447,17 @@ and docs together.
 | d3ddc47 | Share-file names in any script (cross-chain fix) |
 | 2d1f101 | Post-fix review round 1: the recording service stays in the foreground until the work after Finish is started; audio held while the live model loads; share-file clean-up |
 | 6da959f | Post-fix review round 2: untitled recordings recognised in any language; swiping away mid-recording is a Finish; "Keep meeting audio" read when the transcript is made |
-| 5e46c6b | A recording's delayed stop no longer cancels a start on its way; the app-lock checks match the Product decision |
+| 5e46c6b | A recording's delayed stop no longer cancels a start on its way (kept by 3ae6dd0 in a simpler form: such a stop uses its own start id); the app-lock checks match the Product decision |
 | c539b08 | Leftover review items: late chunks keep their session's audio and names; a star tapped during the live model load; Ask your library and the brief without waiter threads; the series list off the main thread |
-| 94c5801 | Review round 1: Finish during a live model load keeps the meeting's audio; "Finishing transcription…" notification; sticky restarts and discard stop cleanly |
+| 94c5801 | Review round 1: Finish during a live model load keeps the meeting's audio (since 3ae6dd0 by waiting for the load, up to 60 s); "Finishing transcription…" notification; sticky restarts and discard stop cleanly |
 | 07266d7 | Review round 2: the recording notification's tap never starts a new recording; stars and Mark during the live backlog |
-| d4d1816 | Review round 3: batch work waits until a finished recording's live model is freed; recovery transcribes live transcripts that stopped short (the hold and live-short recovery removed by the simplification) |
-| fe3bcc5 | Settle-2 round 1: finished work queued at audio close, recovered live lines kept (superseded by the simplification) |
-| 8e9aecf | Settle-2 round 2: recovered check keeps its marks, recovery from the tile, late lines before the drain (superseded) |
-| (this commit) | End of a recording simplified: the audio file is closed before Finish's work, in the same step; Finish waits for a loading live model; the hand-off, the live-model gate and live-short recovery removed |
+| d4d1816 | Review round 3: batch work waits until a finished recording's live model is freed; recovery transcribes live transcripts that stopped short (the hold and live-short recovery removed by 3ae6dd0) |
+| fe3bcc5 | Settle-2 round 1: finished work queued at audio close, recovered live lines kept (superseded by 3ae6dd0) |
+| 8e9aecf | Settle-2 round 2: recovered check keeps its marks, recovery from the tile, late lines before the drain (superseded by 3ae6dd0) |
+| 3ae6dd0 | Simplified the end-of-recording and recovery work of the rounds above: the audio file is closed before Finish's work, in the same step; Finish waits up to 60 s for a loading live model; the hand-off, the live-model gate and live-short recovery removed; recovery from the home screen only |
+| efe8127 | Simplification review round 1, mostly docs: how a Finish during a live-model load behaves, and that the media projection stays until the meeting is saved; the audio-close wait's guard against an endless join moved into its unit-tested helper |
+| 31f014f | Simplification review round 2: a failed live load's audio file is saved to the meeting at once, so recovery after a process death finds and transcribes it; the final save keeps a language learnt during Finish |
+| db0c8c8 | Simplification review round 3: the screen keeps naming a live model that failed to load; the recording screen disables Finish, Pause and the star during a Finish from the notification or a swipe |
 
 ### Done or stale before this release (12 checklist items, 1 prose step)
 
