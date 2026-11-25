@@ -75,20 +75,42 @@ object JobGate {
      * about 200 MB while it runs, and it drains the queue when it ends.
      *
      * So does a live model a finished recording has not freed yet
-     * (WhisperRecorder.liveModelsHeld). A Finish, or a swipe from Recents,
-     * that cannot wait for a slow load ends the session while the model is
-     * still loading, and the first transcript queued then loaded a second
-     * copy of the same model beside it. RecordingService drains the queue
-     * once the model is freed.
+     * (WhisperRecorder.liveModelsHeld), for work that loads a model of its
+     * own ([loadsLocalModel]). A Finish, or a swipe from Recents, that
+     * cannot wait for a slow load ends the session while the model is still
+     * loading, and the first transcript queued then loaded a second copy of
+     * the same model beside it. With "Keep meeting audio" off the recorder
+     * also keeps decoding its live backlog after Finish (up to 10 minutes of
+     * speech, on a phone that transcribes slower than it is spoken) and
+     * holds its model until that is done: the finished meeting's own
+     * summary waits for it too, so it reads the late lines. RecordingService
+     * drains the queue once the model is freed. Only a new live recording
+     * started meanwhile loads its own model beside it; nothing here gates
+     * that.
+     *
+     * [loadsLocalModel] false: a summary, notes enhancement or speaker
+     * suggestion the user asks for on the meeting page with a network AI
+     * endpoint (not LocalLlm), which loads no model and need not wait for
+     * that release. The queue drains with the default.
      */
-    fun canStartBatch(): Boolean =
-        !RecordingService.isRunning &&
-            !ImportService.isRunning &&
-            !SummaryService.isRunning &&
-            !PassageService.isBusy() &&
-            !AlignService.isBusy() &&
-            !com.meetily.mobile.whisper.WhisperRecorder.liveModelsHeld() &&
-            !startPending()
+    fun canStartBatch(loadsLocalModel: Boolean = true): Boolean =
+        admits(
+            busy = RecordingService.isRunning ||
+                ImportService.isRunning ||
+                SummaryService.isRunning ||
+                PassageService.isBusy() ||
+                AlignService.isBusy() ||
+                startPending(),
+            liveModelHeld = com.meetily.mobile.whisper.WhisperRecorder.liveModelsHeld(),
+            loadsLocalModel = loadsLocalModel
+        )
+
+    /**
+     * [canStartBatch]'s rule: nothing [busy], and no live model held when
+     * the work loads one. Pure, so it is unit-tested.
+     */
+    fun admits(busy: Boolean, liveModelHeld: Boolean, loadsLocalModel: Boolean): Boolean =
+        !busy && !(liveModelHeld && loadsLocalModel)
 
     /**
      * Runs the next deferred job if the system can take one.

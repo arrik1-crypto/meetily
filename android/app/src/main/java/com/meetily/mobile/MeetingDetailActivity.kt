@@ -46,6 +46,7 @@ import com.meetily.mobile.data.TranscriptSplitter
 import com.meetily.mobile.export.DocxExport
 import com.meetily.mobile.export.MeetingExporter
 import com.meetily.mobile.export.SubtitleExport
+import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.notes.NotesMarkdown
 import com.meetily.mobile.notes.NotesRenderer
 import com.meetily.mobile.reminders.Reminders
@@ -2676,8 +2677,9 @@ class MeetingDetailActivity : AppCompatActivity() {
         // Refused rather than queued: JobQueue only carries summaries, checks
         // and imports, so a queued speaker pass would come back as a plain
         // summary. This is a short interactive action — asking again later is
-        // the right answer.
-        if (!JobGate.canStartBatch()) {
+        // the right answer. A network endpoint loads no model, so a live
+        // model a finished recording still holds does not refuse it.
+        if (!JobGate.canStartBatch(loadsLocalModel = LocalLlm.isSelected())) {
             Toast.makeText(this, R.string.busy_heavy_job, Toast.LENGTH_LONG).show()
             return
         }
@@ -2947,8 +2949,10 @@ class MeetingDetailActivity : AppCompatActivity() {
         // SummaryService.isRunning on its own is not admission control: a live
         // recording or a running import would happily have a multi-GB GGUF
         // loaded on top of it, which is the exact double-load JobGate exists
-        // to prevent. Queue instead — a summary is only ever delayed.
-        if (!JobGate.canStartBatch()) {
+        // to prevent. Queue instead — a summary is only ever delayed. A
+        // network endpoint loads no model, so a live model a finished
+        // recording still holds does not hold it back.
+        if (!JobGate.canStartBatch(loadsLocalModel = LocalLlm.isSelected())) {
             JobGate.requestSummary(
                 this, m.id, template.key, whenCharging = false, required = true
             )
@@ -4799,7 +4803,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         // As with the speaker pass: notes enhancement has no queue kind, so
         // it is refused rather than deferred into something else.
-        if (!JobGate.canStartBatch()) {
+        if (!JobGate.canStartBatch(loadsLocalModel = LocalLlm.isSelected())) {
             Toast.makeText(this, R.string.busy_heavy_job, Toast.LENGTH_LONG).show()
             return
         }

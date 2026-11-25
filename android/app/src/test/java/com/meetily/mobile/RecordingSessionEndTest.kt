@@ -14,9 +14,10 @@ import org.junit.Test
  * What a recording session leaves behind as it ends, on a service that may
  * already be running the next one: its late transcript chunks
  * (LateChunks), a star tapped before its line existed (QueuedHighlight),
- * when the service may stop (RecordingService.stopsAfterWork), the live
- * model batch work waits for (LiveModelSlot), and what a recording the
- * process died under gets (ActiveRecording).
+ * when the service may stop (RecordingService.stopsAfterWork,
+ * FinishSignals), the live model batch work waits for (LiveModelSlot,
+ * JobGate.admits), and what a recording the process died under gets
+ * (ActiveRecording).
  */
 class RecordingSessionEndTest {
 
@@ -201,6 +202,38 @@ class RecordingSessionEndTest {
         // Never taken: nothing to give back.
         assertFalse(LiveModelSlot(count).giveBack())
         assertEquals(0, count.get())
+    }
+
+    @Test
+    fun aFinishedSessionDrainsAndStopsOnceItsAudioIsClosedAndItsModelFreed() {
+        // No live model held at Finish: the audio closing is all it waits for.
+        val plain = FinishSignals(waitsForLiveModel = false)
+        assertTrue(plain.audioClosed())
+        assertFalse(plain.modelReleased())
+        assertFalse(plain.audioClosed())
+        // Held: both, in either order, and only once.
+        val closedFirst = FinishSignals(waitsForLiveModel = true)
+        assertFalse(closedFirst.audioClosed())
+        assertFalse(closedFirst.audioClosed())
+        assertTrue(closedFirst.modelReleased())
+        assertFalse(closedFirst.modelReleased())
+        val releasedFirst = FinishSignals(waitsForLiveModel = true)
+        assertFalse(releasedFirst.modelReleased())
+        assertTrue(releasedFirst.audioClosed())
+        assertFalse(releasedFirst.audioClosed())
+    }
+
+    @Test
+    fun aHeldLiveModelHoldsBackOnlyWorkThatLoadsAModel() {
+        assertTrue(JobGate.admits(busy = false, liveModelHeld = false, loadsLocalModel = true))
+        // A finished recording's live model still loading or held: a
+        // transcription, check, import or on-device summary waits.
+        assertFalse(JobGate.admits(busy = false, liveModelHeld = true, loadsLocalModel = true))
+        // A summary, notes or speakers pass on a network endpoint does not.
+        assertTrue(JobGate.admits(busy = false, liveModelHeld = true, loadsLocalModel = false))
+        // Anything else running holds back both, as before.
+        assertFalse(JobGate.admits(busy = true, liveModelHeld = false, loadsLocalModel = false))
+        assertFalse(JobGate.admits(busy = true, liveModelHeld = true, loadsLocalModel = false))
     }
 
     @Test

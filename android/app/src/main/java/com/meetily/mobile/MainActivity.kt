@@ -672,9 +672,11 @@ class MainActivity : AppCompatActivity() {
      * it and transcribed it by hand. So does one whose live words stop short
      * of its audio (live fell behind and stopped, or a backlog waited to be
      * transcribed): that is kept in memory only, and the meeting looked
-     * complete with the rest of it in the audio alone. Also a session that
-     * was finished but died before its work was issued: the marker stays
-     * until then. Not while this process still has that work to issue.
+     * complete with the rest of it in the audio alone. Its transcription is
+     * staged as a check to review, beside the lines it keeps. Also a
+     * session that was finished but died before its work was issued (queued
+     * as its audio closed): the marker stays until then. Not while this
+     * process still has that work to issue.
      */
     private fun recoverInterruptedRecording() {
         if (RecordingService.isRunning || RecordingService.finishedWorkPending()) return
@@ -712,8 +714,15 @@ class MainActivity : AppCompatActivity() {
                     // not this screen's, so it still happens if the screen is
                     // gone by then.
                     val audio = meeting.audioFile
+                    // Live lines that stop short are kept, and the pass over
+                    // the audio is staged for review beside them: replacing
+                    // them lost stars, speaker names and edits, also any made
+                    // while the pass waited for a charger.
+                    val keepLines = meeting.segments.isNotEmpty()
                     android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        RecordingService.queueFirstTranscript(app, id, audio)
+                        RecordingService.queueFirstTranscript(
+                            app, id, audio, stageForReview = keepLines
+                        )
                     }
                 }
             }

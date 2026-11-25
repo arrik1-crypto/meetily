@@ -491,16 +491,28 @@ class MeetingStore(context: Context) {
 
     private val activeMarker = File(dir, ".active")
 
-    /** [liveShort]: see ActiveRecording. */
-    fun markActive(id: String, liveShort: Boolean = false) {
+    /** Where [markActive] writes before moving the marker into place. */
+    private val activeMarkerTmp = File(dir, ".active.tmp")
+
+    /**
+     * [liveShort]: see ActiveRecording. Written aside and renamed over the
+     * marker, which is atomic on one filesystem: the marker is rewritten
+     * during a recording when that flag changes, which is when memory is
+     * short, and a kill between writeText's truncate and its write left it
+     * empty, so the recording was not recovered at all. False when it could
+     * not be written; the marker is then as it was.
+     */
+    fun markActive(id: String, liveShort: Boolean = false): Boolean =
         try {
-            activeMarker.writeText(ActiveRecording(id, liveShort).format())
+            activeMarkerTmp.writeText(ActiveRecording(id, liveShort).format())
+            activeMarkerTmp.renameTo(activeMarker)
         } catch (_: Exception) {
+            false
         }
-    }
 
     fun clearActive() {
         activeMarker.delete()
+        activeMarkerTmp.delete()
     }
 
     /**

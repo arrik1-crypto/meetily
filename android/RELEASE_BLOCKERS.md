@@ -51,9 +51,9 @@ by CI.
 |---|---|---|---|
 | A. Blocks, owner only | 7 | 7 | 1, plus the device pass (A14) |
 | B. Blocks, Claude can do | 4 | 0 | 0 |
-| C. Can wait | 63 (C1: 20, C2: 43) | 0 | 5 known leftovers, plus the Accessibility checks in C1 |
+| C. Can wait | 65 (C1: 20, C2: 45) | 0 | 5 known leftovers, plus the Accessibility checks in C1 |
 | D. Stale or done | 12 | 4 | 0 |
-| **Total** | **86** | **11** | |
+| **Total** | **88** | **11** | |
 
 D also lists two parts of items that stay open (the nlohmann/json half of
 a licence item, the backup-name half of a product decision).
@@ -190,9 +190,9 @@ Not triaged here:
         the recording service stays in the foreground, capturing nothing,
         with a "Finishing transcription…" notification, until the last
         words are transcribed and the transcript, check or summary has
-        been started (`RecordingService`'s `WorkThenStop`): usually
-        seconds, 75 s at most (15 s for the words, then 60 s while the
-        live model is still loading or held, 10 s otherwise).
+        been started or queued (`RecordingService`'s `WorkThenStop`):
+        usually seconds, 75 s at most (15 s for the words, then 60 s
+        while the live model is still loading or held, 10 s otherwise).
     - Then record the videos (unlisted YouTube is fine). Only the
       mediaProcessing videos need an Android 15+ phone; plan the
       mediaProjection and dataSync ones too. DEVICE_TEST_PLAN.md walks
@@ -334,7 +334,7 @@ Not triaged here:
 | Review the Batch 5 strings on a phone | Product decisions | Wording only. |
 | Accessibility Scanner and TalkBack pass (Device checks, Accessibility) | Device checks | Blocks promotion past internal testing (§7), so before the closed test and production; also before claiming screen-reader support. |
 
-### C2. After the first upload, or later (43)
+### C2. After the first upload, or later (45)
 
 | Item | Section | Why it can wait |
 |---|---|---|
@@ -374,6 +374,8 @@ Not triaged here:
 | *Decision*: Re-time words never moves a line's start | Product decisions | Protects chapters, highlights and resume points. |
 | *Decision*: Re-time offered on lines whose timings' origin is unknown | Product decisions | UX scope. |
 | *Decision*: Re-time has no auto-start, no Live Update and no fit badge | Product decisions | UX scope. |
+| *Decision*: a recovered live recording whose words stopped short gets a check to review | Product decisions | The safe default ships: the live lines are not replaced without the user. Finish itself still replaces them, as 3.21.0-beta1 did. |
+| *Decision*: batch work waits while a finished recording's live model is held | Product decisions | Usually seconds; the long case needs "Keep meeting audio" off and live transcription slower than speech, and cloud AI asked for on a meeting page does not wait. |
 | *Decision*: a measured Baseline Profile (Macrobenchmark) | Product decisions | The hand-written profile ships and passes CI's check. |
 | Optional: defer `MlKitInitProvider` | Product decisions | Needs a device, and it changes when ML Kit sends diagnostics. |
 | Amber find colours | Product decisions | A visual tweak. |

@@ -729,16 +729,19 @@ class RecordingService : Service() {
         lateChunks = null
         placeQueuedHighlights()
         // A live model still loading, or not freed yet, as when the watchdog
-        // ended the session during a slow load: the work waits until the
-        // recorder lets go of it. The first transcript or check it starts
-        // loaded a second copy of the model beside it otherwise.
+        // ended the session during a slow load: the work, issued as the
+        // audio closes, is only queued until the recorder lets go of it
+        // (JobGate.canStartBatch), and the queue is drained then. The first
+        // transcript or check started at once loaded a second copy of the
+        // model beside it.
         val heldModel = whisperRecorder?.holdsLiveModel == true
         val afterSave = WorkThenStop(meetingId, workAfterSave(meetingId), waitsForLiveModel = heldModel)
         if (heldModel) liveModelWaiters[meetingId] = afterSave
-        // Leaves the foreground and stops once the queued work is issued,
-        // and only then clears the crash-recovery marker: a process that
-        // dies first leaves it for MainActivity, which queues the
-        // transcript the work would have.
+        // Issues the work once the audio file is closed, and only then
+        // clears the crash-recovery marker: a process that dies first leaves
+        // it for MainActivity, which queues the transcript the work would
+        // have. Leaves the foreground and stops after that (and after the
+        // model is freed).
         teardownEngines(afterAudioClosed = afterSave)
         saveAndDrain()
         active = false
@@ -790,10 +793,10 @@ class RecordingService : Service() {
 
     /**
      * [session]'s recorder no longer loads or holds a live model
-     * (WhisperRecorder.onLiveModelReleased). Its finished session's work
-     * goes ahead; otherwise work held back for it meanwhile (JobGate) is
-     * started, unless a finished session is still to issue its own, which
-     * is then first. Main thread.
+     * (WhisperRecorder.onLiveModelReleased). Its finished session drains
+     * the queue, with its own work in it, and stops; otherwise work held
+     * back for it meanwhile (JobGate) is started, unless a finished session
+     * is still to issue its own, which is then first. Main thread.
      */
     private fun liveModelReleased(session: String) {
         val waiter = liveModelWaiters.remove(session)
@@ -821,10 +824,14 @@ class RecordingService : Service() {
      * is slow to close; the work still runs when it does.
      *
      * [waitsForLiveModel]: the recorder still loads or holds its live
-     * model, and the work also waits for it to be freed
-     * ([liveModelReleased]), [STOP_AFTER_LIVE_MODEL_TIMEOUT_MS] at most in
-     * the foreground. The work issued, the session's crash-recovery marker
-     * goes ([id]). Main thread.
+     * model. The work is still issued as the audio closes, and the session's
+     * crash-recovery marker goes then ([id]): JobGate only queues it while
+     * the model is held, and the queue is on disk, so nothing is lost if the
+     * process dies before the model is freed, or a new recording replaces
+     * the marker meanwhile. The queue is drained, and the service stops,
+     * once the model is freed as well ([liveModelReleased], FinishSignals),
+     * [STOP_AFTER_LIVE_MODEL_TIMEOUT_MS] at most in the foreground. Main
+     * thread.
      */
     private inner class WorkThenStop(
         private val id: String,
@@ -833,7 +840,7 @@ class RecordingService : Service() {
     ) : () -> Unit {
         private var stopped = false
         private val fallback = Runnable { stop() }
-        private var waitingFor = if (waitsForLiveModel) 2 else 1
+        private val signals = FinishSignals(waitsForLiveModel)
         private val app = applicationContext
 
         init {
@@ -846,24 +853,31 @@ class RecordingService : Service() {
         }
 
         /** Posted by teardownEngines once the audio file is closed. */
-        override fun invoke() = ready()
-
-        /** The recorder has freed its live model. */
-        fun liveModelReleased() = ready()
-
-        private fun ready() {
-            if (--waitingFor > 0) return
+        override fun invoke() {
             try {
                 work()
-                // Work held back while the model was loaded (a screen's
-                // drain, a batch job that ended) starts now, while this
-                // service is still in the foreground.
-                if (waitsForLiveModel) JobGate.drain(app)
             } catch (_: Throwable) {
                 // The work guards itself; nothing here may stop the stop.
             } finally {
                 store.clearActive(id)
                 workPending.decrementAndGet()
+            }
+            if (signals.audioClosed()) drainThenStop()
+        }
+
+        /** The recorder has freed its live model. */
+        fun liveModelReleased() {
+            if (signals.modelReleased()) drainThenStop()
+        }
+
+        private fun drainThenStop() {
+            try {
+                // Work held back while the model was loaded (this session's
+                // own, a screen's drain, a batch job that ended) starts now,
+                // while this service is still in the foreground.
+                if (waitsForLiveModel) JobGate.drain(app)
+            } catch (_: Throwable) {
+            } finally {
                 stop()
             }
         }
@@ -1827,16 +1841,17 @@ class RecordingService : Service() {
     /**
      * Keeps the crash-recovery marker's live-short flag (ActiveRecording) in
      * step with [liveStopsShort], writing it only when it changes. A
-     * recording the process dies under then has its audio transcribed, as
-     * Finish would have; the meeting's lines alone looked complete. Main
-     * thread.
+     * recording the process dies under then has its audio transcribed and
+     * staged for review beside its lines (MainActivity); the meeting's lines
+     * alone looked complete. Main thread.
      */
     private fun markLiveShort() {
         if (!active || meetingId.isEmpty()) return
         val short = liveStopsShort()
         if (short == markedLiveShort) return
-        markedLiveShort = short
-        store.markActive(meetingId, liveShort = short)
+        // Only once written: a write that failed is tried again at the next
+        // change or save.
+        if (store.markActive(meetingId, liveShort = short)) markedLiveShort = short
     }
 
     private fun saveNow() {
@@ -2472,8 +2487,9 @@ class RecordingService : Service() {
          * Whether a recording the process died under has its audio
          * transcribed once the app is next opened: it has no lines, or the
          * marker says its live lines stop short of the audio
-         * ([liveShort], ActiveRecording), as Finish would have found. The
-         * transcription replaces them; queueFirstTranscript then checks for
+         * ([liveShort], ActiveRecording), as Finish would have found. Lines
+         * it has are kept, the transcription staged for review beside them
+         * (queueFirstTranscript's stageForReview), which then checks for
          * audio and a model. Pure, so it is unit-tested.
          */
         fun recoveryWantsTranscript(hasLines: Boolean, liveShort: Boolean): Boolean =
@@ -2646,8 +2662,20 @@ class RecordingService : Service() {
          * finished without it. It does honour the same "wait for a charger"
          * preference, since the deferral is about when the work happens, not
          * whether. Call once the audio file is closed.
+         *
+         * [stageForReview]: a recovered recording whose live lines stop
+         * short (MainActivity). The pass is staged as an accuracy check the
+         * user reviews, with the missing tail among its differences, rather
+         * than put in place of the lines: it can wait hours for a charger,
+         * and stars, speaker names and edits made on them meanwhile were
+         * replaced with them.
          */
-        fun queueFirstTranscript(context: Context, meetingId: String, audioFile: String?) {
+        fun queueFirstTranscript(
+            context: Context,
+            meetingId: String,
+            audioFile: String?,
+            stageForReview: Boolean = false
+        ) {
             try {
                 val app = context.applicationContext
                 val settings = AppSettings(app)
@@ -2670,7 +2698,8 @@ class RecordingService : Service() {
                     whenCharging = settings.autoCheckWhileChargingOnly,
                     // It is the transcript: never trimmed from the queue, and
                     // resumed as a first pass if an unplug stops it part-way.
-                    firstTranscript = true
+                    // Staged, it is a check like any other.
+                    firstTranscript = !stageForReview
                 )
             } catch (_: Throwable) {
                 // The audio is saved either way; the meeting screen offers the
