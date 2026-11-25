@@ -1100,14 +1100,15 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] Run CI on the release commit of the pre-release review fixes
   (`r1/integration`, merged into the Android branch): `testReleaseUnitTest`
   (new AbortScope, ActionItemUpdates, AiSettingsFixes, AppLockRules,
-  BackupRestore, DownloadRunEnd, EditTargets, HeldAudio,
-  MeetingShareFile, QueuedImport, RetainedRun and UnkeptAudio tests,
-  plus changes to ClearVoice, DeviceAudioLock, DeviceFit, DownloadSpace,
-  LiveUpdates, MeetingLanguage, NemoWords, NotificationMark, NudgeTiming,
-  ReminderReArm, ResumableDownload, Retention, StorageUsage,
-  SummarizerAndExport and TranscriptResume tests; 1,582 JVM tests passed
-  locally), then `assembleRelease` with `lintVital`, the native export
-  check (`llama_jni.c` changed: the empty-reply error now reports the
+  BackupRestore, DownloadRunEnd, EditTargets, HeldAudio, LateFrameSink,
+  MeetingShareFile, QueuedImport, RecordingSessionEnd, RetainedRun and
+  UnkeptAudio tests, plus changes to ClearVoice, DeviceAudioLock,
+  DeviceFit, DownloadSpace, LiveUpdates, MeetingLanguage, NemoWords,
+  NotificationMark, NudgeTiming, RecordingStartStage, ReminderReArm,
+  ResumableDownload, Retention, StorageUsage, SummarizerAndExport and
+  TranscriptResume tests; 1,605 JVM tests passed locally), then
+  `assembleRelease` with `lintVital`, the native export check
+  (`llama_jni.c` changed: the empty-reply error now reports the
   tokens sampled; only CI compiles native code) and the baseline profile
   check (`baseline-prof.txt` has updated `JobQueue` signatures).
   Nothing in these fixes went through Gradle, lint, aapt or R8: they
@@ -3444,10 +3445,13 @@ Summaries and AI:
   summary queued), the summary start does not crash. A "Summary not
   finished" notification says it runs once Recap is opened, and it runs
   on the next app open.
-- [ ] Fresh install: Settings → Summaries → Private endpoint shows an empty
-  address with the example only as a hint. On an upgrade that had saved
-  the old example (`http://192.168.1.100:11434/v1`) while AI was off or
-  on-device, it is cleared; a real endpoint in use is kept.
+- [ ] Fresh install: Settings → Summaries → turn "Use an LLM for
+  summaries" on (do not save) → Private endpoint shows an empty address
+  with the example only as a hint; tapping Private endpoint switches the
+  engine at once, so tap back to the one that was selected and leave
+  without Save settings. On an upgrade that had saved the old example
+  (`http://192.168.1.100:11434/v1`) while AI was off or on-device, it is
+  cleared; a real endpoint in use is kept.
 - [ ] "Summarise after the meeting" set to When the meeting ends: finish a
   meeting with the battery under 40% off the charger; the summary waits
   and runs when the phone is plugged in.
@@ -3532,16 +3536,22 @@ items go here, at the end, so its RF codes keep their meaning):
   only once that work has been started). Same after swiping Recap from
   Recents mid-recording, a minute after leaving it and while still
   speaking: the swipe is a Finish, so the recording notification stays,
-  reading "Finishing transcription…" with its clock stopped and no Pause,
+  reading "Finishing transcription…" with its clock stopped and no Pause
+  or Finish (on a lock screen hiding notification contents too),
   while the last words are transcribed (about 15 s at most), the check or
   summary starts only after that, and the last sentence spoken before the
-  swipe is in the transcript. Also swipe Recap away while a tapped Finish
+  swipe is in the transcript. Tap that notification just as the words
+  finish: the recording screen shows the save, or Recap opens, and no new
+  recording starts. Also swipe Recap away while a tapped Finish
   still reads "Finishing transcription…": the same.
 - [ ] With live transcription on and a large model, tap the star while the
   status reads "Loading the model…", some seconds into the recording:
   the toast reads "Will highlight the line being spoken now once it's
   transcribed", and once the words arrive, the star is on the line spoken
-  at the tap, not on the recording's first line.
+  at the tap, not on the recording's first line. Tap it again, or Mark
+  moment on the notification, just after the first lines appear while
+  the rest are still coming in: the same toast or "Marked at …", and the
+  star goes on the line spoken at that tap, not on the newest line then.
 
 Accessibility:
 

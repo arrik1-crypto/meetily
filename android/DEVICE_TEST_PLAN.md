@@ -934,13 +934,17 @@ review are in extra A.
   Start a recording and speak from the very first second, including a
   quiet phrase; record for a minute. If the status reads "Loading the
   model…" for more than a few seconds (a large model), tap the star once
-  while it does, saying "star here" as you tap.
+  while it does, saying "star here" as you tap. If the first lines then
+  appear while you are still speaking and more keep coming in, tap Mark
+  moment on the notification just after they appear, saying "mark here".
   **Expect:** words appear under "Live transcript" as you speak, quiet
   speech included, and the opening words are there (3.22.0-beta1: the
   microphone opens before the model has loaded); Finish keeps them. The
   star lands on the line with "star here" (or the one just before it),
   not on the first line, and the toast at the tap read "Will highlight
-  the line being spoken now once it's transcribed" (3.22.0-beta1). Turn
+  the line being spoken now once it's transcribed" (3.22.0-beta1). The
+  Mark lands on the line with "mark here" (or the one just before it),
+  not on the newest line when you tapped (3.22.0-beta1). Turn
   "Transcribe live" off again and save.
   Covers: NATLIB 3 (full), VAD 2 (full, with P0-3a), RF 16 (partial: no
   failing model, and no Finish during the load with "Keep meeting audio"
@@ -1008,10 +1012,12 @@ words included.
 - [ ] **P1-13b** Record again, press Home, and about a minute later, while
   still speaking, swipe Recap away in Recents.
   **Expect:** the recording notification stays, reading "Finishing
-  transcription…" with its clock stopped and no Pause (3.22.0-beta1),
-  while the last words are transcribed (about 15 s at most), and the
-  summary notification comes
-  only after it. Open the meeting: the sentence you were saying at the
+  transcription…" with its clock stopped and no Pause or Finish
+  (3.22.0-beta1), while the last words are transcribed (about 15 s at
+  most), and the summary notification comes only after it. Tap the
+  notification as it is about to go: after Recap's lock (still on), the
+  recording screen shows the save, or the home list opens; no new
+  recording starts. Open the meeting: the sentence you were saying at the
   swipe is in its transcript. Turn "Summarise after the meeting" and
   "Transcribe live" off again (save), and let the summary finish before
   P2.
@@ -1150,13 +1156,15 @@ While each job below runs, run
   Covers: T36 2 (partial: Android 16 only; tick it only there).
 - [ ] **(+)** Turn on "Hide content from screenshots" and app lock, leave
   Recap for more than 30 s, and look at its Recents card, then return
-  from it.
+  from it. Leave for more than 30 s again and return from a notification
+  (play a meeting and tap the media notification, as in P1-5c), and once
+  more from the launcher icon.
   **Expect:** the Recents card is blank, and so is the picture Android
   shows while Recap reopens; then the lock screen, with no slide-in
-  animation. Recap's last screen may still show for a moment before the
-  lock covers it: Hide content keeps it out of screenshots and previews,
-  not off the screen (PD: app lock and the Recents preview). Turn both
-  off again.
+  animation, each way in. Recap's last screen may still show for a moment
+  before the lock covers it: Hide content keeps it out of screenshots and
+  previews, not off the screen (PD: app lock and the Recents preview).
+  Turn both off again.
   Covers: RF 10 (full, with P0-11b and P1-5c).
 
 ### P2-6 (+) Large screen, approximated on the phone (Android 16 only, 3 min)
@@ -1440,7 +1448,8 @@ codes are the "Pre-release review fixes (3.22.0-beta1)" group in §11.
 - [ ] With a clear-voice copy, run Check transcript accuracy with
   "Transcribe the clear-voice copy instead" ticked: the reviewed lines'
   times match the original's, and the Audio tab's waveform is unchanged
-  (RF 41, full with P1-3b).
+  (RF 41, partial: no `clearvoice-probe.m4a` check, which needs a debug
+  build).
 - [ ] Two untitled recordings ("Meeting <date, time>"): no series chip on
   home and no brief match. No remembered template: on the first, Summarize
   → **Action items**; on any titled meeting, Summarize → **General

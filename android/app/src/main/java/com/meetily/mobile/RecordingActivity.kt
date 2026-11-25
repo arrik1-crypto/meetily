@@ -126,6 +126,12 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     /** Saved with the screen's state; see [RecordingStartStage]. */
     private var startStage = RecordingStartStage.IDLE
 
+    /**
+     * Opened from the recording notification ([ACTION_SHOW_SESSION]): shows
+     * a session and never starts one. Saved with the screen's state.
+     */
+    private var attachOnly = false
+
     /** Until when [awaitStart] keeps waiting for a queued start to run. */
     private var startWaitDeadline = 0L
 
@@ -143,7 +149,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 RecordingService.isRunning &&
                     SystemClock.elapsedRealtime() < startWaitDeadline ->
                     handler.postDelayed(this, START_POLL_MS)
-                else -> finish()
+                else -> closeWithoutSession()
             }
         }
     }
@@ -229,6 +235,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         startStage = RecordingStartStage.fromSaved(
             savedInstanceState?.getString(STATE_START_STAGE)
         )
+        attachOnly = savedInstanceState?.getBoolean(STATE_ATTACH_ONLY)
+            ?: (intent?.action == ACTION_SHOW_SESSION)
         savedInstanceState?.getString(STATE_PENDING_PHOTO)?.let {
             pendingPhotoFile = File(it)
         }
@@ -435,7 +443,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         ) == PackageManager.PERMISSION_GRANTED
         when (
             RecordingStartStage.resume(
-                startStage, svc.active, RecordingService.isRunning, micGranted
+                startStage, svc.active, RecordingService.isRunning, micGranted, attachOnly
             )
         ) {
             RecordingStartStage.Resume.ATTACH -> attachExistingSession(svc)
@@ -467,8 +475,19 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
                 startTimer()
                 showDeviceAudioWarning()
             }
-            RecordingStartStage.Resume.CLOSE -> finish()
+            RecordingStartStage.Resume.CLOSE -> closeWithoutSession()
         }
+    }
+
+    /**
+     * Closes a screen that has no session to show. One the recording
+     * notification opened alone in its task (Recap had been swiped from
+     * Recents) leaves the meetings list in its place, where the meeting it
+     * was saving is, so the tap does not just flash a screen and go home.
+     */
+    private fun closeWithoutSession() {
+        if (attachOnly && isTaskRoot) startActivity(Intent(this, MainActivity::class.java))
+        finish()
     }
 
     private fun maybeConsentThenStart() {
@@ -1096,6 +1115,16 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         if (sessionOver()) {
+            if (intent.action == ACTION_SHOW_SESSION &&
+                service?.active != true && !RecordingService.isRunning
+            ) {
+                // The recording notification, still up while the meeting is
+                // saved: there is no session to show, and a fresh screen
+                // would only close again.
+                attachOnly = true
+                closeWithoutSession()
+                return
+            }
             // This screen's session ended without it, and it cannot start
             // another: a fresh screen takes the tap, with what it carried.
             finish()
@@ -1311,6 +1340,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putString(STATE_START_STAGE, startStage.name)
+        outState.putBoolean(STATE_ATTACH_ONLY, attachOnly)
         pendingPhotoFile?.let { outState.putString(STATE_PENDING_PHOTO, it.absolutePath) }
         photoAwaitingService?.let {
             outState.putString(STATE_PHOTO_AWAITING_SERVICE, it.absolutePath)
@@ -1378,6 +1408,14 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         const val EXTRA_DEVICE_AUDIO = "device_audio"
 
         /**
+         * The recording notification's tap: show the session it was posted
+         * for, or the one running now, and never start a recording. The
+         * notification outlives its session by a moment (saving, then the
+         * hand-off of the meeting's work), and every other way in starts one.
+         */
+        const val ACTION_SHOW_SESSION = "com.meetily.mobile.action.SHOW_SESSION"
+
+        /**
          * Set only by a calendar nudge notification, naming the event it was
          * posted for. Its presence is what distinguishes "started from THIS
          * meeting's reminder" from every other way in.
@@ -1389,6 +1427,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         private const val NOTIF_REQUEST = 4003
 
         private const val STATE_START_STAGE = "recording_start_stage"
+        private const val STATE_ATTACH_ONLY = "recording_attach_only"
         private const val STATE_PENDING_PHOTO = "recording_pending_photo"
         private const val STATE_PHOTO_AWAITING_SERVICE = "recording_photo_awaiting_service"
 

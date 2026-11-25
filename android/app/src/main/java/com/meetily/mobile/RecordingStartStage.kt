@@ -11,6 +11,11 @@ package com.meetily.mobile
  * came back empty, read as "denied"), a second device-audio consent dialog
  * whose result then started the session twice, and, when the meeting had
  * just been finished, a brand-new recording nobody asked for.
+ *
+ * A screen the recording notification opens is attach-only for the same
+ * reason. The notification stays up a moment after its session has ended,
+ * while the audio file closes and the meeting's work is handed off, and a
+ * tap then opened a fresh screen that started a new recording.
  */
 enum class RecordingStartStage {
     /** Nothing asked for yet: the consent, permission and start flow runs. */
@@ -56,7 +61,10 @@ enum class RecordingStartStage {
         /** Show the device-audio warning again; everything before it is done. */
         SHOW_DEVICE_AUDIO_WARNING,
 
-        /** The session this screen belonged to is over; never start another. */
+        /**
+         * The session this screen belonged to, or the notification that
+         * opened it was posted for, is over; never start another.
+         */
         CLOSE
     }
 
@@ -69,15 +77,18 @@ enum class RecordingStartStage {
          * [serviceActive]: the bound service has a live session.
          * [startQueued]: RecordingService.isRunning, which start() sets
          * before the service has run the request. [micGranted]: the
-         * microphone permission as it stands now.
+         * microphone permission as it stands now. [attachOnly]: the screen
+         * was opened from the recording notification, to show a session.
          */
         fun resume(
             stage: RecordingStartStage,
             serviceActive: Boolean,
             startQueued: Boolean,
-            micGranted: Boolean
+            micGranted: Boolean,
+            attachOnly: Boolean
         ): Resume = when {
             serviceActive -> Resume.ATTACH
+            attachOnly -> if (startQueued) Resume.WAIT_FOR_START else Resume.CLOSE
             stage == IDLE -> Resume.START_FLOW
             // A microphone revoked in Settings since (which also ends the
             // process) has to be asked for again before anything records.

@@ -219,6 +219,13 @@ class WhisperRecorder(
      */
     val liveSuspended: Boolean get() = fellBehind && frameSink != null
 
+    /**
+     * True while chunks wait behind the one being decoded, as while the
+     * backlog captured during the live model's load is decoded: the newest
+     * line is then more than a chunk behind what is being said.
+     */
+    val decodingBehind: Boolean get() = pendingJobs.get() > 1
+
     /** Queued chunks are skipped rather than decoded; see [abandonBacklog]. */
     @Volatile private var abandoned = false
     // Live capture is realtime and its input is unrecoverable if it falls

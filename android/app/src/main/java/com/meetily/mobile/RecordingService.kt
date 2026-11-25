@@ -133,8 +133,12 @@ class RecordingService : Service() {
 
     private val segments = mutableListOf<TranscriptSegment>()
 
-    /** A star tapped before there was a line to put it on; see [QueuedHighlight]. */
-    private var pendingHighlight: QueuedHighlight? = null
+    /**
+     * Stars tapped before their line was there to put them on; see
+     * [QueuedHighlight]. Each is kept: a second tap, or Mark, while the
+     * backlog is decoded is a moment of its own, and was dropped.
+     */
+    private val pendingHighlights = mutableListOf<QueuedHighlight>()
 
     /**
      * Highlight taps in an audio-only session, as offsets into the captured
@@ -350,7 +354,7 @@ class RecordingService : Service() {
         saveScheduled = false
         segments.clear()
         photos.clear()
-        pendingHighlight = null
+        pendingHighlights.clear()
         partial = ""
         captureEnded = false
         liveLoading = false
@@ -468,14 +472,24 @@ class RecordingService : Service() {
             scheduleSave()
             return HighlightResult.MARKED
         }
-        if (partial.isNotEmpty() || segments.isEmpty()) {
-            // With no line yet, the star goes on the line spoken at the tap.
-            // While the live model loads that is not the next line to
-            // arrive: those are the backlog, from the start of the recording.
-            // A partial on screen is the line being spoken, so it is the one.
-            if (pendingHighlight == null) {
-                pendingHighlight = QueuedHighlight(if (segments.isEmpty()) elapsedMs() else null)
-            }
+        // Decoding chunks spoken a while ago, as once the live model has
+        // loaded: the backlog's first lines are on screen, but the newest can
+        // be from long before the tap, and starring it marked the start of
+        // the recording rather than the moment tapped.
+        val behind = segments.isNotEmpty() && whisperRecorder?.decodingBehind == true
+        if (partial.isNotEmpty() || segments.isEmpty() || behind) {
+            // The star goes on the line spoken at the tap. While the live
+            // model loads, or its backlog is decoded, that is not the next
+            // line to arrive: those are the backlog, from earlier on, and the
+            // tap may also fall in the newest line so far. A partial on
+            // screen is the line being spoken, so it is the one.
+            pendingHighlights.add(
+                if (segments.isEmpty() || behind) {
+                    QueuedHighlight(elapsedMs(), segments.lastIndex)
+                } else {
+                    QueuedHighlight(null)
+                }
+            )
             return HighlightResult.QUEUED
         }
         val index = segments.size - 1
@@ -719,7 +733,7 @@ class RecordingService : Service() {
         lateChunks?.takeIf { it.session == meetingId }
             ?.seal(withAudio = audioFileName != null, clusterNames = clusterNames)
         lateChunks = null
-        placeQueuedHighlight()
+        placeQueuedHighlights()
         // Leaves the foreground and stops once the queued work is issued.
         teardownEngines(afterAudioClosed = WorkThenStop(workAfterSave(meetingId)))
         saveAndDrain()
@@ -733,19 +747,29 @@ class RecordingService : Service() {
     }
 
     /**
-     * A star still waiting for its line as the session finishes goes on the
-     * line it was tapped in. With no line since the tap, it is kept as a
-     * mark, which the transcript made from the audio stars (HighlightMarks).
+     * Stars still waiting for their lines as the session finishes go on the
+     * lines they were tapped in. One with no line started by its tap is kept
+     * as a mark, which the transcript made from the audio stars
+     * (HighlightMarks). So is every timed one when the live words stop short
+     * (liveIncomplete): the line a tap fell in may never have been decoded,
+     * and the last one that was can end long before the tap, while the saved
+     * audio is transcribed in full after the meeting.
      */
-    private fun placeQueuedHighlight() {
-        val queued = pendingHighlight ?: return
-        pendingHighlight = null
-        val line = queued.atEnd()
-        if (line != null) {
-            starQueuedLine(line)
-        } else if (audioFileName != null) {
-            queued.tapOffsetMs?.let { highlightMarks.add(it) }
+    private fun placeQueuedHighlights() {
+        for (queued in pendingHighlights) {
+            val tapMs = queued.tapOffsetMs
+            val line = if (liveIncomplete && audioFileName != null && tapMs != null) {
+                null
+            } else {
+                queued.atEnd()
+            }
+            if (line != null) {
+                starQueuedLine(line)
+            } else if (audioFileName != null) {
+                tapMs?.let { highlightMarks.add(it) }
+            }
         }
+        pendingHighlights.clear()
     }
 
     private fun starQueuedLine(index: Int) {
@@ -1557,15 +1581,17 @@ class RecordingService : Service() {
         // Precedence: manual/sticky speaker > named cluster > anonymous cluster.
         val resolved = speaker ?: clusterId?.let { clusterNames[it] }
         val index = segments.size
-        // A queued star goes on this line, an earlier one that the tap fell
-        // in, or (null) waits for the next line (QueuedHighlight).
-        val star = pendingHighlight?.onAppended(index, audioMs)
-        if (star != null) pendingHighlight = null
+        // Each queued star goes on this line, an earlier one that its tap
+        // fell in, or waits for the next line (QueuedHighlight).
+        val stars = mutableListOf<Int>()
+        pendingHighlights.removeAll { queued ->
+            queued.onAppended(index, audioMs)?.also { stars.add(it) } != null
+        }
         val segment = TranscriptSegment(
             timestampMs = System.currentTimeMillis(),
             text = text,
             speaker = resolved,
-            highlighted = star == index,
+            highlighted = index in stars,
             clusterId = clusterId,
             audioMs = if (audioFileName != null) audioMs else null,
             // Word timings only matter when the audio is kept for playback.
@@ -1573,7 +1599,7 @@ class RecordingService : Service() {
         )
         segments.add(segment)
         observer?.onSegmentAppended(index, segment)
-        if (star != null && star != index) starQueuedLine(star)
+        for (star in stars) if (star != index) starQueuedLine(star)
         scheduleSave()
     }
 
@@ -1989,10 +2015,15 @@ class RecordingService : Service() {
     }
 
     // Fixed request codes and extras, so these never change: built once.
+    // The action makes the tap attach-only (RecordingActivity.ACTION_SHOW_SESSION):
+    // the notification stays up while a finished session's work is handed off,
+    // and a tap then started a new recording. It also keeps this PendingIntent
+    // apart from the Quick Settings tile's, which has the same request code.
     private val contentIntent: PendingIntent by lazy {
         PendingIntent.getActivity(
             this, 0,
             Intent(this, RecordingActivity::class.java)
+                .setAction(RecordingActivity.ACTION_SHOW_SESSION)
                 .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             pendingFlags()
         )
@@ -2110,7 +2141,10 @@ class RecordingService : Service() {
                 R.drawable.ic_star, getString(R.string.services_notif_mark), markIntent
             )
         }
-        builder.addAction(R.drawable.ic_check, getString(R.string.finish_save), stopIntent)
+        // Not while saving either, when finishAndSave ignores it.
+        if (!finishing) {
+            builder.addAction(R.drawable.ic_check, getString(R.string.finish_save), stopIntent)
+        }
 
         if (finishing) {
             // Saving, which takes up to 15 s and then the hand-off of the
@@ -2179,12 +2213,17 @@ class RecordingService : Service() {
     }
 
     /**
-     * What the lock screen's stand-ins say [line] is: which capture ended,
-     * or that a recording runs. Names nothing about the meeting.
+     * What the lock screen's stand-ins say [line] is: that the meeting is
+     * being saved, which capture ended, or that a recording runs. Names
+     * nothing about the meeting. Saving comes first: the microphone is
+     * already closed then, whatever the line was.
      */
-    private fun publicTitleRes(line: DeviceAudioLock.NotificationLine): Int = when (line) {
-        DeviceAudioLock.NotificationLine.DEVICE_AUDIO_ENDED -> R.string.devaudio_notif_ended_public
-        DeviceAudioLock.NotificationLine.CAPTURE_ENDED -> R.string.services_notif_capture_ended_public
+    private fun publicTitleRes(line: DeviceAudioLock.NotificationLine): Int = when {
+        finishing -> R.string.status_finishing
+        line == DeviceAudioLock.NotificationLine.DEVICE_AUDIO_ENDED ->
+            R.string.devaudio_notif_ended_public
+        line == DeviceAudioLock.NotificationLine.CAPTURE_ENDED ->
+            R.string.services_notif_capture_ended_public
         else -> R.string.notif_recording
     }
 
@@ -2234,7 +2273,7 @@ class RecordingService : Service() {
         val confirmation = markConfirmation
         when {
             markOffered && confirmation != null -> builder.setContentText(confirmation)
-            paused -> builder.setContentText(getString(R.string.status_paused))
+            paused && !finishing -> builder.setContentText(getString(R.string.status_paused))
         }
         if (!ended && !paused && !finishing) {
             builder.setWhen(System.currentTimeMillis() - elapsedMs())
@@ -2269,7 +2308,7 @@ class RecordingService : Service() {
             setTextViewText(
                 R.id.notifPublicTitle,
                 when {
-                    line.ended -> getString(publicTitleRes(line))
+                    finishing || line.ended -> getString(publicTitleRes(line))
                     markOffered && confirmation != null -> confirmation
                     else -> getString(R.string.notif_recording)
                 }

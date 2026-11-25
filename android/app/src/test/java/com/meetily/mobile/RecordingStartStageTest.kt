@@ -16,8 +16,9 @@ class RecordingStartStageTest {
         stage: RecordingStartStage,
         active: Boolean = false,
         queued: Boolean = false,
-        mic: Boolean = true
-    ) = RecordingStartStage.resume(stage, active, queued, mic)
+        mic: Boolean = true,
+        fromNotification: Boolean = false
+    ) = RecordingStartStage.resume(stage, active, queued, mic, fromNotification)
 
     @Test
     fun aLiveSessionIsAlwaysAttached() {
@@ -57,6 +58,29 @@ class RecordingStartStageTest {
     fun anEndedSessionClosesTheScreenInsteadOfRecordingAgain() {
         assertEquals(Resume.CLOSE, resume(RecordingStartStage.STARTED))
         assertEquals(Resume.CLOSE, resume(RecordingStartStage.STARTED, mic = false))
+    }
+
+    @Test
+    fun theRecordingNotificationOnlyEverShowsASession() {
+        // Tapped once the session it was posted for has ended, while its
+        // audio file closes and its work is handed off: the screen closes
+        // instead of starting a new recording.
+        assertEquals(Resume.CLOSE, resume(RecordingStartStage.IDLE, fromNotification = true))
+        assertEquals(
+            Resume.CLOSE,
+            resume(RecordingStartStage.IDLE, mic = false, fromNotification = true)
+        )
+        // A session running, or one whose start is on its way, is shown.
+        assertEquals(
+            Resume.ATTACH,
+            resume(RecordingStartStage.IDLE, active = true, fromNotification = true)
+        )
+        assertEquals(
+            Resume.WAIT_FOR_START,
+            resume(RecordingStartStage.IDLE, queued = true, fromNotification = true)
+        )
+        // Re-created once it had attached: the same rules as any screen.
+        assertEquals(Resume.CLOSE, resume(RecordingStartStage.STARTED, fromNotification = true))
     }
 
     @Test

@@ -10,7 +10,7 @@ import org.junit.Test
 /**
  * What a recording session leaves behind as it ends, on a service that may
  * already be running the next one: its late transcript chunks
- * (LateChunks), a star tapped before any line existed (QueuedHighlight),
+ * (LateChunks), a star tapped before its line existed (QueuedHighlight),
  * and when the service may stop (RecordingService.stopsAfterWork).
  */
 class RecordingSessionEndTest {
@@ -75,6 +75,24 @@ class RecordingSessionEndTest {
         assertNull(star.onAppended(2, 35_000L))
         // The first line after the tap settles it: the tap fell in line 2.
         assertEquals(2, star.onAppended(3, 52_000L))
+    }
+
+    @Test
+    fun aStarTappedWhileTheBacklogIsDecodedGoesOnTheLineSpokenThen() {
+        // The model loaded 40 s in. Line 0, from the start of the recording,
+        // is on screen and the rest of the backlog is still to come when the
+        // star is tapped 50 s in: not line 0, but the line spoken then.
+        val star = QueuedHighlight(tapMs = 50_000L, newestLine = 0)
+        assertNull(star.onAppended(1, 18_000L))
+        assertNull(star.onAppended(2, 41_000L))
+        assertEquals(2, star.onAppended(3, 55_000L))
+        // The tap fell in the newest line there was: that one, once a line
+        // after the tap arrives, or at the end.
+        assertEquals(4, QueuedHighlight(tapMs = 50_000L, newestLine = 4).onAppended(5, 52_000L))
+        assertEquals(4, QueuedHighlight(tapMs = 50_000L, newestLine = 4).atEnd())
+        // Without a time, the next line is the one, as before.
+        assertNull(QueuedHighlight(tapMs = null, newestLine = 3).atEnd())
+        assertEquals(4, QueuedHighlight(tapMs = null, newestLine = 3).onAppended(4, 1_000L))
     }
 
     @Test
