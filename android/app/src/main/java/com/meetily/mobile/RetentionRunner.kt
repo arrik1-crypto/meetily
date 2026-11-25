@@ -38,6 +38,9 @@ object RetentionRunner {
     private const val PREFS = "meetily_settings"
     private const val KEY_RULE = "retention_rule"
 
+    /** How many meetings the daily run last held back for review; see [pendingReview]. */
+    private const val KEY_REVIEW = "retention_review_pending"
+
     private const val CHANNEL_ID = "storage_cleanup"
     private const val NOTIF_ID = 7_310
 
@@ -66,6 +69,10 @@ object RetentionRunner {
      * start does.
      */
     fun setRule(context: Context, rule: Retention.Rule, arm: Boolean = true) {
+        // A batch held back under the rule being replaced is not this
+        // rule's to review, and its notification would open the new rule's
+        // review with the old one's words.
+        clearPendingReview(context)
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putString(KEY_RULE, Retention.encode(rule))
             .apply()
@@ -76,6 +83,30 @@ object RetentionRunner {
             // Recently deleted still needs its daily purge with the rule off.
             if (arm) RetentionJobService.ensureScheduled(context)
         }
+    }
+
+    /**
+     * How many meetings the daily run held back for the user's review
+     * (Retention.needsReview), while the rule is still one that reviews; 0
+     * when none wait. Stored, not only notified: with notifications off for
+     * Recap or for its clean-up channel, the notification is dropped
+     * without a word, every later run stops at the same batch, and the
+     * Storage screen (StorageActivity) is then the only way to the review.
+     */
+    fun pendingReview(context: Context): Int = Retention.waitingForReview(
+        rule(context),
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getInt(KEY_REVIEW, 0)
+    )
+
+    /**
+     * Forgets a batch held back for review, and takes away its notification,
+     * which would otherwise offer a review of what no longer waits.
+     */
+    private fun clearPendingReview(context: Context) {
+        val prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        if (!prefs.contains(KEY_REVIEW)) return
+        prefs.edit().remove(KEY_REVIEW).apply()
+        (context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(NOTIF_ID)
     }
 
     /** What [rule] reaches now, with titles for showing it. */
@@ -169,6 +200,9 @@ object RetentionRunner {
     fun apply(context: Context, approved: Plan, cancelled: () -> Boolean = { false }): Outcome {
         val rule = approved.rule
         if (!rule.enabled) return Outcome(0, 0L)
+        // A batch held back for review is answered by this run: the user's
+        // own (the review), or a daily one that found few enough to go on.
+        clearPendingReview(context)
         val still = plan(context, rule).selected.mapTo(HashSet()) { it.id }
         val store = MeetingStore(context)
         val trash = MeetingTrash(context)
@@ -228,9 +262,19 @@ object RetentionRunner {
         }
         if (RecordingService.isRunning || ImportService.isRunning || SummaryService.isRunning) return
         val plan = plan(context, rule)
-        if (cancelled() || plan.selected.isEmpty()) return
+        if (cancelled()) return
         if (Retention.needsReview(rule, plan.selected)) {
+            // Kept for the Storage screen too: the notification may never
+            // be seen (pendingReview).
+            context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
+                .putInt(KEY_REVIEW, plan.selected.size)
+                .apply()
             notifyReview(context, plan.selected.size)
+            return
+        }
+        if (plan.selected.isEmpty()) {
+            // Nothing is due any more (starred or changed since, say).
+            clearPendingReview(context)
             return
         }
         val outcome = apply(context, plan, cancelled)

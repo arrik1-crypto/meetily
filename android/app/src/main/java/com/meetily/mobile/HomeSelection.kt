@@ -225,7 +225,8 @@ class HomeSelection(
                     busy = (ImportService.isRunning && ImportService.currentMeetingId == meeting.id) ||
                         (SummaryService.isRunning && SummaryService.currentMeetingId == meeting.id) ||
                         ClearVoiceService.isPreparing(meeting.id) ||
-                        PassageService.isRemoving(meeting.id),
+                        PassageService.isRemoving(meeting.id) ||
+                        AlignService.isAligning(meeting.id),
                     queued = meeting.id in waiting,
                     // The list's copy has every transcript line (only word
                     // timings are left out).
@@ -276,7 +277,10 @@ class HomeSelection(
                         R.plurals.storage_bulk_delete_title, eligible.size, eligible.size
                     )
                 )
-                .setMessage(activity.getString(R.string.storage_bulk_delete_message) + skippedNote(skipped))
+                .setMessage(
+                    activity.resources.getQuantityString(R.plurals.storage_bulk_delete_message, eligible.size) +
+                        skippedNote(skipped)
+                )
                 .setPositiveButton(R.string.delete) { _, _ ->
                     val app = activity.applicationContext
                     val ids = eligible.map { it.id }

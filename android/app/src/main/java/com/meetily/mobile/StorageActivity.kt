@@ -15,6 +15,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.progressindicator.LinearProgressIndicator
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.data.MeetingTrash
+import com.meetily.mobile.data.Retention
 import com.meetily.mobile.data.StorageUsage
 import java.util.concurrent.Executors
 
@@ -39,6 +40,8 @@ class StorageActivity : AppCompatActivity() {
     private lateinit var modelsSummary: TextView
     private lateinit var deleteModels: MaterialButton
     private lateinit var retentionSummary: TextView
+    private lateinit var retentionPending: TextView
+    private lateinit var retentionReview: MaterialButton
     private lateinit var trashSummary: TextView
     private lateinit var trashEmpty: MaterialButton
 
@@ -80,19 +83,35 @@ class StorageActivity : AppCompatActivity() {
             contentDescription = getString(R.string.storage_cleanup_change_desc)
             setOnClickListener { RetentionUi.choose(this@StorageActivity) { onRetentionChanged() } }
         }
+        retentionPending = findViewById(R.id.storageRetentionPending)
+        retentionReview = findViewById(R.id.storageRetentionReview)
+        retentionReview.setOnClickListener { review() }
         renderRetention()
         // The daily clean-up stopped short of a large batch and asked: show
         // it once, not again on rotation.
         if (savedInstanceState == null && intent?.getBooleanExtra(EXTRA_REVIEW_CLEANUP, false) == true) {
-            val rule = RetentionRunner.rule(this)
-            if (rule.enabled) RetentionUi.preview(this, rule, review = true) { onRetentionChanged() }
+            review()
         }
+    }
+
+    /**
+     * The review of a batch the daily clean-up held back, for the rule as
+     * it is now. Only a rule that deletes whole meetings is reviewed
+     * (Retention.reviews): a notification can outlive a change to another
+     * rule, and the review's words would then promise a restore that
+     * removed audio does not have.
+     */
+    private fun review() {
+        val rule = RetentionRunner.rule(this)
+        if (Retention.reviews(rule)) RetentionUi.preview(this, rule, review = true) { onRetentionChanged() }
     }
 
     override fun onResume() {
         super.onResume()
         // Every return re-measures: a meeting deleted, a model downloaded.
         scan()
+        // And a clean-up batch held back since, or reviewed elsewhere.
+        renderRetention()
     }
 
     override fun onDestroy() {
@@ -107,6 +126,12 @@ class StorageActivity : AppCompatActivity() {
 
     private fun renderRetention() {
         retentionSummary.text = RetentionUi.summary(this, RetentionRunner.rule(this))
+        // A batch the daily run held back: reachable here whether or not
+        // its notification could be shown.
+        val note = RetentionUi.pendingNote(this)
+        retentionPending.text = note.orEmpty()
+        retentionPending.visibility = if (note == null) View.GONE else View.VISIBLE
+        retentionReview.visibility = retentionPending.visibility
     }
 
     private fun scan() {

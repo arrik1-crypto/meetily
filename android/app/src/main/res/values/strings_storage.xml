@@ -3,7 +3,9 @@
     <!-- Storage and retention: the Storage screen (StorageActivity, also
          Android's "Manage space"), "Remove audio (keep transcript)"
          (AudioRemoval), automatic clean-up rules (RetentionUi,
-         RetentionJobService) and multi-select on the home list. -->
+         RetentionJobService), multi-select on the home list, and the newer
+         backup and restore messages (SettingsActivity; the older ones are
+         in strings.xml). -->
 
     <!-- Storage screen. -->
     <string name="storage_title">Storage</string>
@@ -41,7 +43,7 @@
     <string name="storage_delete_unused">Delete unused models</string>
     <string name="storage_delete_unused_title">Delete unused models?</string>
     <!-- %1$s the total size, %2$s one line per model (storage_model_line). -->
-    <string name="storage_delete_unused_message">These models are downloaded but not selected for transcription, speaker ID or on-device AI, and no queued job needs them. Deleting them frees %1$s. Your meetings are not affected, and you can download any of them again from Settings.\n\n%2$s</string>
+    <string name="storage_delete_unused_message">These models are downloaded but not selected for transcription, speaker ID or on-device AI, and no queued job or unfinished transcript needs them. Deleting them frees %1$s. Your meetings are not affected, and you can download any of them again from Settings.\n\n%2$s</string>
     <!-- %1$s a model name, %2$s its size. -->
     <string name="storage_model_line">• %1$s (%2$s)</string>
     <plurals name="storage_models_deleted">
@@ -103,7 +105,10 @@
         <item quantity="one">Delete %1$d meeting?</item>
         <item quantity="other">Delete %1$d meetings?</item>
     </plurals>
-    <string name="storage_bulk_delete_message">They move to Recently deleted with their transcripts, summaries, notes, photos, attachments and audio. You can restore them from there for 30 days; after that they\'re erased for good.</string>
+    <plurals name="storage_bulk_delete_message">
+        <item quantity="one">It moves to Recently deleted with its transcript, summary, notes, photos, attachments and audio. You can restore it from there for 30 days; after that it\'s erased for good.</item>
+        <item quantity="other">They move to Recently deleted with their transcripts, summaries, notes, photos, attachments and audio. You can restore them from there for 30 days; after that they\'re erased for good.</item>
+    </plurals>
     <!-- Added under a bulk confirmation when part of the selection is left out. -->
     <plurals name="storage_bulk_skipped">
         <item quantity="one">%1$d selected meeting is left out: this doesn\'t apply to it right now (no audio, no transcript yet or an unfinished one, or it is being recorded or has work in progress).</item>
@@ -183,6 +188,18 @@
     <string name="storage_retention_review_confirm">Delete now</string>
     <string name="storage_retention_review_later">Not now</string>
     <string name="storage_retention_review_turn_off">Turn off clean-up</string>
+    <!-- On the Storage screen's clean-up card and under the rule in
+         Settings, while a batch the daily run held back waits (the same
+         review as the notification opens, which may never have shown).
+         %1$d is how many meetings. -->
+    <plurals name="storage_retention_pending">
+        <item quantity="one">%1$d old meeting is waiting for your review: clean-up has stopped until you look at it.</item>
+        <item quantity="other">%1$d old meetings are waiting for your review: more than usual were due at once, so clean-up has stopped until you look at them.</item>
+    </plurals>
+    <string name="storage_retention_review">Review</string>
+    <string name="storage_retention_review_desc">Review the meetings waiting for clean-up</string>
+    <!-- Working out which meetings a clean-up rule reaches failed. -->
+    <string name="storage_retention_check_failed">Couldn\'t check which meetings this reaches. Try again in a moment.</string>
     <plurals name="storage_retention_done_audio">
         <item quantity="one">Removed the audio of %1$d meeting and freed %2$s</item>
         <item quantity="other">Removed the audio of %1$d meetings and freed %2$s</item>
@@ -202,4 +219,26 @@
         <item quantity="other">%1$d old meetings are due for clean-up</item>
     </plurals>
     <string name="storage_notif_review_text">More than usual at once, so nothing was deleted. Tap to review.</string>
+
+    <!-- Backup and restore (Settings → Data). -->
+    <!-- The picker made the encrypted backup's file, the passphrase was not
+         given, and the empty file was deleted. -->
+    <string name="backup_cancelled">Backup cancelled.</string>
+    <!-- An export failed part-way and the file it started could not be
+         deleted. %1$s is the reason. -->
+    <string name="backup_failed_partial">Backup failed: %1$s. The file it started is incomplete — delete it so it is not mistaken for a backup.</string>
+    <!-- Asked before a restore when some of the backup's meetings are on
+         this phone too. %1$d is how many. -->
+    <string name="restore_conflict_title">Meetings already on this phone</string>
+    <plurals name="restore_conflict_message">
+        <item quantity="one">%1$d meeting in this backup is already on this phone. Keep this phone\'s copy, or replace it with the backup\'s? Replacing loses everything changed here since the backup was made: notes, summaries, ticked action items, renames, speaker names and transcript edits. Meetings that aren\'t on this phone are restored either way.</item>
+        <item quantity="other">%1$d meetings in this backup are already on this phone. Keep this phone\'s copies, or replace them with the backup\'s? Replacing loses everything changed here since the backup was made: notes, summaries, ticked action items, renames, speaker names and transcript edits. Meetings that aren\'t on this phone are restored either way.</item>
+    </plurals>
+    <string name="restore_keep_phone">Keep this phone\'s</string>
+    <string name="restore_replace">Replace</string>
+    <!-- Added to the restore result. %1$d is how many. -->
+    <plurals name="restore_kept_phone">
+        <item quantity="one">%1$d meeting already on this phone was kept as it is here.</item>
+        <item quantity="other">%1$d meetings already on this phone were kept as they are here.</item>
+    </plurals>
 </resources>

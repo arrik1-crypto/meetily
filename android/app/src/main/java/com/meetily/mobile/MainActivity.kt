@@ -1264,8 +1264,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Flags a meeting for follow-up. Written against a freshly loaded copy so
-     * a list that has been open for a while cannot push stale content back.
+     * Flags a meeting for follow-up. Shown at once, and written against a
+     * freshly loaded copy so a list that has been open for a while cannot
+     * push stale content back.
      */
     private fun toggleStar(meeting: Meeting) {
         // The recording service rewrites the live meeting from its own copy
@@ -1278,9 +1279,30 @@ class MainActivity : AppCompatActivity() {
         val starred = !meeting.starred
         // Under the store's write lock: a plain load-then-save here could
         // interleave with a background writer and undo its work (or lose this).
-        if (!store.mutate(meeting.id) { it.starred = starred }) {
-            refresh()
-            return
+        // On the library worker, not here: the write waits for whichever
+        // writer holds that process-wide lock (an import batch, a
+        // recording's snapshot) and then parses and rewrites the whole
+        // meeting, which a long one makes a stall the list would freeze for.
+        // The value, not a toggle, so taps in a row settle on the last one;
+        // a failed write reloads the list, which puts the stored star back.
+        libraryLoader.execute {
+            val saved = try {
+                store.mutateIf(meeting.id) {
+                    if (it.starred == starred) {
+                        false
+                    } else {
+                        it.starred = starred
+                        true
+                    }
+                }
+            } catch (_: Exception) {
+                false
+            }
+            if (!saved) {
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) refresh()
+                }
+            }
         }
         meeting.starred = starred // the list holds this instance
         // Chips first: unflagging the last flagged meeting drops the Flagged
@@ -1335,15 +1357,19 @@ class MainActivity : AppCompatActivity() {
             (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
             (ImportService.isRunning && ImportService.currentMeetingId == meetingId) ||
             ClearVoiceService.isPreparing(meetingId) ||
-            PassageService.isRemoving(meetingId)
+            PassageService.isRemoving(meetingId) ||
+            AlignService.isAligning(meetingId)
 
     private fun isRecording(meetingId: String): Boolean =
         RecordingService.isRunning && store.activeId() == meetingId
 
     /** Why [isBusy] holds a delete back, in words that name the job. */
-    private fun busyDeleteText(meetingId: String): Int =
-        if (ClearVoiceService.isPreparing(meetingId)) R.string.clearvoice_busy
-        else R.string.meeting_busy_delete
+    private fun busyDeleteText(meetingId: String): Int = when {
+        ClearVoiceService.isPreparing(meetingId) -> R.string.clearvoice_busy
+        PassageService.isRemoving(meetingId) -> R.string.passage_blocked_running
+        AlignService.isAligning(meetingId) -> R.string.align_busy_running
+        else -> R.string.meeting_busy_delete
+    }
 
     /**
      * True when nothing this app does with a recording would leave the phone

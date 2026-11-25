@@ -155,6 +155,31 @@ class RetentionTest {
     }
 
     @Test
+    fun onlyDeletingWholeMeetingsIsReviewed() {
+        assertTrue(Retention.reviews(Rule(Mode.MEETINGS, 30)))
+        // A review notification left from before a switch to the audio rule
+        // must not open: its words promise a restore removed audio lacks.
+        assertFalse(Retention.reviews(Rule(Mode.AUDIO, 30)))
+        assertFalse(Retention.reviews(Retention.OFF))
+        assertFalse(Retention.reviews(Rule(Mode.MEETINGS, 0)))
+    }
+
+    @Test
+    fun aHeldBackBatchWaitsOnlyUnderARuleThatReviews() {
+        assertEquals(14, Retention.waitingForReview(Rule(Mode.MEETINGS, 30), 14))
+        assertEquals(0, Retention.waitingForReview(Rule(Mode.MEETINGS, 30), 0))
+        assertEquals(0, Retention.waitingForReview(Rule(Mode.MEETINGS, 30), -2))
+        assertEquals(0, Retention.waitingForReview(Rule(Mode.AUDIO, 30), 14))
+        assertEquals(0, Retention.waitingForReview(Retention.OFF, 14))
+        // What a held-back daily run stores is more than the cap, so it shows.
+        val many = (1..Retention.AUTO_MAX_MEETINGS + 1).map { meeting("m$it", 400) }
+        val rule = Rule(Mode.MEETINGS, 30)
+        val selected = Retention.select(rule, many, emptySet(), now)
+        assertTrue(Retention.needsReview(rule, selected))
+        assertEquals(selected.size, Retention.waitingForReview(rule, selected.size))
+    }
+
+    @Test
     fun theOfferedAgesAreSensible() {
         assertTrue(Retention.DEFAULT_DAYS in Retention.DAY_CHOICES)
         assertTrue(Retention.DAY_CHOICES.all { it >= 30 })

@@ -126,8 +126,10 @@ object StorageScan {
      * (resolved the way the catalogues resolve it, so a stale key protects
      * the model actually used), a pick parked behind its download, every
      * download running or queued, every model a queued accuracy check or
-     * import names, and — with the automatic accuracy check on — the model
-     * that check would pick.
+     * import names, the model each unfinished transcript needs to be
+     * continued (a cancelled or stopped pass leaves no job to name it), and
+     * — with the automatic accuracy check on — the model that check would
+     * pick.
      */
     @WorkerThread
     fun modelsInUse(context: Context): Map<Kind, Set<String>> {
@@ -163,6 +165,10 @@ object StorageScan {
             if (job.kind == JobQueue.KIND_CHECK || job.kind == JobQueue.KIND_IMPORT) {
                 if (job.payload.isNotBlank()) transcription += job.payload
             }
+        }
+        val unfinished = MeetingStore(context).listPartial(setOf("transcriptModel", "transcriptResumeMs", "audioFile"))
+        for (key in StorageUsage.modelsToContinue(unfinished) { AudioStore.exists(context, it.audioFile) }) {
+            transcription += resolveTranscription(key)
         }
         if (settings.autoCheckTranscript) {
             // The same ranking the automatic pass uses, over the complete

@@ -6,6 +6,7 @@ import com.meetily.mobile.whisper.VoiceProfileStore
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.File
+import java.io.FileNotFoundException
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.PushbackInputStream
@@ -16,7 +17,10 @@ import java.util.zip.ZipOutputStream
 
 /**
  * Whole-library backup: a single .zip containing every meeting JSON and every
- * photo. Import merges into the current library (existing ids are overwritten).
+ * photo. Import merges into the current library. A meeting that is on this
+ * phone too is replaced by the backup's copy only when the user said so
+ * ([import]'s replaceExisting, asked with the count from [countOnPhone]);
+ * otherwise the phone's copy stays as it is, with its files ([PhoneCopies]).
  * Settings — which can hold LLM API keys — are deliberately excluded.
  *
  * Recently deleted (MeetingTrash) is neither backed up nor changed by a
@@ -40,38 +44,56 @@ object BackupManager {
 
     private const val VOICES = "voice_profiles.json"
 
+    /**
+     * Writes the backup to [out], which the caller closes.
+     *
+     * The archive is finished (closed) only once everything is in it.
+     * Closing writes the zip's central directory and, in an encrypted
+     * backup, the frame marked last, which is what makes a file read as a
+     * whole backup. An export that fails part-way therefore throws without
+     * closing it: an encrypted file then fails to restore as truncated, and
+     * the caller deletes what was written (SettingsActivity.writeBackup).
+     */
     fun export(context: Context, out: OutputStream) {
         // Files only deleted meetings name (their own JSON is not in
         // filesDir/meetings at all).
         val deleted = MeetingTrash(context).held()
         // Buffered: the deflater hands its output on in 512-byte pieces, and
         // unbuffered each one was its own write into the document provider.
-        ZipOutputStream(BufferedOutputStream(out, IO_BUFFER)).use { zip ->
-            addDir(zip, File(context.filesDir, "meetings"), MEETINGS) { it.endsWith(".json") }
-            // Audio and photos are already compressed; deflating them again
-            // costs a lot of CPU for no size. Still DEFLATED entries (just
-            // stored-level), so readers need nothing new and nothing has to
-            // be read twice to precompute a CRC.
-            zip.setLevel(Deflater.NO_COMPRESSION)
-            addDir(zip, File(context.filesDir, "photos"), PHOTOS) { it !in deleted.photos }
-            // Not the clear-voice copies (ClearVoice): each is made again
-            // from its recording, which is in the backup, and would add
-            // about 29 MB an hour to it. A restored meeting that names one
-            // plays its recording until the copy is made again.
-            addDir(zip, File(context.filesDir, "audio"), AUDIO) {
-                !ClearVoice.isCopyName(it) && it !in deleted.audio
-            }
-            addDir(zip, File(context.filesDir, "attachments"), ATTACHMENTS) { it !in deleted.attachments }
-            addDir(zip, File(context.filesDir, "voiceprint-audio"), VOICE_AUDIO) { true }
-            zip.setLevel(Deflater.DEFAULT_COMPRESSION)
-            val voices = File(context.filesDir, VOICES)
-            if (voices.isFile) {
-                zip.putNextEntry(ZipEntry(VOICES))
-                voices.inputStream().use { it.copyTo(zip) }
-                zip.closeEntry()
-            }
+        val zip = ZipOutputStream(BufferedOutputStream(out, IO_BUFFER))
+        addDir(zip, File(context.filesDir, "meetings"), MEETINGS) { it.endsWith(".json") }
+        // Audio and photos are already compressed; deflating them again
+        // costs a lot of CPU for no size. Still DEFLATED entries (just
+        // stored-level), so readers need nothing new and nothing has to
+        // be read twice to precompute a CRC.
+        zip.setLevel(Deflater.NO_COMPRESSION)
+        addDir(zip, File(context.filesDir, "photos"), PHOTOS) { it !in deleted.photos }
+        addDir(zip, File(context.filesDir, "audio"), AUDIO) {
+            backsUpAudio(it) && it !in deleted.audio
         }
+        addDir(zip, File(context.filesDir, "attachments"), ATTACHMENTS) { it !in deleted.attachments }
+        addDir(zip, File(context.filesDir, "voiceprint-audio"), VOICE_AUDIO) { true }
+        zip.setLevel(Deflater.DEFAULT_COMPRESSION)
+        val voices = File(context.filesDir, VOICES)
+        if (voices.isFile) addFile(zip, voices, VOICES)
+        zip.close()
     }
+
+    /**
+     * Whether the audio folder's file [name] goes into a backup.
+     *
+     * Not the clear-voice copies (ClearVoice): each is made again from its
+     * recording, which is in the backup, and would add about 29 MB an hour
+     * to it. A restored meeting that names one plays its recording until
+     * the copy is made again.
+     *
+     * Not an import waiting in the queue, staged as "queued-<id>.<ext>"
+     * (ImportQueue): the job that names it is not in the backup, so restored
+     * it would be audio nothing refers to, and the import renames it away
+     * when it starts, maybe while a backup is reading the folder.
+     */
+    internal fun backsUpAudio(name: String): Boolean =
+        !ClearVoice.isCopyName(name) && !name.startsWith(STAGED_IMPORT_PREFIX)
 
     /** [export], AES-256-GCM-encrypted under [passphrase]. */
     fun exportEncrypted(context: Context, out: OutputStream, passphrase: CharArray) {
@@ -104,7 +126,12 @@ object BackupManager {
          * Meetings of the backup that are in Recently deleted here, and were
          * left there with their files rather than restored over.
          */
-        val leftInTrash: Int = 0
+        val leftInTrash: Int = 0,
+        /**
+         * Meetings of the backup that are on this phone too, and were kept
+         * as they are here with their files (no replaceExisting).
+         */
+        val keptOnPhone: Int = 0
     )
 
     /**
@@ -112,12 +139,53 @@ object BackupManager {
      * Throws [BackupCrypto.WrongPassphraseException] for a bad passphrase, and
      * IllegalStateException when the backup is encrypted but no passphrase was
      * supplied.
+     *
+     * A meeting that is on this phone too is replaced by the backup's copy,
+     * with the files that copy names, only when [replaceExisting] is true.
+     * Otherwise the phone's copy and its files are left as they are: edits
+     * made since the backup (notes, summaries, ticks, renames, transcript
+     * fixes) would be lost for good, and a restore is often run only to get
+     * back one meeting. The user chooses (SettingsActivity).
      */
     fun import(
         context: Context,
         input: InputStream,
-        passphrase: CharArray? = null
-    ): Restored {
+        passphrase: CharArray? = null,
+        replaceExisting: Boolean = false
+    ): Restored = importZip(context, archive(input, passphrase), replaceExisting)
+
+    /**
+     * How many of the backup's meetings are on this phone now: what a
+     * restore with replaceExisting would write over. Reads the meeting
+     * entries at the start of the archive (a backup writes its meetings
+     * first) by name only, and stops at the first other entry. Throws as
+     * [import] does, so a wrong passphrase shows before anything is asked.
+     */
+    fun countOnPhone(context: Context, input: InputStream, passphrase: CharArray? = null): Int {
+        val meetingsDir = File(context.filesDir, "meetings")
+        var count = 0
+        ZipInputStream(archive(input, passphrase)).use { zip ->
+            var entry: ZipEntry? = zip.nextEntry
+            while (entry != null && entry.name.startsWith(MEETINGS)) {
+                if (!entry.isDirectory && isMeetingEntry(entry.name) &&
+                    phoneCopy(meetingsDir, File(entry.name).name) != null
+                ) {
+                    count++
+                }
+                entry = zip.nextEntry
+            }
+        }
+        return count
+    }
+
+    private fun isMeetingEntry(name: String): Boolean = name.startsWith(MEETINGS) && name.endsWith(".json")
+
+    /** This phone's file for the backup's meeting file [plain], or null when there is none. */
+    private fun phoneCopy(meetingsDir: File, plain: String): File? =
+        if (SafeFiles.isPlainName(plain)) File(meetingsDir, plain).takeIf { it.isFile } else null
+
+    /** The zip inside [input]: [input] itself, or decrypted when it starts with the encrypted magic. */
+    private fun archive(input: InputStream, passphrase: CharArray?): InputStream {
         val pushback = PushbackInputStream(
             BufferedInputStream(input, IO_BUFFER), BackupCrypto.MAGIC.size
         )
@@ -128,7 +196,7 @@ object BackupManager {
             if (n < 0) break
             got += n
         }
-        val stream = if (got == header.size && BackupCrypto.isEncryptedHeader(header)) {
+        return if (got == header.size && BackupCrypto.isEncryptedHeader(header)) {
             checkNotNull(passphrase) { "This backup is encrypted; a passphrase is required." }
             // The magic decides which reader: archives written before the
             // format was framed are still restorable.
@@ -137,10 +205,9 @@ object BackupManager {
             pushback.unread(header, 0, got)
             pushback
         }
-        return importZip(context, stream)
     }
 
-    private fun importZip(context: Context, input: InputStream): Restored {
+    private fun importZip(context: Context, input: InputStream, replaceExisting: Boolean): Restored {
         val meetingsDir = File(context.filesDir, "meetings").apply { mkdirs() }
         val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
         val audioDir = File(context.filesDir, "audio").apply { mkdirs() }
@@ -156,6 +223,8 @@ object BackupManager {
         var skipped = 0
         // Recently deleted is left as it is; see the class comment.
         val trash = MeetingTrash(context).restoreGuard()
+        // Meetings on this phone too, kept as they are; see [import].
+        val kept = PhoneCopies()
         ZipInputStream(input).use { zip ->
             var entry: ZipEntry? = zip.nextEntry
             while (entry != null) {
@@ -164,14 +233,24 @@ object BackupManager {
                     // File(name).name strips any path components, so a crafted
                     // entry like "../../x" cannot escape the target directory.
                     val plain = File(name).name
+                    val onPhone = if (isMeetingEntry(name) && !replaceExisting) {
+                        phoneCopy(meetingsDir, plain)
+                    } else {
+                        null
+                    }
                     val target = when {
-                        name.startsWith(MEETINGS) && name.endsWith(".json") && trash.isTrashed(plain) -> {
+                        isMeetingEntry(name) && trash.isTrashed(plain) -> {
                             trash.skipped(readMeeting(zip))
                             null
                         }
-                        name.startsWith(PHOTOS) && trash.keepsPhoto(plain) -> null
-                        name.startsWith(AUDIO) && trash.keepsAudio(plain) -> null
-                        name.startsWith(ATTACHMENTS) && trash.keepsAttachment(plain) -> null
+                        onPhone != null -> {
+                            kept.kept(readNames(onPhone), readMeeting(zip))
+                            null
+                        }
+                        name.startsWith(PHOTOS) && (trash.keepsPhoto(plain) || kept.keepsPhoto(plain)) -> null
+                        name.startsWith(AUDIO) && (trash.keepsAudio(plain) || kept.keepsAudio(plain)) -> null
+                        name.startsWith(ATTACHMENTS) &&
+                            (trash.keepsAttachment(plain) || kept.keepsAttachment(plain)) -> null
                         name.startsWith(MEETINGS) && name.endsWith(".json") ->
                             File(meetingsDir, File(name).name)
                         name.startsWith(PHOTOS) ->
@@ -213,8 +292,54 @@ object BackupManager {
         VoiceProfileStore.mergeRestored(
             context, File(context.filesDir, "$VOICES.restore"), voiceAudioDir
         )
-        return Restored(restored, skipped, trash.leftInTrash)
+        return Restored(restored, skipped, trash.leftInTrash, kept.count)
     }
+
+    /**
+     * The meetings a restore without replaceExisting keeps as they are on
+     * this phone, and the files they name: neither those the phone's copy
+     * names nor those the backup's copy names are written. So a kept
+     * meeting's recording, photos and attachments stay the phone's, and
+     * nothing lands that no meeting refers to. A backup writes its meetings
+     * before their files, so every name is known before its file comes up.
+     * Pure.
+     */
+    internal class PhoneCopies {
+        private val audio = HashSet<String>()
+        private val photos = HashSet<String>()
+        private val attachments = HashSet<String>()
+
+        /** Meetings of the backup kept as they are on this phone. */
+        var count = 0
+            private set
+
+        /** Records one kept meeting; a copy is null when it could not be read. */
+        fun kept(phoneCopy: Meeting?, backupCopy: Meeting?) {
+            count++
+            for (copy in listOfNotNull(phoneCopy, backupCopy)) {
+                val held = Trash.heldBy(copy)
+                audio.addAll(held.audio)
+                photos.addAll(held.photos)
+                attachments.addAll(held.attachments)
+            }
+        }
+
+        fun keepsAudio(name: String): Boolean = name in audio
+        fun keepsPhoto(name: String): Boolean = name in photos
+        fun keepsAttachment(name: String): Boolean = name in attachments
+    }
+
+    /**
+     * The meeting in [file] with only the members naming its files read
+     * (Trash.heldBy), never its transcript; null when it does not parse.
+     */
+    private fun readNames(file: File): Meeting? = try {
+        Meeting.fromJson(LightJson.parse(file.readText(), Trash.ENTRY_FIELDS + "id", WORDS))
+    } catch (_: Exception) {
+        null
+    }
+
+    private val WORDS = setOf("words")
 
     /**
      * The meeting in the zip entry [zip] is at, for a backup's copy that is
@@ -295,14 +420,34 @@ object BackupManager {
         accept: (String) -> Boolean
     ) {
         val files = dir.listFiles { f -> f.isFile && accept(f.name) } ?: return
-        for (file in files) {
-            zip.putNextEntry(ZipEntry(prefix + file.name))
-            file.inputStream().use { it.copyTo(zip) }
+        for (file in files) addFile(zip, file, prefix + file.name)
+    }
+
+    /**
+     * [file] as entry [name]. Opened before its entry is started, so a file
+     * deleted or renamed since its folder was listed is left out instead of
+     * failing the whole backup: audio can be removed (by hand or by the
+     * clean-up), a passage removal swaps a recording, and a queued import
+     * takes its staged file, all while a long export runs. Once open, the
+     * file is read whole even if it is deleted meanwhile.
+     */
+    internal fun addFile(zip: ZipOutputStream, file: File, name: String) {
+        val input = try {
+            file.inputStream()
+        } catch (_: FileNotFoundException) {
+            return
+        }
+        input.use {
+            zip.putNextEntry(ZipEntry(name))
+            it.copyTo(zip)
             zip.closeEntry()
         }
     }
 
     private const val IO_BUFFER = 64 * 1024
+
+    /** How ImportQueue.stage names an import's audio while it waits in the queue. */
+    private const val STAGED_IMPORT_PREFIX = "queued-"
 
     private const val VOICE_AUDIO_DIR = "voiceprint-audio"
 
