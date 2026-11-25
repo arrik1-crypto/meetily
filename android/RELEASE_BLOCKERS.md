@@ -380,7 +380,7 @@ Not triaged here:
 | *Decision*: Re-time offered on lines whose timings' origin is unknown | Product decisions | UX scope. |
 | *Decision*: Re-time has no auto-start, no Live Update and no fit badge | Product decisions | UX scope. |
 | *Decision*: recovered recordings (home screen only; live lines kept, nothing queued for their end) | Product decisions | 3.21.0-beta1 behaviour, documented; the audio-only transcript is F19's fix. Finish still replaces live lines that fell behind, as 3.21.0-beta1 did. |
-| *Decision*: the end of a live recording (Finish waits up to 60 s for a loading model) | Product decisions | The wait keeps the meeting's words or audio; the rest is 3.21.0-beta1 behaviour, documented. |
+| *Decision*: the end of a live recording (Finish waits up to 60 s for a loading model) | Product decisions | The wait keeps the meeting's words or audio; lines added after a Finish during the load and the 3 s close fallback are new, the rest is 3.21.0-beta1 behaviour, documented. |
 | *Decision*: a measured Baseline Profile (Macrobenchmark) | Product decisions | The hand-written profile ships and passes CI's check. |
 | Optional: defer `MlKitInitProvider` | Product decisions | Needs a device, and it changes when ML Kit sends diagnostics. |
 | Amber find colours | Product decisions | A visual tweak. |

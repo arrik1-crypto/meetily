@@ -81,10 +81,13 @@ class UnkeptAudioTest {
     }
 
     @Test
-    fun aFirstTranscriptIsQueuedOnlyWithAudioAndAModel() {
-        // At Finish, on swipe-away and for a recording an interrupted
-        // session left behind: with no live words, or live words that stop
-        // short of the meeting.
+    fun wantsFirstTranscriptNeedsBothAudioAndAModel() {
+        // The rule RecordingService.queueFirstTranscript applies at Finish,
+        // on swipe-away and for a recording an interrupted session left
+        // behind: with no live words, or live words that stop short of the
+        // meeting. Only the rule is tested here; the queuing itself is
+        // private Service code, covered by DEVICE_TEST_PLAN.md P1-9c and
+        // P1-11a.
         assertTrue(RecordingService.wantsFirstTranscript(audioExists = true, modelReady = true))
         // No audio (or an empty file), or no model to run: nothing is queued.
         assertFalse(RecordingService.wantsFirstTranscript(audioExists = false, modelReady = true))

@@ -715,10 +715,14 @@ class RecordingService : Service() {
         // (about 8 s) before its first byte reaches the disk, so a short
         // recording looked empty when the work ran beside the close. The
         // wait ends [AUDIO_CLOSE_WAIT_MS] after the close started, and
-        // overlaps saveAndDrain's own bounded wait.
+        // overlaps saveAndDrain's own bounded wait. The final snapshot
+        // reads the language from the recorder that teardown releases:
+        // with Auto-detect it can be learnt during Finish, after the last
+        // snapshot.
+        val recorder = whisperRecorder
         val closing = teardownEngines()
         val closeBy = SystemClock.elapsedRealtime() + AUDIO_CLOSE_WAIT_MS
-        saveAndDrain()
+        saveAndDrain(recorder)
         val closed = closing == null || run {
             try {
                 closing.join(closeWaitMs(closeBy, SystemClock.elapsedRealtime()))
@@ -799,9 +803,9 @@ class RecordingService : Service() {
                 queueFirstTranscript(app, id, audio)
             } else if (liveIncomplete) {
                 // The live transcript stops short of the meeting. The saved
-                // audio is transcribed in full and offered as a comparison,
-                // whatever the accuracy-check setting says — without it the
-                // tail is gone.
+                // audio is transcribed in full and replaces it (stars on the
+                // live lines go too, as in 3.21.0-beta1), whatever the
+                // accuracy-check setting says — without it the tail is gone.
                 queueFirstTranscript(app, id, audio)
                 maybeStartAutoSummary(app, id, title, startedAtMs, lines.size)
             } else {
@@ -1408,10 +1412,13 @@ class RecordingService : Service() {
         // hands it what it captured while the model loaded, so the file
         // starts with the meeting; that is also why a Finish tapped during
         // the load still gets one, which completeFinish then closes and
-        // queues for transcription.
+        // queues for transcription. Saved at once so that the stored
+        // meeting names the file, which recovery after a process death
+        // reads: an audio-only session makes no lines to save it.
         if (audioWriter == null && (!finishing || whisperRecorder?.holdsAudio == true)) {
             openAudioWriter()?.let { writer ->
                 whisperRecorder?.attachFrameSink { frame -> writer.write(frame) }
+                scheduleSave()
             }
         }
         observer?.onCaptureMode(capturesAudioOnly())
@@ -1693,11 +1700,11 @@ class RecordingService : Service() {
         Thread(it, "meeting-save")
     }
 
-    private fun saveNow() {
+    private fun saveNow(recorder: WhisperRecorder? = whisperRecorder) {
         main.removeCallbacks(saveRunnable)
         saveScheduled = false
         if (meetingId.isEmpty()) return
-        val snapshot = buildMeeting()
+        val snapshot = buildMeeting(recorder)
         val withTitle = titleDirty
         val withNotes = notesDirty
         val withAttendees = attendeesDirty
@@ -1727,8 +1734,8 @@ class RecordingService : Service() {
      * most one queued, so this returns in milliseconds; the timeout exists
      * only so a wedged filesystem cannot hang the main thread.
      */
-    private fun saveAndDrain() {
-        saveNow()
+    private fun saveAndDrain(recorder: WhisperRecorder? = whisperRecorder) {
+        saveNow(recorder)
         try {
             saveExecutor.shutdown()
             saveExecutor.awaitTermination(3, java.util.concurrent.TimeUnit.SECONDS)
@@ -1736,7 +1743,7 @@ class RecordingService : Service() {
         }
     }
 
-    private fun buildMeeting(): Meeting = Meeting(
+    private fun buildMeeting(recorder: WhisperRecorder?): Meeting = Meeting(
         id = meetingId,
         title = title.ifBlank {
             getString(
@@ -1761,11 +1768,12 @@ class RecordingService : Service() {
         // lines yet — the pass that writes them stamps its own model.
         if (whisperMode && liveWhisper) {
             meeting.transcriptModel = settings.whisperModel
-            // Null until known, and after teardown: saveRecordingSnapshot
-            // then keeps what an earlier snapshot stored.
-            whisperRecorder?.let { recorder ->
-                meeting.language = recorder.knownLanguage
-                meeting.translated = recorder.translating
+            // Null until known: saveRecordingSnapshot then keeps what an
+            // earlier snapshot stored. At the end this is the recorder
+            // teardown has just released, which still answers both.
+            recorder?.let { r ->
+                meeting.language = r.knownLanguage
+                meeting.translated = r.translating
             }
         }
     }
@@ -2276,8 +2284,9 @@ class RecordingService : Service() {
         // persist what we have. The .active marker stays so the next launch
         // recovers it.
         if (active && !finished) {
+            val recorder = whisperRecorder
             teardownEngines()
-            saveAndDrain()
+            saveAndDrain(recorder)
         }
         // lateExecutor is deliberately left running: see its declaration.
         isRunning = false

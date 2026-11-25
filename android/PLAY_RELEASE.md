@@ -2157,8 +2157,10 @@ Work through it before the first targetSdk 36 upload to any track.
     the one still loading. With it off, a load that then fails leaves no
     words and no audio.
   - No batch work is held back for a live model. After Finish the model
-    is freed once its current chunk is done, and work started at Finish,
-    or a new live recording, can hold a second model meanwhile.
+    is freed once its current chunk is done or, with "Keep meeting audio"
+    off, once the lines still waiting (below) have been added, and work
+    started at Finish, or a new live recording, can hold a second model
+    meanwhile.
   - With "Keep meeting audio" off, lines still waiting when Finish stops
     waiting are added afterwards: up to 10 minutes of speech, with the
     model loaded and no foreground service, so they are lost if Android
@@ -2168,13 +2170,18 @@ Work through it before the first targetSdk 36 upload to any track.
     (new: 3.21.0-beta1 captured nothing during a load). An open meeting
     page shows them only once reopened. A summary made before them is
     marked out of date; with fewer than 3 lines at that point (often so
-    after a Finish during the load), none is made automatically. With
-    "Keep meeting audio" on, the audio is transcribed instead.
+    after a Finish during the load), none is made automatically. These
+    lines take no stars and record no language: a star still waiting
+    goes on the newest line by then that began before its tap, or is
+    lost if there is none (3.21.0-beta1 lost it), and on Auto-detect a
+    meeting whose first line is among them is saved without its language
+    (as in 3.21.0-beta1). With "Keep meeting audio" on, the audio is
+    transcribed instead.
   - Finish waits up to 3 s for the audio file to close; past that, the
     first transcript or check is not queued.
-  - Apart from the load wait and the lines added after it, all of this is
-    as in 3.21.0-beta1. Confirm, or choose a shorter wait
-    (`FINISH_LOAD_WAIT_MS`).
+  - Apart from the load wait, the lines added after it and the 3 s close
+    wait, all of this is as in 3.21.0-beta1. Confirm, or choose a shorter
+    wait (`FINISH_LOAD_WAIT_MS`).
 - [ ] *Decision* (on-device AI beside transcription, judged deliberate in
   the pre-release review): interactive on-device AI may load the chat
   model while live or batch transcription runs: Catch me up during a
@@ -3444,7 +3451,10 @@ Recording, reminders and nudges:
   audio, the screen says which model did not load, and the transcript is
   made after Finish. Repeat with "Keep meeting audio" off, speaking from
   the first second: that transcript starts with the opening words, not
-  where the load failed, and a mark lands on the right line. Also with it
+  where the load failed, and a mark lands on the right line. Repeat that
+  once more, touch nothing for 10 s after the screen says the model did
+  not load, then force-stop Recap and relaunch: the recovered meeting has
+  its audio and its transcript is queued. Also with it
   off and a large model, record about 20 s and tap Finish while the
   status still reads "Loading the model…": the screen and the
   notification read "Finishing transcription…" until the load ends, and
