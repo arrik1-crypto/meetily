@@ -153,7 +153,14 @@ Push a tag for a dry run well before the first upload and read the
 whole log: `bundleRelease -PuncompressedNativeLibs`, the JNI export
 check on the `.aab`, the 16 KB alignment check of every arm64-v8a and
 x86_64 library in the AAB and APKs (`scripts/check_16kb_alignment.py`)
-and the baseline profile check (section 11, Version and build).
+and the baseline profile check (section 11, Version and build). Give the
+dry run a tag of its own, such as `android-v3.22.0-beta1-dryrun` (the run
+only warns that it does not match `versionName`), and delete it
+afterwards: the real tag goes on the later commit that fills in the
+placeholders, every run uploads an artifact of the same name, and a
+dry-run bundle still says `support@example.com` and "[effective date]",
+so it must never be uploaded. Download the bundle you upload from the
+run whose commit is the release commit.
 
 How CI is set up: `Build Android APK` (`build-android.yml`, every push
 touching `android/`) has a read-only build job that keeps no git
@@ -258,9 +265,10 @@ imports; both stay on the phone or go only to the file the user picks.
 With "Keep meeting audio" off, the recording of a meeting transcribed
 after it ends is deleted on the phone once its transcript exists, which
 only removes data. A meeting too long to share as text is written to
-app-private cache for the share the user starts and deleted afterwards
-(the privacy policy now says so); the share itself is user-initiated,
-as before. The reminder delivery record now keeps a digest of each task
+app-private cache for the share the user starts, and deleted at the next
+share of any kind, when the meeting is erased or a passage is removed
+from it, or at the first app start more than an hour later (the privacy
+policy now says so); the share itself is user-initiated, as before. The reminder delivery record now keeps a digest of each task
 instead of its text, on the phone. The AI endpoint field starts empty
 (the example address is only a hint), which sends nothing. The CI
 permission changes, the release workflow's 16 KB check and the
@@ -1083,16 +1091,21 @@ Work through it before the first targetSdk 36 upload to any track.
 - [ ] Bump `versionCode` to 117 and `versionName` to `3.22.0-beta1` in
   `android/app/build.gradle.kts`, in its own commit right after the
   pre-release review fixes and their docs (the maintainer's step; until
-  then the build reads 3.21.0-beta1, 116).
+  then the build reads 3.21.0-beta1, 116). Push the merge and the bump to
+  the Android branch in one push, or the bump first: `Build Android APK`
+  uploads every Android-branch build to the release named after its
+  versionName with `--clobber`, so the merge pushed alone replaces the
+  real 3.21.0-beta1 APK (the upgrade baseline and what beta users
+  download) with the unbumped review-fix build, under the old notes.
 - [ ] Run CI on the release commit of the pre-release review fixes
   (`r1/integration`, merged into the Android branch): `testReleaseUnitTest`
   (new AbortScope, ActionItemUpdates, AiSettingsFixes, AppLockRules,
-  BackupRestore, DownloadRunEnd, EditTargets, MeetingShareFile,
-  QueuedImport, RetainedRun and UnkeptAudio tests, plus changes to
-  ClearVoice, DeviceAudioLock, DeviceFit, DownloadSpace, LiveUpdates,
-  MeetingLanguage, NemoWords, NotificationMark, NudgeTiming,
+  BackupRestore, DownloadRunEnd, EditTargets, HeldAudio,
+  MeetingShareFile, QueuedImport, RetainedRun and UnkeptAudio tests,
+  plus changes to ClearVoice, DeviceAudioLock, DeviceFit, DownloadSpace,
+  LiveUpdates, MeetingLanguage, NemoWords, NotificationMark, NudgeTiming,
   ReminderReArm, ResumableDownload, Retention, StorageUsage,
-  SummarizerAndExport and TranscriptResume tests; 1,568 JVM tests passed
+  SummarizerAndExport and TranscriptResume tests; 1,577 JVM tests passed
   locally), then `assembleRelease` with `lintVital`, the native export
   check (`llama_jni.c` changed: the empty-reply error now reports the
   tokens sampled; only CI compiles native code) and the baseline profile
@@ -1107,8 +1120,9 @@ Work through it before the first targetSdk 36 upload to any track.
   InlinedApi warning), LockActivity's `ActivityManager.appTasks` with
   `taskId` on API 29+ and `persistentId` below, and the new rows in
   `activity_settings.xml` and `activity_storage.xml`.
-- [ ] Dry-run the release workflow by pushing an `android-v*` tag
-  (section 2) well before the first upload: neither
+- [ ] Dry-run the release workflow by pushing a dry-run tag such as
+  `android-v3.22.0-beta1-dryrun` (section 2; not the release's own tag,
+  and never upload its bundle) well before the first upload: neither
   `bundleRelease -PuncompressedNativeLibs` nor `check_jni_exports.py` on
   an `.aab` has ever run in CI. From the first AAB, check that both ABIs
   pass the 16 KB check (item below), that the native debug symbols in
@@ -3323,6 +3337,12 @@ Recording, reminders and nudges:
   tile or the widget during it: the same recording screen opens, and after
   Finish no stale recording screen is left behind in Back.
 - [ ] A 5-second audio-only recording gets its transcript queued and made.
+- [ ] With live transcription and the automatic accuracy check or summary
+  on, record a few minutes, tap Finish on the recording screen and press
+  Home at once: the check or summary notification still appears within
+  seconds, not at the next app open (the recording notification goes
+  only once that work has been started). Same after swiping Recap from
+  Recents mid-recording a minute after leaving it.
 - [ ] Force-stop Recap mid audio-only recording and relaunch: the recovered
   meeting is transcribed without a manual accuracy check.
 - [ ] Live transcription with a large model (Whisper Turbo or Parakeet):
@@ -3330,7 +3350,9 @@ Recording, reminders and nudges:
   and in the audio. Then make the live model fail to load (debug build:
   truncate its file with `adb shell run-as`): the meeting is recorded as
   audio, the screen says which model did not load, and the transcript is
-  made after Finish.
+  made after Finish. Repeat with "Keep meeting audio" off, speaking from
+  the first second: that transcript starts with the opening words, not
+  where the load failed, and a mark lands on the right line.
 - [ ] Unplug a USB or wired microphone chosen as the input mid-recording:
   if Android ends the capture (some phones switch to the built-in
   microphone instead), the notification reads "Recording stopped — tap
@@ -3432,9 +3454,10 @@ Meeting page:
 - [ ] Tick a notes checkbox while Enhance notes runs: refused with "Notes
   are being enhanced — editing unlocks when it finishes."
 - [ ] Share a meeting over 100,000 characters: it goes as a .txt named
-  after the title; the file is gone after the next share, Delete
-  permanently, Remove a passage, or the first app start more than an hour
-  later (debug build,
+  after the title; the file is gone after the next share (also a short
+  meeting shared as text, its audio, a clip or its action items), Delete
+  permanently, Remove a passage (also on an imported meeting with no
+  audio), or the first app start more than an hour later (debug build,
   `adb shell run-as com.recap.mobile ls cache/shares`).
 - [ ] On the accuracy-check review of a multi-hour meeting, tap a clip's
   play: no freeze, it is refused while a recording runs, it pauses for a

@@ -217,8 +217,13 @@ Not triaged here:
 15. **First upload** (§2 and §7, *prose*; after A5, A6, B1 and B2)
     - Do:
       1. Push the `android-v<versionName>` tag on the commit that carries
-         A5, A6 and the version bump, once CI is green on it (§2).
-      2. Upload `app-release.aab` to Internal testing.
+         A5, A6 and the version bump, once CI is green on it (§2). B2's
+         dry run used its own tag, so this name is still free; if a tag
+         of this name exists anyway, delete it first (§2).
+      2. Upload `app-release.aab` to Internal testing, downloaded from
+         the run of that tag whose commit is the A5/A6 commit (the run
+         page shows it), never from B2's dry run, whose bundle still has
+         the placeholders compiled in.
       3. Install from the internal track (or with bundletool from the AAB)
          on an Android 8 to 14 phone and an Android 15 or 16 phone, and
          smoke-test the build Play delivers: the engines load (including
@@ -249,15 +254,28 @@ Not triaged here:
    build, "Bump `versionCode` to 117" and "Run CI on the release commit")
    - Do: bump `versionCode` and `versionName` in
      `android/app/build.gradle.kts` in its own commit right after the docs
-     commit, push, and get `Build Android APK` green: unit tests,
+     commit, and push the review-fix merge and the bump to the Android
+     branch together, in one push (or the bump first). CI publishes every
+     Android-branch build to the release named after its versionName,
+     replacing that release's APK, so a push of the merge alone would
+     overwrite the real 3.21.0-beta1 download with unbumped review-fix
+     code. Then get `Build Android APK` green: unit tests,
      `assembleRelease` with `lintVital`, the export and baseline profile
      checks. The item lists the calls the local check could not verify.
    - Why: Play rejects a versionCode it has seen, and none of the review
      fixes has been through Gradle, lint or R8.
 2. **Dry-run the release workflow and inspect the first AAB** (§11 Version
    and build, "Dry-run the release workflow", and the 16 KB item)
-   - Do: push `android-v3.22.0-beta1` on the bumped commit, once the owner
-     agrees to a signed build with the stored key. Read the whole log, then
+   - Do: push a dry-run tag, `android-v3.22.0-beta1-dryrun`, on the
+     bumped commit, once the owner agrees to a signed build with the
+     stored key. Not `android-v3.22.0-beta1`: that is A15's tag, on the
+     later A5/A6 commit, and both runs upload an artifact of the same
+     name. The run warns that the tag does not match versionName, which
+     is expected here. Its bundle still has the placeholder support
+     address and effective date compiled in and must never be uploaded
+     to Play; delete the tag when done (`git push --delete origin
+     android-v3.22.0-beta1-dryrun` and `git tag -d
+     android-v3.22.0-beta1-dryrun`). Read the whole log, then
      check: both ABIs pass `check_16kb_alignment.py`; the uncompressed
      `.so` entries of the APKs generated from the AAB (bundletool
      `build-apks`) pass `zipalign -c -P 16 -v 4`; the native debug symbols

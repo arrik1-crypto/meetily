@@ -77,8 +77,16 @@ plus optional extras: an older phone, an Android 17 beta, the Play build
 ### 1.0 Before the session (on the computer, not timed)
 
 - [ ] **S0.1 Get the APKs and check the signer.** You need the 3.22.0-beta1
-  APK (above) and, for the upgrade in 1.1, the previous release:
-  `gh release download v3.21.0-beta1 -p meetily-android.apk -O old.apk`.
+  APK (above) and, for the upgrade in 1.1, the previous release, taken
+  from git, where nothing can replace it:
+  `git fetch origin && git show 818d523:android/dist/meetily-android.apk > old.apk`
+  (the 3.21.0-beta1 build of `9476ee2`). Not `gh release download
+  v3.21.0-beta1`: CI re-uploads that release's asset (`--clobber`) for
+  every build whose version still reads 3.21.0-beta1, so once the review
+  fixes reach the Android branch before the bump it holds the new code.
+  Check that `aapt2 dump badging old.apk | head -1` (Android build-tools,
+  where `apksigner` is too) shows `versionCode='116'` and
+  `versionName='3.21.0-beta1'`.
   Run `apksigner verify --print-certs meetily-android.apk | grep SHA-256`
   on both and compare with the upload certificate in PLAY_RELEASE.md §1
   (`83:97:D1:…:F0:34`). `apksigner` prints the digest as lowercase hex
@@ -449,8 +457,10 @@ off` (tag `meetily_vad`).
   Covers: EXP 1 (partial: no Word or Google Docs import check), EXP 2
   (partial: text only, no VLC), SUMS 7 (partial: exports), A17 9 (partial:
   no .ics or library export).
-- [ ] **P0-8b (+)** Rename another meeting to "Встреча команды" (⋮ →
-  Rename) and export it as Markdown.
+- [ ] **P0-8b (+)** Rename M1 to "Встреча команды" (⋮ → Rename) and
+  export it as Markdown. Do not record another meeting for this: P0-10
+  expects M1 to be the only one. The new name can stay; the plan still
+  calls it M1.
   **Expect:** the picker suggests a name with the Cyrillic letters kept,
   not "meeting".
   Covers: RF 12 (partial: the export half).

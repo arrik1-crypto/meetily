@@ -2488,6 +2488,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             putExtra(Intent.EXTRA_SUBJECT, getString(R.string.actions_share_subject, m.title))
             putExtra(Intent.EXTRA_TEXT, text)
         }
+        com.meetily.mobile.export.MeetingShareFile.clearAll(this)
         startActivity(Intent.createChooser(send, getString(R.string.export_actions_text)))
     }
 
@@ -2987,6 +2988,9 @@ class MeetingDetailActivity : AppCompatActivity() {
             putExtra(Intent.EXTRA_SUBJECT, m.title)
         }
         if (text.length <= SHARE_TEXT_CAP) {
+            // No file this time, but an earlier share's goes now: the
+            // privacy policy keeps it only until the next share.
+            com.meetily.mobile.export.MeetingShareFile.clearAll(this)
             send.putExtra(Intent.EXTRA_TEXT, text)
         } else {
             // A multi-hour transcript goes as a file; the text carries only
@@ -4139,6 +4143,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     putExtra(Intent.EXTRA_TEXT, "“" + segment.text.take(400) + "”")
                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                 }
+                com.meetily.mobile.export.MeetingShareFile.clearAll(this@MeetingDetailActivity)
                 startActivity(
                     Intent.createChooser(send, getString(R.string.share_clip_action))
                 )
@@ -4160,6 +4165,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             putExtra(Intent.EXTRA_STREAM, AudioStore.uriFor(this@MeetingDetailActivity, file))
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }
+        com.meetily.mobile.export.MeetingShareFile.clearAll(this)
         startActivity(Intent.createChooser(send, getString(R.string.share_audio)))
     }
 

@@ -240,6 +240,7 @@ class DigestActivity : AppCompatActivity() {
         }
         if (item.itemId == R.id.action_share_digest) {
             if (shareText.isNotBlank()) {
+                com.meetily.mobile.export.MeetingShareFile.clearAll(this)
                 startActivity(
                     Intent.createChooser(
                         Intent(Intent.ACTION_SEND).apply {

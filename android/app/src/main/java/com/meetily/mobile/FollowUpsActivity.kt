@@ -164,6 +164,7 @@ class FollowUpsActivity : AppCompatActivity() {
                 AiDisclaimers.appendTo(TaskExport.text(openItems()), openItemNotices())
             )
         }
+        com.meetily.mobile.export.MeetingShareFile.clearAll(this)
         startActivity(
             Intent.createChooser(send, getString(R.string.export_actions_text))
         )

@@ -11,12 +11,15 @@ import java.io.File
  * as its "shares" path.
  *
  * Only the share target needs it, and only while it reads the link, so it
- * does not stay: each share first deletes every earlier one ([write]),
- * Delete permanently and Remove a passage delete the meeting's
- * ([deleteFor], from MeetingAssets.deleteAll and PassageService), and the
- * app's start-up deletes any older than [MAX_AGE_MS] ([sweep]). Left alone,
- * Android trims the cache only when storage runs low, so a deleted
- * meeting's transcript stayed on the phone.
+ * does not stay: every share the app starts first deletes every earlier
+ * one ([clearAll], and [write] for this one), Delete permanently and Remove
+ * a passage delete the meeting's ([deleteFor], from MeetingAssets.deleteAll
+ * and PassageService, with or without audio), and the app's start-up
+ * deletes any older than [MAX_AGE_MS] ([sweep]). That is what the privacy
+ * policy promises. Left alone, Android trims the cache only when storage
+ * runs low, so a deleted meeting's transcript stayed on the phone; and
+ * with only a share that went as a file clearing it, a text, clip or audio
+ * share left it there.
  *
  * Each share sits in a folder named after the meeting's id, so it can be
  * found again; the file keeps the title-based name the receiving app shows.
@@ -36,10 +39,27 @@ object MeetingShareFile {
         write(dir(context), meetingId, title, text)
 
     fun write(root: File, meetingId: String, title: String, text: String): File {
-        clear(root)
+        clearAll(root)
         val folder = File(root, folderName(meetingId))
         folder.mkdirs()
         return File(folder, fileName(title)).apply { writeText(text) }
+    }
+
+    /**
+     * Deletes every share left. Called as any share starts (meeting, action
+     * items, audio, clip, digest, selected text, reports): one that goes as
+     * text, audio or a clip writes no file, so would not clear it itself.
+     * Never fails the share it comes before.
+     */
+    fun clearAll(context: Context) {
+        try {
+            clearAll(dir(context))
+        } catch (_: Exception) {
+        }
+    }
+
+    fun clearAll(root: File) {
+        root.listFiles()?.forEach { it.deleteRecursively() }
     }
 
     /** Deletes meeting [meetingId]'s share, if one is left. */
@@ -94,8 +114,4 @@ object MeetingShareFile {
 
     private fun folderName(meetingId: String): String =
         if (SafeFiles.isPlainName(meetingId)) meetingId else "meeting"
-
-    private fun clear(root: File) {
-        root.listFiles()?.forEach { it.deleteRecursively() }
-    }
 }

@@ -162,6 +162,22 @@ class WhisperRecorder(
     @Volatile private var lateSink: ((FloatArray) -> Unit)? = null
 
     /**
+     * With no frame sink ("Keep meeting audio" off) a live session keeps no
+     * file unless its model fails to load, and capture runs before that is
+     * known. What it captures meanwhile is held, so a model that fails hands
+     * the meeting to the file opened then from its first frame
+     * ([attachFrameSink]). Without it everything said until the failure was
+     * in neither the file nor any transcript (the chunks queued for the
+     * model are dropped once it fails), and the file started later than the
+     * session's clock, so its marks were out of step. A model that loads
+     * drops it. Bounded like a kept backlog. Guarded by [sinkLock], which
+     * also keeps it ahead of the frames captured after it.
+     */
+    private var held: HeldAudio? =
+        if (frameSink == null && transcribe) HeldAudio(BACKLOG_CAP_KEPT_SEC * sampleRate) else null
+    private val sinkLock = Any()
+
+    /**
      * The speech gate's detector and its state for this recording. Published
      * and taken back under [nativeLock] like [contextPtr]; [speechRun] is
      * only used on the transcriber thread, which sees chunks in order.
@@ -238,12 +254,35 @@ class WhisperRecorder(
     val translating: Boolean get() = translate && nemoLoader == null
 
     /**
-     * Starts feeding [sink] every captured frame from now on, for a session
-     * that had no frame sink and has to keep its audio after all (the live
-     * model failed to load). Ignored when one was given at construction.
+     * Starts feeding [sink] the captured audio, for a session that had no
+     * frame sink and has to keep its audio after all (the live model failed
+     * to load): first what was captured while the model loaded ([held]),
+     * then every frame from now on. Also after capture has stopped, as when
+     * the load fails during Finish. Ignored when a sink was given at
+     * construction.
      */
     fun attachFrameSink(sink: (FloatArray) -> Unit) {
-        lateSink = sink
+        if (frameSink != null) return
+        synchronized(sinkLock) {
+            held?.drainInto(sink)
+            held = null
+            lateSink = sink
+        }
+    }
+
+    /** True while audio captured before the live model's outcome is held for [attachFrameSink]. */
+    val holdsAudio: Boolean
+        get() = synchronized(sinkLock) { held?.isEmpty == false }
+
+    /** The audio thread's hand-off of a frame when no sink was given at construction. */
+    private fun sinkLate(frame: FloatArray, n: Int) {
+        val sink = lateSink ?: synchronized(sinkLock) {
+            lateSink ?: run {
+                held?.add(frame.copyOf(n))
+                null
+            }
+        }
+        sink?.invoke(frame.copyOf(n))
     }
 
     @SuppressLint("MissingPermission") // caller checks RECORD_AUDIO
@@ -383,7 +422,7 @@ class WhisperRecorder(
                     chunkPeakRms = 0f
                     continue
                 }
-                (frameSink ?: lateSink)?.invoke(frame.copyOf(n))
+                if (frameSink != null) frameSink.invoke(frame.copyOf(n)) else sinkLate(frame, n)
                 val rms = rmsOf(frame, n)
                 onLevel?.invoke(rms)
                 if (!transcribe || liveFailed) {
@@ -446,6 +485,8 @@ class WhisperRecorder(
                     onLiveUnavailable?.invoke()
                     return@execute
                 }
+                // Live has the words from here on, and no file was asked for.
+                synchronized(sinkLock) { held = null }
                 try {
                     prepare?.invoke()
                 } catch (_: Throwable) {
@@ -511,17 +552,25 @@ class WhisperRecorder(
     private fun openSpeechGateLater(open: () -> SileroVad?) {
         try {
             transcriber.execute {
-                // Same hand-off as the whisper context: if teardown has
-                // started, nobody would free a detector published now, so
-                // this job frees it. A gate that is not there never stops
-                // the recording.
+                // Discarded: every chunk behind this one is skipped anyway.
+                if (abandoned) return@execute
+                // Same hand-off as the whisper context, and the same rule:
+                // every release is queued behind this job (finish and
+                // destroy), so that release frees what is published here,
+                // and only a release that somehow ran first leaves this job
+                // to free the detector itself. Not "claimed or stopped",
+                // which Finish makes true at once: a Finish while the model
+                // was still loading freed the detector unused, and every
+                // chunk queued during the load went to the recogniser
+                // ungated. A gate that is not there never stops the
+                // recording.
                 val opened = try {
                     open()
                 } catch (_: Throwable) {
                     null
                 }
                 val published = opened != null && synchronized(nativeLock) {
-                    if (gate.isClaimed || !running) {
+                    if (gate.isReleased) {
                         false
                     } else {
                         speechVad = opened

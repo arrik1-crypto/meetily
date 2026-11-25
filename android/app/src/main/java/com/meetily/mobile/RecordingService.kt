@@ -309,6 +309,11 @@ class RecordingService : Service() {
         // snapshot, and finished = true, so Finish never completed and the
         // safety saves were skipped: the whole meeting was lost.
         finished = false
+        // A snapshot still pending when the last session was discarded left
+        // this set, and scheduleSave() then wrote nothing all session. The
+        // dirty flags stay: text typed before the session began needs them.
+        main.removeCallbacks(saveRunnable)
+        saveScheduled = false
         segments.clear()
         photos.clear()
         pendingHighlight = false
@@ -651,7 +656,8 @@ class RecordingService : Service() {
         // original cluster ids, which is why appendLateSegment resolves
         // names through clusterNames rather than assuming a remap.
         applyClusterMerge()
-        teardownEngines(afterAudioClosed = workAfterSave(meetingId))
+        // Leaves the foreground and stops once the queued work is issued.
+        teardownEngines(afterAudioClosed = WorkThenStop(workAfterSave(meetingId)))
         saveAndDrain()
         store.clearActive()
         active = false
@@ -660,8 +666,56 @@ class RecordingService : Service() {
         observer?.onFinished(id)
         onDone?.invoke(id)
         activeSpeaker = null
-        stopForegroundCompat()
-        stopSelf()
+    }
+
+    /** The finished session's [WorkThenStop] still to run, if any. */
+    private var pendingStop: WorkThenStop? = null
+
+    /**
+     * Runs a finished session's queued work ([workAfterSave]) and then takes
+     * the service out of the foreground and stops it.
+     *
+     * The work waits for the audio file to close (teardownEngines), and the
+     * service used to leave the foreground before that, as Finish or the
+     * swipe from Recents returned. The work starts ImportService or
+     * SummaryService, which on Android 12+ a background app may do only
+     * while something keeps it exempt, and this service's own foreground is
+     * what does at the end of a meeting. Finish tapped and the app left
+     * while the backlog drained, or a swipe well after the screen went
+     * away, had those starts refused, and the jobs only waited in the queue
+     * until Recap was next opened. So the foreground stays until the work
+     * has been issued, or [STOP_AFTER_WORK_TIMEOUT_MS] at most if the file
+     * is slow to close; the work still runs when it does. Main thread.
+     */
+    private inner class WorkThenStop(private val work: () -> Unit) : () -> Unit {
+        private var stopped = false
+        private val fallback = Runnable { stop() }
+
+        init {
+            pendingStop = this
+            main.postDelayed(fallback, STOP_AFTER_WORK_TIMEOUT_MS)
+        }
+
+        /** Posted by teardownEngines once the audio file is closed. */
+        override fun invoke() {
+            try {
+                work()
+            } finally {
+                stop()
+            }
+        }
+
+        private fun stop() {
+            if (stopped) return
+            stopped = true
+            main.removeCallbacks(fallback)
+            if (pendingStop === this) pendingStop = null
+            // A session started on this instance meanwhile owns the
+            // foreground and the service now.
+            if (active) return
+            stopForegroundCompat()
+            stopSelf()
+        }
     }
 
     /**
@@ -785,6 +839,12 @@ class RecordingService : Service() {
         whisperRecorder?.abandonBacklog()
         teardownEngines()
         main.removeCallbacks(saveRunnable)
+        // Cleared with it: left set, the next session on this instance
+        // (a screen still bound keeps it alive) never saved a snapshot.
+        saveScheduled = false
+        titleDirty = false
+        notesDirty = false
+        attendeesDirty = false
         // Kill any queued snapshot first: an in-flight write landing after
         // the delete would recreate the meeting the user just discarded.
         try {
@@ -1279,9 +1339,13 @@ class RecordingService : Service() {
         if (!active || meetingId != session || !liveWhisper) return
         liveLoading = false
         liveWhisper = false
-        if (audioWriter == null && !finishing) {
-            // "Keep meeting audio" off: without a file this session would
-            // produce nothing. Kept only until it is transcribed.
+        // "Keep meeting audio" off: without a file this session would
+        // produce nothing. Kept only until it is transcribed. The recorder
+        // hands it what it captured while the model loaded, so the file
+        // starts with the meeting; that is also why a Finish tapped during
+        // the load still gets one, which completeFinish then closes and
+        // queues for transcription.
+        if (audioWriter == null && (!finishing || whisperRecorder?.holdsAudio == true)) {
             openAudioWriter()?.let { writer ->
                 whisperRecorder?.attachFrameSink { frame -> writer.write(frame) }
             }
@@ -2130,6 +2194,13 @@ class RecordingService : Service() {
          */
         private const val MIN_SEGMENTS_FOR_AUTO_WORK = 4
 
+        /**
+         * How long a finished session stays in the foreground at most while
+         * its audio file closes (WorkThenStop). The close is normally well
+         * under a second; the writer's own wait is bounded at 20 s.
+         */
+        private const val STOP_AFTER_WORK_TIMEOUT_MS = 10_000L
+
         const val ACTION_START = "com.meetily.mobile.action.START"
         const val ACTION_TOGGLE_PAUSE = "com.meetily.mobile.action.TOGGLE_PAUSE"
         const val ACTION_FINISH = "com.meetily.mobile.action.FINISH"
@@ -2298,15 +2369,24 @@ class RecordingService : Service() {
             // and no words, and nothing ever queued its transcription; a
             // live one got no merge, accuracy check or summary.
             applyClusterMerge()
-            teardownEngines(afterAudioClosed = workAfterSave(meetingId))
+            // As at Finish, the service leaves the foreground once that
+            // work is issued (WorkThenStop): by the time of a swipe Recap is
+            // often long off screen, and nothing else would allow it.
+            teardownEngines(afterAudioClosed = WorkThenStop(workAfterSave(meetingId)))
             saveAndDrain()
             store.clearActive()
             active = false
             activeSpeaker = null
+            isRunning = false
+        } else {
+            isRunning = false
+            // A finish still issuing its work stops the service when that is
+            // done; stopping here would take its exemption away first.
+            if (pendingStop == null) {
+                stopForegroundCompat()
+                stopSelf()
+            }
         }
-        isRunning = false
-        stopForegroundCompat()
-        stopSelf()
         super.onTaskRemoved(rootIntent)
     }
 }

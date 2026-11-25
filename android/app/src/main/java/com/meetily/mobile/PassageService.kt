@@ -730,7 +730,12 @@ class PassageService : Service() {
             return when {
                 !saved && store.exists(meetingId) -> Result.FAILED
                 !saved || !applied -> Result.GONE
-                else -> Result.REMOVED
+                else -> {
+                    // A share of the meeting as a file still holds the
+                    // passage, as on the audio path (swap).
+                    com.meetily.mobile.export.MeetingShareFile.deleteFor(context, meetingId)
+                    Result.REMOVED
+                }
             }
         }
 

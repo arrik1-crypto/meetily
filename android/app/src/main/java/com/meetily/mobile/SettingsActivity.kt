@@ -531,6 +531,7 @@ class SettingsActivity : AppCompatActivity() {
                     com.meetily.mobile.diag.CrashLog.bugReportText(this@SettingsActivity)
                 )
             }
+            com.meetily.mobile.export.MeetingShareFile.clearAll(this)
             startActivity(Intent.createChooser(send, getString(R.string.report_bug)))
         }
 

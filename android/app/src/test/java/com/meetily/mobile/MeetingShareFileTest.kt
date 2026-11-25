@@ -7,6 +7,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 /**
@@ -64,6 +65,58 @@ class MeetingShareFileTest {
         assertFalse(first.exists())
         assertFalse(legacy.exists())
         assertTrue(second.exists())
+    }
+
+    @Test
+    fun clearingDeletesEveryShareAndKeepsTheFolder() {
+        val first = MeetingShareFile.write(root, "m1", "First", "one")
+        val legacy = File(root, "Old_title.txt").apply { writeText("old") }
+        MeetingShareFile.clearAll(root)
+        assertFalse(first.exists())
+        assertFalse(legacy.exists())
+        assertTrue(root.isDirectory)
+        assertEquals(0, root.listFiles()?.size)
+        // Nothing to clear is not an error.
+        MeetingShareFile.clearAll(File(root, "absent"))
+    }
+
+    /** Unit tests run from the module directory; the others are fallbacks. */
+    private fun sources(): File {
+        val candidates = listOf("src/main/java", "app/src/main/java", "android/app/src/main/java")
+        return candidates.map(::File).firstOrNull { it.isDirectory }
+            ?: run {
+                fail("sources not found from ${File(".").absolutePath}")
+                throw IllegalStateException()
+            }
+    }
+
+    /**
+     * The privacy policy keeps the file only until the next share, and a
+     * share that goes as text, audio or a clip writes none, so every
+     * chooser the app opens clears it first.
+     */
+    @Test
+    fun everyShareClearsTheLastOneFirst() {
+        val chooser = Regex("""Intent\.createChooser\(""")
+        val clear = Regex("""MeetingShareFile\.clearAll\(""")
+        val offenders = sources().walkTopDown()
+            .filter { it.isFile && it.name.endsWith(".kt") }
+            .mapNotNull { file ->
+                val text = file.readText()
+                val shares = chooser.findAll(text).count()
+                val clears = clear.findAll(text).count()
+                if (clears < shares) "${file.name}: $shares shares, $clears clears" else null
+            }
+            .toList()
+        assertEquals(emptyList<String>(), offenders)
+    }
+
+    /** Remove a passage from a meeting with no audio deletes its share too, as with audio. */
+    @Test
+    fun removingAPassageWithoutAudioDeletesTheShare() {
+        val text = File(sources(), "com/meetily/mobile/PassageService.kt").readText()
+        val body = text.substringAfter("fun removeLinesOnly(").substringBefore("\n        }\n")
+        assertTrue(body, body.contains("MeetingShareFile.deleteFor(context, meetingId)"))
     }
 
     @Test

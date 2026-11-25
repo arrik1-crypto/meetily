@@ -70,6 +70,7 @@ object DisclaimerViews {
                             type = "text/plain"
                             putExtra(Intent.EXTRA_TEXT, text)
                         }
+                        com.meetily.mobile.export.MeetingShareFile.clearAll(view.context)
                         view.context.startActivity(Intent.createChooser(send, null))
                         true
                     }

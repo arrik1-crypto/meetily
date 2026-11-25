@@ -391,6 +391,7 @@ class MainActivity : AppCompatActivity() {
                         com.meetily.mobile.diag.CrashLog.shareText(crash)
                     )
                 }
+                com.meetily.mobile.export.MeetingShareFile.clearAll(this)
                 startActivity(
                     Intent.createChooser(send, getString(R.string.crash_share))
                 )
@@ -685,7 +686,17 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(app, R.string.recording_recovered, Toast.LENGTH_LONG).show()
                 }
                 if (meeting.segments.isEmpty()) {
-                    RecordingService.queueFirstTranscript(app, id, meeting.audioFile)
+                    // On the main thread, like every other JobGate caller: its
+                    // one-job-at-a-time check and the start it guards are two
+                    // steps, and onResume's drain runs at about this time. Raced
+                    // from here, both could start ImportService, which refuses
+                    // the second start, and one job was lost. The main looper,
+                    // not this screen's, so it still happens if the screen is
+                    // gone by then.
+                    val audio = meeting.audioFile
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        RecordingService.queueFirstTranscript(app, id, audio)
+                    }
                 }
             }
         }, "recording-recover").start()
