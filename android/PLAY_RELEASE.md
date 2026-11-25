@@ -8,8 +8,9 @@ meetings already on the phone, a recording keeps its first words and
 its audio when the microphone or the live model fails, reminders and
 nudges arrive on time without exact alarms, and many smaller fixes
 land in backups, imports, downloads, the app lock, summaries and the
-meeting screen. Until the maintainer's version bump, a separate commit
-right after the one that adds these notes, the build still reads
+meeting screen. Until the maintainer's version bump, its own commit
+right after the last review-fix commit, `d4d1816` (only a docs sync
+commit comes between them), the build still reads
 **3.21.0-beta1** (versionCode 116), the current release: Batch 7
 (Re-time words, which measures the timings of edited transcript words
 against the recording on the phone with an optional English
@@ -1089,10 +1090,11 @@ Work through it before the first targetSdk 36 upload to any track.
 ### Version and build
 
 - [ ] Bump `versionCode` to 117 and `versionName` to `3.22.0-beta1` in
-  `android/app/build.gradle.kts`, in its own commit right after the
-  pre-release review fixes and their docs (the maintainer's step; until
-  then the build reads 3.21.0-beta1, 116). Push the merge and the bump to
-  the Android branch in one push, or the bump first: `Build Android APK`
+  `android/app/build.gradle.kts`, in its own commit right after the last
+  pre-release review fix commit, `d4d1816`, and the docs sync on top of
+  it (the maintainer's step; until then the build reads 3.21.0-beta1,
+  116). Push the merge and the bump to the Android branch in one push,
+  or the bump first: `Build Android APK`
   uploads every Android-branch build to the release named after its
   versionName with `--clobber`, so the merge pushed alone replaces the
   real 3.21.0-beta1 APK (the upgrade baseline and what beta users
@@ -1106,7 +1108,7 @@ Work through it before the first targetSdk 36 upload to any track.
   DeviceFit, DownloadSpace, LiveUpdates, MeetingLanguage, NemoWords,
   NotificationMark, NudgeTiming, RecordingStartStage, ReminderReArm,
   ResumableDownload, Retention, StorageUsage, SummarizerAndExport and
-  TranscriptResume tests; 1,605 JVM tests passed locally), then
+  TranscriptResume tests; 1,610 JVM tests passed locally), then
   `assembleRelease` with `lintVital`, the native export check
   (`llama_jni.c` changed: the empty-reply error now reports the
   tokens sampled; only CI compiles native code) and the baseline profile

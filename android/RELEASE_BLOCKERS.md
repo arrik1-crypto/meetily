@@ -3,10 +3,13 @@
 Dated 2026-11-25. This file sorts the owner checklist in
 [PLAY_RELEASE.md](PLAY_RELEASE.md) section 11 by what blocks the first
 Google Play submission. It reflects **3.22.0-beta1** (versionCode 117), the
-pre-release review fixes merged on `r1/integration` (fix commits listed
-under D, merge tip `d3ddc47`, plus the docs commit that adds this file).
-Until the version bump, which the maintainer makes in a separate commit
-right after, the build still reads 3.21.0-beta1 (versionCode 116). It is a
+pre-release review fixes on `r1/integration`: five merged fix chains
+(merge tip `d3ddc47`), the docs commit that adds this file (`6891a73`),
+and the fix commits after it up to the last fix commit, `d4d1816` (all
+listed under D), plus this sync commit, which changes only the docs.
+Until the version bump, which the maintainer makes in its own commit
+right after the last fix commit (with only this sync commit between
+them), the build still reads 3.21.0-beta1 (versionCode 116). It is a
 snapshot: PLAY_RELEASE.md remains the source of truth.
 
 **Where the items come from.** Sections 1 to 10 of PLAY_RELEASE.md have no
@@ -17,7 +20,8 @@ words, not by line number: the file grew by about 600 lines in this
 release, and line numbers move with every edit.
 
 **How each item was checked.** Against:
-- the code at `d3ddc47` (3.21.0-beta1 at `818d523` plus the review fixes);
+- the code at `d4d1816`, the last fix commit (3.21.0-beta1 at `818d523`
+  plus every review fix);
 - the APK that `818d523` published (`android/dist/meetily-android.apk`,
   arm64-v8a only, libraries compressed);
 - the log of the CI run that built it (Build Android APK, run 45216817663,
@@ -181,6 +185,14 @@ Not triaged here:
         import, transcription, Clear voice, Remove a passage and Re-time
         words on Android 14 and lower (the four mediaProcessing services
         are declared `dataSync|mediaProcessing`).
+      - The microphone declaration should also cover the end of a
+        recording: after Finish, or a swipe from Recents (now a Finish),
+        the recording service stays in the foreground, capturing nothing,
+        with a "Finishing transcription…" notification, until the last
+        words are transcribed and the transcript, check or summary has
+        been started (`RecordingService`'s `WorkThenStop`): usually
+        seconds, 75 s at most (15 s for the words, then 60 s while the
+        live model is still loading or held, 10 s otherwise).
     - Then record the videos (unlisted YouTube is fine). Only the
       mediaProcessing videos need an Android 15+ phone; plan the
       mediaProjection and dataSync ones too. DEVICE_TEST_PLAN.md walks
@@ -253,13 +265,14 @@ Not triaged here:
 1. **Version bump to 3.22.0-beta1 (117) and a green CI** (§11 Version and
    build, "Bump `versionCode` to 117" and "Run CI on the release commit")
    - Do: bump `versionCode` and `versionName` in
-     `android/app/build.gradle.kts` in its own commit right after the docs
-     commit, and push the review-fix merge and the bump to the Android
-     branch together, in one push (or the bump first). CI publishes every
-     Android-branch build to the release named after its versionName,
-     replacing that release's APK, so a push of the merge alone would
-     overwrite the real 3.21.0-beta1 download with unbumped review-fix
-     code. Then get `Build Android APK` green: unit tests,
+     `android/app/build.gradle.kts` in its own commit right after the last
+     fix commit, `d4d1816` (only this sync commit, docs only, comes
+     between them), and push the review-fix merge and the bump to the
+     Android branch together, in one push (or the bump first). CI
+     publishes every Android-branch build to the release named after its
+     versionName, replacing that release's APK, so a push of the merge
+     alone would overwrite the real 3.21.0-beta1 download with unbumped
+     review-fix code. Then get `Build Android APK` green: unit tests,
      `assembleRelease` with `lintVital`, the export and baseline profile
      checks. The item lists the calls the local check could not verify.
    - Why: Play rejects a versionCode it has seen, and none of the review
@@ -313,7 +326,7 @@ Not triaged here:
 | *Decision*: keep ML Kit or replace it | Product decisions | The build and the §4 answers assume it stays; decide before production if the public listing should say "No data collected". |
 | *Decision*: "Meetily app" in the Markdown export | Product decisions | An old product name visible to users. The backup file names, the other place it showed, are fixed (D). Claude can change it together with ExportTextTest. |
 | *Decision*: "Keep meeting audio" off now removes an audio-only recording's audio after its first complete transcript | Product decisions | Deletes user data automatically; the privacy policy now says so. Confirm before paying users rely on it. |
-| *Decision*: app lock and the Recents preview | Product decisions | With Hide content off, the Recents card shows meeting text until the lock covers it. Privacy-relevant, not a Play requirement. |
+| *Decision*: app lock and the Recents preview | Product decisions | With Hide content off, the Recents card shows meeting text until the lock covers it, and with it off or on, the screen being reopened can show for a moment first. Privacy-relevant, not a Play requirement. |
 | *Decision*: on-device AI beside transcription | Product decisions | Needs the 6 GB device check first; an ANR or low-memory kill there would need a gate before production. |
 | *Decision*: restore asks first, "Keep this phone's" by default | Product decisions | The safe default ships; confirm the wording. |
 | Review the Batch 7 strings on a phone | Product decisions | Wording only. |
@@ -402,7 +415,10 @@ none blocking; C2):
 | The Markdown "Meetily" item's backup-name half (§11 Product decisions) | 83c44b0 (N24): the default backup names are `recap-backup.zip` and `recap-backup.recapbak`. The Markdown export line stays in C1. |
 | The AAB size in Notes and gotchas (*prose*) | The docs commit: the untraceable "~26 MB at 3.16.0-beta1" is gone, replaced by recording the size from the first release run (B2). |
 
-The fix commits, for reference (merged on `r1/integration`, tip `d3ddc47`):
+The fix commits, for reference, all on `r1/integration`: the five merged
+fix chains (merge tip `d3ddc47`), then, after the docs commit `6891a73`,
+the post-fix review rounds, of which `d4d1816` is the last fix commit.
+This sync commit, on top of them, changes only the docs.
 
 | Commit | Area |
 |---|---|
@@ -416,6 +432,13 @@ The fix commits, for reference (merged on `r1/integration`, tip `d3ddc47`):
 | d2bf812 | Clear voice timeline and daily-limit outcomes |
 | 3e9c9c8 | Model downloads, CI and release workflow, notices |
 | d3ddc47 | Share-file names in any script (cross-chain fix) |
+| 2d1f101 | Post-fix review round 1: the recording service stays in the foreground until the work after Finish is started; audio held while the live model loads; share-file clean-up |
+| 6da959f | Post-fix review round 2: untitled recordings recognised in any language; swiping away mid-recording is a Finish; "Keep meeting audio" read when the transcript is made |
+| 5e46c6b | A recording's delayed stop no longer cancels a start on its way; the app-lock checks match the Product decision |
+| c539b08 | Leftover review items: late chunks keep their session's audio and names; a star tapped during the live model load; Ask your library and the brief without waiter threads; the series list off the main thread |
+| 94c5801 | Review round 1: Finish during a live model load keeps the meeting's audio; "Finishing transcription…" notification; sticky restarts and discard stop cleanly |
+| 07266d7 | Review round 2: the recording notification's tap never starts a new recording; stars and Mark during the live backlog |
+| d4d1816 | Review round 3: batch work waits until a finished recording's live model is freed; recovery transcribes live transcripts that stopped short |
 
 ### Done or stale before this release (12 checklist items, 1 prose step)
 

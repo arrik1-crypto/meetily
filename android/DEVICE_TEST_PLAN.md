@@ -1029,8 +1029,9 @@ words included.
   swipe is in its transcript. Turn "Summarise after the meeting" and
   "Transcribe live" off again (save), and let the summary finish before
   P2.
-  Covers: RF 48 (partial: no accuracy check, and no swipe while a tapped
-  Finish still reads "Finishing transcription…").
+  Covers: RF 48 (partial: no accuracy check, no look at the lock screen
+  while it reads "Finishing transcription…", and no swipe while a tapped
+  Finish still reads it).
 
 End of P1: turn app lock off (Settings → Security → "Require unlock to
 open" off → **Save settings**) and put the lock-screen notification
