@@ -30,6 +30,17 @@ object RetentionUi {
         else -> context.getString(R.string.storage_retention_meetings_summary, rule.days)
     }
 
+    /**
+     * What waits for the user when the daily run held a batch back
+     * (RetentionRunner.pendingReview), for the Storage screen and Settings;
+     * null when nothing does.
+     */
+    fun pendingNote(context: Context): String? {
+        val waiting = RetentionRunner.pendingReview(context)
+        if (waiting <= 0) return null
+        return context.resources.getQuantityString(R.plurals.storage_retention_pending, waiting, waiting)
+    }
+
     /** Off, remove old audio, or delete old meetings; then the age. */
     fun choose(activity: Activity, onChanged: () -> Unit) {
         val current = RetentionRunner.rule(activity)
@@ -110,7 +121,7 @@ object RetentionUi {
                 }
                 waiting.dismiss()
                 if (plan == null) {
-                    Toast.makeText(activity, R.string.storage_scan_failed, Toast.LENGTH_LONG).show()
+                    Toast.makeText(activity, R.string.storage_retention_check_failed, Toast.LENGTH_LONG).show()
                 } else {
                     showPreview(activity, plan, review, onChanged)
                 }
@@ -156,7 +167,9 @@ object RetentionUi {
                     append(res.getQuantityString(R.plurals.storage_retention_more, count - LISTED, count - LISTED))
                 }
             }
-            if (!review) {
+            // The audio rule's text keeps its warning that removed audio
+            // cannot be recovered, review or not.
+            if (!review || rule.mode == Retention.Mode.AUDIO) {
                 append("\n\n")
                 append(
                     activity.getString(
@@ -166,10 +179,10 @@ object RetentionUi {
                     )
                 )
             }
-            // A review is always of whole meetings (Retention.needsReview), and
-            // the first-run text that says how long they can be restored is
-            // left out.
-            if (review && count > 0) {
+            // A review is of whole meetings (Retention.reviews), and the
+            // first-run text that says how long they can be restored is
+            // left out. Never said of audio, which cannot be restored.
+            if (review && count > 0 && rule.mode == Retention.Mode.MEETINGS) {
                 append("\n\n")
                 append(activity.getString(R.string.storage_retention_irreversible))
             }

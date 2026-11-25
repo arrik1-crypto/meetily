@@ -634,4 +634,13 @@ class DeviceFitTest {
             FirstRunSetup.shouldOffer(DeviceFit.Recommendation(null, null), onDeviceEngine = true)
         )
     }
+
+    @Test
+    fun welcomeOpensOnFreshStartsOnly() {
+        assertTrue(FirstRunSetup.opensWelcome(restored = false, onboardingDone = false))
+        // Re-created after backing out (rotation, theme, dark mode): not again.
+        assertFalse(FirstRunSetup.opensWelcome(restored = true, onboardingDone = false))
+        assertFalse(FirstRunSetup.opensWelcome(restored = false, onboardingDone = true))
+        assertFalse(FirstRunSetup.opensWelcome(restored = true, onboardingDone = true))
+    }
 }

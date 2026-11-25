@@ -44,4 +44,14 @@ object FirstRunSetup {
 
     /** Download sizes of [picks], MB, for the free-space check and the size line. */
     fun sizesMb(picks: List<DeviceFit.Pick>): List<Int> = picks.map { it.need.sizeMb }
+
+    /**
+     * Whether the home screen opens the welcome screen as it is created:
+     * until onboarding is done, but only on a fresh start. A screen
+     * re-created from saved state (a rotation, the theme button, a dark-mode
+     * switch) does not, so backing out of the welcome screen is not undone
+     * by turning the phone; the next fresh start shows it again.
+     */
+    fun opensWelcome(restored: Boolean, onboardingDone: Boolean): Boolean =
+        !restored && !onboardingDone
 }

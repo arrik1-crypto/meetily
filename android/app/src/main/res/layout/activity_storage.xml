@@ -284,6 +284,31 @@
                         android:textAppearance="?attr/textAppearanceBodySmall"
                         android:textColor="?attr/colorOnSurfaceVariant" />
 
+                    <!-- A batch the daily run held back for review (StorageActivity.renderRetention). -->
+                    <TextView
+                        android:id="@+id/storageRetentionPending"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:textAppearance="?attr/textAppearanceBodyMedium"
+                        android:textColor="?attr/colorOnSurface"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/storageRetentionReview"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="8dp"
+                        android:contentDescription="@string/storage_retention_review_desc"
+                        android:insetBottom="6dp"
+                        android:insetTop="6dp"
+                        android:text="@string/storage_retention_review"
+                        android:textColor="?attr/colorOnSurface"
+                        android:visibility="gone"
+                        app:cornerRadius="22dp"
+                        app:strokeColor="?attr/colorOutline" />
+
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/storageRetentionButton"
                         style="@style/Widget.Material3.Button.OutlinedButton"

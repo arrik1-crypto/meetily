@@ -156,6 +156,17 @@ object StorageUsage {
     )
 
     /**
+     * The transcription models unfinished transcripts were made with, which
+     * "Continue transcription" needs to carry on (TranscriptResume.plan):
+     * without its model a transcript can only start over, replacing every
+     * line and edit. Only meetings whose audio is still there ([hasAudio])
+     * can be continued at all. Keys as stored; the caller resolves them.
+     */
+    fun modelsToContinue(meetings: List<Meeting>, hasAudio: (Meeting) -> Boolean): Set<String> =
+        meetings.filter { it.transcriptResumeMs != null && hasAudio(it) }
+            .mapNotNullTo(HashSet()) { it.transcriptModel?.takeIf { key -> key.isNotBlank() } }
+
+    /**
      * Models on disk that nothing would miss: not the live selection of any
      * kind, not a pick waiting on its download, not the model a queued job
      * or the automatic accuracy check will use. [inUse] holds those keys per

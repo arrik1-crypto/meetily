@@ -117,6 +117,22 @@ object Retention {
     fun needsReview(rule: Rule, selected: List<Candidate>): Boolean =
         rule.mode == Mode.MEETINGS && selected.size > AUTO_MAX_MEETINGS
 
+    /**
+     * True when [rule] is one whose runs can be held back for review: only
+     * deleting whole meetings is ([needsReview]). A review opened under any
+     * other rule (from a notification left over from before the rule
+     * changed) is not shown: its words and its button are about deleting
+     * meetings that can be restored for 30 days.
+     */
+    fun reviews(rule: Rule): Boolean = rule.enabled && rule.mode == Mode.MEETINGS
+
+    /**
+     * The meetings waiting for review: [heldBack], as the daily run stored
+     * it, while [rule] still [reviews]; 0 otherwise.
+     */
+    fun waitingForReview(rule: Rule, heldBack: Int): Int =
+        if (reviews(rule)) heldBack.coerceAtLeast(0) else 0
+
     /** Audio bytes [selected] holds: what removing it frees, at least. */
     fun audioBytes(selected: List<Candidate>): Long = selected.sumOf { it.audioBytes.coerceAtLeast(0L) }
 

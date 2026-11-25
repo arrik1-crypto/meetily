@@ -15,12 +15,24 @@ import java.util.Date
 /** Renders a meeting as Markdown text or a paginated text PDF. */
 object MeetingExporter {
 
+    /**
+     * The title as a file name: letters (with their accents and vowel
+     * signs) and digits of any script, spaces turned to dashes, at most 48
+     * UTF-16 units without splitting a character; "meeting" when nothing is
+     * left. Punctuation, symbols and emoji go.
+     */
     fun suggestedFileName(meeting: Meeting, extension: String): String {
         val safeTitle = meeting.title
-            .replace(Regex("[^A-Za-z0-9 _-]"), "")
+            .replace(Regex("[^\\p{L}\\p{M}\\p{N} _-]"), "")
             .trim()
             .replace(Regex("\\s+"), "-")
-            .take(48)
+            .let { name ->
+                if (name.length <= 48) {
+                    name
+                } else {
+                    name.take(if (Character.isHighSurrogate(name[47])) 47 else 48)
+                }
+            }
             .ifBlank { "meeting" }
         return "$safeTitle.$extension"
     }

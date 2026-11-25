@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
+import com.meetily.mobile.data.FirstRunSetup
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.search.HomeSearch
@@ -507,7 +508,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         appliedAccent = ThemeManager.apply(this)
-        if (!AppSettings(this).onboardingDone) {
+        if (FirstRunSetup.opensWelcome(
+                restored = savedInstanceState != null,
+                onboardingDone = AppSettings(this).onboardingDone
+            )
+        ) {
             startActivity(Intent(this, OnboardingActivity::class.java))
         }
         setContentView(R.layout.activity_main)
@@ -946,10 +951,20 @@ class MainActivity : AppCompatActivity() {
     /**
      * Serialises library loads, so a burst of refreshes cannot apply out of
      * order and show an older library over a newer one.
+     *
+     * One thread at most, in submission order, as newSingleThreadExecutor
+     * gave; but its thread ends after a short idle spell, so a screen that
+     * is gone (each rotation or theme change makes a new one) does not keep
+     * a parked thread for the rest of the process. Not shut down in
+     * onDestroy: a late refresh() or star write would then be refused.
      */
-    private val libraryLoader = java.util.concurrent.Executors.newSingleThreadExecutor {
-        Thread(it, "library-load")
-    }
+    private val libraryLoader = java.util.concurrent.ThreadPoolExecutor(
+        1,
+        1,
+        LIBRARY_LOADER_IDLE_S,
+        java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue()
+    ) { Thread(it, "library-load") }.apply { allowCoreThreadTimeOut(true) }
 
     private fun refresh() {
         // Listing reads and JSON-parses EVERY meeting file, every segment
@@ -1264,8 +1279,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Flags a meeting for follow-up. Written against a freshly loaded copy so
-     * a list that has been open for a while cannot push stale content back.
+     * Flags a meeting for follow-up. Shown at once, and written against a
+     * freshly loaded copy so a list that has been open for a while cannot
+     * push stale content back.
      */
     private fun toggleStar(meeting: Meeting) {
         // The recording service rewrites the live meeting from its own copy
@@ -1278,9 +1294,30 @@ class MainActivity : AppCompatActivity() {
         val starred = !meeting.starred
         // Under the store's write lock: a plain load-then-save here could
         // interleave with a background writer and undo its work (or lose this).
-        if (!store.mutate(meeting.id) { it.starred = starred }) {
-            refresh()
-            return
+        // On the library worker, not here: the write waits for whichever
+        // writer holds that process-wide lock (an import batch, a
+        // recording's snapshot) and then parses and rewrites the whole
+        // meeting, which a long one makes a stall the list would freeze for.
+        // The value, not a toggle, so taps in a row settle on the last one;
+        // a failed write reloads the list, which puts the stored star back.
+        libraryLoader.execute {
+            val saved = try {
+                store.mutateIf(meeting.id) {
+                    if (it.starred == starred) {
+                        false
+                    } else {
+                        it.starred = starred
+                        true
+                    }
+                }
+            } catch (_: Exception) {
+                false
+            }
+            if (!saved) {
+                runOnUiThread {
+                    if (!isFinishing && !isDestroyed) refresh()
+                }
+            }
         }
         meeting.starred = starred // the list holds this instance
         // Chips first: unflagging the last flagged meeting drops the Flagged
@@ -1335,15 +1372,19 @@ class MainActivity : AppCompatActivity() {
             (SummaryService.isRunning && SummaryService.currentMeetingId == meetingId) ||
             (ImportService.isRunning && ImportService.currentMeetingId == meetingId) ||
             ClearVoiceService.isPreparing(meetingId) ||
-            PassageService.isRemoving(meetingId)
+            PassageService.isRemoving(meetingId) ||
+            AlignService.isAligning(meetingId)
 
     private fun isRecording(meetingId: String): Boolean =
         RecordingService.isRunning && store.activeId() == meetingId
 
     /** Why [isBusy] holds a delete back, in words that name the job. */
-    private fun busyDeleteText(meetingId: String): Int =
-        if (ClearVoiceService.isPreparing(meetingId)) R.string.clearvoice_busy
-        else R.string.meeting_busy_delete
+    private fun busyDeleteText(meetingId: String): Int = when {
+        ClearVoiceService.isPreparing(meetingId) -> R.string.clearvoice_busy
+        PassageService.isRemoving(meetingId) -> R.string.passage_blocked_running
+        AlignService.isAligning(meetingId) -> R.string.align_busy_running
+        else -> R.string.meeting_busy_delete
+    }
 
     /**
      * True when nothing this app does with a recording would leave the phone
@@ -1438,6 +1479,9 @@ class MainActivity : AppCompatActivity() {
 
         /** Quiet time after the last keystroke before the library is searched. */
         private const val SEARCH_DEBOUNCE_MS = 150L
+
+        /** Idle seconds after which the library-load thread ends (a new one starts on demand). */
+        private const val LIBRARY_LOADER_IDLE_S = 30L
 
         /**
          * Works out the interrupted-work prompt (offerInterruptedWork) one

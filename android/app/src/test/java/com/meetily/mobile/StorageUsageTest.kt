@@ -1,5 +1,6 @@
 package com.meetily.mobile
 
+import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.StorageUsage
 import com.meetily.mobile.data.StorageUsage.Area
 import com.meetily.mobile.data.StorageUsage.Entry
@@ -160,6 +161,37 @@ class StorageUsageTest {
             1,
             StorageUsage.unusedModels(onDisk, mapOf(Kind.TRANSCRIPTION to setOf("qwen"))).size
         )
+    }
+
+    @Test
+    fun unfinishedTranscriptsKeepTheModelTheyContinueWith() {
+        fun m(id: String, model: String?, resumeMs: Long?, audio: String? = "$id.aac") =
+            Meeting(id = id, title = id, createdAtMs = 1L).apply {
+                transcriptModel = model
+                transcriptResumeMs = resumeMs
+                audioFile = audio
+            }
+        val meetings = listOf(
+            // Stopped part-way: Continue needs its model.
+            m("a", "medium", 2_530_000L),
+            m("b", "parakeet-tdt-v3", 0L),
+            // Finished: nothing to continue.
+            m("c", "large-v3", null),
+            // Unfinished, but its audio is gone: it can never be continued.
+            m("d", "small", 60_000L, audio = null),
+            // No model recorded: Continue uses the current one.
+            m("e", null, 60_000L),
+            m("f", " ", 60_000L)
+        )
+        val keys = StorageUsage.modelsToContinue(meetings) { it.audioFile != null }
+        assertEquals(setOf("medium", "parakeet-tdt-v3"), keys)
+        // Protected from "Delete unused models" once in the in-use set.
+        val onDisk = listOf(
+            StorageUsage.ModelOnDisk(Family.WHISPER, "medium", "Medium", 1_500),
+            StorageUsage.ModelOnDisk(Family.WHISPER, "small", "Small", 480)
+        )
+        val unused = StorageUsage.unusedModels(onDisk, mapOf(Kind.TRANSCRIPTION to setOf("base.en") + keys))
+        assertEquals(listOf("small"), unused.map { it.key })
     }
 
     @Test

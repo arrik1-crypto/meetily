@@ -73,6 +73,13 @@ class SettingsActivity : AppCompatActivity() {
      */
     private var systemEngineConfirmed = false
 
+    /**
+     * The file the picker made for an encrypted backup while its passphrase
+     * is asked for. Kept across recreation, so a rotation (or the process
+     * being stopped) asks again rather than leaving that file empty.
+     */
+    private var pendingEncryptedBackup: Uri? = null
+
     private val exportBackup =
         registerForActivityResult(ActivityResultContracts.CreateDocument("application/zip")) { uri ->
             uri?.let { writeBackup(it, null) }
@@ -506,6 +513,10 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(this, R.string.settings_saved, Toast.LENGTH_SHORT).show()
             if (!askLocalNetworkAfterSave()) finish()
         }
+
+        // An encrypted backup's passphrase was being asked for when this
+        // screen was re-created: ask again for the file the picker made.
+        savedInstanceState?.getString(KEY_PENDING_BACKUP)?.let { promptExportPassphrase(Uri.parse(it)) }
     }
 
     /** A local network question is under way; Save waits for it. */
@@ -658,8 +669,12 @@ class SettingsActivity : AppCompatActivity() {
 
     /** On every resume too: the Storage screen can change the rule. */
     private fun renderRetentionSummary() {
+        // With a batch the daily run held back for review, which Storage
+        // and clean-up opens: its notification may never have shown.
+        val pending = RetentionUi.pendingNote(this)
+        val summary = RetentionUi.summary(this, RetentionRunner.rule(this))
         findViewById<TextView>(R.id.settingsRetentionSummary).text =
-            RetentionUi.summary(this, RetentionRunner.rule(this))
+            if (pending == null) summary else summary + "\n" + pending
     }
 
     /**
@@ -879,6 +894,7 @@ class SettingsActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putBoolean(KEY_SYSTEM_ENGINE_OK, systemEngineConfirmed)
+        pendingEncryptedBackup?.let { outState.putString(KEY_PENDING_BACKUP, it.toString()) }
     }
 
     private fun persistAll() {
@@ -1184,54 +1200,94 @@ class SettingsActivity : AppCompatActivity() {
             addView(pass)
             addView(repeat)
         }
-        AlertDialog.Builder(this)
+        pendingEncryptedBackup = destination
+        // The destination file already exists by now: the picker made it.
+        // Every way out of this question other than a backup written into
+        // it removes that file (or says to), so an empty file is never left
+        // looking like a backup, which is the failure this reordering
+        // exists to remove.
+        val dialog = AlertDialog.Builder(this)
             .setTitle(R.string.backup_encrypt_yes)
             .setView(container)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val p = pass.text.toString()
-                when {
-                    p.length < 6 -> Toast.makeText(
-                        this, R.string.backup_passphrase_short, Toast.LENGTH_LONG
-                    ).show()
-                    p != repeat.text.toString() -> Toast.makeText(
-                        this, R.string.backup_passphrase_mismatch, Toast.LENGTH_LONG
-                    ).show()
-                    else -> writeBackup(destination, p.toCharArray())
+            // Set again once shown, so a passphrase that is too short or
+            // does not match keeps the question up rather than ending it.
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel) { _, _ -> abandonEncryptedBackup(destination) }
+            // Back, or a tap outside: the same as Cancel.
+            .setOnCancelListener { abandonEncryptedBackup(destination) }
+            .show()
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+            val p = pass.text.toString()
+            when {
+                p.length < 6 -> pass.error = getString(R.string.backup_passphrase_short)
+                p != repeat.text.toString() -> repeat.error = getString(R.string.backup_passphrase_mismatch)
+                else -> {
+                    pendingEncryptedBackup = null
+                    dialog.dismiss()
+                    writeBackup(destination, p.toCharArray())
                 }
             }
-            // The destination file already exists by now — the picker made
-            // it. Say so rather than leaving an empty file looking like a
-            // backup, which is the failure this reordering exists to remove.
-            .setNegativeButton(android.R.string.cancel) { _, _ ->
-                Toast.makeText(this, R.string.backup_cancelled_empty, Toast.LENGTH_LONG)
-                    .show()
+        }
+    }
+
+    /**
+     * The encrypted backup's passphrase was not given: the empty file the
+     * picker made for it is deleted, or, when its provider refuses, the
+     * user is told to delete it.
+     */
+    private fun abandonEncryptedBackup(destination: Uri) {
+        pendingEncryptedBackup = null
+        val app = applicationContext
+        Thread {
+            val removed = deleteDocument(app, destination)
+            runOnUiThread {
+                Toast.makeText(
+                    app,
+                    if (removed) R.string.backup_cancelled else R.string.backup_cancelled_empty,
+                    Toast.LENGTH_LONG
+                ).show()
             }
-            .show()
+        }.start()
+    }
+
+    /** Deletes the document [uri] names; false when its provider would not. */
+    private fun deleteDocument(context: Context, uri: Uri): Boolean = try {
+        android.provider.DocumentsContract.deleteDocument(context.contentResolver, uri)
+    } catch (_: Exception) {
+        false
     }
 
     private fun writeBackup(uri: Uri, passphrase: CharArray?) {
+        // The application's context throughout: an export with audio runs
+        // for minutes, and its result still has to show (and a failed one
+        // still has to be cleared up) once this screen has closed.
+        val app = applicationContext
         Thread {
             val error = try {
-                contentResolver.openOutputStream(uri)?.use {
+                app.contentResolver.openOutputStream(uri)?.use {
                     if (passphrase != null) {
-                        BackupManager.exportEncrypted(this, it, passphrase)
+                        BackupManager.exportEncrypted(app, it, passphrase)
                     } else {
-                        BackupManager.export(this, it)
+                        BackupManager.export(app, it)
                     }
-                } ?: throw RuntimeException(getString(R.string.platform_error_no_destination))
+                } ?: throw RuntimeException(app.getString(R.string.platform_error_no_destination))
                 null
             } catch (e: Exception) {
-                e.message ?: getString(R.string.platform_error_unknown)
+                e.message ?: app.getString(R.string.platform_error_unknown)
+            }
+            // What a failed export wrote is not a backup, yet a plain zip cut
+            // short can still restore as if it were whole: it goes, or the
+            // user is told it is incomplete.
+            val removed = error != null && deleteDocument(app, uri)
+            val message = when {
+                error == null -> app.getString(R.string.backup_done)
+                removed -> app.getString(R.string.backup_failed, error)
+                else -> app.getString(R.string.backup_failed_partial, error)
             }
             runOnUiThread {
-                if (isFinishing || isDestroyed) return@runOnUiThread
-                if (error == null) {
-                    Toast.makeText(this, R.string.backup_done, Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(
-                        this, getString(R.string.backup_failed, error), Toast.LENGTH_LONG
-                    ).show()
-                }
+                Toast.makeText(
+                    app, message, if (error == null) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                ).show()
             }
         }.start()
     }
@@ -1288,13 +1344,59 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
+    /**
+     * Counts the backup's meetings that are on this phone too and, when
+     * there are any, asks whether the backup's copies replace them before
+     * anything is written: a replaced meeting loses every change made here
+     * since the backup, with no undo. A wrong passphrase shows here, before
+     * the question.
+     */
     private fun doRestore(uri: Uri, passphrase: CharArray?) {
+        Thread {
+            var onPhone = 0
+            val error = try {
+                onPhone = contentResolver.openInputStream(uri)?.use {
+                    BackupManager.countOnPhone(this, it, passphrase)
+                } ?: throw RuntimeException(getString(R.string.platform_error_read_failed))
+                null
+            } catch (e: BackupCrypto.WrongPassphraseException) {
+                getString(R.string.restore_wrong_passphrase)
+            } catch (e: Exception) {
+                e.message ?: getString(R.string.platform_error_unknown)
+            }
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                when {
+                    error != null -> Toast.makeText(
+                        this, getString(R.string.restore_failed, error), Toast.LENGTH_LONG
+                    ).show()
+                    onPhone == 0 -> runRestore(uri, passphrase, replaceExisting = false)
+                    else -> AlertDialog.Builder(this)
+                        .setTitle(R.string.restore_conflict_title)
+                        .setMessage(
+                            resources.getQuantityString(R.plurals.restore_conflict_message, onPhone, onPhone)
+                        )
+                        // Keeping is the answer that loses nothing.
+                        .setPositiveButton(R.string.restore_keep_phone) { _, _ ->
+                            runRestore(uri, passphrase, replaceExisting = false)
+                        }
+                        .setNegativeButton(R.string.restore_replace) { _, _ ->
+                            runRestore(uri, passphrase, replaceExisting = true)
+                        }
+                        .setNeutralButton(android.R.string.cancel, null)
+                        .show()
+                }
+            }
+        }.start()
+    }
+
+    private fun runRestore(uri: Uri, passphrase: CharArray?, replaceExisting: Boolean) {
         Thread {
             var result = BackupManager.Restored(0, 0)
             val error = try {
                 result = contentResolver.openInputStream(uri)?.use {
-                    BackupManager.import(this, it, passphrase)
-                } ?: throw RuntimeException("could not open file")
+                    BackupManager.import(this, it, passphrase, replaceExisting)
+                } ?: throw RuntimeException(getString(R.string.platform_error_read_failed))
                 // Restored reminders have no alarm armed yet, and any already
                 // due would otherwise wait for the next cold start and then be
                 // dropped as past. Best effort: the restore itself succeeded.
@@ -1314,10 +1416,15 @@ class SettingsActivity : AppCompatActivity() {
                     // A partly-restored backup has to say so. Reporting only
                     // the successes is how a user comes to trust an archive
                     // that is missing pieces.
-                    val message = if (result.skipped > 0) {
+                    var message = if (result.skipped > 0) {
                         getString(R.string.restore_done_skipped, result.meetings, result.skipped)
                     } else {
                         getString(R.string.restore_done, result.meetings)
+                    }
+                    if (result.keptOnPhone > 0) {
+                        message += "\n" + resources.getQuantityString(
+                            R.plurals.restore_kept_phone, result.keptOnPhone, result.keptOnPhone
+                        )
                     }
                     if (result.leftInTrash > 0) {
                         // Deleted here since the backup was made, and left
@@ -1475,7 +1582,7 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure() // lists people's names
     }
 
     private fun confirmDeleteVoice(name: String) {
@@ -1486,7 +1593,7 @@ class SettingsActivity : AppCompatActivity() {
                 updateVoicesStatus()
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure() // names the person
     }
 
     private fun startEnrollment() {
@@ -2068,5 +2175,8 @@ class SettingsActivity : AppCompatActivity() {
 
         /** Saved-state key for [systemEngineConfirmed]. */
         private const val KEY_SYSTEM_ENGINE_OK = "sys_engine_ok"
+
+        /** Saved-state key for [pendingEncryptedBackup]. */
+        private const val KEY_PENDING_BACKUP = "pending_encrypted_backup"
     }
 }
