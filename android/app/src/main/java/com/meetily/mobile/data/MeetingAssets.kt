@@ -36,6 +36,8 @@ object MeetingAssets {
         // before its suggestions were reviewed.
         SpeakerSuggestions.delete(context, meeting.id)
         deletePassageLeftovers(context, meeting.id)
+        // A long meeting shared as a file left the whole of it in the cache.
+        com.meetily.mobile.export.MeetingShareFile.deleteFor(context, meeting.id)
     }
 
     /**

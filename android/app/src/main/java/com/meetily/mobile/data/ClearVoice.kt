@@ -84,4 +84,34 @@ object ClearVoice {
 
     /** True when a copy of [durationMs] of audio asks first (see [LONG_MEETING_MS]). */
     fun isLong(durationMs: Long): Boolean = durationMs >= LONG_MEETING_MS
+
+    /**
+     * Keeps the copy on the recording's timeline. Encoding it and decoding
+     * it again delays the sound by [delay] samples (the encoder's priming,
+     * measured on the phone as a passage run measures it), so the first
+     * [delay] samples of the stream are not encoded: the priming takes their
+     * place, and every later sample decodes at its own time. As many zeros
+     * follow the last sample ([tail]), so the encoder lets go of all of the
+     * audio before it stops and the copy is no shorter than the recording.
+     * What is dropped is the decoded recording's own first [delay] samples,
+     * which on a live recording are its encoder's priming too.
+     */
+    class DelayTrim(val delay: Int) {
+        init {
+            require(delay >= 0) { "delay" }
+        }
+
+        private var held = 0L
+
+        /** How many of the next [count] samples of the stream, from their start, are not encoded. */
+        fun skip(count: Int): Int {
+            if (count <= 0 || held >= delay) return 0
+            val n = minOf(delay - held, count.toLong()).toInt()
+            held += n
+            return n
+        }
+
+        /** Zeros encoded after the stream's last sample. */
+        val tail: Int get() = delay
+    }
 }

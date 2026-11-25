@@ -8,8 +8,16 @@ name: Release Android (signed AAB)
 #   ANDROID_KEY_PASSWORD      - key password
 # When the keystore secret is absent the job fails early with a hint, rather
 # than silently shipping a debug-signed bundle.
+#
+# Started by pushing a tag named android-v<versionName> (for example
+# android-v3.21.0) on the commit to release, from any branch: a tag push runs
+# the workflow file of the tagged commit. "Run workflow" (workflow_dispatch)
+# only appears once this file is on the default branch.
 
 on:
+  push:
+    tags:
+      - "android-v*"
   workflow_dispatch:
 
 permissions:
@@ -22,6 +30,21 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # The build runs fetched third-party CMake; leave it no token.
+          persist-credentials: false
+
+      # A tag that does not name the version being built is most likely a
+      # tag on the wrong commit. Said, not failed: the bundle is still what
+      # that commit builds.
+      - name: Check tag against versionName
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        run: |
+          version=$(grep -m1 'versionName' android/app/build.gradle.kts \
+            | sed 's/.*"\(.*\)".*/\1/')
+          if [ "${GITHUB_REF_NAME}" != "android-v${version}" ]; then
+            echo "::warning::tag ${GITHUB_REF_NAME} does not match versionName ${version} (expected android-v${version})"
+          fi
 
       - name: Verify signing secret is present
         env:
@@ -42,13 +65,12 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
-      - name: Decode keystore
-        env:
-          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-        run: echo "$KEYSTORE_B64" | base64 -d > android/upload.keystore
-
       - name: Fetch sherpa-onnx native libs
         run: bash android/scripts/fetch_sherpa_libs.sh
+        env:
+          # As in build-android.yml: authenticates the release-API fallback
+          # path; avoids anonymous rate limits on runners.
+          GH_TOKEN: ${{ github.token }}
 
       # Every native of the vendored Kotlin API exported by both ABIs, 16 KB
       # LOAD alignment, nothing NEEDed that is not packaged, versions in step.
@@ -76,6 +98,13 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon testReleaseUnitTest
 
+      # Decoded only now, for the one step that signs, and removed straight
+      # after it, so the key is on disk for as little of the job as possible.
+      - name: Decode keystore
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_B64" | base64 -d > android/upload.keystore
+
       - name: Build signed AAB and APK
         working-directory: android
         env:
@@ -92,6 +121,10 @@ jobs:
           ./gradlew --no-daemon -PuncompressedNativeLibs bundleRelease
           ./gradlew --no-daemon assembleRelease
 
+      - name: Remove keystore
+        if: always()
+        run: rm -f android/upload.keystore
+
       # Same check as build-android.yml, on the Play bundle too: the JNI
       # library (one per CPU level) must export its Java_ entry points and
       # nothing else. Also prints each library's size and lists the symbol
@@ -102,6 +135,29 @@ jobs:
             --symbols android/app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip \
             android/app/build/outputs/bundle/release/*.aab \
             android/app/build/outputs/apk/release/*.apk
+
+      # Play requires 16 KB page support: every LOAD segment of every native
+      # library aligned to at least 16 KB (ELF p_align >= 0x4000), on both
+      # 64-bit ABIs (16 KB pages exist only there; other ABIs a library's
+      # AAR brings are listed, not checked). The bundle is what Play installs
+      # from, so it must carry both; the sideload APKs are one ABI each, so
+      # both together. The self-test first: the checker against built-in
+      # good and bad ELF images.
+      - name: Check 16 KB alignment of native libraries
+        run: |
+          python3 android/scripts/check_16kb_alignment.py --self-test
+          python3 android/scripts/check_16kb_alignment.py \
+            --abi arm64-v8a --abi x86_64 \
+            android/app/build/outputs/bundle/release/*.aab
+          python3 android/scripts/check_16kb_alignment.py \
+            --abi arm64-v8a --abi x86_64 \
+            android/app/build/outputs/apk/release/*.apk
+
+      # As in build-android.yml, on the sideload APKs.
+      - name: Check baseline profile
+        run: |
+          python3 android/scripts/check_baseline_profile.py --self-test
+          python3 android/scripts/check_baseline_profile.py android/app/build/outputs/apk/release/*.apk
 
       # The symbols go along too: the bundle carries them for Play, but the
       # sideload APK does not, and with only Java_ entry points exported a
@@ -117,7 +173,3 @@ jobs:
             android/app/build/outputs/native-debug-symbols/release/native-debug-symbols.zip
           if-no-files-found: error
           retention-days: 30
-
-      - name: Remove keystore
-        if: always()
-        run: rm -f android/upload.keystore

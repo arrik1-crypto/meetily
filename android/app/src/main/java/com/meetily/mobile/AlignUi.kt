@@ -240,7 +240,12 @@ class AlignUi(
      */
     private fun download() {
         val model = AlignerModels.DEFAULT
-        ModelSpaceCheck.confirm(activity, listOf(AlignerModels.spaceNeededMb(activity, model))) {
+        // Behind any model download running or waiting, too: this one
+        // only starts once they have taken their room.
+        val sizes = ModelSpaceCheck.sizesFor(
+            ModelDownloadService.KIND_ALIGN, model.key, AlignerModels.spaceNeededMb(activity, model)
+        )
+        ModelSpaceCheck.confirm(activity, sizes) {
             FitBadge.confirmChoice(
                 activity, model.displayName,
                 DeviceProbe.verdict(activity, AlignerModels.need(model)),

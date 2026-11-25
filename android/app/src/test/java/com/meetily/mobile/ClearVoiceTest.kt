@@ -20,8 +20,9 @@ import org.junit.Test
 /**
  * The clear-voice copy's bookkeeping: its name beside the recording, when a
  * meeting may play it, how it is stored on the meeting and survives a
- * three-way merge, what it counts for in storage, and that a backup cannot
- * use the field to reach another file.
+ * three-way merge, what it counts for in storage, that a backup cannot
+ * use the field to reach another file, and that the codec's delay is taken
+ * off its start so it decodes on the recording's timeline.
  */
 class ClearVoiceTest {
 
@@ -230,5 +231,61 @@ class ClearVoiceTest {
         assertEquals(600_000L, requeued.resumeFromMs)
         // One on the recording stays on the recording.
         assertFalse(JobQueue.chargingRequeue("m1", "base", 3L, false, "", 600_000L).clearVoice)
+    }
+
+    @Test
+    fun theDelayIsHeldBackFromTheStartAcrossWrites() {
+        val trim = ClearVoice.DelayTrim(1500)
+        assertEquals(1024, trim.skip(1024))
+        assertEquals(476, trim.skip(1024))
+        assertEquals(0, trim.skip(1024))
+        assertEquals(0, trim.skip(0))
+        assertEquals(1500, trim.tail)
+        // No delay measured as zero: nothing is held back or added.
+        val none = ClearVoice.DelayTrim(0)
+        assertEquals(0, none.skip(1024))
+        assertEquals(0, none.tail)
+    }
+
+    /**
+     * The copy as a codec that delays everything by [delay] samples gives it
+     * back: its priming, then what it was fed. One that does not flush at the
+     * end gives back only as many samples as it was fed.
+     */
+    private fun roundTrip(input: FloatArray, chunk: Int, delay: Int, flushes: Boolean): FloatArray {
+        val trim = ClearVoice.DelayTrim(delay)
+        val fed = ArrayList<Float>()
+        var at = 0
+        while (at < input.size) {
+            val n = minOf(chunk, input.size - at)
+            val skip = trim.skip(n)
+            for (i in at + skip until at + n) fed.add(input[i])
+            at += n
+        }
+        repeat(trim.tail) { fed.add(0f) }
+        val decoded = FloatArray(delay) + fed.toFloatArray()
+        return if (flushes) decoded else decoded.copyOf(fed.size)
+    }
+
+    @Test
+    fun theCopyDecodesOnTheRecordingsTimelineAndKeepsItsEnd() {
+        val input = FloatArray(10_000) { (it % 97 + 1) / 100f }
+        for (delay in intArrayOf(0, 1, 1024, 2048, 5120)) {
+            for (flushes in booleanArrayOf(true, false)) {
+                val decoded = roundTrip(input, chunk = 3000, delay = delay, flushes = flushes)
+                assertTrue("delay $delay: the copy is cut short", decoded.size >= input.size)
+                // Every sample after the priming decodes at its own time, the last one too.
+                for (n in delay until input.size) {
+                    assertEquals("delay $delay, sample $n", input[n], decoded[n], 0f)
+                }
+            }
+        }
+    }
+
+    @Test
+    fun aRecordingShorterThanTheDelayStillGivesACopyAsLong() {
+        val input = FloatArray(500) { 0.5f }
+        val decoded = roundTrip(input, chunk = 160, delay = 2048, flushes = false)
+        assertTrue(decoded.size >= input.size)
     }
 }

@@ -17,6 +17,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.meetily.mobile.data.HttpRangeTransport
 import com.meetily.mobile.licences.ModelTerms
 import com.meetily.mobile.llm.LocalLlmModels
 import com.meetily.mobile.whisper.AlignerModels
@@ -32,15 +33,20 @@ import com.meetily.mobile.whisper.WhisperModels
  * Downloads run one at a time (parallel downloads share the same pipe and
  * finish no sooner overall), but further requests QUEUE: the user can tap a
  * whisper model, a speaker model, and an LLM back-to-back and they download
- * consecutively under one notification. Cancel stops the current download
- * and drops the queue.
+ * consecutively under one notification. Cancel (on the notification, or
+ * under the progress bar in Settings) stops the current download and drops
+ * the queue.
  */
 class ModelDownloadService : Service() {
 
     interface Observer {
         fun onDownloadProgress(kind: String, key: String, percent: Int)
 
-        /** error == null means the model finished downloading (or was cancelled). */
+        /**
+         * error == null means the model finished downloading, or the user
+         * cancelled it ([cancelled]). When Android's daily time limit stopped
+         * it, [cancelled] is false and [error] says so.
+         */
         fun onDownloadDone(kind: String, key: String, cancelled: Boolean, error: String?)
 
         /** A request arrived while another download runs; it waits in line. */
@@ -61,9 +67,36 @@ class ModelDownloadService : Service() {
             }
         }
 
-    @Volatile private var cancelled = false
-    @Volatile var percent = 0
-        private set
+    /**
+     * One download. Its flags belong to it alone: a cancel, or Android's
+     * time limit, marks the run it was aimed at, and the download thread
+     * polls only its own run's flag. With one shared flag, a download
+     * started on this instance while a cancelled one was still unwinding
+     * reset that flag, and the run it was meant to stop carried on.
+     */
+    private class Run(val kind: String, val key: String) {
+        @Volatile var cancelled = false
+
+        /** Stopped by Android's dataSync time limit (onTimeout), not the user. */
+        @Volatile var timedOut = false
+    }
+
+    /** The download running, or the last one to run. Written on the main thread. */
+    @Volatile private var run: Run? = null
+
+    /**
+     * onTimeout took the service out of the foreground while its run winds
+     * down. A start that arrives meanwhile has to bring it back first: it
+     * was made with startForegroundService. Main thread.
+     */
+    private var leftForeground = false
+
+    /** The current download's progress; see [currentPercent]. */
+    var percent: Int
+        get() = currentPercent
+        private set(value) {
+            currentPercent = value
+        }
     @Volatile private var wakeLock: PowerManager.WakeLock? = null
     @Volatile private var wakeLockAcquiredMs = 0L
     private val main = Handler(Looper.getMainLooper())
@@ -92,9 +125,7 @@ class ModelDownloadService : Service() {
         when (intent?.action) {
             ACTION_CANCEL -> {
                 // Cancel means "stop downloading models": current + queued.
-                cancelled = true
-                dropQueue()
-                publishQueue()
+                cancelAll()
                 // With this start's id: a bare stopSelf() would also drop a
                 // start still on its way (a model picked as the last one
                 // ended), which then never reaches startForeground.
@@ -108,13 +139,27 @@ class ModelDownloadService : Service() {
                 val key = intent.getStringExtra(EXTRA_KEY).orEmpty()
                 if (kind.isBlank() || key.isBlank()) return START_NOT_STICKY
                 if (isRunning) {
+                    if (leftForeground && !reenterForeground()) {
+                        // Android's time limit for this kind of work is
+                        // still spent: nothing can download now, so nothing
+                        // stays parked behind this request.
+                        try {
+                            PendingModelSelection.onDownloadsDropped(this, listOf(kind to key))
+                        } catch (_: Exception) {
+                        }
+                        observer?.onDownloadDone(
+                            kind, key, false, getString(R.string.devicefit_download_not_started)
+                        )
+                        return START_NOT_STICKY
+                    }
                     // Queue behind the current download unless it's already
                     // running or waiting. A cancelled download that is still
                     // unwinding (a stalled read can take a minute to notice)
                     // is not "already running": re-picking that model must
                     // queue, and finishRun starts whatever arrived after the
                     // cancel instead of dropping it.
-                    val duplicate = (!cancelled && currentKind == kind && currentKey == key) ||
+                    val stopping = run?.cancelled == true
+                    val duplicate = (!stopping && currentKind == kind && currentKey == key) ||
                         queue.any { it.first == kind && it.second == key }
                     if (!duplicate) {
                         queue.add(kind to key)
@@ -124,7 +169,11 @@ class ModelDownloadService : Service() {
                     }
                     return START_NOT_STICKY
                 }
-                cancelled = false
+                // A run of an earlier session on this instance (a bound
+                // Settings keeps it) is over: nothing of it carries over.
+                run = null
+                currentStopping = false
+                leftForeground = false
                 finished.clear()
                 liveUpdateDismissed = false
                 isRunning = true
@@ -161,6 +210,9 @@ class ModelDownloadService : Service() {
 
     private fun runDownload(kind: String, key: String) {
         val name = displayName(kind, key)
+        val run = Run(kind, key)
+        this.run = run
+        currentStopping = false
         Thread {
             var error: String? = null
             // Per-run throttle, local to this thread (onProgress is called
@@ -173,10 +225,12 @@ class ModelDownloadService : Service() {
                     // Published unthrottled: the observer setter replays this
                     // to late binders, so it must never read stale.
                     percent = p
-                    if (throttle.shouldPost(p, SystemClock.uptimeMillis())) {
+                    // A cancelled run reports nothing more: Settings and the
+                    // notification say it is stopping until it has ended.
+                    if (!run.cancelled && throttle.shouldPost(p, SystemClock.uptimeMillis())) {
                         renewWakeLockIfStale()
                         main.post {
-                            if (isRunning) {
+                            if (isRunning && !run.cancelled) {
                                 observer?.onDownloadProgress(kind, key, p)
                                 updateNotification(name, p)
                             }
@@ -189,23 +243,23 @@ class ModelDownloadService : Service() {
                 ModelTerms.requireAccepted(this, key)
                 when (kind) {
                     KIND_DIARIZE -> DiarizationModels.download(
-                        this, DiarizationModels.byKey(key), onProgress, { cancelled }
+                        this, DiarizationModels.byKey(key), onProgress, { run.cancelled }
                     )
                     KIND_LLM -> LocalLlmModels.download(
-                        this, LocalLlmModels.byKey(key), onProgress, { cancelled }
+                        this, LocalLlmModels.byKey(key), onProgress, { run.cancelled }
                     )
                     KIND_ALIGN -> AlignerModels.download(
-                        this, AlignerModels.byKey(key), onProgress, { cancelled }
+                        this, AlignerModels.byKey(key), onProgress, { run.cancelled }
                     )
                     else -> {
                         val nemo = com.meetily.mobile.whisper.NemoModels.byKeyOrNull(key)
                         if (nemo != null) {
                             com.meetily.mobile.whisper.NemoModels.download(
-                                this, nemo, onProgress, { cancelled }
+                                this, nemo, onProgress, { run.cancelled }
                             )
                         } else {
                             WhisperModels.download(
-                                this, WhisperModels.byKey(key), onProgress, { cancelled }
+                                this, WhisperModels.byKey(key), onProgress, { run.cancelled }
                             )
                         }
                     }
@@ -216,30 +270,46 @@ class ModelDownloadService : Service() {
             } catch (e: Exception) {
                 error = e.message ?: getString(R.string.platform_error_network)
             }
-            main.post { finishRun(kind, key, name, error) }
+            main.post { finishRun(run, name, error) }
         }.apply {
             this.name = "model-download"
             start()
         }
     }
 
-    private fun finishRun(kind: String, key: String, name: String, error: String?) {
+    private fun finishRun(run: Run, name: String, error: String?) {
+        val kind = run.kind
+        val key = run.key
+        val cancelled = run.cancelled
         // A model picked while it was still downloading becomes the live
         // selection only now that it is on disk (or is forgotten if the
         // download failed). Done here rather than in Settings so it happens
         // even when nobody is observing — Settings closed or destroyed —
         // and before the observer refreshes, so it renders the new choice.
-        try {
-            PendingModelSelection.onDownloadFinished(this, kind, key, cancelled, error)
-        } catch (_: Exception) {
+        // Not for a cancelled run whose model was picked again since: that
+        // request waits in the queue, and its own end settles the pick.
+        if (!DownloadRunEnd.leaveToRetry(cancelled, kind, key, queue)) {
+            try {
+                PendingModelSelection.onDownloadFinished(this, kind, key, cancelled, error)
+            } catch (_: Exception) {
+            }
+            // "Download both" on the first-run setup step switches on-device
+            // AI on now that its model is here, or forgets that if it failed.
+            try {
+                OnDeviceAiSetup.onDownloadFinished(this, kind, key, cancelled, error)
+            } catch (_: Exception) {
+            }
         }
-        // "Download both" on the first-run setup step switches on-device AI
-        // on now that its model is here, or forgets that if it failed.
-        try {
-            OnDeviceAiSetup.onDownloadFinished(this, kind, key, cancelled, error)
-        } catch (_: Exception) {
-        }
-        observer?.onDownloadDone(kind, key, cancelled, error)
+        // A cancel is the user's own doing, so it reports no error, even when
+        // the read it broke ended in one; Android's time limit is explained.
+        val userCancelled = cancelled && !run.timedOut
+        observer?.onDownloadDone(
+            kind, key, userCancelled,
+            DownloadRunEnd.reportedError(
+                userCancelled, run.timedOut, error, getString(R.string.devicefit_download_timeout)
+            )
+        )
+        // A timed-out run is already in the list, with its explanation (onTimeout).
         if (!cancelled) finished.add(name to error)
 
         // Chain into the next queued download. Cancel empties the queue on
@@ -248,7 +318,6 @@ class ModelDownloadService : Service() {
         // cancel end with the run it was aimed at.
         val next = queue.removeFirstOrNull()
         if (next != null) {
-            cancelled = false
             publishQueue()
             currentKind = next.first
             currentKey = next.second
@@ -259,8 +328,10 @@ class ModelDownloadService : Service() {
                 wakeLockAcquiredMs = SystemClock.elapsedRealtime()
             } catch (_: Exception) {
             }
-            updateNotification(displayName(next.first, next.second), 0)
+            // Started first, so the notification is the new run's, not the
+            // "stopping" of a cancelled one.
             runDownload(next.first, next.second)
+            updateNotification(displayName(next.first, next.second), 0)
             return
         }
 
@@ -273,6 +344,8 @@ class ModelDownloadService : Service() {
         publishQueue()
         stopForegroundCompat()
         if (!cancelled) postCompletionNotification()
+        leftForeground = false
+        currentStopping = false
         isRunning = false
         stopSelf()
     }
@@ -296,12 +369,60 @@ class ModelDownloadService : Service() {
         }
     }
 
+    /**
+     * Settings' Cancel under a download's progress: the same as the
+     * notification's, which a phone with Recap's notifications turned off
+     * never shows. Main thread.
+     */
     fun requestCancel() {
-        cancelled = true
-        main.post {
-            dropQueue()
-            publishQueue()
+        cancelAll()
+    }
+
+    /**
+     * Cancel: stops the current download and drops the queue. The run is
+     * marked at once and its connection broken, so it ends within moments
+     * rather than when a stalled connect or read gives up; until it has,
+     * the notification says it is stopping. Main thread.
+     */
+    private fun cancelAll() {
+        val current = run
+        if (isRunning && current != null && !current.cancelled) {
+            current.cancelled = true
+            currentStopping = true
+            abortConnections()
+            updateNotification(displayName(current.kind, current.key), percent)
         }
+        dropQueue()
+        publishQueue()
+    }
+
+    /**
+     * Breaks the model download connections open now (HttpRangeTransport),
+     * off the main thread, since closing a TLS connection can write to it.
+     * Which connections is decided here, so a download started after this
+     * call is never touched.
+     */
+    private fun abortConnections() {
+        val disconnect = HttpRangeTransport.abort()
+        Thread(disconnect).apply {
+            name = "model-download-abort"
+            start()
+        }
+    }
+
+    /**
+     * Brings the service back into the foreground after onTimeout took it
+     * out, for a start that arrives while the timed-out run winds down.
+     * False when Android refuses: its time limit for this kind of work is
+     * still spent.
+     */
+    private fun reenterForeground(): Boolean = try {
+        createChannel()
+        startForegroundCompat(buildNotification(displayName(currentKind, currentKey), percent))
+        leftForeground = false
+        true
+    } catch (_: Exception) {
+        false
     }
 
     /**
@@ -346,20 +467,22 @@ class ModelDownloadService : Service() {
             Intent(this, ModelDownloadService::class.java).setAction(ACTION_CANCEL),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
+        // Cancelled and still winding down: no second Cancel to offer.
+        val stopping = run?.cancelled == true
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_download)
             .setContentTitle(getString(R.string.download_notif_title, name))
             .setContentText(
-                if (queue.isEmpty()) {
-                    getString(R.string.download_status_running, progress)
-                } else {
-                    getString(R.string.download_status_queued, progress, queue.size)
+                when {
+                    stopping -> getString(R.string.devicefit_download_stopping)
+                    queue.isEmpty() -> getString(R.string.download_status_running, progress)
+                    else -> getString(R.string.download_status_queued, progress, queue.size)
                 }
             )
             .setOngoing(true)
             .setSilent(true)
             .setContentIntent(openIntent)
-            .addAction(0, getString(android.R.string.cancel), cancelIntent)
+        if (!stopping) builder.addAction(0, getString(android.R.string.cancel), cancelIntent)
         // Only ever started from the user's pick in Settings or the first-run
         // setup: a Live Update on Android 16 (LiveUpdates). One bar per model;
         // the models waiting behind it vary too much in size to share one.
@@ -382,6 +505,9 @@ class ModelDownloadService : Service() {
     }
 
     private fun updateNotification(name: String, progress: Int) {
+        // Out of the foreground after onTimeout: posting would put back an
+        // ongoing notification that no service owns any more.
+        if (leftForeground) return
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         try {
             manager.notify(NOTIF_ID, buildNotification(name, progress))
@@ -394,22 +520,51 @@ class ModelDownloadService : Service() {
      * apps targeting SDK 35 and kills an app that does not stop when told.
      * Reachable here on a slow connection with several multi-hundred-megabyte
      * models queued. See ImportService.onTimeout.
+     *
+     * The stop used to be silent: the ongoing notification went, and the
+     * summary named only models that had finished before, if any. Now the
+     * summary names the model Android stopped and those that never started,
+     * with what to do, and Settings hears it as that model's error.
+     *
+     * Leaving the foreground is the prompt part. isRunning stays set until
+     * the run has wound down and finishRun stops the service, as in
+     * ImportService: cleared here, a download started meanwhile ran beside
+     * the one still unwinding, whose end then tore down the new one's
+     * foreground and wake lock.
      */
     @androidx.annotation.RequiresApi(Build.VERSION_CODES.VANILLA_ICE_CREAM)
     override fun onTimeout(startId: Int, fgsType: Int) {
-        cancelled = true
-        dropQueue()
-        // The current download's finishRun may never be observed after the
-        // service stops; un-pick it now so the working model stays.
-        try {
-            PendingModelSelection.onDownloadsDropped(this, listOf(currentKind to currentKey))
-        } catch (_: Exception) {
+        val current = run
+        if (!isRunning || current == null) {
+            stopForegroundCompat()
+            stopSelf()
+            return
         }
+        if (!current.timedOut) {
+            current.cancelled = true
+            current.timedOut = true
+            currentStopping = true
+            finished.add(
+                displayName(current.kind, current.key) to getString(R.string.devicefit_download_timeout)
+            )
+            abortConnections()
+            // The current download's finishRun drops its pick too, but the
+            // process may not live to run it; un-pick it now so the working
+            // model stays.
+            try {
+                PendingModelSelection.onDownloadsDropped(this, listOf(current.kind to current.key))
+            } catch (_: Exception) {
+            }
+        }
+        // Dropped with the run, so named in the summary as never started.
+        for ((kind, key) in queue) {
+            finished.add(displayName(kind, key) to getString(R.string.devicefit_download_timeout_queued))
+        }
+        dropQueue()
         publishQueue()
         postCompletionNotification()
-        isRunning = false
+        leftForeground = true
         stopForegroundCompat()
-        stopSelf()
     }
 
     private fun postCompletionNotification() {
@@ -490,6 +645,24 @@ class ModelDownloadService : Service() {
          */
         @Volatile var queuedItems: List<Pair<String, String>> = emptyList()
             private set
+
+        /**
+         * How far the current download is, percent: for the free-space check
+         * of a download that would wait behind it, from any screen.
+         */
+        @Volatile var currentPercent = 0
+            private set
+
+        /**
+         * The current download was cancelled, or Android stopped it, and is
+         * still winding down: it is not "the download running" any more.
+         */
+        @Volatile var currentStopping = false
+            private set
+
+        /** True while [key] of [kind] is the download running, and not stopping. */
+        fun isDownloading(kind: String, key: String): Boolean =
+            isRunning && !currentStopping && currentKind == kind && currentKey == key
 
         const val ACTION_START = "com.meetily.mobile.download.START"
         const val ACTION_CANCEL = "com.meetily.mobile.download.CANCEL"

@@ -1681,9 +1681,50 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * True, with a toast saying why, while a recording or a transcription
+     * filling this meeting owns its lines: each of its saves writes its own
+     * copy of them back whole (MeetingStore.saveRecordingSnapshot,
+     * saveTranscription), so a line edited here meanwhile would silently go
+     * back. Find & replace waits for the same reason (MeetingReplace). A
+     * passage run or a summary does not write the lines back whole, and
+     * edits made during those are kept.
+     */
+    private fun refuseLineEdit(m: Meeting): Boolean {
+        val recording = RecordingService.isRunning
+        val owned = com.meetily.mobile.data.EditTargets.linesOwnedByJob(
+            meetingId = m.id,
+            recording = recording,
+            recordingId = if (recording) store.activeId() else null,
+            importing = ImportService.isRunning,
+            importId = ImportService.currentMeetingId,
+            importStagesOnly = ImportService.isRecheck && !ImportService.isFirstTranscript
+        )
+        if (owned) Toast.makeText(this, R.string.line_edit_wait, Toast.LENGTH_LONG).show()
+        return owned
+    }
+
+    /**
+     * Where [target], the line a dialog opened on at [index], is now, or
+     * null, with a toast, when it is gone or changed: a passage removed or a
+     * sync landing while the dialog was up renumbers the lines under it
+     * (EditTargets.line).
+     */
+    private fun lineNow(
+        m: Meeting,
+        index: Int,
+        target: com.meetily.mobile.data.TranscriptSegment
+    ): Int? {
+        val at = com.meetily.mobile.data.EditTargets.line(m.segments, index, target)
+        if (at >= 0) return at
+        Toast.makeText(this, R.string.line_changed, Toast.LENGTH_LONG).show()
+        return null
+    }
+
     private fun toggleHighlight(index: Int) {
         val m = meeting ?: return
         if (index !in m.segments.indices) return
+        if (refuseLineEdit(m)) return
         m.segments[index] = m.segments[index].copy(
             highlighted = !m.segments[index].highlighted
         )
@@ -1744,26 +1785,32 @@ class MeetingDetailActivity : AppCompatActivity() {
             }
         }
         val audioMs = segment.audioMs
+        // Each choice acts on the line the picker opened on, found again in
+        // case the lines were renumbered while it was up.
+        val onLine: ((Int) -> Unit) -> () -> Unit = { action ->
+            { lineNow(m, index, segment)?.let(action) }
+        }
         SpeakerPicker.show(
             this, m.attendees, segment.speaker,
             clusterLabel = clusterLabel,
             onPlayFrom = if (audioMs != null && audioFileOrNull() != null) {
                 { playFrom(audioMs) }
             } else null,
-            onEditText = { editSegmentText(index) },
-            onSplit = { showSplitDialog(index) },
+            onEditText = onLine { editSegmentText(it) },
+            onSplit = onLine { showSplitDialog(it) },
             onShareClip = if (audioMs != null && audioFileOrNull() != null) {
-                { shareClip(index) }
+                onLine { shareClip(it) }
             } else null,
-            onFixWord = { replace.fixWord(index) },
+            onFixWord = onLine { replace.fixWord(it) },
             onRemovePassage = if (audioMs != null) {
-                { passage.open(index) }
+                onLine { passage.open(it) }
             } else null,
             onRetime = if (align.offers(segment)) {
-                { align.retimeLine(index) }
+                onLine { align.retimeLine(it) }
             } else null,
             onRenameCluster = if (clusterId != null) {
-                { name ->
+                rename@{ name ->
+                    if (refuseLineEdit(m)) return@rename
                     val tagged = mutableListOf<Int>()
                     for (i in m.segments.indices) {
                         val s = m.segments[i]
@@ -1779,13 +1826,14 @@ class MeetingDetailActivity : AppCompatActivity() {
                 }
             } else null
         ) { name ->
-            if (index !in m.segments.indices) return@show
-            m.segments[index] = m.segments[index].copy(speaker = name)
+            if (refuseLineEdit(m)) return@show
+            val at = lineNow(m, index, segment) ?: return@show
+            m.segments[at] = m.segments[at].copy(speaker = name)
             if (!name.isNullOrBlank()) addAttendee(name)
             persist(m)
-            transcriptAdapter.update(index, m.segments[index])
+            transcriptAdapter.update(at, m.segments[at])
             if (!name.isNullOrBlank()) {
-                promptVoiceprintUpdate(name, listOf(index))
+                promptVoiceprintUpdate(name, listOf(at))
             }
         }
     }
@@ -1969,12 +2017,14 @@ class MeetingDetailActivity : AppCompatActivity() {
                             if (remindAt != null) R.string.reminder_change
                             else R.string.reminder_set
                         )
-                    ) { pickReminderTime(index) },
+                    ) { pickReminderTime(index, item) },
                     if (remindAt != null) {
-                        A11y.Action(getString(R.string.reminder_cancel)) { clearReminder(index) }
+                        A11y.Action(getString(R.string.reminder_cancel)) {
+                            clearReminder(index, item)
+                        }
                     } else null,
                     A11y.Action(getString(R.string.a11y_remove_action_item)) {
-                        confirmRemoveAction(index)
+                        confirmRemoveAction(index, item)
                     }
                 )
             )
@@ -2006,16 +2056,28 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setTitle(item.task.take(120))
             .setItems(options.toTypedArray()) { _, which ->
                 when {
-                    which == 0 -> pickReminderTime(index)
-                    hasReminder && which == 1 -> clearReminder(index)
-                    else -> confirmRemoveAction(index)
+                    which == 0 -> pickReminderTime(index, item)
+                    hasReminder && which == 1 -> clearReminder(index, item)
+                    else -> confirmRemoveAction(index, item)
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .showSecure()
     }
 
-    private fun pickReminderTime(index: Int) {
+    /**
+     * Where [target], the action item a dialog opened on at [index], is now,
+     * or null, with a toast, when it is gone: a summary run that lands while
+     * the dialog is up replaces the list under it (EditTargets.actionItem).
+     */
+    private fun actionItemNow(m: Meeting, index: Int, target: ActionItem): Int? {
+        val at = com.meetily.mobile.data.EditTargets.actionItem(m.actionItems, index, target)
+        if (at >= 0) return at
+        Toast.makeText(this, R.string.action_item_changed, Toast.LENGTH_LONG).show()
+        return null
+    }
+
+    private fun pickReminderTime(index: Int, target: ActionItem) {
         if (android.os.Build.VERSION.SDK_INT >= 33 &&
             androidx.core.content.ContextCompat.checkSelfPermission(
                 this, android.Manifest.permission.POST_NOTIFICATIONS
@@ -2037,7 +2099,7 @@ class MeetingDetailActivity : AppCompatActivity() {
                     { _, hour, minute ->
                         cal.set(year, month, day, hour, minute, 0)
                         cal.set(java.util.Calendar.MILLISECOND, 0)
-                        setReminder(index, cal.timeInMillis)
+                        setReminder(index, target, cal.timeInMillis)
                     },
                     cal.get(java.util.Calendar.HOUR_OF_DAY),
                     cal.get(java.util.Calendar.MINUTE),
@@ -2050,15 +2112,15 @@ class MeetingDetailActivity : AppCompatActivity() {
         ).show()
     }
 
-    private fun setReminder(index: Int, atMs: Long) {
+    private fun setReminder(index: Int, target: ActionItem, atMs: Long) {
         val m = meeting ?: return
-        if (index !in m.actionItems.indices) return
         if (atMs <= System.currentTimeMillis()) {
             Toast.makeText(this, R.string.reminder_past, Toast.LENGTH_SHORT).show()
             return
         }
-        val item = m.actionItems[index].copy(remindAtMs = atMs, done = false)
-        m.actionItems[index] = item
+        val at = actionItemNow(m, index, target) ?: return
+        val item = m.actionItems[at].copy(remindAtMs = atMs, done = false)
+        m.actionItems[at] = item
         persist(m)
         Reminders.scheduleActionItem(this, m.id, item.task, atMs)
         renderActionItems(m)
@@ -2073,32 +2135,34 @@ class MeetingDetailActivity : AppCompatActivity() {
         ).show()
     }
 
-    private fun clearReminder(index: Int) {
+    private fun clearReminder(index: Int, target: ActionItem) {
         val m = meeting ?: return
-        if (index !in m.actionItems.indices) return
-        val item = m.actionItems[index]
+        val at = actionItemNow(m, index, target) ?: return
+        val item = m.actionItems[at]
         Reminders.cancelActionItem(this, m.id, item.task)
-        m.actionItems[index] = item.copy(remindAtMs = null)
+        m.actionItems[at] = item.copy(remindAtMs = null)
         persist(m)
         renderActionItems(m)
     }
 
-    private fun confirmRemoveAction(index: Int) {
+    private fun confirmRemoveAction(index: Int, target: ActionItem) {
         val m = meeting ?: return
         AlertDialog.Builder(this)
             .setTitle(R.string.remove_action_item)
+            // Names the task, so the user sees which one goes.
+            .setMessage(target.task.take(300))
             .setPositiveButton(R.string.delete) { _, _ ->
-                if (index in m.actionItems.indices) {
-                    val removed = m.actionItems.removeAt(index)
-                    if (removed.remindAtMs != null) {
-                        Reminders.cancelActionItem(this, m.id, removed.task)
-                    }
-                    persist(m)
-                    renderActionItems(m)
+                val at = actionItemNow(m, index, target) ?: return@setPositiveButton
+                val removed = m.actionItems.removeAt(at)
+                if (removed.remindAtMs != null) {
+                    Reminders.cancelActionItem(this, m.id, removed.task)
                 }
+                persist(m)
+                renderActionItems(m)
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            // The task's words are meeting content.
+            .showSecure()
     }
 
     private fun renderPhotos(m: Meeting) {
@@ -2297,13 +2361,6 @@ class MeetingDetailActivity : AppCompatActivity() {
         for (name in m.photos.toList()) {
             if (!m.photoTexts.containsKey(name)) ocrPhoto(m, name)
         }
-    }
-
-    private fun photoTextBlock(m: Meeting): String {
-        val texts = m.photoTexts.values.filter { it.isNotBlank() }
-        if (texts.isEmpty()) return ""
-        return "\n\n[Text captured from attached photos and whiteboards]\n" +
-            texts.joinToString("\n---\n").take(4_000)
     }
 
     private fun showExportDialog() {
@@ -2690,6 +2747,15 @@ class MeetingDetailActivity : AppCompatActivity() {
                 )
             )
             .setPositiveButton(R.string.suggest_apply) { _, _ ->
+                // Kept for later: the menu item brings this prompt back.
+                if (refuseLineEdit(m)) return@setPositiveButton
+                // The indices are positions in the transcript the run read;
+                // lines removed or synced in while this was up renumber it.
+                if (!com.meetily.mobile.data.SpeakerSuggestions.stillMatch(this, m.id, m.segments)) {
+                    com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
+                    Toast.makeText(this, R.string.suggest_stale, Toast.LENGTH_LONG).show()
+                    return@setPositiveButton
+                }
                 com.meetily.mobile.data.SpeakerSuggestions.delete(this, m.id)
                 for ((index, suggested) in applicable) {
                     if (index !in m.segments.indices) continue
@@ -2924,11 +2990,10 @@ class MeetingDetailActivity : AppCompatActivity() {
             send.putExtra(Intent.EXTRA_TEXT, text)
         } else {
             // A multi-hour transcript goes as a file; the text carries only
-            // the part a message preview can use.
+            // the part a message preview can use. The file does not outlive
+            // its use (MeetingShareFile).
             val file = try {
-                val dir = File(cacheDir, "shares").apply { mkdirs() }
-                val safe = m.title.take(60).replace(Regex("[^\\w\\-]+"), "_").ifBlank { "meeting" }
-                File(dir, "$safe.txt").apply { writeText(text) }
+                com.meetily.mobile.export.MeetingShareFile.write(this, m.id, m.title, text)
             } catch (_: Exception) {
                 Toast.makeText(this, R.string.share_too_long, Toast.LENGTH_LONG).show()
                 return
@@ -4104,6 +4169,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun editSegmentText(index: Int) {
         val m = meeting ?: return
         val segment = m.segments.getOrNull(index) ?: return
+        if (refuseLineEdit(m)) return
         val input = EditText(this).apply {
             setText(segment.text)
             setSelection(segment.text.length)
@@ -4117,25 +4183,28 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setTitle(R.string.edit_text_title)
             .setView(container)
             .setPositiveButton(android.R.string.ok) { _, _ ->
-                if (index !in m.segments.indices) return@setPositiveButton
                 val newText = input.text.toString().trim()
                 if (newText == segment.text) return@setPositiveButton
+                // Asked again: a job can start, or the lines move, while the
+                // dialog is up.
+                if (refuseLineEdit(m)) return@setPositiveButton
+                val at = lineNow(m, index, segment) ?: return@setPositiveButton
                 if (newText.isBlank()) {
-                    confirmDeleteSegment(index)
+                    confirmDeleteSegment(at)
                 } else {
                     // Timings re-aligned to the new wording, not dropped:
                     // fixing one word kept costing the line its tap-to-seek.
-                    val old = m.segments[index]
+                    val old = m.segments[at]
                     val words = com.meetily.mobile.data.WordRealign
                         .realign(old.text, old.words, newText)
-                    m.segments[index] = old.copy(
+                    m.segments[at] = old.copy(
                         text = newText,
                         words = words,
                         wordTimes = com.meetily.mobile.data.WordTimes
                             .afterEdit(old.wordTimes, old.words, words)
                     )
                     persist(m)
-                    transcriptAdapter.update(index, m.segments[index])
+                    transcriptAdapter.update(at, m.segments[at])
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -4289,11 +4358,14 @@ class MeetingDetailActivity : AppCompatActivity() {
 
     private fun confirmDeleteSegment(index: Int) {
         val m = meeting ?: return
+        val segment = m.segments.getOrNull(index) ?: return
+        if (refuseLineEdit(m)) return
         AlertDialog.Builder(this)
             .setMessage(R.string.delete_segment_confirm)
             .setPositiveButton(R.string.delete) { _, _ ->
-                if (index !in m.segments.indices) return@setPositiveButton
-                m.segments.removeAt(index)
+                if (refuseLineEdit(m)) return@setPositiveButton
+                val at = lineNow(m, index, segment) ?: return@setPositiveButton
+                m.segments.removeAt(at)
                 persist(m)
                 renderTranscript(m)
             }
@@ -4310,6 +4382,7 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun showSplitDialog(index: Int) {
         val m = meeting ?: return
         val segment = m.segments.getOrNull(index) ?: return
+        if (refuseLineEdit(m)) return
         val input = EditText(this).apply {
             setText(segment.text)
             setSelection(segment.text.length / 2)
@@ -4324,10 +4397,11 @@ class MeetingDetailActivity : AppCompatActivity() {
             .setMessage(R.string.split_instructions)
             .setView(container)
             .setPositiveButton(R.string.split_button) { _, _ ->
-                if (index !in m.segments.indices) return@setPositiveButton
+                if (refuseLineEdit(m)) return@setPositiveButton
+                val at = lineNow(m, index, segment) ?: return@setPositiveButton
                 val parts = TranscriptSplitter.split(
-                    segment = m.segments[index],
-                    next = m.segments.getOrNull(index + 1),
+                    segment = m.segments[at],
+                    next = m.segments.getOrNull(at + 1),
                     charPos = input.selectionStart,
                     editedText = input.text.toString()
                 )
@@ -4335,12 +4409,12 @@ class MeetingDetailActivity : AppCompatActivity() {
                     Toast.makeText(this, R.string.split_invalid, Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                m.segments[index] = parts.first
-                m.segments.add(index + 1, parts.second)
+                m.segments[at] = parts.first
+                m.segments.add(at + 1, parts.second)
                 persist(m)
                 renderTranscript(m)
                 // Tag who said the second half right away.
-                assignSpeaker(index + 1)
+                assignSpeaker(at + 1)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .showSecure()
@@ -4745,6 +4819,14 @@ class MeetingDetailActivity : AppCompatActivity() {
     private fun renderNotes(m: Meeting) {
         val container = headerView.findViewById<LinearLayout>(R.id.notesRendered)
         NotesRenderer.render(container, m.notes) { line ->
+            // As the edit button: the enhancement writes the notes it read
+            // at its start over the stored ones, so a tick made now would be
+            // lost. Re-rendered so the box shows its old state again.
+            if (notesEnhanceActive()) {
+                Toast.makeText(this, R.string.notes_enhance_wait, Toast.LENGTH_SHORT).show()
+                renderNotes(m)
+                return@render
+            }
             m.notes = NotesMarkdown.toggleCheck(m.notes, line)
             notesInput.setText(m.notes)
             persist(m)

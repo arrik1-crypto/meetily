@@ -304,6 +304,17 @@
                             app:trackCornerRadius="2dp" />
 
                         <com.google.android.material.button.MaterialButton
+                            android:id="@+id/modelDownloadCancel"
+                            style="@style/Widget.Material3.Button.TextButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:minHeight="48dp"
+                            android:insetBottom="6dp"
+                            android:insetTop="6dp"
+                            android:text="@string/devicefit_download_cancel"
+                            android:visibility="gone" />
+
+                        <com.google.android.material.button.MaterialButton
                             android:id="@+id/manageModelsButton"
                             style="@style/Widget.Material3.Button.OutlinedButton"
                             android:layout_width="wrap_content"
@@ -487,6 +498,17 @@
                                 android:layout_marginTop="8dp"
                                 android:visibility="gone"
                                 app:trackCornerRadius="2dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/diarizeDownloadCancel"
+                                style="@style/Widget.Material3.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:minHeight="48dp"
+                                android:insetBottom="6dp"
+                                android:insetTop="6dp"
+                                android:text="@string/devicefit_download_cancel"
+                                android:visibility="gone" />
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/manageDiarizeButton"
@@ -763,6 +785,17 @@
                         app:trackCornerRadius="2dp" />
 
                     <com.google.android.material.button.MaterialButton
+                        android:id="@+id/alignModelCancel"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:minHeight="48dp"
+                        android:insetBottom="6dp"
+                        android:insetTop="6dp"
+                        android:text="@string/devicefit_download_cancel"
+                        android:visibility="gone" />
+
+                    <com.google.android.material.button.MaterialButton
                         android:id="@+id/alignModelButton"
                         style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="wrap_content"
@@ -937,6 +970,17 @@
                                 android:layout_marginTop="8dp"
                                 android:visibility="gone"
                                 app:trackCornerRadius="2dp" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/localLlmDownloadCancel"
+                                style="@style/Widget.Material3.Button.TextButton"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:minHeight="48dp"
+                                android:insetBottom="6dp"
+                                android:insetTop="6dp"
+                                android:text="@string/devicefit_download_cancel"
+                                android:visibility="gone" />
 
                             <com.google.android.material.button.MaterialButton
                                 android:id="@+id/manageLlmButton"

@@ -52,6 +52,10 @@ WHISPER_VER = "b5907"
 LLAMA_VER = "v1.0.0"
 # Pinned by ggml at LLAMA_VER (ggml/src/ggml-cpu/CMakeLists.txt), not by us.
 KLEIDIAI_VER = "v1.32.0"
+# Vendored by llama.cpp at LLAMA_VER (vendor/nlohmann/json.hpp, "version
+# 3.12.0"), not chosen by us; llama-common links it, and the chat-template
+# code built from it is compiled into the JNI library. Update with LLAMA_VER.
+NLOHMANN_VER = "3.12.0"
 # The Silero VAD release whose weights app/src/main/assets/ggml-silero-v6.2.0.bin
 # carries (whisper.cpp's ggml conversion; SileroAssetTest pins its bytes).
 SILERO_VER = "v6.2"
@@ -71,6 +75,7 @@ SCANCODE = (
 SOURCES = {
     "apache": f"https://raw.githubusercontent.com/k2-fsa/sherpa-onnx/{SHERPA_VER}/LICENSE",
     "mit_ggml": f"https://raw.githubusercontent.com/ggml-org/whisper.cpp/{WHISPER_VER}/LICENSE",
+    "mit_nlohmann": f"https://raw.githubusercontent.com/nlohmann/json/v{NLOHMANN_VER}/LICENSE.MIT",
     "mit_ort": "https://raw.githubusercontent.com/microsoft/onnxruntime/main/LICENSE",
     "mit_openai": "https://raw.githubusercontent.com/openai/whisper/main/LICENSE",
     "mit_silero": f"https://raw.githubusercontent.com/snakers4/silero-vad/{SILERO_VER}/LICENSE",
@@ -164,6 +169,16 @@ llama.cpp {LLAMA_VER}
     https://github.com/ggml-org/llama.cpp
     Compiled, with whisper.cpp, into the native library libmeetily_native.so
     (or libmeetily_native_v82.so).
+
+JSON for Modern C++ (nlohmann/json) {NLOHMANN_VER}
+    MIT License
+    Copyright (c) 2013-2025 Niels Lohmann
+    https://github.com/nlohmann/json
+    Carried by llama.cpp and compiled with it into that native library,
+    where its chat-template code uses it. It contains Bjoern Hoehrmann's
+    UTF-8 decoder and Florian Loitsch's Grisu2 (both MIT License), a copy
+    of Hedley by Evan Nemerson (CC0-1.0) and parts of Google Abseil (Apache
+    License 2.0).
 
 ggml
     MIT License
@@ -596,6 +611,8 @@ def main() -> int:
         HEADER,
         rule("MIT License - whisper.cpp, llama.cpp, ggml"),
         texts["mit_ggml"],
+        rule("MIT License - JSON for Modern C++ (nlohmann/json)"),
+        texts["mit_nlohmann"],
         rule("MIT License - ONNX Runtime"),
         texts["mit_ort"],
         rule("MIT License - OpenAI Whisper models"),
@@ -606,7 +623,7 @@ def main() -> int:
         texts["mit_gtcrn"],
         rule(
             "Apache License 2.0 - sherpa-onnx, Arm KleidiAI, AndroidX, Material Components,"
-            " Material Design Icons, Kotlin"
+            " Material Design Icons, Kotlin, Google Abseil (in nlohmann/json)"
         ).rstrip("\n") + "\n",
         texts["apache"],
         rule("Creative Commons Attribution 4.0 International (CC BY 4.0)"),

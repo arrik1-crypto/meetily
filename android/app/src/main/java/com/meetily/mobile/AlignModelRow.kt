@@ -18,13 +18,16 @@ import com.meetily.mobile.whisper.AlignerModels
  * model) and its deletion. A download that was kept but not unpacked (a
  * full disk, a stopped unpack) is offered to unpack or delete, so its
  * space can always be taken back. Settings forwards the download
- * service's callbacks for its kind here.
+ * service's callbacks for its kind here. While the model downloads,
+ * [cancel] (under the progress bar) runs [onCancel].
  */
 class AlignModelRow(
     private val activity: AppCompatActivity,
     private val status: TextView,
     private val progress: LinearProgressIndicator,
-    private val button: Button
+    private val button: Button,
+    private val cancel: View,
+    private val onCancel: () -> Unit
 ) {
     private val announcer = ProgressAnnouncer()
 
@@ -47,6 +50,7 @@ class AlignModelRow(
 
     fun bind() {
         button.setOnClickListener { onButton() }
+        cancel.setOnClickListener { onCancel() }
         render()
     }
 
@@ -63,6 +67,7 @@ class AlignModelRow(
         }
         val model = AlignerModels.DEFAULT
         progress.visibility = View.GONE
+        cancel.visibility = View.GONE
         when (shown) {
             AlignRowState.Shown.DOWNLOADED -> {
                 status.text = activity.getString(
@@ -99,6 +104,12 @@ class AlignModelRow(
         progress.isIndeterminate = percent <= 0
         progress.progress = percent.coerceIn(0, 100)
         button.isEnabled = false
+        if (ModelDownloadService.currentStopping) {
+            // Cancelled, and not ended yet (a replay after Settings came back).
+            onStopping()
+            return
+        }
+        cancel.visibility = View.VISIBLE
         // From the download's share on, the archive is being unpacked
         // (all of it, when a kept download is unpacked).
         val text = if (percent >= AlignerModels.DOWNLOAD_SHARE) {
@@ -116,7 +127,24 @@ class AlignModelRow(
     fun onQueued() {
         if (activity.isFinishing || activity.isDestroyed) return
         button.isEnabled = false
+        cancel.visibility = View.GONE
         A11y.setStatusText(status, activity.getString(R.string.align_model_queued), true)
+    }
+
+    /** Cancel was tapped: says so until the download service reports the end. */
+    fun onStopping() {
+        if (activity.isFinishing || activity.isDestroyed) return
+        cancel.visibility = View.GONE
+        A11y.setStatusText(status, activity.getString(R.string.devicefit_download_stopping), true)
+    }
+
+    /**
+     * Another model's download ended, which may have dropped a download of
+     * this one waiting behind it (a cancel, Android's time limit): drawn
+     * again once the service has settled, as after its own (AlignRowState).
+     */
+    fun refreshWhenSettled() {
+        state.onDone()
     }
 
     /**
@@ -170,11 +198,12 @@ class AlignModelRow(
         val model = AlignerModels.DEFAULT
         button.isEnabled = false
         // Only the unpacked files when the archive was kept: download()
-        // then only unpacks it.
-        ModelSpaceCheck.confirm(
-            activity, listOf(AlignerModels.spaceNeededMb(activity, model)),
-            onMeasured = { render() }
-        ) {
+        // then only unpacks it. Plus any model download running or waiting,
+        // which takes its room before this one starts.
+        val sizes = ModelSpaceCheck.sizesFor(
+            ModelDownloadService.KIND_ALIGN, model.key, AlignerModels.spaceNeededMb(activity, model)
+        )
+        ModelSpaceCheck.confirm(activity, sizes, onMeasured = { render() }) {
             FitBadge.confirmChoice(
                 activity, model.displayName,
                 DeviceProbe.verdict(activity, AlignerModels.need(model)),

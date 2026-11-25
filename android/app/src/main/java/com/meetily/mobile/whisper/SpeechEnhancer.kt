@@ -7,6 +7,7 @@ import android.util.Log
 import androidx.annotation.WorkerThread
 import com.k2fsa.sherpa.onnx.OfflineSpeechDenoiser
 import com.meetily.mobile.data.ClearVoice
+import com.meetily.mobile.data.PassageAudio
 import java.io.File
 import java.io.FileOutputStream
 import java.security.MessageDigest
@@ -21,6 +22,11 @@ import java.security.MessageDigest
  * comes out (ClearVoiceEncoder), so memory stays flat however long the
  * meeting is. Nothing leaves the phone. One instance per run, on the
  * caller's worker thread; ClearVoiceService owns the run.
+ *
+ * The copy keeps the recording's timeline: every run first measures how far
+ * encoding and decoding a copy moves the sound on this phone ([measureDelay])
+ * and the encoder takes that much off the start. A run that cannot measure
+ * it fails rather than write a copy whose words are out of step.
  */
 class SpeechEnhancer private constructor(
     private val denoiser: OfflineSpeechDenoiser,
@@ -47,8 +53,14 @@ class SpeechEnhancer private constructor(
         onProgress: (percent: Int, doneMs: Long) -> Unit
     ): Outcome {
         target.delete()
+        val delay = measureDelay(context, cancelled)
+        if (cancelled()) return Outcome.CANCELLED
+        if (delay == null) {
+            logOnce("codec delay not measured")
+            return Outcome.FAILED
+        }
         val encoder = try {
-            ClearVoiceEncoder(target)
+            ClearVoiceEncoder(target, delay)
         } catch (e: Throwable) {
             logOnce("encoder unavailable (${e.javaClass.simpleName})")
             target.delete()
@@ -106,6 +118,50 @@ class SpeechEnhancer private constructor(
         return outcome
     }
 
+    /**
+     * How many samples encoding a copy (ClearVoiceEncoder) and decoding it
+     * again with the decoder transcription uses (AudioFileDecoder) delay the
+     * sound, as PassageSilencer measures its own encoder: PassageAudio.probe
+     * is encoded into a small file in the cache directory, read back and
+     * matched against itself. Null when that fails or is cancelled. The probe
+     * is a made-up sound, nothing from a meeting, and is deleted either way.
+     */
+    private fun measureDelay(context: Context, cancelled: () -> Boolean): Int? {
+        val probe = File(context.cacheDir, PROBE_FILE)
+        return try {
+            probe.delete()
+            val sent = PassageAudio.probe(ClearVoice.SAMPLE_RATE)
+            val encoder = ClearVoiceEncoder(probe)
+            try {
+                encoder.write(sent, sent.size)
+                if (!encoder.finish()) return null
+            } finally {
+                encoder.release()
+            }
+            var back = FloatArray(sent.size * 2)
+            var filled = 0
+            AudioFileDecoder.decode(
+                context,
+                Uri.fromFile(probe),
+                onPcm = { chunk ->
+                    if (filled + chunk.size > back.size) {
+                        back = back.copyOf(maxOf(back.size * 2, filled + chunk.size))
+                    }
+                    chunk.copyInto(back, filled)
+                    filled += chunk.size
+                },
+                onProgress = {},
+                cancelled = cancelled
+            )
+            if (cancelled()) null else PassageAudio.delayOf(sent, back.copyOf(filled))
+        } catch (e: Throwable) {
+            logOnce("delay probe failed (${e.javaClass.simpleName})")
+            null
+        } finally {
+            probe.delete()
+        }
+    }
+
     /** Frees the native denoiser. Call once, when the run is over. */
     fun release() {
         try {
@@ -123,6 +179,9 @@ class SpeechEnhancer private constructor(
 
         /** Under noBackupFilesDir: a copy of an APK asset has nothing to back up. */
         private const val DIR = "clearvoice"
+
+        /** The delay probe, in cacheDir: one run at a time, so one name. */
+        private const val PROBE_FILE = "clearvoice-probe.m4a"
 
         private val copyLock = Any()
         private val logged = HashSet<String>()

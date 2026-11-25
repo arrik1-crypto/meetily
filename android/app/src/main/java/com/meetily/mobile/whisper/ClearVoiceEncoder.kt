@@ -21,14 +21,23 @@ import java.nio.ByteOrder
  * renamed into place only when whole, so it can have an MP4 index instead,
  * which gives the player its length without walking every frame.
  *
+ * The encoder's priming would make the copy decode later than the
+ * recording, which every line, word and switch between the two assumes it
+ * does not. So a run passes the measured [delay] (SpeechEnhancer) and the
+ * stream is trimmed by it (ClearVoice.DelayTrim). The muxer cannot do it:
+ * it writes no edit list for a track that starts at zero (see
+ * PassageSilencer), and AudioFileDecoder, which transcription reads the
+ * copy with, keeps every sample it decodes whatever its time stamp.
+ *
  * Blocking and single-threaded: [write] feeds the encoder and drains it on
  * the caller's thread. Call [finish] once, then [release] (always).
  */
-class ClearVoiceEncoder(out: File) {
+class ClearVoiceEncoder(out: File, delay: Int = 0) {
 
     private val codec: MediaCodec = MediaCodec.createEncoderByType(MediaFormat.MIMETYPE_AUDIO_AAC)
     private val muxer: MediaMuxer
     private val info = MediaCodec.BufferInfo()
+    private val trim = ClearVoice.DelayTrim(delay)
     private var track = -1
     private var started = false
     private var samplesIn = 0L
@@ -62,14 +71,20 @@ class ClearVoiceEncoder(out: File) {
         muxer = checkNotNull(opened)
     }
 
-    /** Samples written so far. */
+    /** Samples handed to the encoder so far, the trimmed start not counted. */
     val written: Long get() = samplesIn
 
-    /** Encodes the first [count] samples of [samples]. */
+    /** Encodes the first [count] samples of [samples], less any of the trimmed start. */
     fun write(samples: FloatArray, count: Int) {
-        var at = 0
+        val skip = trim.skip(count)
+        if (skip < count) queue(samples, skip, count)
+    }
+
+    /** Feeds [samples] from [from] up to [until] to the encoder. */
+    private fun queue(samples: FloatArray, from: Int, until: Int) {
+        var at = from
         var idle = 0
-        while (at < count) {
+        while (at < until) {
             val index = codec.dequeueInputBuffer(TIMEOUT_US)
             if (index >= 0) {
                 idle = 0
@@ -79,7 +94,7 @@ class ClearVoiceEncoder(out: File) {
                 } else {
                     buffer.clear()
                     buffer.order(ByteOrder.nativeOrder())
-                    val n = minOf(buffer.remaining() / 2, count - at)
+                    val n = minOf(buffer.remaining() / 2, until - at)
                     for (i in 0 until n) {
                         val v = (samples[at + i] * 32767f).toInt().coerceIn(-32768, 32767)
                         buffer.putShort(v.toShort())
@@ -100,6 +115,7 @@ class ClearVoiceEncoder(out: File) {
      * usable was written (the muxer refuses to close an empty file).
      */
     fun finish(): Boolean {
+        if (trim.tail > 0) queue(FloatArray(trim.tail), 0, trim.tail)
         var idle = 0
         while (true) {
             val index = codec.dequeueInputBuffer(TIMEOUT_US)

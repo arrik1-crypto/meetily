@@ -61,6 +61,9 @@ class RecapApp : Application() {
             // A passage removal the process did not live to finish: its new
             // file, or the recording it replaced, is deleted (PassageSwap).
             runCatching { PassageService.recoverLeftovers(this) }
+            // A long meeting shared as a file is needed only while the share
+            // target reads it; one left from an earlier run goes now.
+            runCatching { com.meetily.mobile.export.MeetingShareFile.sweep(this) }
         }.start()
     }
 

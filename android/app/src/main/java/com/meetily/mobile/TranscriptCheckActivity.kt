@@ -1,5 +1,8 @@
 package com.meetily.mobile
 
+import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Handler
@@ -84,7 +87,34 @@ class TranscriptCheckActivity : AppCompatActivity() {
     private var offeringRegenerate = false
     private var regenerateDialog: AlertDialog? = null
 
+    /** The meeting and its draft are being read (onCreate); nothing is shown yet. */
+    private var reading = true
+
+    /** The question was up before a rotation; asked again once the meeting is read. */
+    private var askRegenerate = false
+
+    /** The comparison is shown; until then a rotation keeps [restoreReview] as it came. */
+    private var compared = false
+
     private var player: MediaPlayer? = null
+
+    /** [player] has finished preparing; until then a play tap waits in [pendingPlayMs]. */
+    private var playerPrepared = false
+
+    /** Where the latest play tap asked to start while the player prepared; -1 for none. */
+    private var pendingPlayMs = -1L
+
+    /** The loading bar is up for [player] preparing, not for a read, comparison or apply. */
+    private var loadingForPlayer = false
+
+    /** This screen's hold on audio focus while it plays a line; null when it has none. */
+    private var focusRequest: AudioFocusRequest? = null
+
+    /** Speech for the user to hear, as MeetingPlayback plays a meeting. */
+    private val playbackAttributes: AudioAttributes = AudioAttributes.Builder()
+        .setUsage(AudioAttributes.USAGE_MEDIA)
+        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+        .build()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -109,28 +139,6 @@ class TranscriptCheckActivity : AppCompatActivity() {
 
         val id = intent.getStringExtra(EXTRA_MEETING_ID)
         meetingId = id
-        val loaded = id?.let { store.load(it) }
-        // Rotated while the "regenerate the summary?" question was up: the
-        // transcript is already applied and the draft deleted, so there is
-        // nothing to compare — just ask again.
-        if (loaded != null && savedInstanceState?.getBoolean(STATE_OFFER_REGENERATE, false) == true) {
-            meeting = loaded
-            loading.visibility = View.GONE
-            offerRegenerate(loaded)
-            return
-        }
-        // An apply started before a rotation may still be running (the
-        // draft is still there) or may already have finished (the draft is
-        // gone); either way its result belongs to this screen.
-        val job = id?.let { applyJobs[it] }
-        val pending = id?.let { TranscriptDraft.pending(this, it) }
-        if ((loaded == null || pending == null) && job == null) {
-            Toast.makeText(this, R.string.check_nothing_to_review, Toast.LENGTH_LONG).show()
-            finish()
-            return
-        }
-        meeting = loaded
-        draft = pending
         // Rotating re-runs the comparison over the same two transcripts, so
         // the block ordinals come out identical and the user's picks can be
         // restored onto them. Losing a long review to a screen rotation would
@@ -138,6 +146,7 @@ class TranscriptCheckActivity : AppCompatActivity() {
         if (savedInstanceState != null) {
             savedInstanceState.getIntArray(STATE_ACCEPTED)?.forEach { acceptFresh.add(it) }
             restoreReview = savedInstanceState.getBoolean(STATE_REVIEWING, false)
+            askRegenerate = savedInstanceState.getBoolean(STATE_OFFER_REGENERATE, false)
         }
 
         findViewById<View>(R.id.checkReviewButton).setOnClickListener { showReview() }
@@ -148,6 +157,60 @@ class TranscriptCheckActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.checkKeepButton).setOnClickListener { discardDraft() }
         applyButton.setOnClickListener { applyChoices(wholesale = false) }
+
+        if (id == null) {
+            Toast.makeText(this, R.string.check_nothing_to_review, Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        // An apply a rotated instance started is re-joined once the meeting
+        // is read (onRead); Back waits for it from now, as it did.
+        if (applyJobs.containsKey(id)) applyBackGuard.isEnabled = true
+        // Both are whole JSON files with every word's timing, megabytes on
+        // the long meetings this screen is for: read off the main thread,
+        // under the loading bar, after a rotation too.
+        val askAgain = askRegenerate
+        Thread {
+            val loaded = store.load(id)
+            // The question after an apply needs only the meeting.
+            val pending = if (loaded != null && askAgain) null else TranscriptDraft.pending(this, id)
+            runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
+                onRead(loaded, pending)
+            }
+        }.apply {
+            name = "transcript-check-read"
+            start()
+        }
+    }
+
+    /** The meeting and its draft ([pending] null when none waits) are read; carries on from there. */
+    private fun onRead(loaded: Meeting?, pending: TranscriptDraft.Draft?) {
+        reading = false
+        // Rotated while the "regenerate the summary?" question was up: the
+        // transcript is already applied and the draft deleted, so there is
+        // nothing to compare — just ask again.
+        val askAgain = askRegenerate
+        askRegenerate = false
+        if (loaded != null && askAgain) {
+            applyBackGuard.isEnabled = applying
+            meeting = loaded
+            loading.visibility = View.GONE
+            offerRegenerate(loaded)
+            return
+        }
+        // An apply started before a rotation may still be running (the
+        // draft is still there) or may already have finished (the draft is
+        // gone); either way its result belongs to this screen.
+        val job = meetingId?.let { applyJobs[it] }
+        if (job == null) applyBackGuard.isEnabled = applying
+        if ((loaded == null || pending == null) && job == null) {
+            Toast.makeText(this, R.string.check_nothing_to_review, Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+        meeting = loaded
+        draft = pending
 
         if (job != null) attachJob(job)
         // attachJob may have delivered a finished result that closed the
@@ -190,6 +253,7 @@ class TranscriptCheckActivity : AppCompatActivity() {
             val different = TranscriptReconcile.differences(aligned)
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
+                compared = true
                 blocks = aligned
                 diffs = different
                 // An apply re-attached after a rotation keeps its spinner.
@@ -545,42 +609,146 @@ class TranscriptCheckActivity : AppCompatActivity() {
 
     // --- Audio ---------------------------------------------------------------
 
+    /**
+     * Plays the recording from [ms], as the meeting screen's player does:
+     * never while a recording runs (it would go out of the speaker into the
+     * recording), only with audio focus, and prepared asynchronously. Meeting
+     * audio is raw ADTS, which the platform walks frame by frame to find its
+     * length, seconds of frozen screen on a multi-hour meeting with prepare().
+     * A tap made while it prepares plays once it is ready; the latest wins.
+     */
     private fun playFrom(ms: Long) {
+        if (RecordingService.isRunning) {
+            Toast.makeText(this, R.string.playback_blocked_recording, Toast.LENGTH_SHORT).show()
+            return
+        }
+        val active = player
+        if (active != null) {
+            if (playerPrepared) startAt(active, ms) else pendingPlayMs = ms
+            return
+        }
         val name = meeting?.audioFile ?: return
         val file = AudioStore.fileFor(this, name)
         if (!file.exists()) return
-        var created: MediaPlayer? = null
+        val fresh = MediaPlayer()
+        player = fresh
+        playerPrepared = false
+        pendingPlayMs = ms
         try {
-            val active = player ?: MediaPlayer().also { fresh ->
-                created = fresh
-                fresh.setDataSource(file.absolutePath)
-                fresh.prepare()
-                player = fresh
+            fresh.setAudioAttributes(playbackAttributes)
+            fresh.setDataSource(file.absolutePath)
+            fresh.setOnPreparedListener { prepared ->
+                if (prepared !== player) return@setOnPreparedListener
+                playerPrepared = true
+                showPreparing(false)
+                val at = pendingPlayMs
+                pendingPlayMs = -1L
+                // None waits once the screen was left (onPause drops it).
+                if (at >= 0L && !isFinishing && !isDestroyed) startAt(prepared, at)
             }
+            fresh.setOnCompletionListener { abandonFocus() }
+            fresh.setOnErrorListener { failed, _, _ ->
+                if (failed === player) releasePlayer()
+                true
+            }
+            fresh.prepareAsync()
+            showPreparing(true)
+        } catch (_: Exception) {
+            releasePlayer()
+        }
+    }
+
+    /** The loading bar, shown while [player] prepares when nothing else has it up. */
+    private fun showPreparing(on: Boolean) {
+        if (on) {
+            if (loading.visibility == View.VISIBLE) return
+            loadingForPlayer = true
+            loading.visibility = View.VISIBLE
+        } else if (loadingForPlayer) {
+            loadingForPlayer = false
+            if (!applying) loading.visibility = View.GONE
+        }
+    }
+
+    private fun startAt(active: MediaPlayer, ms: Long) {
+        // Asked again: a recording may have started while it prepared.
+        if (RecordingService.isRunning) {
+            Toast.makeText(this, R.string.playback_blocked_recording, Toast.LENGTH_SHORT).show()
+            return
+        }
+        // The meeting's own playback (it carries on behind this screen)
+        // must not talk over the line being checked. It gives up its focus.
+        MeetingPlayback.pause()
+        if (!requestFocus()) {
+            Toast.makeText(this, R.string.playback_focus_denied, Toast.LENGTH_SHORT).show()
+            return
+        }
+        try {
             active.seekTo(ms.toInt())
-            // The meeting's own playback (it carries on behind this screen)
-            // must not talk over the line being checked.
-            MeetingPlayback.pause()
             active.start()
         } catch (_: Exception) {
-            // Release whichever one we are holding — a player that failed in
-            // prepare() was never stored, so `player` alone would leak it.
-            (player ?: created)?.let {
-                try {
-                    it.release()
-                } catch (_: Exception) {
-                }
+            releasePlayer()
+        }
+    }
+
+    private fun releasePlayer() {
+        val held = player
+        player = null
+        playerPrepared = false
+        pendingPlayMs = -1L
+        showPreparing(false)
+        abandonFocus()
+        try {
+            held?.release()
+        } catch (_: Exception) {
+        }
+    }
+
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        // A call, a recording or another app took the audio: a line under
+        // another sound loses words, so it pauses rather than ducks, and
+        // does not resume on its own.
+        if (change < 0) {
+            try {
+                player?.takeIf { playerPrepared && it.isPlaying }?.pause()
+            } catch (_: Exception) {
             }
-            player = null
+            abandonFocus()
+        }
+    }
+
+    /** Transient: a line is a few seconds, and what it interrupted resumes after. */
+    private fun requestFocus(): Boolean {
+        if (focusRequest != null) return true
+        val manager = applicationContext.getSystemService(AudioManager::class.java) ?: return true
+        val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN_TRANSIENT)
+            .setAudioAttributes(playbackAttributes)
+            .setWillPauseWhenDucked(true)
+            .setOnAudioFocusChangeListener(focusListener, mainHandler)
+            .build()
+        if (manager.requestAudioFocus(request) != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) return false
+        focusRequest = request
+        return true
+    }
+
+    private fun abandonFocus() {
+        val request = focusRequest ?: return
+        focusRequest = null
+        try {
+            applicationContext.getSystemService(AudioManager::class.java)
+                ?.abandonAudioFocusRequest(request)
+        } catch (_: Exception) {
         }
     }
 
     override fun onPause() {
         super.onPause()
+        pendingPlayMs = -1L
         try {
-            player?.takeIf { it.isPlaying }?.pause()
+            player?.takeIf { playerPrepared && it.isPlaying }?.pause()
         } catch (_: Exception) {
         }
+        abandonFocus()
     }
 
     override fun onDestroy() {
@@ -596,12 +764,12 @@ class TranscriptCheckActivity : AppCompatActivity() {
             // Closed for good (not a rotation): keep nothing for a screen
             // that is not coming back. The worker still commits.
             if (isFinishing) applyJobs.remove(id)
+        } else if (id != null && job != null && job.listener == null && reading && isFinishing) {
+            // Closed for good while the meeting was still being read, before
+            // this screen re-joined the apply a rotated one started: the same.
+            applyJobs.remove(id)
         }
-        try {
-            player?.release()
-        } catch (_: Exception) {
-        }
-        player = null
+        releasePlayer()
         super.onDestroy()
     }
 
@@ -683,8 +851,13 @@ class TranscriptCheckActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         outState.putIntArray(STATE_ACCEPTED, acceptFresh.toIntArray())
-        outState.putBoolean(STATE_REVIEWING, reviewPanel.visibility == View.VISIBLE)
-        outState.putBoolean(STATE_OFFER_REGENERATE, offeringRegenerate)
+        // Rotated again before anything was shown: what the instance before
+        // was showing still stands.
+        outState.putBoolean(
+            STATE_REVIEWING,
+            if (compared) reviewPanel.visibility == View.VISIBLE else restoreReview
+        )
+        outState.putBoolean(STATE_OFFER_REGENERATE, offeringRegenerate || askRegenerate)
     }
 
     companion object {

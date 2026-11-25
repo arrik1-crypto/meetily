@@ -135,14 +135,21 @@ class SettingsActivity : AppCompatActivity() {
     }
     private val llmStatus: TextView by lazy { findViewById(R.id.localLlmStatus) }
 
+    // Cancel under each section's progress bar: the notification's Cancel,
+    // for a phone that does not show Recap's notifications.
+    private val whisperCancel: View by lazy { findViewById(R.id.modelDownloadCancel) }
+    private val diarizeCancel: View by lazy { findViewById(R.id.diarizeDownloadCancel) }
+    private val llmCancel: View by lazy { findViewById(R.id.localLlmDownloadCancel) }
+
     /** The word re-timing model's row (AlignModelRow). */
     private val alignRow: AlignModelRow by lazy {
         AlignModelRow(
             this,
             findViewById(R.id.alignModelStatus),
             findViewById(R.id.alignModelProgress),
-            findViewById(R.id.alignModelButton)
-        )
+            findViewById(R.id.alignModelButton),
+            findViewById(R.id.alignModelCancel)
+        ) { cancelModelDownload(ModelDownloadService.KIND_ALIGN) }
     }
 
     // Last state actually rendered, so a repeated value (e.g. the rebind
@@ -173,6 +180,7 @@ class SettingsActivity : AppCompatActivity() {
                 A11y.setStatusText(
                     llmStatus, downloadingText(kind, key, model.displayName, percent), announce
                 )
+                renderStopping(kind)
             } else if (kind == ModelDownloadService.KIND_DIARIZE) {
                 val model = DiarizationModels.byKey(key)
                 diarizeProgress.visibility = View.VISIBLE
@@ -183,6 +191,7 @@ class SettingsActivity : AppCompatActivity() {
                     downloadingText(kind, key, model.displayName, percent),
                     announce
                 )
+                renderStopping(kind)
             } else {
                 val name = com.meetily.mobile.whisper.TranscriptionModels.displayName(key)
                 modelProgress.visibility = View.VISIBLE
@@ -191,6 +200,7 @@ class SettingsActivity : AppCompatActivity() {
                 A11y.setStatusText(
                     whisperModelStatus, downloadingText(kind, key, name, percent), announce
                 )
+                renderStopping(kind)
             }
         }
 
@@ -207,12 +217,24 @@ class SettingsActivity : AppCompatActivity() {
             lastRenderedKey = ""
             lastRenderedPercent = -1
             when (kind) {
-                ModelDownloadService.KIND_LLM -> llmProgress.visibility = View.GONE
-                ModelDownloadService.KIND_DIARIZE ->
+                ModelDownloadService.KIND_LLM -> {
+                    llmProgress.visibility = View.GONE
+                    llmCancel.visibility = View.GONE
+                }
+                ModelDownloadService.KIND_DIARIZE -> {
                     diarizeProgress.visibility = View.GONE
+                    diarizeCancel.visibility = View.GONE
+                }
                 ModelDownloadService.KIND_ALIGN -> alignRow.onDone(cancelled, error)
-                else -> modelProgress.visibility = View.GONE
+                else -> {
+                    modelProgress.visibility = View.GONE
+                    whisperCancel.visibility = View.GONE
+                }
             }
+            // A cancel, or Android's time limit, also drops a re-timing
+            // download waiting behind this one; its row then shows what is
+            // on the phone again.
+            if (kind != ModelDownloadService.KIND_ALIGN) alignRow.refreshWhenSettled()
             // The status line is about to read "<model> downloaded", the
             // change that matters most. Set with no live region up, it was
             // heard only when it landed inside the 100% milestone's brief
@@ -299,6 +321,9 @@ class SettingsActivity : AppCompatActivity() {
             modelProgress.visibility = View.GONE
             diarizeProgress.visibility = View.GONE
             llmProgress.visibility = View.GONE
+            whisperCancel.visibility = View.GONE
+            diarizeCancel.visibility = View.GONE
+            llmCancel.visibility = View.GONE
             updateWhisperSection()
             updateLocalLlmStatus()
             alignRow.onDone(cancelled = false, error = null)
@@ -453,6 +478,9 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         manageModelsButton.setOnClickListener { showModelDialog() }
+        whisperCancel.setOnClickListener { cancelModelDownload(ModelDownloadService.KIND_WHISPER) }
+        diarizeCancel.setOnClickListener { cancelModelDownload(ModelDownloadService.KIND_DIARIZE) }
+        llmCancel.setOnClickListener { cancelModelDownload(ModelDownloadService.KIND_LLM) }
         diarizeSwitch.setOnCheckedChangeListener { _, _ -> updateDiarizeSection() }
         manageDiarizeButton.setOnClickListener { showDiarizeModelDialog() }
         captureStatus = findViewById(R.id.captureStatus)
@@ -1999,6 +2027,58 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     /**
+     * Cancel under [kind]'s progress bar: the same as the notification's
+     * Cancel (the download running and those waiting behind it stop; what
+     * was downloaded is kept for next time), which a phone with Recap's
+     * notifications turned off never shows. The section says the download
+     * is stopping until the service reports it has.
+     */
+    private fun cancelModelDownload(kind: String) {
+        val svc = downloadService
+        if (svc != null) {
+            svc.requestCancel()
+        } else {
+            // Not bound yet: the notification's own route.
+            try {
+                startService(
+                    Intent(this, ModelDownloadService::class.java)
+                        .setAction(ModelDownloadService.ACTION_CANCEL)
+                )
+            } catch (_: Exception) {
+            }
+        }
+        if (kind == ModelDownloadService.KIND_ALIGN) {
+            alignRow.onStopping()
+            return
+        }
+        downloadCancel(kind).visibility = View.GONE
+        A11y.setStatusText(downloadStatus(kind), getString(R.string.devicefit_download_stopping), true)
+    }
+
+    /**
+     * Shows Cancel under [kind]'s progress while its download runs, or says
+     * it is stopping once it was cancelled (a late progress replay, after
+     * Settings came back, must not offer Cancel again).
+     */
+    private fun renderStopping(kind: String) {
+        val stopping = ModelDownloadService.currentStopping
+        downloadCancel(kind).visibility = if (stopping) View.GONE else View.VISIBLE
+        if (stopping) downloadStatus(kind).text = getString(R.string.devicefit_download_stopping)
+    }
+
+    private fun downloadCancel(kind: String): View = when (kind) {
+        ModelDownloadService.KIND_LLM -> llmCancel
+        ModelDownloadService.KIND_DIARIZE -> diarizeCancel
+        else -> whisperCancel
+    }
+
+    private fun downloadStatus(kind: String): TextView = when (kind) {
+        ModelDownloadService.KIND_LLM -> llmStatus
+        ModelDownloadService.KIND_DIARIZE -> diarizeModelStatus
+        else -> whisperModelStatus
+    }
+
+    /**
      * Model pickers stay usable while downloads run (that's how queueing
      * works), so deletes need one guard: the file currently being written.
      */
@@ -2049,7 +2129,7 @@ class SettingsActivity : AppCompatActivity() {
         // alike, before anything is parked: short of room, the user can free
         // some, go ahead anyway, or cancel and keep what they had.
         if (!downloaded && !spaceChecked) {
-            ModelSpaceCheck.confirm(this, spaceNeededMb(kind, key)) {
+            ModelSpaceCheck.confirm(this, ModelSpaceCheck.sizesFor(kind, key)) {
                 if (!isFinishing && !isDestroyed) pickModel(kind, key, spaceChecked = true)
             }
             return
@@ -2061,31 +2141,6 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             refreshModelStatus(kind)
         }
-    }
-
-    /**
-     * Download sizes, MB, the free-space check for [key] of [kind] has to
-     * make room for: the model itself, plus what ModelDownloadService still
-     * has to write when this one would queue behind it (the rest of the
-     * current download and everything already waiting). Checking the new
-     * model alone let a second large one pass and then run out of room.
-     */
-    private fun spaceNeededMb(kind: String, key: String): List<Int> {
-        val sizes = mutableListOf(PendingModelSelection.downloadSizeMb(kind, key))
-        if (!ModelDownloadService.isRunning) return sizes
-        val currentKind = ModelDownloadService.currentKind
-        val currentKey = ModelDownloadService.currentKey
-        if (currentKey.isNotBlank() && !(currentKind == kind && currentKey == key)) {
-            sizes += com.meetily.mobile.data.DownloadSpace.remainingMb(
-                PendingModelSelection.downloadSizeMb(currentKind, currentKey),
-                downloadService?.percent ?: 0
-            )
-        }
-        for ((queuedKind, queuedKey) in ModelDownloadService.queuedItems) {
-            if (queuedKind == kind && queuedKey == key) continue
-            sizes += PendingModelSelection.downloadSizeMb(queuedKind, queuedKey)
-        }
-        return sizes
     }
 
     private fun refreshModelStatus(kind: String) {
@@ -2152,6 +2207,9 @@ class SettingsActivity : AppCompatActivity() {
      */
     private fun startModelDownload(kind: String, key: String) {
         val wasRunning = ModelDownloadService.isRunning
+        // A second tap on the model already downloading: the service ignores
+        // it, so it is not "queued"; show where the download is instead.
+        val alreadyDownloading = ModelDownloadService.isDownloading(kind, key)
         if (!ModelDownloadService.start(this, kind, key)) {
             // Android refused the service (see ModelDownloadService.start):
             // nothing will download, so nothing stays parked behind it.
@@ -2161,7 +2219,10 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
         // Immediate visual feedback; service callbacks take over from here.
-        if (wasRunning) {
+        if (alreadyDownloading) {
+            lastRenderedPercent = -1
+            downloadObserver.onDownloadProgress(kind, key, ModelDownloadService.currentPercent)
+        } else if (wasRunning) {
             downloadObserver.onDownloadQueued(kind, key)
             Toast.makeText(this, R.string.download_queued_toast, Toast.LENGTH_SHORT).show()
         } else {

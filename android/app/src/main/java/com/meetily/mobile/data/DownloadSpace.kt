@@ -32,6 +32,35 @@ object DownloadSpace {
     fun remainingMb(sizeMb: Int, percentDone: Int): Int =
         (sizeMb.coerceAtLeast(0) * (100 - percentDone.coerceIn(0, 100)) + 99) / 100
 
+    /**
+     * Download sizes, MB, the free-space check for a new download of [item]
+     * has to make room for: [ownMb], what the new download itself needs,
+     * plus what the download service still has to write first when the new
+     * one would wait behind it. That is the rest of [current] (the download
+     * running now, [currentPercent] through; null when none runs) unless it
+     * is [item] itself, and every download in [queued] other than [item].
+     * Checking the new model alone let it pass and then run out of room
+     * behind a large one. Items are (kind, key) pairs; [sizeMb] gives an
+     * item's full download size.
+     */
+    fun sizesWithQueueMb(
+        ownMb: Int,
+        item: Pair<String, String>,
+        current: Pair<String, String>?,
+        currentPercent: Int,
+        queued: List<Pair<String, String>>,
+        sizeMb: (Pair<String, String>) -> Int
+    ): List<Int> {
+        val sizes = mutableListOf(ownMb)
+        if (current != null && current != item) {
+            sizes += remainingMb(sizeMb(current), currentPercent)
+        }
+        for (waiting in queued) {
+            if (waiting != item) sizes += sizeMb(waiting)
+        }
+        return sizes
+    }
+
     /** How much more room is needed; 0 when [availableBytes] is enough. */
     fun shortfallBytes(requiredBytes: Long, availableBytes: Long): Long =
         (requiredBytes - availableBytes.coerceAtLeast(0L)).coerceAtLeast(0L)

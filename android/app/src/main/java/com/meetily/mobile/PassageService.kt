@@ -309,6 +309,8 @@ class PassageService : Service() {
         // The recording, its waveform, clips and clear-voice copy hold the
         // passage; nothing points at them now.
         AudioRemoval.deleteFiles(app, audio, copy)
+        // So does a share of the meeting as a file, with its words.
+        com.meetily.mobile.export.MeetingShareFile.deleteFor(app, meetingId)
         written.loudness?.let { Waveform.saveFrom(app, newName, it) }
         File(workDir(app), marker).delete()
         return Result.REMOVED
@@ -361,7 +363,8 @@ class PassageService : Service() {
         val watching = listeners.any { it.showsMeeting(meetingId) }
         listeners.forEach { it.onPassageDone(meetingId, result, span) }
         if (wasTimedOut || (!watching && result != Result.CANCELLED)) {
-            postDoneNotification(meetingId, if (wasTimedOut) Result.TIMED_OUT else result)
+            // A limit that came during the swap stopped nothing: the passage is gone.
+            postDoneNotification(meetingId, if (wasTimedOut && result != Result.REMOVED) Result.TIMED_OUT else result)
         }
         timedOut = false
         // Queued work held back while the meeting was being changed, handed
