@@ -209,33 +209,58 @@ class RecordingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
+    /**
+     * The newest start this instance has been handed, whatever its action.
+     * The service stops with it ([stopForNewestStart]), never with a bare
+     * stopSelf(): that is stopSelf(-1), which also cancels a start already
+     * on its way. A finished session stops the service only once its work
+     * has been issued (WorkThenStop), and a new session can be starting on
+     * this instance by then. Its start was cancelled under it, so it ran on
+     * a service that was only bound: a swipe from Recents no longer reached
+     * onTaskRemoved, and the screen's next unbind brought the service down
+     * mid-meeting.
+     */
+    private var lastStartId = 0
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        lastStartId = startId
         when (intent?.action) {
             ACTION_START -> startSessionIfNeeded(
                 intent.getBooleanExtra(EXTRA_DEVICE_AUDIO, false),
                 intent.getStringExtra(EXTRA_INITIAL_TITLE).orEmpty()
             )
             ACTION_TOGGLE_PAUSE -> togglePause()
-            ACTION_HIGHLIGHT -> if (!markFromNotification() && !active) {
-                // A tap that raced the end of a session can be what created
-                // this service. With nothing recording it must not stay
-                // started, or be restarted, holding nothing.
-                stopSelf(startId)
-                return START_NOT_STICKY
-            }
+            ACTION_HIGHLIGHT -> markFromNotification()
             ACTION_FINISH -> finishAndSave(null)
-            ACTION_LIVE_DISMISSED -> if (active) {
-                // Swiped away: not posted as a Live Update again this
-                // session (LiveUpdates). Nothing is reposted now; the next
-                // change of state posts the ordinary notification.
-                liveUpdateDismissed = true
-            } else {
-                // As for a Mark that raced the end of a session.
-                stopSelf(startId)
-                return START_NOT_STICKY
-            }
+            // Swiped away: not posted as a Live Update again this session
+            // (LiveUpdates). Nothing is reposted now; the next change of
+            // state posts the ordinary notification.
+            ACTION_LIVE_DISMISSED -> if (active) liveUpdateDismissed = true
+            else -> return START_STICKY
+        }
+        if (!active) {
+            // A notification action that raced the end of a session can be
+            // what created this service, or reach it after a stop that it
+            // kept from taking effect (see [stopForNewestStart]). With
+            // nothing recording it must not stay started, or be restarted,
+            // holding nothing. A finish still issuing its work stops the
+            // service when that is done, and a session whose start is on
+            // its way (start() has set isRunning) takes the service over.
+            if (pendingStop == null && !isRunning) stopForNewestStart()
+            return START_NOT_STICKY
         }
         return START_STICKY
+    }
+
+    /**
+     * Stops the service for [lastStartId] and takes it out of the
+     * foreground only if that stopped it. A newer start still on its way
+     * keeps the service started and in the foreground: a session start
+     * takes the foreground over, and any other start, finding nothing
+     * recording, comes back here itself from onStartCommand. Main thread.
+     */
+    private fun stopForNewestStart() {
+        if (stopSelfResult(lastStartId)) stopForegroundCompat()
     }
 
     // --- Observer wiring --------------------------------------------------
@@ -711,10 +736,13 @@ class RecordingService : Service() {
             main.removeCallbacks(fallback)
             if (pendingStop === this) pendingStop = null
             // A session started on this instance meanwhile owns the
-            // foreground and the service now.
-            if (active) return
-            stopForegroundCompat()
-            stopSelf()
+            // foreground and the service now. So does one whose start is
+            // still on its way: start() sets isRunning on the main thread
+            // before it sends the start, and onStartCommand runs it later.
+            // That start's id is newer than lastStartId as well, so the
+            // stop below could not cancel it either.
+            if (active || isRunning) return
+            stopForNewestStart()
         }
     }
 
@@ -870,7 +898,10 @@ class RecordingService : Service() {
         isRunning = false
         activeSpeaker = null
         stopForegroundCompat()
-        stopSelf()
+        // With the start id, not a bare stopSelf() (see lastStartId). A
+        // finish of the session before this one, still issuing its work,
+        // stops the service when that is done.
+        if (pendingStop == null) stopSelfResult(lastStartId)
     }
 
     // --- Recognizer path (ported from RecordingActivity) ------------------
@@ -2391,11 +2422,9 @@ class RecordingService : Service() {
         } else {
             isRunning = false
             // A finish still issuing its work stops the service when that is
-            // done; stopping here would take its exemption away first.
-            if (pendingStop == null) {
-                stopForegroundCompat()
-                stopSelf()
-            }
+            // done; stopping here would take its exemption away first. With
+            // the start id, so a start still on its way is not cancelled.
+            if (pendingStop == null) stopForNewestStart()
         }
         super.onTaskRemoved(rootIntent)
     }

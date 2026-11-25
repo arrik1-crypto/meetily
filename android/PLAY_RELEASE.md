@@ -3327,9 +3327,12 @@ App lock and the home screen:
   Apps > Recap > Storage > Manage space.
 - [ ] With app lock on and Hide content off, then on, return after more than
   30 s from Recents, from a notification (Summary ready) and from the
-  launcher icon: the lock screen appears without a slide-in animation and
-  no meeting text is readable under it before it appears (see the Recents
-  preview decision under Product decisions).
+  launcher icon: the lock screen appears without a slide-in animation
+  each time. With Hide content on, no meeting text is readable under it
+  before it appears. With Hide content off, Recap's last screen, meeting
+  text included, may show for a moment before the lock covers it; that
+  is the Recents preview decision under Product decisions, not a
+  failure.
 - [ ] Fresh install: back out of the welcome screen, then rotate the
   phone, tap the home header's theme button and switch system dark mode:
   the welcome screen does not reopen. It returns on the next cold start

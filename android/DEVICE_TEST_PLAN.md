@@ -547,10 +547,14 @@ off` (tag `meetily_vad`).
   Recap again and unlock. Then leave and come back within 30 s.
   **Expect:** "Recap is locked", "Unlock to open your meetings",
   **Unlock** and Android's fingerprint, face or PIN prompt, covering the
-  app from its first frame with no slide-in animation and no meeting text
-  visible before it (3.22.0-beta1). The first Back closes only the prompt
-  and leaves the lock screen with its Unlock button; the second leaves
-  for the launcher. After unlocking, the home list. Within 30 s, no lock.
+  app straight away with no slide-in animation (3.22.0-beta1). "Hide
+  content from screenshots" is off here, so the home list, M1's title
+  included, may show for a moment before the lock covers it: expected,
+  not a failure (PD: app lock and the Recents preview). No meeting text
+  before the lock is checked with Hide content on, in P2-5 (+). The first
+  Back closes only the prompt and leaves the lock screen with its Unlock
+  button; the second leaves for the launcher. After unlocking, the home
+  list. Within 30 s, no lock.
   Covers: RF 10 (partial: from the launcher only; Recents and a
   notification are P1-5c), T36 2 (partial: the lock screen's Back, Android
   16 only).
