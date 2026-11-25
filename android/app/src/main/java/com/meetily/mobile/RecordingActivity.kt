@@ -528,10 +528,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         applyPausedUi(svc.paused)
         // Re-created while the session was saving: a second Finish would open
         // the meeting before the save that the first one started has landed.
-        if (svc.currentStatus() == RecordingService.Status.FINISHING) {
-            finishButton.isEnabled = false
-            pauseButton.isEnabled = false
-        }
+        if (svc.currentStatus() == RecordingService.Status.FINISHING) disableForFinish()
         applyDeviceAudioEndedUi()
         rebuildSpeakerChips()
         startTimer()
@@ -739,7 +736,18 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         A11y.setStatusText(statusView, text, statusSpeech.shouldAnnounce(status, text))
         if (status == RecordingService.Status.PAUSED) applyPausedUi(true)
         else if (status != RecordingService.Status.FINISHING) applyPausedUi(false)
+        // A Finish from the notification or a swipe: a second one from here
+        // would open the meeting before the first one's save has landed, and
+        // a star tapped now is timed after the audio ends (the notification's
+        // Mark is refused by then too).
+        if (status == RecordingService.Status.FINISHING) disableForFinish()
         applyDeviceAudioEndedUi()
+    }
+
+    private fun disableForFinish() {
+        finishButton.isEnabled = false
+        pauseButton.isEnabled = false
+        highlightButton.isEnabled = false
     }
 
     /**
@@ -971,8 +979,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             finish()
             return
         }
-        finishButton.isEnabled = false
-        pauseButton.isEnabled = false
+        disableForFinish()
         val finishing = getString(R.string.status_finishing)
         A11y.setStatusText(
             statusView, finishing,

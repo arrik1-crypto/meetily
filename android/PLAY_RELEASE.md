@@ -2176,7 +2176,11 @@ Work through it before the first targetSdk 36 upload to any track.
     lost if there is none (3.21.0-beta1 lost it), and on Auto-detect a
     meeting whose first line is among them is saved without its language
     (as in 3.21.0-beta1). With "Keep meeting audio" on, the audio is
-    transcribed instead.
+    transcribed instead. The same 10-minute limit applies during the
+    meeting: with "Keep meeting audio" off, live transcription that
+    falls more than 10 minutes behind skips the speech it has no room
+    for, with no notice (as in 3.21.0-beta1). Keep the audio on for long
+    meetings on a phone that transcribes slower than speech.
   - Finish waits up to 3 s for the audio file to close; past that, the
     first transcript or check is not queued.
   - Apart from the load wait, the lines added after it and the 3 s close
@@ -3446,10 +3450,17 @@ Recording, reminders and nudges:
   ⋮ → Check transcript accuracy on its page transcribes it.
 - [ ] Live transcription with a large model (Whisper Turbo or Parakeet):
   speak from the first second; the opening words are in the transcript
-  and in the audio. Then make the live model fail to load (debug build:
-  truncate its file with `adb shell run-as`): the meeting is recorded as
-  audio, the screen says which model did not load, and the transcript is
-  made after Finish. Repeat with "Keep meeting audio" off, speaking from
+  and in the audio. Then make the live model fail to load (debug build,
+  with `adb shell run-as`: keep a copy of the model file, then cut a few
+  MB off its end so that it still counts as downloaded; a bigger cut
+  makes the recording audio-only from the start, with no load to fail).
+  The transcript made after the meeting uses the same file, so once the
+  screen says which model did not load, put the copy back with `mv`
+  before Finish or before the force-stop below, and cut the file again
+  for each repeat. The meeting is recorded as audio, the screen says
+  which model did not load (and still does a few seconds later, also
+  when you spoke during the load), and the transcript is made after
+  Finish. Repeat with "Keep meeting audio" off, speaking from
   the first second: that transcript starts with the opening words, not
   where the load failed, and a mark lands on the right line. Repeat that
   once more, touch nothing for 10 s after the screen says the model did
@@ -3461,9 +3472,11 @@ Recording, reminders and nudges:
   then up to Finish's next 15 s check (a minute after Finish at most).
   The words come from the live model: in the meeting when it opens, or,
   for lines still being transcribed when Finish stopped waiting, a moment
-  later (go back and reopen it). With the failing model (debug build),
-  the same Finish gives a meeting with its audio from the first second,
-  transcribed after the meeting ends. With "Keep meeting audio" on as
+  later (go back and reopen it). With the failing model (debug build; a
+  Whisper one, and `mv` the copy back right after tapping Finish: the
+  load already running keeps reading the cut file), the same Finish
+  gives a meeting with its audio from the first second, transcribed
+  after the meeting ends. With "Keep meeting audio" on as
   well: lines the live model had not transcribed when Finish stopped
   waiting come from the transcript of the audio made after the meeting
   ends instead.

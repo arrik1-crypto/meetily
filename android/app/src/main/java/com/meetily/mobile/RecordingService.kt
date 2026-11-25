@@ -1349,7 +1349,12 @@ class RecordingService : Service() {
             },
             onProcessingChange = { processing ->
                 main.post {
-                    if (active && meetingId == session && !finishing && !paused && !liveLoading) {
+                    // Not once the live model failed to load: the chunks
+                    // queued during the load end after liveModelFailed, and
+                    // "Recording" replaced the line naming the model.
+                    if (active && meetingId == session && liveWhisper &&
+                        !finishing && !paused && !liveLoading
+                    ) {
                         setStatus(
                             if (processing) Status.PROCESSING else Status.LISTENING,
                             if (processing) getString(R.string.status_processing)
