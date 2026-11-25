@@ -2603,7 +2603,7 @@ class MeetingDetailActivity : AppCompatActivity() {
             offerSpeakerSuggestions()
             return
         }
-        if (!settings.useLlm || settings.llmBaseUrl.isBlank()) {
+        if (!settings.useLlm || !settings.llmConfigured) {
             Toast.makeText(this, R.string.suggest_requires_llm, Toast.LENGTH_LONG).show()
             return
         }
@@ -2727,9 +2727,14 @@ class MeetingDetailActivity : AppCompatActivity() {
         val templates = SummaryTemplates.allWithCustom(this)
         // Per-series memory: a standup series preselects standup, a sales
         // series preselects the sales report — falling back to the global
-        // last-used template for one-off meetings.
+        // last-used template for one-off meetings. Untitled recordings are
+        // not a series: a style picked for one is not remembered for all.
         val seriesKey = meeting?.let {
             com.meetily.mobile.search.MeetingGroups.normalizeTitle(it.title)
+        }.orEmpty().takeIf {
+            com.meetily.mobile.search.MeetingGroups.isSeriesKey(
+                it, getString(R.string.default_meeting_title, "")
+            )
         }.orEmpty()
         val preferred = settings.seriesTemplate(seriesKey) ?: settings.summaryTemplate
         val current = templates

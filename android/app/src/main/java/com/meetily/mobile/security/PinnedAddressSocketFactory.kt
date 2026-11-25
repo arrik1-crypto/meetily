@@ -98,6 +98,12 @@ class PinnedAddressSocketFactory(
             // way than an attack, and the user needs to be able to tell.
             val actual = remote?.hostAddress ?: "an unknown address"
             val checked = allowed.joinToString { it.hostAddress ?: it.toString() }
+            // Not layered, so nothing else will close it: the refusal is not
+            // an IOException, which is what a caller's clean-up waits for.
+            try {
+                socket.close()
+            } catch (_: Exception) {
+            }
             throw EndpointGuard.BlockedEndpointException(
                 "Refusing to send: connected to $actual, not the checked " +
                     "address ($checked). Nothing was sent."

@@ -32,12 +32,19 @@ object AutoSummary {
             val settings = AppSettings(context)
             if (!settings.autoSummaryAllowed) return
             if (segmentCount < MIN_SEGMENTS) return
-            val chargingOnly = settings.autoSummaryWhen == "charging"
-            if (!chargingOnly && !Power.allowsHeavyWork(context)) return
+            val chargingOnly = waitForCharger(
+                settings.autoSummaryWhen, Power.allowsHeavyWork(context)
+            )
             // Series memory still wins, so a standup keeps summarising as a
             // standup; otherwise the explicit automatic-summary style.
-            val seriesKey = MeetingGroups.normalizeTitle(title)
-            val template = settings.seriesTemplate(seriesKey) ?: settings.autoSummaryTemplate
+            // Untitled recordings are not a series (MeetingGroups.isSeriesKey).
+            val seriesKey = MeetingGroups.normalizeTitle(title).takeIf {
+                MeetingGroups.isSeriesKey(
+                    it, context.getString(com.meetily.mobile.R.string.default_meeting_title, "")
+                )
+            }
+            val template = seriesKey?.let { settings.seriesTemplate(it) }
+                ?: settings.autoSummaryTemplate
             // Marked automatic, so a drain hours later re-checks the consent
             // checked above instead of inheriting it.
             JobGate.requestSummary(context, meetingId, template, chargingOnly, auto = true)
@@ -45,4 +52,14 @@ object AutoSummary {
             // A bonus pass must never break finishing a meeting or an import.
         }
     }
+
+    /**
+     * Whether the summary waits for a charger: when the setting says so
+     * ([autoSummaryWhen] "charging"), and also when the battery is low off
+     * the charger (![heavyWorkAllowed], Power.allowsHeavyWork). That case
+     * used to drop the run, and as this is the only moment a meeting is ever
+     * offered one, it then never got its summary, with nothing said.
+     */
+    fun waitForCharger(autoSummaryWhen: String, heavyWorkAllowed: Boolean): Boolean =
+        autoSummaryWhen == "charging" || !heavyWorkAllowed
 }

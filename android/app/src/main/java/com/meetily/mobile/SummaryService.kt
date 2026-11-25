@@ -117,23 +117,10 @@ class SummaryService : Service() {
             refuseStart(startId)
             return START_NOT_STICKY
         }
-        isRunning = true
-        // Closes JobGate's "a start is on its way" window; see
-        // JobGate.canStartBatch.
-        JobGate.onBatchStarted()
+        val startChargingOnly = intent.getBooleanExtra(EXTRA_CHARGING_ONLY, false)
+        val startAuto = intent.getBooleanExtra(EXTRA_AUTO, false)
+        // What the foreground notification is built from, so set before it.
         currentMode = intent.getStringExtra(EXTRA_MODE) ?: MODE_SUMMARY
-        chargingOnly = intent.getBooleanExtra(EXTRA_CHARGING_ONLY, false)
-        runTemplateKey = templateKey
-        runAuto = intent.getBooleanExtra(EXTRA_AUTO, false)
-        unplugState.set(RUN_ACTIVE)
-        lastStopped = false
-        lastFailure = null
-        lastFailureHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
-        lastLocalNetworkText = null
-        // finishRun clears the abort flag when a stopped run ends; clearing it
-        // here as well means nothing left over can kill this run's first
-        // decode.
-        LocalLlm.clearAbort()
         currentMeetingId = meetingId
         currentTitle = MeetingStore(this).load(meetingId)?.title.orEmpty()
         percent = -1
@@ -144,8 +131,34 @@ class SummaryService : Service() {
                 else -> R.string.summarizing
             }
         )
-        createChannel()
-        startForegroundCompat()
+        try {
+            createChannel()
+            startForegroundCompat()
+        } catch (_: Exception) {
+            // Android 15+ refuses a dataSync foreground start once the day's
+            // allowance is used up and the app has not been opened since
+            // (ForegroundServiceStartNotAllowedException), for example when
+            // an import finishing in the background drains a queued summary
+            // after a long model download. Uncaught, that crashed the app.
+            abandonStart(startId, meetingId, templateKey, startChargingOnly, startAuto)
+            return START_NOT_STICKY
+        }
+        isRunning = true
+        // Closes JobGate's "a start is on its way" window; see
+        // JobGate.canStartBatch.
+        JobGate.onBatchStarted()
+        chargingOnly = startChargingOnly
+        runTemplateKey = templateKey
+        runAuto = startAuto
+        unplugState.set(RUN_ACTIVE)
+        lastStopped = false
+        lastFailure = null
+        lastFailureHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
+        lastLocalNetworkText = null
+        // finishRun clears the abort flag when a stopped run ends; clearing it
+        // here as well means nothing left over can kill this run's first
+        // decode.
+        LocalLlm.clearAbort()
         acquireWakeLock()
         // Only the deferred summary pass is watched. A summary the user
         // tapped for themselves while plugged in is theirs to wait for, and
@@ -210,15 +223,19 @@ class SummaryService : Service() {
                     )
                 )
                 if (enhanced.isBlank()) throw RuntimeException("empty result")
-                // Fresh copy: the user may have edited elsewhere meanwhile.
-                val target = store.load(meetingId) ?: meeting
-                // Keep the OLDEST original across repeat enhancements, so
-                // Revert always restores the user's own notes.
-                if (target.notesOriginal.isBlank()) {
-                    target.notesOriginal = target.notes
+                // Onto the copy on disk, as one locked read-modify-write: the
+                // user may have edited elsewhere meanwhile (a star, a speaker
+                // name), and a load here and a save later put the older copy
+                // back over an edit saved in between.
+                val saved = store.mutate(meetingId) { target ->
+                    // Keep the OLDEST original across repeat enhancements, so
+                    // Revert always restores the user's own notes.
+                    if (target.notesOriginal.isBlank()) {
+                        target.notesOriginal = target.notes
+                    }
+                    target.notes = enhanced.trim()
                 }
-                target.notes = enhanced.trim()
-                store.save(target)
+                if (!saved) throw RuntimeException("not saved")
             } catch (_: Exception) {
                 failed = true // original notes stay untouched
             } finally {
@@ -449,38 +466,52 @@ class SummaryService : Service() {
             val saved = store.mutate(meetingId) { target ->
                 // A failed generation saved its extractive fallback.
                 val wroteModel = if (generationFailed) AiProvenance.EXTRACTIVE else modelUsed
-                /*
-                 * Carry the user's state across a regeneration.
-                 *
-                 * The list was replaced wholesale, which threw away every tick
-                 * the user had made and every reminder they had set — and worse,
-                 * left the alarms armed, so a notification still fired for an
-                 * item that no longer existed. Items are matched on normalised
-                 * task text, but a match keeps the OLD exact text: an armed
-                 * alarm and ReminderReceiver both key on the exact string, so a
-                 * re-cased task from the model would orphan its alarm.
-                 */
-                val previous = target.actionItems.associateBy { it.task.trim().lowercase() }
-                val merged = finalItems.map { fresh ->
-                    val old = previous[fresh.task.trim().lowercase()]
-                    if (old == null) fresh
-                    else fresh.copy(task = old.task, done = old.done, remindAtMs = old.remindAtMs)
-                }
-                // Anything the new summary dropped takes its alarm with it,
-                // cancelled after the write so the lock stays short.
-                val keptKeys = merged.map { it.task.trim().lowercase() }.toSet()
-                for (gone in target.actionItems) {
-                    if (gone.task.trim().lowercase() !in keptKeys && gone.remindAtMs != null) {
-                        droppedReminders.add(gone.task)
+                // Skipped when a model wrote this summary but its item list
+                // never arrived (no marker, or an array cut off at the reply
+                // limit): regex guesses in its place cost the ticks and
+                // reminders of the items the meeting has, so they stay.
+                if (!ActionItems.keepExisting(
+                        useLlm && !generationFailed, parsedItems, target.actionItems
+                    )
+                ) {
+                    /*
+                     * Carry the user's state across a regeneration.
+                     *
+                     * The list was replaced wholesale, which threw away every tick
+                     * the user had made and every reminder they had set — and worse,
+                     * left the alarms armed, so a notification still fired for an
+                     * item that no longer existed. Items are matched on normalised
+                     * task text, but a match keeps the OLD exact text: an armed
+                     * alarm and ReminderReceiver both key on the exact string, so a
+                     * re-cased task from the model would orphan its alarm.
+                     */
+                    val previous = target.actionItems.associateBy { it.task.trim().lowercase() }
+                    val merged = finalItems.map { fresh ->
+                        val old = previous[fresh.task.trim().lowercase()]
+                        if (old == null) {
+                            fresh
+                        } else {
+                            fresh.copy(
+                                task = old.task, done = old.done, remindAtMs = old.remindAtMs
+                            )
+                        }
                     }
+                    // Anything the new summary dropped takes its alarm with it,
+                    // cancelled after the write so the lock stays short.
+                    val keptKeys = merged.map { it.task.trim().lowercase() }.toSet()
+                    for (gone in target.actionItems) {
+                        if (gone.task.trim().lowercase() !in keptKeys && gone.remindAtMs != null) {
+                            droppedReminders.add(gone.task)
+                        }
+                    }
+                    target.actionItems = merged.toMutableList()
+                    // Which run wrote the items, kept with them: a switch to
+                    // another summary later leaves them as this run wrote them,
+                    // with this run's notices (AiDisclaimers).
+                    target.actionItemsTemplate =
+                        com.meetily.mobile.data.SummaryAlternatives.key(template.key)
+                    target.actionItemsModel = wroteModel
                 }
-                target.actionItems = merged.toMutableList()
-                // Which run wrote the items, kept with them: a switch to
-                // another summary later leaves them as this run wrote them,
-                // with this run's notices (AiDisclaimers).
-                target.actionItemsTemplate =
-                    com.meetily.mobile.data.SummaryAlternatives.key(template.key)
-                target.actionItemsModel = wroteModel
                 // The summary shown until now is kept under its template
                 // unless this run made the same template again; the new one
                 // is shown (SummaryAlternatives). Up to date only if the
@@ -579,6 +610,55 @@ class SummaryService : Service() {
         stopForegroundCompat()
         // A timed-out run's own finish stops the service, with this start's id.
         if (!isRunning) stopSelfResult(startId)
+    }
+
+    /**
+     * Android would not let this run go foreground (onStartCommand). Nothing
+     * has started: a summary goes back on the queue with the flags it came
+     * with, so it runs once the app is opened again (which also resets the
+     * limit); notes and speaker runs, asked for on the spot, are reported
+     * as not done.
+     */
+    private fun abandonStart(
+        startId: Int,
+        meetingId: String,
+        templateKey: String,
+        startChargingOnly: Boolean,
+        startAuto: Boolean
+    ) {
+        // The start arrived, so JobGate is not waiting for it any more.
+        JobGate.onBatchStarted()
+        val requeued = currentMode == MODE_SUMMARY
+        if (requeued) {
+            com.meetily.mobile.data.JobQueue.enqueue(
+                this,
+                com.meetily.mobile.data.JobQueue.Job(
+                    com.meetily.mobile.data.JobQueue.KIND_SUMMARY,
+                    meetingId,
+                    templateKey,
+                    System.currentTimeMillis(),
+                    chargingOnly = startChargingOnly,
+                    // Only AutoSummary queues summaries nobody asked for.
+                    required = !startAuto,
+                    auto = startAuto
+                )
+            )
+            if (startChargingOnly) ChargingJobService.schedule(this)
+        }
+        val body = getString(
+            if (requeued) R.string.summary_fgs_exhausted_queued else R.string.fgs_timeout_summary
+        )
+        lastStopped = false
+        lastFailure = body
+        lastFailureHint = com.meetily.mobile.security.LocalNetworkAccess.Hint.NONE
+        lastLocalNetworkText = null
+        observers.forEach { it.onSummaryDone(meetingId, true) }
+        postNotStartedNotification(meetingId, body)
+        currentMeetingId = ""
+        currentTitle = ""
+        currentMode = MODE_SUMMARY
+        percent = -1
+        stopSelfResult(startId)
     }
 
     private fun setProgress(newPercent: Int, text: String) {
@@ -811,13 +891,17 @@ class SummaryService : Service() {
      * none was written.
      */
     private fun postTimeoutNotification(meetingId: String) {
+        postNotStartedNotification(meetingId, getString(R.string.fgs_timeout_summary))
+    }
+
+    /** As [postTimeoutNotification], with [body] saying what happens next. */
+    private fun postNotStartedNotification(meetingId: String, body: String) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val title = when (currentMode) {
             MODE_NOTES -> getString(R.string.notes_failed_notif)
             MODE_SPEAKERS -> getString(R.string.speakers_failed_notif)
             else -> getString(R.string.summary_timeout_notif)
         }
-        val body = getString(R.string.fgs_timeout_summary)
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_sparkle)
             .setContentTitle(title)

@@ -826,9 +826,7 @@ object LlmClient {
             val json = JSONObject(response)
             val choices = json.optJSONArray("choices")
                 ?: throw RuntimeException("Unexpected response (no choices): ${response.take(300)}")
-            val content = choices.getJSONObject(0)
-                .getJSONObject("message")
-                .optString("content", "")
+            val content = replyContent(choices.getJSONObject(0))
             // Reasoning models behind some servers put their <think> block
             // in the content itself. Stripped here as on the device path, or
             // the deliberation becomes the saved summary or meeting title.
@@ -845,6 +843,23 @@ object LlmClient {
         } finally {
             connection.disconnect()
         }
+    }
+
+    /**
+     * The text of a chat-completions choice, "" when its message or the
+     * message's content is missing or JSON null.
+     *
+     * Servers do send `"content": null`: a refusal, or a reasoning model
+     * behind a server that splits its reasoning out, which spent the whole
+     * reply thinking. Android's org.json gives the four letters "null" for
+     * that from optString (JSONObject.NULL.toString()), not the fallback,
+     * and "null" was saved as the summary, the meeting title or the answer.
+     * Empty, it gets the "empty response" error instead.
+     */
+    internal fun replyContent(choice: JSONObject): String {
+        val message = choice.optJSONObject("message") ?: return ""
+        if (message.isNull("content")) return ""
+        return message.optString("content", "")
     }
 
     private const val PRIVATE_READ_TIMEOUT_MS = 15 * 60 * 1000

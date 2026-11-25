@@ -11,6 +11,7 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
+import com.meetily.mobile.data.CompleteActionItem
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.export.TaskExport
@@ -103,18 +104,7 @@ class FollowUpsActivity : AppCompatActivity() {
     // --- Export / handoff to task apps --------------------------------------
 
     /** Open items as last loaded; checked-off rows drop out on the next load. */
-    private fun openItems(): List<TaskExport.Item> {
-        val out = mutableListOf<TaskExport.Item>()
-        for (meeting in shown) {
-            for (item in meeting.actionItems) {
-                if (item.done || (meeting.id to item.task) in completedHere) continue
-                out.add(
-                    TaskExport.Item(item.task, item.owner, item.remindAtMs, meeting.title)
-                )
-            }
-        }
-        return out
-    }
+    private fun openItems(): List<TaskExport.Item> = openItemsOf(shown, completedHere)
 
     /** The meetings with an item still open here. */
     private fun meetingsWithOpenItems(): List<Meeting> = shown.filter { meeting ->
@@ -179,13 +169,34 @@ class FollowUpsActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Built from a fresh read rather than from [shown]: after a rotation or a
+     * process death while the file picker was open, the result reaches a new
+     * screen before its first load has landed, and an empty calendar was
+     * written and reported as exported. On [loader], after any tick still
+     * being written, so the read sees it.
+     */
     private fun writeIcs(uri: android.net.Uri) {
-        val ics = TaskExport.ics(
-            openItems(), System.currentTimeMillis(),
-            com.meetily.mobile.export.ExportTextResources.load(this)
-        )
+        val texts = com.meetily.mobile.export.ExportTextResources.load(this)
+        val ticked = completedHere.toSet()
         // The destination is often a cloud provider; its stream can block.
         loader.execute {
+            val items = try {
+                openItemsOf(
+                    store.listPartial(MeetingStore.ACTION_FIELDS + MeetingStore.NOTICE_FIELDS),
+                    ticked
+                )
+            } catch (_: Throwable) {
+                emptyList()
+            }
+            if (items.isEmpty()) {
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    Toast.makeText(this, R.string.no_action_items, Toast.LENGTH_SHORT).show()
+                }
+                return@execute
+            }
+            val ics = TaskExport.ics(items, System.currentTimeMillis(), texts)
             val error = try {
                 contentResolver.openOutputStream(uri)?.use { out ->
                     out.write(ics.toByteArray(Charsets.UTF_8))
@@ -209,6 +220,9 @@ class FollowUpsActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        // Ticks made before this read are written before it (same thread),
+        // so the read has them; only those may be forgotten when it lands.
+        val tickedBefore = completedHere.toSet()
         // Titles, dates, action items and what decides the summary's
         // notice (openItemNotices) — never transcripts.
         loader.execute {
@@ -220,6 +234,8 @@ class FollowUpsActivity : AppCompatActivity() {
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 shown = loaded
+                // A task reopened in its meeting is open again here too.
+                completedHere.removeAll(tickedBefore)
                 render()
             }
         }
@@ -280,23 +296,43 @@ class FollowUpsActivity : AppCompatActivity() {
     }
 
     /**
-     * Marks the item done in the owning meeting. Reload-then-write so a stale
-     * in-memory copy can't clobber edits made elsewhere; matched by index
-     * with a task-text guard, falling back to text search.
+     * Marks the item done in the owning meeting, as one locked
+     * read-modify-write on [loader] (CompleteActionItem): a load and a save
+     * of its own on the main thread could put back an older copy over a
+     * summary or transcript written in between, and froze the list while a
+     * long meeting was parsed and rewritten.
      */
     private fun completeItem(meetingId: String, index: Int, task: String) {
-        val meeting = store.load(meetingId) ?: return
-        val at = when {
-            index in meeting.actionItems.indices &&
-                meeting.actionItems[index].task == task -> index
-            else -> meeting.actionItems.indexOfFirst { it.task == task && !it.done }
-        }
-        if (at < 0) return
-        meeting.actionItems[at] = meeting.actionItems[at].copy(done = true)
-        store.save(meeting)
+        // Out of Share and Export at once, before the write lands.
         completedHere.add(meetingId to task)
-        if (meeting.actionItems[at].remindAtMs != null) {
-            Reminders.cancelActionItem(this, meetingId, task)
+        val app = applicationContext
+        loader.execute {
+            if (CompleteActionItem.markDone(store, meetingId, index, task)) {
+                Reminders.cancelActionItem(app, meetingId, task)
+            }
+        }
+    }
+
+    companion object {
+        /**
+         * The open items of [meetings], newest meetings first, leaving out
+         * those ticked off on this screen ([completed], by meeting id and
+         * task) whose write may not have been read back yet.
+         */
+        internal fun openItemsOf(
+            meetings: List<Meeting>,
+            completed: Set<Pair<String, String>>
+        ): List<TaskExport.Item> {
+            val out = mutableListOf<TaskExport.Item>()
+            for (meeting in meetings) {
+                for (item in meeting.actionItems) {
+                    if (item.done || (meeting.id to item.task) in completed) continue
+                    out.add(
+                        TaskExport.Item(item.task, item.owner, item.remindAtMs, meeting.title)
+                    )
+                }
+            }
+            return out
         }
     }
 }

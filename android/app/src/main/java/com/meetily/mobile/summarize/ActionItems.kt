@@ -269,6 +269,24 @@ object ActionItems {
         .trim()
 
     /**
+     * Whether a summary run leaves the meeting's action items as they are.
+     *
+     * True when a model wrote the summary ([modelWrote]) but its item list
+     * never arrived ([parsed] null: no marker, or an array the reply limit
+     * cut off) and the meeting already has items. The model did look for
+     * tasks; [fromMeetingContent]'s regex guesses (nothing at all for a
+     * meeting in another language) are no stand-in for its list, and taking
+     * them as the new one dropped every other item with its tick and its
+     * reminder. A meeting with no items still gets the guesses, and a list
+     * that did arrive, even an empty one, is the run's answer.
+     */
+    fun keepExisting(
+        modelWrote: Boolean,
+        parsed: List<ActionItem>?,
+        existing: List<ActionItem>
+    ): Boolean = modelWrote && parsed == null && existing.isNotEmpty()
+
+    /**
      * Offline fallback: action-flavored segments become items, speaker tag = owner.
      *
      * The action phrases are English, so with [englishHeuristics] false (a
