@@ -190,10 +190,10 @@ class RecordingSessionEndTest {
     @Test
     fun theAudioCloseWaitEndsAtItsDeadlineAndNeverWaitsForever() {
         assertEquals(2_000L, RecordingService.closeWaitMs(closeByMs = 3_000L, nowMs = 1_000L))
-        // At or past the deadline: 0, which the caller takes as "do not
-        // wait", since a join of 0 would wait forever. Never negative.
-        assertEquals(0L, RecordingService.closeWaitMs(closeByMs = 3_000L, nowMs = 3_000L))
-        assertEquals(0L, RecordingService.closeWaitMs(closeByMs = 3_000L, nowMs = 9_000L))
+        // At or past the deadline: 1 ms, never 0 or less, since the caller
+        // joins with it directly and a join of 0 would wait forever.
+        assertEquals(1L, RecordingService.closeWaitMs(closeByMs = 3_000L, nowMs = 3_000L))
+        assertEquals(1L, RecordingService.closeWaitMs(closeByMs = 3_000L, nowMs = 9_000L))
     }
 
     @Test

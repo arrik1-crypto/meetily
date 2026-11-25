@@ -491,7 +491,10 @@ The console will ask about these (all have in-app justifications):
   audio only. On Android 15+, Recap first shows a warning that capture
   stops when the screen locks, then the system screen-capture dialog; if
   Android stops the projection mid-session, the notification and recording
-  screen say so and only Finish remains.
+  screen say so and only Finish remains. At the end of a recording the
+  media projection (and Android's capture indicator) stays while the
+  service finishes, as described under the microphone declaration above;
+  capture itself stops at Finish.
 - **FOREGROUND_SERVICE_MEDIA_PROCESSING** (new in 3.16.0-beta1): on
   Android 15+, transcription of saved audio (imported files, the
   transcript of a recording captured as audio only, accuracy checks) —
@@ -1117,8 +1120,8 @@ Work through it before the first targetSdk 36 upload to any track.
   UnkeptAudio tests, plus changes to ClearVoice, DeviceAudioLock,
   DeviceFit, DownloadSpace, LiveUpdates, MeetingLanguage, NemoWords,
   NotificationMark, NudgeTiming, RecordingStartStage, ReminderReArm,
-  ResumableDownload, Retention, StorageUsage, SummarizerAndExport,
-  HighlightMarksAndMicKeys and TranscriptResume tests; 1,606 JVM tests
+  ResumableDownload, Retention, StorageUsage, SummarizerAndExport and
+  TranscriptResume tests; 1,606 JVM tests
   passed locally), then
   `assembleRelease` with `lintVital`, the native export check
   (`llama_jni.c` changed: the empty-reply error now reports the
@@ -2143,9 +2146,11 @@ Work through it before the first targetSdk 36 upload to any track.
   - Confirm both, or have Finish stage a check too.
 - [ ] *Decision* (3.22.0-beta1, the end of a live recording): Finish, or a
   swipe from Recents, while the live model is still loading waits for the
-  load to succeed or fail. The wait lasts up to 60 s after Finish, shows
-  "Finishing transcription…", and allows no new recording meanwhile. It
-  means the meeting gets its words or its audio, and the audio is not
+  load to succeed or fail, then for the words spoken meanwhile until
+  Finish's next 15 s check at most. The wait lasts up to 60 s after
+  Finish, shows "Finishing transcription…", and allows no new recording
+  meanwhile. It means the meeting gets its words (lines not transcribed
+  by then come afterwards, see below) or its audio, and the audio is not
   transcribed beside the load.
   - Past 60 s the meeting is saved as 3.21.0-beta1 did. With "Keep
     meeting audio" on, its transcription may load a second model beside
@@ -2154,14 +2159,22 @@ Work through it before the first targetSdk 36 upload to any track.
   - No batch work is held back for a live model. After Finish the model
     is freed once its current chunk is done, and work started at Finish,
     or a new live recording, can hold a second model meanwhile.
-  - With "Keep meeting audio" off and live transcription slower than
-    speech, lines still waiting 15 s after Finish are added afterwards:
-    up to 10 minutes of speech, with the model loaded and no foreground
-    service. A summary made before them is marked out of date.
+  - With "Keep meeting audio" off, lines still waiting when Finish stops
+    waiting are added afterwards: up to 10 minutes of speech, with the
+    model loaded and no foreground service, so they are lost if Android
+    reclaims the process. Finish stops waiting 15 s after Finish when
+    live transcription is slower than speech (as in 3.21.0-beta1) or, on
+    any phone, at its first 15 s check after a loading model has loaded
+    (new: 3.21.0-beta1 captured nothing during a load). An open meeting
+    page shows them only once reopened. A summary made before them is
+    marked out of date; with fewer than 3 lines at that point (often so
+    after a Finish during the load), none is made automatically. With
+    "Keep meeting audio" on, the audio is transcribed instead.
   - Finish waits up to 3 s for the audio file to close; past that, the
     first transcript or check is not queued.
-  - Apart from the load wait, all of this is as in 3.21.0-beta1. Confirm,
-    or choose a shorter wait (`FINISH_LOAD_WAIT_MS`).
+  - Apart from the load wait and the lines added after it, all of this is
+    as in 3.21.0-beta1. Confirm, or choose a shorter wait
+    (`FINISH_LOAD_WAIT_MS`).
 - [ ] *Decision* (on-device AI beside transcription, judged deliberate in
   the pre-release review): interactive on-device AI may load the chat
   model while live or batch transcription runs: Catch me up during a
@@ -3434,12 +3447,16 @@ Recording, reminders and nudges:
   where the load failed, and a mark lands on the right line. Also with it
   off and a large model, record about 20 s and tap Finish while the
   status still reads "Loading the model…": the screen and the
-  notification read "Finishing transcription…" until the load ends (a
-  minute after Finish at most), and the meeting is not saved empty: its
-  words come from the live model. With the failing model (debug build),
+  notification read "Finishing transcription…" until the load ends, and
+  then up to Finish's next 15 s check (a minute after Finish at most).
+  The words come from the live model: in the meeting when it opens, or,
+  for lines still being transcribed when Finish stopped waiting, a moment
+  later (go back and reopen it). With the failing model (debug build),
   the same Finish gives a meeting with its audio from the first second,
   transcribed after the meeting ends. With "Keep meeting audio" on as
-  well.
+  well: lines the live model had not transcribed when Finish stopped
+  waiting come from the transcript of the audio made after the meeting
+  ends instead.
 - [ ] Unplug a USB or wired microphone chosen as the input mid-recording:
   if Android ends the capture (some phones switch to the built-in
   microphone instead), the notification reads "Recording stopped — tap

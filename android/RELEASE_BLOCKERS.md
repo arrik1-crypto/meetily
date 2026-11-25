@@ -194,7 +194,10 @@ Not triaged here:
         when Finish came while the live model was still loading. It
         then stays for the moment it takes to save the meeting, close
         its audio file (3 s at most) and start or queue its transcript,
-        check or summary.
+        check or summary. In device-audio mode the media projection
+        (and Android's capture indicator) also stays until then;
+        capture itself stops at Finish. Say so in the mediaProjection
+        declaration too.
     - Then record the videos (unlisted YouTube is fine). Only the
       mediaProcessing videos need an Android 15+ phone; plan the
       mediaProjection and dataSync ones too. DEVICE_TEST_PLAN.md walks

@@ -956,17 +956,21 @@ review are in extra A.
   not on the newest line when you tapped (3.22.0-beta1). Leave
   "Transcribe live" on for P1-10b.
   Covers: NATLIB 3 (partial: this phone only), VAD 2 (full, with P0-3a),
-  RF 16 (partial, with P1-10b: no failing model), RF 49 (full; only when
+  RF 16 (partial, with P1-10b: no failing model, and no Finish during
+  the load with "Keep meeting audio" on), RF 49 (full; only when
   the load lasted long enough to tap).
 - [ ] **P1-10b (+)** Turn "Keep meeting audio" off. With the same large
   model, start a recording, say one sentence, and tap Finish while the
   status still reads "Loading the model…".
   **Expect:** "Finishing transcription…" on the screen and in the
-  notification, no buttons, until the model has loaded (a minute after
-  Finish at most); then the meeting opens with that sentence in its
-  transcript. Turn "Keep meeting audio" back on, turn "Transcribe live"
-  off again, and save.
-  Covers: RF 16 (partial, with P1-10a: no failing model).
+  notification, no buttons, until the model has loaded and then up to
+  15 s more (a minute after Finish at most); then the meeting opens with
+  that sentence in its transcript or, if it opens without it, the
+  sentence is there when you go back and reopen the meeting a few
+  seconds later. Turn "Keep meeting audio" back on, turn "Transcribe
+  live" off again, and save.
+  Covers: RF 16 (partial, with P1-10a: no failing model, and no Finish
+  during the load with "Keep meeting audio" on).
 
 ### P1-11 Short recordings and "Keep meeting audio" off (3 min, the review fixes)
 
@@ -1632,7 +1636,8 @@ On purpose, and why; the §11 items stay open for another pass.
    targetSdk 37 build (A17 4), a microphone unplugged mid-recording (RF
    17), a live recording killed mid-meeting and a new recording started
    from the tile after a kill (RF 15 tails), a load still running 60 s
-   after Finish, and the 3 s audio-close fallback, quick starring during
+   after Finish, a Finish during a live-model load with "Keep meeting
+   audio" on (RF 16 tail), and the 3 s audio-close fallback, quick starring during
    an import (RF 7), ticks during Enhance
    notes (RF 35), Clear voice and Remove a passage under the shortened
    daily limit (CV 11, PASS 21 tails: P2-2 runs it on an import, a check

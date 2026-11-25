@@ -720,13 +720,9 @@ class RecordingService : Service() {
         val closeBy = SystemClock.elapsedRealtime() + AUDIO_CLOSE_WAIT_MS
         saveAndDrain()
         val closed = closing == null || run {
-            // Never join(0): that waits forever.
-            val wait = closeWaitMs(closeBy, SystemClock.elapsedRealtime())
-            if (wait > 0) {
-                try {
-                    closing.join(wait)
-                } catch (_: InterruptedException) {
-                }
+            try {
+                closing.join(closeWaitMs(closeBy, SystemClock.elapsedRealtime()))
+            } catch (_: InterruptedException) {
             }
             !closing.isAlive
         }
@@ -2328,12 +2324,11 @@ class RecordingService : Service() {
             liveLoading && sinceFinishMs < FINISH_LOAD_WAIT_MS
 
         /**
-         * How much longer to wait for the audio file's close at [nowMs], when
-         * the wait ends at [closeByMs]; never negative, and 0 means do not
-         * wait (a Thread.join of 0 would wait forever). Pure, so it is
-         * unit-tested.
+         * How long to join the audio file's close at [nowMs], when the wait
+         * ends at [closeByMs]: at least 1 ms, since a Thread.join of 0 would
+         * wait forever and a negative one throws. Pure, so it is unit-tested.
          */
-        fun closeWaitMs(closeByMs: Long, nowMs: Long): Long = (closeByMs - nowMs).coerceAtLeast(0L)
+        fun closeWaitMs(closeByMs: Long, nowMs: Long): Long = (closeByMs - nowMs).coerceAtLeast(1L)
 
         /**
          * If a recording was interrupted (process killed mid-session), its
