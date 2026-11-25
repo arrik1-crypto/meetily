@@ -87,4 +87,33 @@ class DeviceAudioLockTest {
         // Until Android ends it, a paused device-audio session can resume.
         assertEquals(NotificationLine.PAUSED, line(paused = true, deviceAudio = true))
     }
+
+    @Test
+    fun aMicrophoneCaptureThatStoppedIsNeverReportedAsRecording() {
+        // The capture ending holds the session paused; the line says it
+        // ended, not "Paused" with a Resume that would record nothing, and
+        // never "Recording in progress" over a dead microphone.
+        fun ended(paused: Boolean = true, micWarned: Boolean = false) =
+            DeviceAudioLock.notificationLine(
+                paused, micWarned, deviceAudio = false, deviceAudioEnded = false, sdkInt = 35,
+                captureEnded = true
+            )
+        assertEquals(NotificationLine.CAPTURE_ENDED, ended())
+        assertEquals(NotificationLine.CAPTURE_ENDED, ended(paused = false, micWarned = true))
+        assertTrue(NotificationLine.CAPTURE_ENDED.ended)
+        assertTrue(NotificationLine.DEVICE_AUDIO_ENDED.ended)
+        for (line in NotificationLine.entries) {
+            if (line != NotificationLine.CAPTURE_ENDED && line != NotificationLine.DEVICE_AUDIO_ENDED) {
+                assertFalse("$line", line.ended)
+            }
+        }
+        // Device audio ending says why in its own words.
+        assertEquals(
+            NotificationLine.DEVICE_AUDIO_ENDED,
+            DeviceAudioLock.notificationLine(
+                paused = true, micWarned = false, deviceAudio = true, deviceAudioEnded = true,
+                sdkInt = 35, captureEnded = true
+            )
+        )
+    }
 }

@@ -34,6 +34,7 @@ class NotificationMarkTest {
     fun notOfferedWhenNothingIsBeingRecorded() {
         assertFalse(offered(NotificationLine.PAUSED))
         assertFalse(offered(NotificationLine.DEVICE_AUDIO_ENDED))
+        assertFalse(offered(NotificationLine.CAPTURE_ENDED))
     }
 
     @Test
@@ -50,7 +51,7 @@ class NotificationMarkTest {
         // Android shows three actions at most. Pause and Finish are both
         // there whenever Mark is, so it must never be offered as a fourth.
         for (line in NotificationLine.entries) {
-            val pause = line != NotificationLine.DEVICE_AUDIO_ENDED
+            val pause = !line.ended
             val count = 1 + (if (pause) 1 else 0) + (if (offered(line)) 1 else 0)
             assertTrue("$line has $count actions", count <= 3)
         }

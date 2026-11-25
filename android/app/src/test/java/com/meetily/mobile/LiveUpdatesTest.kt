@@ -309,6 +309,11 @@ class LiveUpdatesTest {
             RecordingChip.ENDED,
             LiveUpdates.recordingChip(NotificationLine.DEVICE_AUDIO_ENDED, false)
         )
+        // A microphone capture that stopped runs no clock in the chip either.
+        assertEquals(
+            RecordingChip.ENDED,
+            LiveUpdates.recordingChip(NotificationLine.CAPTURE_ENDED, false)
+        )
         for (line in NotificationLine.entries) {
             assertEquals("$line", RecordingChip.SAVING, LiveUpdates.recordingChip(line, true))
         }

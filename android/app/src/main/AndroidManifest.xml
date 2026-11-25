@@ -19,8 +19,10 @@
     <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Exact alarms for action-item reminders when the user permits them;
-         the app silently falls back to a 10-minute window otherwise. -->
+    <!-- Exact alarms for action-item reminders and calendar nudges when the
+         user permits them. Otherwise Android's inexact alarms can land up to
+         an hour late, so Reminders re-arms them in steps as the time
+         approaches, which brings them within a few minutes of it. -->
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <!-- Lets the first-run model setup see a metered connection (mobile
          data) or no connection before a large download. Recap keeps and
@@ -87,10 +89,15 @@
              device-audio request). Every real way in still works: the QS
              tile, the widget, the notifications and reminders all use this
              app's own context or PendingIntents, and the launcher starts
-             the static shortcut as this package. -->
+             the static shortcut as this package.
+             singleTop: the tile, the widget or a nudge tapped during a
+             recording reaches the screen already showing it (onNewIntent)
+             instead of stacking a second one over it, which left the first
+             bound to a session that had ended. -->
         <activity
             android:name=".RecordingActivity"
             android:exported="false"
+            android:launchMode="singleTop"
             android:screenOrientation="portrait"
             android:windowSoftInputMode="adjustResize"
             android:parentActivityName=".MainActivity" />
@@ -313,6 +320,12 @@
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+            <!-- Sent when the user allows exact alarms: reminders armed
+                 inexact are re-armed exact. Revoking kills the process
+                 instead, and the next start re-arms (Reminders). -->
+            <intent-filter>
+                <action android:name="android.app.action.SCHEDULE_EXACT_ALARM_PERMISSION_STATE_CHANGED" />
             </intent-filter>
         </receiver>
 

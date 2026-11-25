@@ -9,4 +9,18 @@
          but the time. %1$s is the recording's clock, as the transcript
          labels it (0:12:34). -->
     <string name="services_notif_marked_at">Marked at %1$s</string>
+    <!-- Recording screen status once the microphone capture has stopped for
+         good mid-session (it could not be opened, a read failed, or it
+         stopped delivering sound). The clock stops; only Finish is left. -->
+    <string name="services_capture_ended_status">Recording stopped: the microphone stopped delivering sound. Tap Finish to save what was recorded.</string>
+    <!-- The recording notification's line in the same case. -->
+    <string name="services_notif_capture_ended">Recording stopped — tap Finish to save</string>
+    <string name="services_notif_capture_ended_detail">The microphone stopped delivering sound, so nothing more is being recorded. What was recorded up to then is kept: tap Finish to save it, then start a new recording to carry on.</string>
+    <!-- The redacted lock-screen version: names nothing about the meeting. -->
+    <string name="services_notif_capture_ended_public">Recording stopped</string>
+    <!-- Recording screen status when live transcription was on but its model
+         did not load. The session records audio only from then on, and the
+         audio is transcribed once the meeting ends. %1$s is the model's name
+         as the model list shows it. -->
+    <string name="services_live_model_failed">%1$s did not load, so this meeting is being recorded as audio and will be transcribed when it ends.</string>
 </resources>

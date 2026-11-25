@@ -33,7 +33,8 @@ object NotificationMark {
             NotificationLine.DEVICE_AUDIO_LIVE,
             NotificationLine.MIC_NO_SIGNAL -> true
             NotificationLine.PAUSED,
-            NotificationLine.DEVICE_AUDIO_ENDED -> false
+            NotificationLine.DEVICE_AUDIO_ENDED,
+            NotificationLine.CAPTURE_ENDED -> false
         }
 
     /**

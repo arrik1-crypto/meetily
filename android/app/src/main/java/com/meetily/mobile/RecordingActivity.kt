@@ -81,6 +81,13 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     private var service: RecordingService? = null
     private var bound = false
     private var attached = false
+
+    /**
+     * The meeting id of the session this screen has seen running, or null
+     * before that. Once that session is over the screen has nothing left to
+     * show; see [closeIfSessionOver].
+     */
+    private var sessionId: String? = null
     private var suppressWatchers = false
 
     /**
@@ -156,6 +163,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             // six days). The device-audio path makes that window much wider,
             // because start() waits on the consent dialog.
             service?.takeIf { it.active }?.let {
+                if (sessionId == null) sessionId = it.meetingId
                 elapsedView.text = formatElapsed(it.elapsedMs())
                 // Picked up here rather than at startNewSession(): the
                 // service is started with startForegroundService, so
@@ -482,6 +490,7 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
     private fun attachExistingSession(svc: RecordingService) {
         attached = true
+        sessionId = svc.meetingId
         startStage = RecordingStartStage.STARTED
         suppressWatchers = true
         titleInput.setText(svc.titleValue())
@@ -720,16 +729,24 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
      * Finish stays, so what was captured can be saved.
      */
     private fun applyDeviceAudioEndedUi() {
-        if (service?.deviceAudioEnded != true) return
+        val svc = service ?: return
+        val deviceAudio = svc.deviceAudioEnded
+        // The microphone capture stopping on its own ends the session's
+        // capture the same way.
+        if (!deviceAudio && !svc.captureEnded) return
         pauseButton.isEnabled = false
         // applyPausedUi labelled it "Resume", which TalkBack would still
         // announce for an action that no longer exists.
-        pauseButton.contentDescription = getString(R.string.devaudio_notif_ended)
+        pauseButton.contentDescription = getString(
+            if (deviceAudio) R.string.devaudio_notif_ended else R.string.services_notif_capture_ended
+        )
         // In audio-only capture (the default) this panel is the screen's main
         // text, and "Recording audio." under a status line saying device
         // audio stopped left the user to guess which one was true.
-        findViewById<TextView>(R.id.audioOnlyNote)
-            .setText(DeviceAudioLock.endedDetailRes(Build.VERSION.SDK_INT))
+        findViewById<TextView>(R.id.audioOnlyNote).setText(
+            if (deviceAudio) DeviceAudioLock.endedDetailRes(Build.VERSION.SDK_INT)
+            else R.string.services_notif_capture_ended_detail
+        )
     }
 
     override fun onFinished(meetingId: String) {
@@ -967,6 +984,12 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     }
 
     private fun confirmDiscard() {
+        // Nothing is recording: a screen left over from a session that has
+        // been saved must not offer to discard it (the service refuses too).
+        if (service?.active != true) {
+            finish()
+            return
+        }
         AlertDialog.Builder(this)
             .setTitle(R.string.discard_title)
             .setMessage(R.string.discard_message)
@@ -1063,15 +1086,24 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     }
 
     /**
-     * A nudge Intent carries FLAG_ACTIVITY_NEW_TASK, and this Activity
-     * declares no launchMode — so when the task is already rooted here (after
-     * a widget, tile, shortcut or earlier nudge launch) the system fronts the
-     * task and drops the Intent instead of calling onCreate. Re-reading it
-     * covers what can be covered; the rest degrades to the old behaviour of a
-     * date title, never to a title from the wrong meeting.
+     * A nudge, the tile or the widget tapped while this screen is up: it is
+     * singleTop, and those launches ask for the existing screen, so the
+     * Intent arrives here instead of a second screen being stacked over this
+     * one. Re-reading it covers what can be covered; the rest degrades to
+     * the old behaviour of a date title, never to a title from the wrong
+     * meeting.
      */
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
+        if (sessionOver()) {
+            // This screen's session ended without it, and it cannot start
+            // another: a fresh screen takes the tap, with what it carried.
+            finish()
+            startActivity(
+                Intent(intent).setClass(this, RecordingActivity::class.java).setFlags(0)
+            )
+            return
+        }
         setIntent(intent)
         readNudgeExtras(intent)
         // A session already under way keeps the title it started with:
@@ -1144,6 +1176,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             stopPulse()
             stopGlow()
             findViewById<EqBarsView>(R.id.eqBars).setPaused(true)
+            // Nothing is being heard; the last bars would stay up, frozen.
+            levelMeter.clear()
             pauseButton.setIconResource(R.drawable.ic_play)
             pauseButton.contentDescription = getString(R.string.resume)
         } else {
@@ -1226,10 +1260,31 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
     override fun onStart() {
         super.onStart()
         visible = true
+        if (closeIfSessionOver()) return
         scheduleAmbient()
         // The timer only ever shows a live session's clock; it idles on its
         // own until the service is active.
         if (attached) startTimer()
+    }
+
+    /**
+     * Finishes a screen whose session has ended without it. The service
+     * tells one screen that a session finished, so another one still in
+     * the back stack stayed bound with the last meeting's title, notes and
+     * a frozen clock, offering Pause, Finish and Discard over a meeting
+     * that was already saved.
+     */
+    private fun closeIfSessionOver(): Boolean {
+        if (!sessionOver()) return false
+        if (!isFinishing) finish()
+        return true
+    }
+
+    /** True once the session this screen showed is no longer running. */
+    private fun sessionOver(): Boolean {
+        val svc = service ?: return false
+        val seen = sessionId ?: return false
+        return !svc.active || svc.meetingId != seen
     }
 
     override fun onStop() {

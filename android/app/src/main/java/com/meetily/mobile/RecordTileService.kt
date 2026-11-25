@@ -23,8 +23,13 @@ class RecordTileService : TileService() {
     }
 
     override fun onClick() {
+        // During a recording this reaches the screen showing it rather than
+        // stacking a second one (see RecordingActivity in the manifest).
         val intent = Intent(this, RecordingActivity::class.java)
-            .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            .addFlags(
+                Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP
+            )
         if (Build.VERSION.SDK_INT >= 34) {
             startActivityAndCollapse(
                 PendingIntent.getActivity(

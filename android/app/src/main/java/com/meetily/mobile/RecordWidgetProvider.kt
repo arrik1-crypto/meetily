@@ -22,7 +22,11 @@ class RecordWidgetProvider : AppWidgetProvider() {
                 PendingIntent.getActivity(
                     context, 9101,
                     Intent(context, RecordingActivity::class.java)
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        // As the tile: never a second recording screen.
+                        .addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        ),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
             )

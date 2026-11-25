@@ -55,22 +55,35 @@ object DeviceAudioLock {
         DEVICE_AUDIO_LIVE,
         MIC_NO_SIGNAL,
         PAUSED,
-        DEVICE_AUDIO_ENDED
+        DEVICE_AUDIO_ENDED,
+
+        /**
+         * The microphone capture stopped for good (it could not be opened,
+         * a read failed, or it stopped delivering audio): nothing more is
+         * recorded, and only Finish is left.
+         */
+        CAPTURE_ENDED;
+
+        /** Capture is over: no clock, no Resume, only Finish. */
+        val ended: Boolean get() = this == DEVICE_AUDIO_ENDED || this == CAPTURE_ENDED
     }
 
     /**
      * Ended wins over everything, paused included: a capture Android has
      * stopped cannot be resumed, so "Paused" with a Resume button would
-     * promise something the session can no longer do.
+     * promise something the session can no longer do. [captureEnded] is the
+     * same for a microphone capture that stopped on its own.
      */
     fun notificationLine(
         paused: Boolean,
         micWarned: Boolean,
         deviceAudio: Boolean,
         deviceAudioEnded: Boolean,
-        sdkInt: Int
+        sdkInt: Int,
+        captureEnded: Boolean = false
     ): NotificationLine = when {
         deviceAudioEnded -> NotificationLine.DEVICE_AUDIO_ENDED
+        captureEnded -> NotificationLine.CAPTURE_ENDED
         paused -> NotificationLine.PAUSED
         micWarned -> NotificationLine.MIC_NO_SIGNAL
         deviceAudio && stopsOnLock(sdkInt) -> NotificationLine.DEVICE_AUDIO_LIVE

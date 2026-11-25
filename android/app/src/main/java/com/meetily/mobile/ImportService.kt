@@ -617,6 +617,11 @@ class ImportService : Service() {
                     this, recheckId, done.title, done.segments.size
                 )
             }
+            // A recording kept only so it could be transcribed ("Keep
+            // meeting audio" off) has its transcript now.
+            if (done != null && done.segments.isNotEmpty()) {
+                UnkeptAudio.afterFirstTranscript(this, recheckId)
+            }
         }
         firstTranscript = false
         val stopped = stoppedByUnplug

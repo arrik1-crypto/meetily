@@ -656,28 +656,36 @@ class MainActivity : AppCompatActivity() {
 
     /**
      * If a recording was interrupted (process killed mid-session), its meeting
-     * was still saved incrementally. Surface that once and clear the marker.
+     * was still saved incrementally. Surface that once and clear the marker,
+     * and queue the transcript an audio-only recording has yet to get: Finish
+     * and swiping the app away both queue it, and a recording the process
+     * died under was left with its audio and no words until the user found
+     * it and transcribed it by hand.
      */
     private fun recoverInterruptedRecording() {
         if (RecordingService.isRunning) return
         val id = store.activeId() ?: return
         store.clearActive()
-        // Whether the meeting is still readable decides only the toast, and
-        // finding out parses the whole file, which an hours-long recording
-        // makes megabytes: on its own thread, not in onCreate before the
+        // Whether the meeting is still readable decides the toast and the
+        // transcription, and finding out parses the whole file, which an
+        // hours-long recording makes megabytes: on its own thread, not in
+        // onCreate before the
         // first frame, and not on libraryLoader ahead of the list. The
         // marker is still cleared here, so a re-created screen never asks
         // twice, and the application context lets the toast outlive one.
         val app = applicationContext
         Thread({
-            val readable = try {
-                store.load(id) != null
+            val meeting = try {
+                store.load(id)
             } catch (_: Throwable) {
-                false
+                null
             }
-            if (readable) {
+            if (meeting != null) {
                 runOnUiThread {
                     Toast.makeText(app, R.string.recording_recovered, Toast.LENGTH_LONG).show()
+                }
+                if (meeting.segments.isEmpty()) {
+                    RecordingService.queueFirstTranscript(app, id, meeting.audioFile)
                 }
             }
         }, "recording-recover").start()
