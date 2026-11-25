@@ -33,9 +33,20 @@ class WhisperRecorder(
     private val translate: Boolean = false,
     /** Custom-vocabulary glossary (see Vocab.promptFor); null = none. */
     private val vocabPrompt: String? = null,
-    /** NeMo engine (Parakeet/Nemotron); when set, whisper is not loaded and
-     *  chunks go through sherpa-onnx instead. */
-    private val nemoEngine: NemoEngine? = null,
+    /**
+     * Builds the NeMo engine (Parakeet/Nemotron); when set, whisper is not
+     * loaded and chunks go through sherpa-onnx instead. Run on the
+     * transcriber thread once capture has started, like the whisper
+     * context (see [prepareLiveLater]); null from it means the model did not
+     * load, which leaves the session capturing only.
+     */
+    private val nemoLoader: (() -> NemoEngine?)? = null,
+    /**
+     * Further set-up the live transcription needs before its first chunk
+     * (the speaker embedder), run on the transcriber thread right after the
+     * model has loaded. Never stops the recording if it fails.
+     */
+    private val prepare: (() -> Unit)? = null,
     /**
      * False: capture only — no model is loaded, no chunk is accumulated and
      * nothing is transcribed. Frames still reach [frameSink], so the meeting
@@ -94,7 +105,21 @@ class WhisperRecorder(
         String, String?, Int?, Long, List<com.meetily.mobile.data.WordStamp>
     ) -> Unit,
     private val onProcessingChange: (Boolean) -> Unit,
-    private val onError: (String) -> Unit
+    private val onError: (String) -> Unit,
+    /** The live model loaded; chunks are transcribed from here on. Transcriber thread. */
+    private val onLiveReady: (() -> Unit)? = null,
+    /**
+     * The live model could not be loaded. Capture carries on without it:
+     * frames still reach the frame sink, and nothing more is transcribed.
+     * Transcriber thread.
+     */
+    private val onLiveUnavailable: (() -> Unit)? = null,
+    /**
+     * Capture stopped for good without being asked to: the source could not
+     * be opened, a read failed, or it stopped delivering audio. Nothing more
+     * reaches the frame sink. Audio thread.
+     */
+    private val onCaptureEnded: (() -> Unit)? = null
 ) {
     private val sampleRate = 16_000
     private val frameSize = sampleRate / 10 // 100 ms
@@ -123,6 +148,18 @@ class WhisperRecorder(
 
     /** NativeWork tag for [contextPtr]; published and taken back with it. */
     private var workToken = 0
+
+    /** What [nemoLoader] built; published and taken back like [contextPtr]. */
+    @Volatile private var nemoEngine: NemoEngine? = null
+
+    /**
+     * Set once the live model failed to load: from then on capture only
+     * feeds the frame sink, as with [transcribe] off.
+     */
+    @Volatile private var liveFailed = false
+
+    /** A frame sink attached after start; see [attachFrameSink]. */
+    @Volatile private var lateSink: ((FloatArray) -> Unit)? = null
 
     /**
      * The speech gate's detector and its state for this recording. Published
@@ -198,61 +235,42 @@ class WhisperRecorder(
         get() = com.meetily.mobile.data.MeetingLanguage.whisperRecorded(language)
 
     /** True when this session runs Whisper's translate task (English text). */
-    val translating: Boolean get() = translate && nemoEngine == null
+    val translating: Boolean get() = translate && nemoLoader == null
+
+    /**
+     * Starts feeding [sink] every captured frame from now on, for a session
+     * that had no frame sink and has to keep its audio after all (the live
+     * model failed to load). Ignored when one was given at construction.
+     */
+    fun attachFrameSink(sink: (FloatArray) -> Unit) {
+        lateSink = sink
+    }
 
     @SuppressLint("MissingPermission") // caller checks RECORD_AUDIO
     fun start() {
         if (running) return
         running = true
         audioThread = Thread {
-            if (transcribe && nemoEngine == null) {
-                if (!WhisperBridge.load()) {
-                    onError("Whisper runtime unavailable on this device")
-                    running = false
-                    return@Thread
-                }
-                // Tagged before the load, where a memory kill would land;
-                // released with the context.
-                val work = com.meetily.mobile.diag.NativeWork.begin(
-                    com.meetily.mobile.diag.NativeJob.TRANSCRIBE, modelKey
-                )
-                val ptr = WhisperBridge.initContext(modelPath)
-                // Loading takes seconds, and teardown may have run meanwhile.
-                // If it did, nobody will ever free a pointer stored now, so
-                // this thread frees it itself and stops before opening any
-                // capture (in device-audio mode, a fresh MediaProjection).
-                val published = synchronized(nativeLock) {
-                    if (gate.isClaimed || !running) {
-                        false
-                    } else {
-                        contextPtr = ptr
-                        if (ptr != 0L) workToken = work
-                        true
-                    }
-                }
-                if (!published) {
-                    if (ptr != 0L) WhisperBridge.freeContext(ptr)
-                    com.meetily.mobile.diag.NativeWork.end(work)
-                    running = false
-                    return@Thread
-                }
-                if (ptr == 0L) {
-                    com.meetily.mobile.diag.NativeWork.end(work)
-                    onError("Could not load the Whisper model")
-                    running = false
-                    return@Thread
-                }
+            // Every way this thread can end without having been asked to.
+            fun captureFailed(message: String) {
+                onError(message)
+                running = false
+                onCaptureEnded?.invoke()
             }
-            if (!running) return@Thread
 
+            // Capture opens first and the live model loads behind it, on the
+            // transcriber (prepareLiveLater). Loading it here first kept the
+            // microphone closed for the seconds a model takes to load while
+            // the session's clock already ran, so the opening words were in
+            // neither the transcript nor the saved audio; and a model that
+            // failed to load returned before any capture, losing the meeting.
             val minBuffer = AudioRecord.getMinBufferSize(
                 sampleRate, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_FLOAT
             )
             val record = try {
                 if (recordFactory != null) {
                     recordFactory.invoke() ?: run {
-                        onError("Device-audio capture unavailable")
-                        running = false
+                        captureFailed("Device-audio capture unavailable")
                         return@Thread
                     }
                 } else {
@@ -265,14 +283,12 @@ class WhisperRecorder(
                     )
                 }
             } catch (e: Exception) {
-                onError("Microphone unavailable: ${e.message}")
-                running = false
+                captureFailed("Microphone unavailable: ${e.message}")
                 return@Thread
             }
             if (record.state != AudioRecord.STATE_INITIALIZED) {
-                onError("Microphone unavailable")
                 record.release()
-                running = false
+                captureFailed("Microphone unavailable")
                 return@Thread
             }
             if (!running) {
@@ -288,7 +304,13 @@ class WhisperRecorder(
                 }
             }
 
-            if (transcribe && openSpeechGate != null) openSpeechGateLater(openSpeechGate)
+            if (transcribe) {
+                // The model first, then the gate: every chunk queues behind
+                // both, so the words captured while they load are decoded
+                // once they are ready rather than lost.
+                prepareLiveLater()
+                if (openSpeechGate != null) openSpeechGateLater(openSpeechGate)
+            }
             record.startRecording()
             val frame = FloatArray(frameSize)
             // Allocated once and filled in place. Growing a fresh array per
@@ -361,14 +383,17 @@ class WhisperRecorder(
                     chunkPeakRms = 0f
                     continue
                 }
-                frameSink?.invoke(frame.copyOf(n))
+                (frameSink ?: lateSink)?.invoke(frame.copyOf(n))
                 val rms = rmsOf(frame, n)
                 onLevel?.invoke(rms)
-                if (!transcribe) {
+                if (!transcribe || liveFailed) {
                     // Capture only. The frame is already in the recording; not
                     // accumulating it here is the whole saving — no growing
                     // buffer, no silence tracking, no chunk ever submitted, so
                     // the transcriber executor stays idle for the meeting.
+                    // A live model that failed to load lands here too, and
+                    // the chunk it was building has nothing to decode it.
+                    chunkLen = 0
                     capturedSamples += n
                     continue
                 }
@@ -390,7 +415,88 @@ class WhisperRecorder(
             record.stop()
             record.release()
             cutChunk() // flush whatever was in flight
+            // Still running: the loop broke on a dead source, not a stop.
+            if (running) onCaptureEnded?.invoke()
         }.apply { start() }
+    }
+
+    /**
+     * Loads the live model on the transcriber thread, queued ahead of every
+     * chunk, so capture is already running while it loads (a 622 MB NeMo
+     * encoder takes seconds). Chunks cut meanwhile wait in the queue, under
+     * the usual backlog cap, and are decoded once it is ready. A model that
+     * does not load leaves the recorder capturing only.
+     *
+     * Teardown frees what is published here: every release is queued on
+     * this executor behind this job (finish and destroy), so it cannot run
+     * first. A discarded session skips the load altogether.
+     */
+    private fun prepareLiveLater() {
+        try {
+            transcriber.execute {
+                if (abandoned) return@execute
+                val ready = try {
+                    val load = nemoLoader
+                    if (load != null) loadNemo(load) else loadWhisper()
+                } catch (_: Throwable) {
+                    false
+                }
+                if (!ready) {
+                    liveFailed = true
+                    onLiveUnavailable?.invoke()
+                    return@execute
+                }
+                try {
+                    prepare?.invoke()
+                } catch (_: Throwable) {
+                }
+                onLiveReady?.invoke()
+            }
+        } catch (_: java.util.concurrent.RejectedExecutionException) {
+            // Teardown won the race: there is nothing left to load for.
+        }
+    }
+
+    private fun loadWhisper(): Boolean {
+        if (!WhisperBridge.load()) return false
+        // Tagged before the load, where a memory kill would land; released
+        // with the context.
+        val work = com.meetily.mobile.diag.NativeWork.begin(
+            com.meetily.mobile.diag.NativeJob.TRANSCRIBE, modelKey
+        )
+        val ptr = WhisperBridge.initContext(modelPath)
+        if (ptr == 0L) {
+            com.meetily.mobile.diag.NativeWork.end(work)
+            return false
+        }
+        val published = synchronized(nativeLock) {
+            if (gate.isReleased) {
+                false
+            } else {
+                contextPtr = ptr
+                workToken = work
+                true
+            }
+        }
+        if (!published) {
+            WhisperBridge.freeContext(ptr)
+            com.meetily.mobile.diag.NativeWork.end(work)
+        }
+        return published
+    }
+
+    private fun loadNemo(load: () -> NemoEngine?): Boolean {
+        val engine = load() ?: return false
+        val published = synchronized(nativeLock) {
+            if (gate.isReleased) {
+                false
+            } else {
+                nemoEngine = engine
+                true
+            }
+        }
+        if (!published) engine.release()
+        return published
     }
 
     /**
@@ -440,8 +546,9 @@ class WhisperRecorder(
         // thread and takes the process with it. Drop it instead.
         if (gate.isClaimed || abandoned) return
         // Once live has been given up in favour of the saved audio, further
-        // chunks would only be decoded to be replaced.
-        if (liveSuspended) return
+        // chunks would only be decoded to be replaced; and with no model
+        // loaded there is nothing to decode them.
+        if (liveSuspended || liveFailed) return
         if (queuedSamples.get() + audio.size > maxQueuedSamples) {
             fellBehind = true
             return
@@ -452,7 +559,8 @@ class WhisperRecorder(
         try {
             transcriber.execute {
                 try {
-                    if (abandoned) return@execute
+                    // Queued while the model was loading, which then failed.
+                    if (abandoned || liveFailed) return@execute
                     // Scored here, not on the audio thread: a 28-second chunk
                     // is 875 windows, a few hundred ms or more of work that
                     // capture cannot wait for. A skipped chunk gets no
@@ -468,8 +576,8 @@ class WhisperRecorder(
                     } catch (_: Throwable) {
                         null
                     }
-                    val decoded = if (nemoEngine != null) {
-                        nemoEngine.transcribe(padded)
+                    val decoded = if (nemoLoader != null) {
+                        nemoEngine?.transcribe(padded)
                     } else {
                         val ptr = contextPtr
                         if (ptr != 0L) {
@@ -635,8 +743,13 @@ class WhisperRecorder(
             vad?.release()
         } catch (_: Throwable) {
         }
+        val nemo = synchronized(nativeLock) {
+            val current = nemoEngine
+            nemoEngine = null
+            current
+        }
         try {
-            nemoEngine?.release()
+            nemo?.release()
         } catch (_: Throwable) {
         }
     }

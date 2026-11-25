@@ -1,5 +1,6 @@
 package com.meetily.mobile
 
+import com.meetily.mobile.reminders.Reminders.Approach
 import com.meetily.mobile.reminders.Reminders.NudgeTiming
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -84,6 +85,80 @@ class NudgeTimingTest {
     fun slotRequestCodesAreDistinct() {
         val codes = (0 until 8).map { NudgeTiming.requestCode(it) }
         assertEquals(codes.size, codes.toSet().size)
+    }
+
+    /**
+     * Without exact alarms Android gives an alarm a window of three quarters
+     * of how far ahead it was armed (up to an hour), and an idle phone fires
+     * at the end of it. Armed once an hour ahead, a nudge landed ~45 minutes
+     * late and was dropped. Walk every distance with each alarm firing as
+     * late as Android allows: every step must fire before the time, and the
+     * time itself must land inside the receiver's tolerance.
+     */
+    @Test
+    fun inexactAlarmsReachTheirTimeInStepsAndLandOnIt() {
+        val distances = listOf(
+            30_000L, 3 * minute, 8 * minute, 9 * minute, 20 * minute, 60 * minute,
+            3 * 60 * minute, 24 * 60 * minute, 7 * 24 * 60 * minute
+        )
+        for (ahead in distances) {
+            for (latest in listOf(true, false)) {
+                val target = start
+                var now = target - ahead
+                var steps = 0
+                while (true) {
+                    val armAt = Approach.nextArm(target, now, canExact = false)
+                    val fires = if (latest) Approach.latestFire(armAt, now) else armAt
+                    if (armAt == target) {
+                        assertTrue(
+                            "$ahead ahead lands ${fires - target} ms late",
+                            fires - target <= Approach.INEXACT_WINDOW_MS
+                        )
+                        break
+                    }
+                    assertTrue("a step for $ahead fires before the time", fires < target)
+                    assertTrue(Approach.isStep(target, fires))
+                    now = fires
+                    steps++
+                    assertTrue("$ahead took $steps steps", steps < 40)
+                }
+            }
+        }
+        // The nudge's own tolerance covers that worst case.
+        assertTrue(
+            NudgeTiming.accepts(
+                start, end, NudgeTiming.triggerFor(start) + Approach.INEXACT_WINDOW_MS
+            )
+        )
+    }
+
+    @Test
+    fun exactAlarmsAreArmedForTheTimeItself() {
+        assertEquals(start, Approach.nextArm(start, start - 24 * 60 * minute, canExact = true))
+        assertEquals(null, Approach.nextStep(listOf(start), start - 60 * minute, canExact = true))
+    }
+
+    @Test
+    fun theNudgeStepAimsHalfwayToTheNearestFarNudge() {
+        val now = start - 60 * minute
+        // Close enough to land on time by itself: no step needed.
+        assertEquals(null, Approach.nextStep(listOf(now + 5 * minute), now, canExact = false))
+        assertEquals(null, Approach.nextStep(emptyList(), now, canExact = false))
+        // The nearest of those too far ahead decides.
+        assertEquals(
+            now + 15 * minute,
+            Approach.nextStep(
+                listOf(now + 5 * minute, now + 30 * minute, now + 90 * minute), now,
+                canExact = false
+            )
+        )
+    }
+
+    @Test
+    fun aFiringAtTheTimeIsNotAStep() {
+        assertFalse(Approach.isStep(start, start))
+        assertFalse(Approach.isStep(start, start + minute))
+        assertTrue(Approach.isStep(start, start - 10 * minute))
     }
 
     @Test

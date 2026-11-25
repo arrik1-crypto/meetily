@@ -61,6 +61,15 @@ class ReminderReceiver : BroadcastReceiver() {
         // Validate against current state: the item may be done or deleted.
         val meeting = MeetingStore(context).load(meetingId) ?: return
         val item = meeting.actionItems.firstOrNull { it.task == task } ?: return
+        // Without exact alarms a reminder is approached in steps (see
+        // Reminders.Approach): this is one of them, so arm the next.
+        val target = intent.getLongExtra(Reminders.EXTRA_REMIND_AT, 0L)
+        if (target > 0L && Reminders.Approach.isStep(target, System.currentTimeMillis())) {
+            if (!item.done && item.remindAtMs == target) {
+                Reminders.scheduleActionItem(context, meetingId, task, target)
+            }
+            return
+        }
         postActionItem(context, meeting, item)
     }
 
@@ -120,7 +129,13 @@ class ReminderReceiver : BroadcastReceiver() {
                         // event's extras and the notification would start a
                         // recording named after the wrong meeting.
                         .setData(nudgeUri(event.eventId, event.beginMs))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                        // A back-to-back meeting's nudge, tapped while the
+                        // last one records, reaches that screen rather than
+                        // stacking a second one over it.
+                        .addFlags(
+                            Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or
+                                Intent.FLAG_ACTIVITY_SINGLE_TOP
+                        ),
                     PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
                 )
                 val builder = NotificationCompat.Builder(context, CHANNEL_NUDGES)

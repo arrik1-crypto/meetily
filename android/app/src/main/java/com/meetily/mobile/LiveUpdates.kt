@@ -236,7 +236,8 @@ object LiveUpdates {
             NotificationLine.DEVICE_AUDIO_LIVE -> RecordingChip.ELAPSED
             NotificationLine.MIC_NO_SIGNAL -> RecordingChip.NO_MIC
             NotificationLine.PAUSED -> RecordingChip.PAUSED
-            NotificationLine.DEVICE_AUDIO_ENDED -> RecordingChip.ENDED
+            NotificationLine.DEVICE_AUDIO_ENDED,
+            NotificationLine.CAPTURE_ENDED -> RecordingChip.ENDED
         }
     }
 

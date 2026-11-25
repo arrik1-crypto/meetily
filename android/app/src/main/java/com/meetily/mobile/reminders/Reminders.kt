@@ -33,12 +33,72 @@ object Reminders {
     const val EXTRA_EVENT_ID = "event_id"
     const val EXTRA_EVENT_BEGIN = "event_begin"
 
+    /** The reminder's own time, carried by an action-item alarm; see [Approach]. */
+    const val EXTRA_REMIND_AT = "remind_at"
+
     /** How many upcoming events get their own armed alarm. */
     const val NUDGE_SLOTS = 8
 
     private const val NUDGE_REQUEST_BASE = 9100
     private const val REFRESH_REQUEST = 9099
     private const val SENTINEL_REQUEST = 9098
+    private const val APPROACH_REQUEST = 9097
+
+    /**
+     * Inexact alarms and how to land them on time anyway.
+     *
+     * Without exact alarms (denied by default on Android 14+) Recap arms
+     * setAndAllowWhileIdle, which Android gives a window of three quarters
+     * of how far ahead the alarm was armed, up to an hour, and an idle phone
+     * is woken at the end of it. Armed an hour ahead, a nudge could land 45
+     * minutes late, long after the receiver had stopped accepting it, and an
+     * action-item reminder up to an hour late.
+     *
+     * So a time further away than [DIRECT_ARM_MS] is never left to one
+     * alarm: a step alarm halfway there arms it again from closer. A step's
+     * own window ends at seven eighths of the way, so it always fires first,
+     * and after a few steps the time itself is armed within [DIRECT_ARM_MS],
+     * which lands it within [INEXACT_WINDOW_MS]. With exact alarms allowed
+     * the time is armed directly. Pure — unit-tested.
+     */
+    object Approach {
+        /** Armed this close or closer, an inexact alarm is late by [INEXACT_WINDOW_MS] at most. */
+        const val DIRECT_ARM_MS = 8 * 60_000L
+
+        /** The latest an inexact alarm armed [DIRECT_ARM_MS] ahead lands after its time. */
+        const val INEXACT_WINDOW_MS = DIRECT_ARM_MS * 3 / 4
+
+        /** Android's heuristic window for a one-shot inexact alarm (API 31+). */
+        private const val WINDOW_SHARE = 0.75
+        private const val MAX_WINDOW_MS = 60 * 60_000L
+
+        /** A firing this much before the time is a step, not the time itself. */
+        const val STEP_SLACK_MS = 30_000L
+
+        /** When to arm for [targetMs] at [nowMs]: the time itself, or a step towards it. */
+        fun nextArm(targetMs: Long, nowMs: Long, canExact: Boolean): Long {
+            val ahead = targetMs - nowMs
+            return if (canExact || ahead <= DIRECT_ARM_MS) targetMs else nowMs + ahead / 2
+        }
+
+        /**
+         * The step that keeps every nudge in [triggers] on time: halfway to
+         * the nearest one armed too far ahead to land on time by itself, or
+         * null when none is (or exact alarms are allowed).
+         */
+        fun nextStep(triggers: List<Long>, nowMs: Long, canExact: Boolean): Long? {
+            if (canExact) return null
+            val far = triggers.filter { it - nowMs > DIRECT_ARM_MS }.minOrNull() ?: return null
+            return nextArm(far, nowMs, canExact = false)
+        }
+
+        /** True when an alarm for [targetMs] firing at [nowMs] is a step towards it. */
+        fun isStep(targetMs: Long, nowMs: Long): Boolean = targetMs - nowMs > STEP_SLACK_MS
+
+        /** The latest an inexact alarm for [triggerMs], armed at [armedAtMs], can fire. */
+        fun latestFire(triggerMs: Long, armedAtMs: Long): Long =
+            triggerMs + minOf(((triggerMs - armedAtMs) * WINDOW_SHARE).toLong(), MAX_WINDOW_MS)
+    }
 
     /**
      * Nudge timing. Exact alarms are denied by default on Android 14+, so the
@@ -47,6 +107,8 @@ object Reminders {
      * acceptance window has to be wider than the alarm window. Previously the
      * alarm could fire up to 10 minutes late while the receiver only accepted
      * events within ±3 minutes of now, so a late alarm silently did nothing.
+     * The window is only that short because [Approach] re-arms a nudge from
+     * close by; armed once from far ahead it could be most of an hour.
      * Pure — unit-tested.
      */
     object NudgeTiming {
@@ -54,7 +116,7 @@ object Reminders {
         const val LEAD_MS = 2 * 60_000L
 
         /** Inexact-alarm window length; latest fire is start + (WINDOW - LEAD). */
-        const val INEXACT_WINDOW_MS = 5 * 60_000L
+        const val INEXACT_WINDOW_MS = Approach.INEXACT_WINDOW_MS
 
         /** A nudge is still useful this long after the meeting started. */
         const val LATE_TOLERANCE_MS = 12 * 60_000L
@@ -94,9 +156,19 @@ object Reminders {
         fun requestCode(slot: Int): Int = NUDGE_REQUEST_BASE + slot
     }
 
+    /**
+     * Arms the reminder, or a step towards it when exact alarms are not
+     * allowed (see [Approach]); the step's firing comes back here with the
+     * same time until the time itself is armed.
+     */
     fun scheduleActionItem(context: Context, meetingId: String, task: String, atMs: Long) {
-        if (atMs <= System.currentTimeMillis()) return
-        scheduleAt(context, atMs, actionItemIntent(context, meetingId, task))
+        val now = System.currentTimeMillis()
+        if (atMs <= now) return
+        scheduleAt(
+            context,
+            Approach.nextArm(atMs, now, canExact(alarmManager(context))),
+            actionItemIntent(context, meetingId, task, atMs)
+        )
     }
 
     fun cancelActionItem(context: Context, meetingId: String, task: String) {
@@ -121,6 +193,7 @@ object Reminders {
         if (!AppSettings(context).meetingNudges) {
             NudgeState.clear(context)
             cancelRefresh(context)
+            cancelApproach(context)
             return
         }
         val now = System.currentTimeMillis()
@@ -151,9 +224,38 @@ object Reminders {
             )
         }
         NudgeState.save(context, events)
+        // Without exact alarms, a nudge armed far ahead would land late; the
+        // step re-runs this, which arms every nudge again from closer.
+        armApproach(
+            context,
+            Approach.nextStep(
+                events.map { NudgeTiming.triggerFor(it.beginMs) }, now, canExact(manager)
+            )
+        )
         // A work calendar gains and moves meetings all day; without a periodic
         // sweep the armed set only refreshes when the app happens to start.
         scheduleRefresh(context)
+    }
+
+    /** Arms the nudges' [Approach] step at [atMs], or clears it when null. */
+    private fun armApproach(context: Context, atMs: Long?) {
+        if (atMs == null) {
+            cancelApproach(context)
+            return
+        }
+        try {
+            alarmManager(context).setAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP, atMs, approachIntent(context)
+            )
+        } catch (_: Exception) {
+        }
+    }
+
+    private fun cancelApproach(context: Context) {
+        try {
+            alarmManager(context).cancel(approachIntent(context))
+        } catch (_: Exception) {
+        }
     }
 
     /** Hourly re-arm so newly synced events get alarms without opening the app. */
@@ -181,21 +283,28 @@ object Reminders {
      *
      * Called on every process start, and the process is cold-started all day
      * by background triggers — calendar syncs, the hourly sweep, charger
-     * events, the widget. Alarms survive process death and app updates; only
-     * a reboot (BootReceiver re-arms) or a force-stop clears them, and both
+     * events, the widget. Alarms survive process death and app updates; a
+     * reboot (BootReceiver re-arms) or a force-stop clears them, and both
      * also discard every PendingIntent the app holds. So a far-future
-     * sentinel alarm that is still registered proves nothing was cleared, and
-     * the action-item re-arm — a pass over every meeting file — can be
-     * skipped.
+     * sentinel alarm that is still registered proves those did not happen.
+     *
+     * Revoking "Alarms & reminders" clears only the app's exact alarms, and
+     * kills the process: the reminders went, and the sentinel, armed
+     * inexact, stayed, so they were never re-armed. Whether the last full
+     * re-arm had exact alarms is therefore kept too, and any change of it
+     * re-arms everything (which also turns inexact reminders exact once the
+     * user allows exact alarms). Otherwise the action-item re-arm — a pass
+     * over every meeting file — can be skipped.
      */
     fun rescheduleAllIfCleared(context: Context) {
+        pruneDeliveries(context)
         val armed = PendingIntent.getBroadcast(
             context,
             SENTINEL_REQUEST,
             sentinelIntent(context),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE
         )
-        if (armed == null) {
+        if (needsFullReArm(armed != null, armedExact(context), canExact(alarmManager(context)))) {
             rescheduleAll(context)
         } else {
             // Still re-read the calendar as every start did: one provider
@@ -216,6 +325,7 @@ object Reminders {
      */
     fun rescheduleAll(context: Context) {
         val now = System.currentTimeMillis()
+        val exact = canExact(alarmManager(context))
         val store = MeetingStore(context)
         // Action items only: a full list() parsed every transcript and every
         // word timing in the library just to read a few remindAt stamps.
@@ -235,7 +345,27 @@ object Reminders {
         }
         scheduleNextCalendarNudge(context)
         armSentinel(context)
+        prefs(context, ALARM_PREFS).edit().putBoolean(KEY_ARMED_EXACT, exact).apply()
     }
+
+    /**
+     * Whether [rescheduleAllIfCleared] has to re-arm every reminder: the
+     * sentinel is gone, or exact alarms were allowed or taken away since the
+     * last full re-arm ([armedExact] null: never recorded). Pure — unit-tested.
+     */
+    fun needsFullReArm(sentinelArmed: Boolean, armedExact: Boolean?, exactNow: Boolean): Boolean =
+        !sentinelArmed || armedExact != exactNow
+
+    private const val ALARM_PREFS = "reminder_alarms"
+    private const val KEY_ARMED_EXACT = "armed_exact"
+
+    private fun armedExact(context: Context): Boolean? {
+        val prefs = prefs(context, ALARM_PREFS)
+        return if (prefs.contains(KEY_ARMED_EXACT)) prefs.getBoolean(KEY_ARMED_EXACT, false) else null
+    }
+
+    private fun prefs(context: Context, name: String) =
+        context.getSharedPreferences(name, Context.MODE_PRIVATE)
 
     /**
      * Arms the marker [rescheduleAllIfCleared] looks for: a non-waking alarm
@@ -286,25 +416,94 @@ object Reminders {
      * the meeting file on purpose: a screen holding an older copy of the
      * meeting writes the whole object back, which would erase a flag stored
      * there and re-post the reminder on the next start.
+     *
+     * The task is in the key as a digest, never as text: the record outlives
+     * the meeting (nothing here is told when one is erased), and the text of
+     * the last reminded tasks stayed on the phone after Delete permanently.
+     * Keys written before carried the text; they are rewritten as digests,
+     * and everything past the grace window dropped, on every start.
      */
     private const val DELIVERY_PREFS = "reminder_delivery"
     private const val KEY_DELIVERED = "delivered"
+    private const val DIGEST_KEY_PREFIX = "d|"
 
-    private fun deliveryKey(meetingId: String, task: String, atMs: Long): String =
-        "$meetingId|$atMs|$task"
+    /** The record's key for one reminder; the task only as a digest. Pure — unit-tested. */
+    fun deliveryKey(meetingId: String, task: String, atMs: Long): String =
+        "$DIGEST_KEY_PREFIX$meetingId|$atMs|${taskDigest(task)}"
 
-    private fun deliveredMap(context: Context): JSONObject = try {
-        JSONObject(
-            context.getSharedPreferences(DELIVERY_PREFS, Context.MODE_PRIVATE)
-                .getString(KEY_DELIVERED, "{}") ?: "{}"
+    /** First 16 hex digits of the task's SHA-256: enough to tell a meeting's tasks apart. */
+    fun taskDigest(task: String): String {
+        val hex = "0123456789abcdef"
+        val out = StringBuilder(16)
+        for (byte in java.security.MessageDigest.getInstance("SHA-256")
+            .digest(task.toByteArray(Charsets.UTF_8)).take(8)
+        ) {
+            val b = byte.toInt() and 0xff
+            out.append(hex[b shr 4]).append(hex[b and 0xf])
+        }
+        return out.toString()
+    }
+
+    /**
+     * [entries] as they should be stored at [nowMs]: keys that still carry a
+     * task's text rewritten as digests, and anything past twice the grace
+     * window dropped — nothing will ever ask about it again. Pure — unit-tested.
+     */
+    fun tidyDeliveries(entries: Map<String, Long>, nowMs: Long): Map<String, Long> {
+        val out = LinkedHashMap<String, Long>()
+        for ((key, at) in entries) {
+            if (nowMs - at > 2 * OVERDUE_GRACE_MS) continue
+            val tidy = if (key.startsWith(DIGEST_KEY_PREFIX)) {
+                key
+            } else {
+                // Written before: "meeting|time|task text".
+                val parts = key.split('|', limit = 3)
+                val legacyAt = parts.getOrNull(1)?.toLongOrNull()
+                if (parts.size != 3 || legacyAt == null) continue
+                deliveryKey(parts[0], parts[2], legacyAt)
+            }
+            out[tidy] = at
+        }
+        return out
+    }
+
+    private fun storedDeliveries(context: Context): Map<String, Long> = try {
+        val json = JSONObject(
+            prefs(context, DELIVERY_PREFS).getString(KEY_DELIVERED, "{}") ?: "{}"
         )
+        val out = LinkedHashMap<String, Long>()
+        val keys = json.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            out[key] = json.optLong(key)
+        }
+        out
     } catch (_: Exception) {
-        JSONObject()
+        emptyMap()
+    }
+
+    private fun storeDeliveries(context: Context, entries: Map<String, Long>) {
+        val json = JSONObject()
+        for ((key, at) in entries) json.put(key, at)
+        prefs(context, DELIVERY_PREFS).edit()
+            .putString(KEY_DELIVERED, json.toString())
+            .apply()
+    }
+
+    private fun deliveredMap(context: Context): Map<String, Long> =
+        tidyDeliveries(storedDeliveries(context), System.currentTimeMillis())
+
+    /** Rewrites the delivery record tidied (see [tidyDeliveries]) when that changes it. */
+    @Synchronized
+    fun pruneDeliveries(context: Context) {
+        val stored = storedDeliveries(context)
+        val tidy = tidyDeliveries(stored, System.currentTimeMillis())
+        if (tidy != stored) storeDeliveries(context, tidy)
     }
 
     @Synchronized
     fun wasDelivered(context: Context, meetingId: String, task: String, atMs: Long): Boolean =
-        deliveredMap(context).has(deliveryKey(meetingId, task, atMs))
+        deliveredMap(context).containsKey(deliveryKey(meetingId, task, atMs))
 
     /**
      * Records this reminder as delivered and returns true, or returns false
@@ -314,32 +513,28 @@ object Reminders {
     @Synchronized
     fun claimDelivery(context: Context, meetingId: String, task: String, atMs: Long): Boolean {
         val key = deliveryKey(meetingId, task, atMs)
+        // Tidied while rewriting: old text keys go, and so does whatever is
+        // past the grace window.
         val map = deliveredMap(context)
-        if (map.has(key)) return false
-        val now = System.currentTimeMillis()
-        val out = JSONObject()
-        // Prune while rewriting: once a reminder is past the grace window
-        // nothing will ever ask about it again.
-        val keys = map.keys()
-        while (keys.hasNext()) {
-            val existing = keys.next()
-            val at = map.optLong(existing)
-            if (now - at <= 2 * OVERDUE_GRACE_MS) out.put(existing, at)
-        }
-        out.put(key, atMs)
-        context.getSharedPreferences(DELIVERY_PREFS, Context.MODE_PRIVATE).edit()
-            .putString(KEY_DELIVERED, out.toString())
-            .apply()
+        if (map.containsKey(key)) return false
+        storeDeliveries(context, map + (key to atMs))
         return true
     }
 
-    private fun scheduleAt(context: Context, atMs: Long, operation: PendingIntent) {
-        val manager = alarmManager(context)
-        val canExact = if (android.os.Build.VERSION.SDK_INT >= 31) {
-            manager.canScheduleExactAlarms()
+    private fun canExact(manager: AlarmManager): Boolean =
+        if (android.os.Build.VERSION.SDK_INT >= 31) {
+            try {
+                manager.canScheduleExactAlarms()
+            } catch (_: Exception) {
+                false
+            }
         } else {
             true
         }
+
+    private fun scheduleAt(context: Context, atMs: Long, operation: PendingIntent) {
+        val manager = alarmManager(context)
+        val canExact = canExact(manager)
         // setAndAllowWhileIdle is the only INEXACT alarm API exempt from Doze;
         // the old setWindow fallback could be deferred for hours on a phone
         // sitting idle on a desk — exactly the situation during a workday.
@@ -354,10 +549,12 @@ object Reminders {
         }
     }
 
+    /** [atMs] is the reminder's time, 0 when only cancelling (extras do not match on cancel). */
     private fun actionItemIntent(
         context: Context,
         meetingId: String,
-        task: String
+        task: String,
+        atMs: Long = 0L
     ): PendingIntent =
         PendingIntent.getBroadcast(
             context,
@@ -366,7 +563,8 @@ object Reminders {
             Intent(context, ReminderReceiver::class.java)
                 .setAction(ACTION_ITEM_REMINDER)
                 .putExtra(EXTRA_MEETING_ID, meetingId)
-                .putExtra(EXTRA_TASK, task),
+                .putExtra(EXTRA_TASK, task)
+                .putExtra(EXTRA_REMIND_AT, atMs),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
@@ -383,6 +581,15 @@ object Reminders {
                 .setAction(ACTION_CALENDAR_NUDGE)
                 .putExtra(EXTRA_EVENT_ID, eventId)
                 .putExtra(EXTRA_EVENT_BEGIN, beginMs),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+
+    /** The nudges' [Approach] step: a one-off refresh, apart from the hourly one. */
+    private fun approachIntent(context: Context): PendingIntent =
+        PendingIntent.getBroadcast(
+            context,
+            APPROACH_REQUEST,
+            Intent(context, ReminderReceiver::class.java).setAction(ACTION_REFRESH),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
