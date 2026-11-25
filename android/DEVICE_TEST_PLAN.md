@@ -177,9 +177,12 @@ design).
   summary, and keeps its edited line; Recently deleted still holds the
   deleted one. In the English meeting the line menu offers "Re-time words"
   even on lines you never edited: deliberate (PD: Re-time words, lines of
-  unknown origin). Settings → Summaries → **Private endpoint**: the address
-  field is empty, with the example only as a hint (3.22.0-beta1 clears the
-  saved example while AI is off).
+  unknown origin). Settings → Summaries → turn "Use an LLM for summaries"
+  on (do not save) → **Private endpoint**: the address field is empty,
+  with the example only as a hint (3.22.0-beta1 clears the saved example
+  while AI is off). Tapping Private endpoint switches the engine at once,
+  so tap back to the one that was selected, then leave without **Save
+  settings**.
   Covers: RF 31 (partial: the upgrade half); the prerequisite for every
   upgrade item (PRIV 2, SHERPA 4), no single item.
 
@@ -936,10 +939,12 @@ review are in extra A.
   speech included, and the opening words are there (3.22.0-beta1: the
   microphone opens before the model has loaded); Finish keeps them. The
   star lands on the line with "star here" (or the one just before it),
-  not on the first line (3.22.0-beta1). Turn "Transcribe live" off again
-  and save.
+  not on the first line, and the toast at the tap read "Will highlight
+  the line being spoken now once it's transcribed" (3.22.0-beta1). Turn
+  "Transcribe live" off again and save.
   Covers: NATLIB 3 (full), VAD 2 (full, with P0-3a), RF 16 (partial: no
-  failing model), RF 49 (full; only when the load lasted long enough to
+  failing model, and no Finish during the load with "Keep meeting audio"
+  off), RF 49 (full; only when the load lasted long enough to
   tap).
 
 ### P1-11 Short recordings and "Keep meeting audio" off (3 min, the review fixes)
@@ -1002,8 +1007,10 @@ words included.
   Covers: RF 48 (partial, with P1-13b).
 - [ ] **P1-13b** Record again, press Home, and about a minute later, while
   still speaking, swipe Recap away in Recents.
-  **Expect:** the recording notification stays while the last words are
-  transcribed (about 15 s at most), and the summary notification comes
+  **Expect:** the recording notification stays, reading "Finishing
+  transcription…" with its clock stopped and no Pause (3.22.0-beta1),
+  while the last words are transcribed (about 15 s at most), and the
+  summary notification comes
   only after it. Open the meeting: the sentence you were saying at the
   swipe is in its transcript. Turn "Summarise after the meeting" and
   "Transcribe live" off again (save), and let the summary finish before
@@ -1059,7 +1066,8 @@ While each job below runs, run
   "Android stopped this after its daily background time limit. Your
   transcript is unchanged — run the check again later." (3.22.0-beta1), and
   the transcript is unchanged.
-  Covers: RF 25 (partial: no failed check).
+  Covers: RF 25 (partial: no failed check, which needs a debug build;
+  see What this plan leaves out).
 - [ ] In the foreground again, edit 15 or more lines spread across the
   meeting so the run outlasts a minute, and run **Re-time edited lines**.
   **Expect:** "Re-timing stopped: Android's daily limit for background
@@ -1244,8 +1252,9 @@ A6 and the version bump, from the commit you tag):
 - [ ] Settings → Privacy policy: the effective date is filled in, and the
   Contact line names the real support address; Settings → Terms of use
   opens.
-- [ ] Settings → **Report a bug** and a summary's **Report AI output**
-  address the real support address, not `support@example.com`.
+- [ ] A summary's **Report AI output** addresses the real support
+  address, not `support@example.com`. (Settings → **Report a bug** opens
+  the share sheet with a "Recap bug report" subject and no recipient.)
 - [ ] Record 20 s, Finish: its transcript is made. Play it.
 - [ ] `adb shell dumpsys package com.recap.mobile | grep -E 'versionName|versionCode'`
   shows the version you are uploading.
@@ -1386,17 +1395,23 @@ Each checks a fix of 3.22.0-beta1 that the core does not reach; the RF
 codes are the "Pre-release review fixes (3.22.0-beta1)" group in §11.
 
 - [ ] Export with audio, then Remove audio on another meeting while it
-  runs: the backup completes and restores without that file (RF 2, full).
+  runs: the backup completes and restores without that file (RF 2,
+  partial: no clean-install restore, and no check that the zip holds no
+  `queued-*` import copy).
   Back up to a USB stick and unplug it mid-export: no partial
   `recap-backup` file, or "…The file it started is incomplete — delete it…"
   (RF 3, partial).
 - [ ] Cancel a transcription half-way, change the Settings model, then
   Storage → **Delete unused models**: the unfinished transcript's model is
-  not offered (RF 6, full).
+  not offered. Back on that meeting, **Continue transcription** carries it
+  on (RF 6, full).
 - [ ] With app lock on, set Android's screen lock to None while Recap's
-  lock screen is up (cancel the prompt first), return to Recap: the lock
-  screen closes and the library shows; set the screen lock again (RF 8,
-  full).
+  lock screen is up (cancel the prompt first), return to Recap from the
+  launcher: the lock screen closes and the library shows. Set the screen
+  lock again and leave Recap for more than 30 s: the lock screen is back
+  when you return. Cancel its prompt, set the screen lock to None again
+  and return from Recents: it closes again. Set the screen lock again
+  (RF 8, full).
 - [ ] Share a meeting over 100,000 characters (a long imported meeting
   with its summaries) whose title is in Cyrillic: it goes as a .txt with
   the letters kept in its name (RF 12, full with P0-8b; RF 39, partial).
@@ -1419,7 +1434,9 @@ codes are the "Pre-release review fixes (3.22.0-beta1)" group in §11.
   enhanced — editing unlocks when it finishes." (RF 38, full).
 - [ ] On the accuracy-check review of "team sync long", play a clip during
   a call (refused or paused) and while music plays in another app (it
-  stops); rotate while the review is being read (RF 40, full).
+  stops); rotate while the review is being read (RF 40, partial: a
+  25-minute meeting, not a multi-hour one, and not tried while a
+  recording runs).
 - [ ] With a clear-voice copy, run Check transcript accuracy with
   "Transcribe the clear-voice copy instead" ticked: the reviewed lines'
   times match the original's, and the Audio tab's waveform is unchanged
@@ -1549,9 +1566,11 @@ On purpose, and why; the §11 items stay open for another pass.
    truncated model files (SHERPA 5), a corrupted meeting JSON (OPEN 7),
    leftover `.part` files (CV 2 tail, PASS 11), a planted passage swap
    marker (PASS 17), the old CAM++ file (SHERPA 4 tail), the share file
-   in `cache/shares` and `clearvoice-probe.m4a` (RF 39, RF 41 tails), and a
-   live model that fails to load (RF 16 tail). `run-as` does not work on
-   the release APK.
+   in `cache/shares` and `clearvoice-probe.m4a` (RF 39, RF 41 tails), a
+   live model that fails to load (RF 16 tail), and a check that fails
+   because its clear-voice copy was removed (RF 25 tail: the app refuses
+   to delete a copy a queued check needs). `run-as` does not work on the
+   release APK.
 2. Hardware matrices: 4/6/12 GB phones, Cortex-A53/A73, i8mm/SVE/SME2, 16
    KB pages, the x86_64 emulator, vendor AAC encoders (SETUP 1, ENG 3, VAD
    10, SHERPA 6, NATLIB, PASS), and the 6 GB on-device AI check (RF 29).

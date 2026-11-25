@@ -19,10 +19,20 @@ internal class HeldAudio(private val capSamples: Long) {
 
     val isEmpty: Boolean get() = frames.isEmpty()
 
+    /**
+     * A frame was refused for the cap since the last [clear]: what is held
+     * is the opening of the meeting, not all of it.
+     */
+    var overflowed = false
+        private set
+
     /** Holds [frame] (not copied), unless that would pass the cap. */
     fun add(frame: FloatArray): Boolean {
         if (frame.isEmpty()) return true
-        if (samples + frame.size > capSamples) return false
+        if (samples + frame.size > capSamples) {
+            overflowed = true
+            return false
+        }
         frames.add(frame)
         samples += frame.size
         return true
@@ -65,6 +75,7 @@ internal class HeldAudio(private val capSamples: Long) {
     fun clear() {
         frames.clear()
         samples = 0L
+        overflowed = false
     }
 
     companion object {

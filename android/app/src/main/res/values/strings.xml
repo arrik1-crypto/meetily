@@ -632,7 +632,7 @@
     <!-- Highlights -->
     <string name="highlight">Highlight this moment</string>
     <string name="highlighted_toast">Moment highlighted ★</string>
-    <string name="highlight_pending_toast">Will highlight the next transcribed segment ★</string>
+    <string name="highlight_pending_toast">Will highlight the line being spoken now once it\'s transcribed ★</string>
     <string name="highlight_marked_toast">Moment marked ★ — it\'s highlighted when the transcript is made</string>
     <string name="unhighlighted_toast">Highlight removed</string>
 

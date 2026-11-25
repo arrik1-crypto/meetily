@@ -1862,10 +1862,14 @@ Work through it before the first targetSdk 36 upload to any track.
   hides contents.
 - [ ] *Decision*: should the transcript that starts on its own after an
   audio-only recording be a Live Update? It is not today, because the
-  user did not start it explicitly. To change it, pass
-  `ImportService.EXTRA_USER_STARTED` from
-  `RecordingService.startPrimaryTranscription`, or relax
-  `LiveUpdates.transcriptionUserStarted`.
+  user did not start it explicitly. It is queued by
+  `RecordingService.queueFirstTranscript` through `JobGate.requestCheck`,
+  and `JobGate.startCheck` sets `ImportService.EXTRA_USER_STARTED` from
+  `LiveUpdates.queuedPassUserStarted(job.required, job.chargingOnly)`. To
+  change it, pass `required = true` from `queueFirstTranscript` (a first
+  transcript is never trimmed from the queue anyway), or change
+  `LiveUpdates.queuedPassUserStarted`, which also decides it for the
+  other passes started off the job queue.
 - [ ] *Decision*: summaries are not Live Updates (`LiveUpdates.Job.SUMMARY`
   is not promotable; their bar is stage estimates), and SummaryService is
   unchanged: its ongoing notification shows the meeting title, has no
@@ -3360,7 +3364,12 @@ Recording, reminders and nudges:
   audio, the screen says which model did not load, and the transcript is
   made after Finish. Repeat with "Keep meeting audio" off, speaking from
   the first second: that transcript starts with the opening words, not
-  where the load failed, and a mark lands on the right line.
+  where the load failed, and a mark lands on the right line. Also with it
+  off and a large model, record about 20 s and tap Finish while the
+  status still reads "Loading the model…": the meeting is not saved
+  empty. Its words come from the live model, or, when the load is still
+  running 15 s after Finish, from its audio, transcribed after the
+  meeting ends.
 - [ ] Unplug a USB or wired microphone chosen as the input mid-recording:
   if Android ends the capture (some phones switch to the built-in
   microphone instead), the notification reads "Recording stopped — tap
@@ -3401,8 +3410,13 @@ Imports and transcription:
 - [ ] Android 15+, limit shortened
   (`media_processing_fgs_timeout_duration 60000`) during an accuracy
   check: the notification says the transcript is unchanged. Make a check
-  fail (for example, delete the clear-voice copy while a check of it is
-  queued): it reads "Transcript check failed", not "Import failed".
+  fail: on a debug build, queue a check of the clear-voice copy
+  ("Transcribe the clear-voice copy instead" ticked) behind a running
+  import, then remove the copy with
+  `adb shell run-as com.recap.mobile rm files/audio/<meeting id>.clear.m4a`
+  before the check starts (the app itself refuses to delete a copy a
+  queued check needs): it reads "Transcript check failed", not "Import
+  failed".
 - [ ] A long imported VBR MP3: tag a line late in the meeting and Save
   voice; the voice window matches the line, and the time taken is
   acceptable.
@@ -3517,15 +3531,17 @@ items go here, at the end, so its RF codes keep their meaning):
   seconds, not at the next app open (the recording notification goes
   only once that work has been started). Same after swiping Recap from
   Recents mid-recording, a minute after leaving it and while still
-  speaking: the swipe is a Finish, so the recording notification stays
+  speaking: the swipe is a Finish, so the recording notification stays,
+  reading "Finishing transcription…" with its clock stopped and no Pause,
   while the last words are transcribed (about 15 s at most), the check or
   summary starts only after that, and the last sentence spoken before the
   swipe is in the transcript. Also swipe Recap away while a tapped Finish
   still reads "Finishing transcription…": the same.
 - [ ] With live transcription on and a large model, tap the star while the
   status reads "Loading the model…", some seconds into the recording:
-  once the words arrive, the star is on the line spoken at the tap, not
-  on the recording's first line.
+  the toast reads "Will highlight the line being spoken now once it's
+  transcribed", and once the words arrive, the star is on the line spoken
+  at the tap, not on the recording's first line.
 
 Accessibility:
 

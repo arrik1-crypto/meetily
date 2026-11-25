@@ -48,9 +48,13 @@ class HeldAudioTest {
         val held = HeldAudio(capSamples = 8)
         assertTrue(held.add(frame(0, 4)))
         assertTrue(held.add(frame(4, 4)))
+        assertFalse(held.overflowed)
         assertFalse(held.add(frame(8, 1)))
+        assertTrue(held.overflowed)
         assertEquals(8L, held.samples)
         assertArrayEquals(frame(0, 8), drained(held, piece = 100)[0], 0f)
+        // Drained, it holds nothing and so has refused nothing.
+        assertFalse(held.overflowed)
     }
 
     @Test

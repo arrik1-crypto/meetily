@@ -117,16 +117,14 @@ class UnkeptAudioTest {
     fun theWorkStillRunsWhenClosingTheFileFails() {
         val order = mutableListOf<String>()
         val posted = mutableListOf<() -> Unit>()
-        try {
-            RecordingService.closeAudioThen(
-                close = { throw IllegalStateException("encoder") },
-                afterClosed = { order += "work" },
-                post = { posted += it },
-                background = { it() }
-            )
-        } catch (_: IllegalStateException) {
-            // On the device this ends the closing thread, not the app.
-        }
+        // Nothing escapes the closing thread: on the device an uncaught
+        // throw there ends the process, and the posted work with it.
+        RecordingService.closeAudioThen(
+            close = { throw IllegalStateException("encoder") },
+            afterClosed = { order += "work" },
+            post = { posted += it },
+            background = { it() }
+        )
         posted.single().invoke()
         assertEquals(listOf("work"), order)
     }

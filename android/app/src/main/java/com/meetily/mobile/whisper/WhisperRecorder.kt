@@ -158,24 +158,16 @@ class WhisperRecorder(
      */
     @Volatile private var liveFailed = false
 
-    /** A frame sink attached after start; see [attachFrameSink]. */
-    @Volatile private var lateSink: ((FloatArray) -> Unit)? = null
-
     /**
-     * With no frame sink ("Keep meeting audio" off) a live session keeps no
-     * file unless its model fails to load, and capture runs before that is
-     * known. What it captures meanwhile is held, so a model that fails hands
-     * the meeting to the file opened then from its first frame
-     * ([attachFrameSink]). Without it everything said until the failure was
-     * in neither the file nor any transcript (the chunks queued for the
-     * model are dropped once it fails), and the file started later than the
-     * session's clock, so its marks were out of step. A model that loads
-     * drops it. Bounded like a kept backlog. Guarded by [sinkLock], which
-     * also keeps it ahead of the frames captured after it.
+     * Where captured frames go when no [frameSink] was given: a sink
+     * attached after start ([attachFrameSink]), and for a live session what
+     * it captures until its model's outcome is known, held so that a model
+     * that fails hands the meeting to the file opened then from its first
+     * frame (see [LateFrameSink]). Bounded like a kept backlog.
      */
-    private var held: HeldAudio? =
-        if (frameSink == null && transcribe) HeldAudio(BACKLOG_CAP_KEPT_SEC * sampleRate) else null
-    private val sinkLock = Any()
+    private val lateFrames = LateFrameSink(
+        if (frameSink == null && transcribe) BACKLOG_CAP_KEPT_SEC * sampleRate else null
+    )
 
     /**
      * The speech gate's detector and its state for this recording. Published
@@ -256,34 +248,29 @@ class WhisperRecorder(
     /**
      * Starts feeding [sink] the captured audio, for a session that had no
      * frame sink and has to keep its audio after all (the live model failed
-     * to load): first what was captured while the model loaded ([held]),
+     * to load): first what was captured while the model loaded ([lateFrames]),
      * then every frame from now on. Also after capture has stopped, as when
      * the load fails during Finish. Ignored when a sink was given at
      * construction.
      */
     fun attachFrameSink(sink: (FloatArray) -> Unit) {
         if (frameSink != null) return
-        synchronized(sinkLock) {
-            held?.drainInto(sink)
-            held = null
-            lateSink = sink
-        }
+        lateFrames.attach(sink)
     }
+
+    /**
+     * [attachFrameSink] with the sink [open] makes, for a Finish that can no
+     * longer wait for the live model's outcome: only while every frame
+     * captured so far is held, checked in one step with a model that loads
+     * meanwhile (LateFrameSink.attachIfHeldInFull). True when the sink now
+     * has the meeting from its first frame; [open] is not called otherwise.
+     */
+    fun attachFrameSinkIfHeldInFull(open: () -> ((FloatArray) -> Unit)?): Boolean =
+        frameSink == null && lateFrames.attachIfHeldInFull(open)
 
     /** True while audio captured before the live model's outcome is held for [attachFrameSink]. */
     val holdsAudio: Boolean
-        get() = synchronized(sinkLock) { held?.isEmpty == false }
-
-    /** The audio thread's hand-off of a frame when no sink was given at construction. */
-    private fun sinkLate(frame: FloatArray, n: Int) {
-        val sink = lateSink ?: synchronized(sinkLock) {
-            lateSink ?: run {
-                held?.add(frame.copyOf(n))
-                null
-            }
-        }
-        sink?.invoke(frame.copyOf(n))
-    }
+        get() = lateFrames.holdsAudio
 
     @SuppressLint("MissingPermission") // caller checks RECORD_AUDIO
     fun start() {
@@ -422,7 +409,7 @@ class WhisperRecorder(
                     chunkPeakRms = 0f
                     continue
                 }
-                if (frameSink != null) frameSink.invoke(frame.copyOf(n)) else sinkLate(frame, n)
+                if (frameSink != null) frameSink.invoke(frame.copyOf(n)) else lateFrames.offer(frame, n)
                 val rms = rmsOf(frame, n)
                 onLevel?.invoke(rms)
                 if (!transcribe || liveFailed) {
@@ -486,7 +473,7 @@ class WhisperRecorder(
                     return@execute
                 }
                 // Live has the words from here on, and no file was asked for.
-                synchronized(sinkLock) { held = null }
+                lateFrames.dropHeld()
                 try {
                     prepare?.invoke()
                 } catch (_: Throwable) {

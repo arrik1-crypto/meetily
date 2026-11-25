@@ -241,7 +241,11 @@ class RecordingService : Service() {
             // (LiveUpdates). Nothing is reposted now; the next change of
             // state posts the ordinary notification.
             ACTION_LIVE_DISMISSED -> if (active) liveUpdateDismissed = true
-            else -> return START_STICKY
+            // A null intent is Android restarting the service after a kill:
+            // a new process with nothing to record, since recovering the
+            // meeting is MainActivity's job. It stops below, as does an
+            // unknown action that finds nothing recording.
+            else -> {}
         }
         if (!active) {
             // A notification action that raced the end of a session can be
@@ -667,6 +671,24 @@ class RecordingService : Service() {
             }
             main.postDelayed({
                 if (meetingId != session) return@postDelayed
+                if (!finished && liveLoading && audioWriter == null) {
+                    // The live model is still loading, and with "Keep
+                    // meeting audio" off the meeting is held in memory
+                    // until its outcome is known. A load that failed after
+                    // this found the session over (liveModelFailed), and
+                    // the meeting was saved with no words and no audio.
+                    // Hand it to a file now, as a failed load would; the
+                    // backlog is skipped below, and the file is closed and
+                    // transcribed whichever way the load ends. Not if the
+                    // model loaded meanwhile or the hold no longer has the
+                    // whole meeting: the live backlog is then the only
+                    // complete copy, decoded as before.
+                    recorder.attachFrameSinkIfHeldInFull {
+                        openAudioWriter()?.let { writer ->
+                            { frame: FloatArray -> writer.write(frame) }
+                        }
+                    }
+                }
                 if (!finished && audioFileName != null) {
                     // Still transcribing a backlog. With the audio kept, the
                     // words are not lost by stopping: skip the rest and have
@@ -941,14 +963,22 @@ class RecordingService : Service() {
         }
         AudioStore.delete(this, audioFileName)
         audioFileName = null
+        // A finish of the session before this one, still issuing its work,
+        // stops the service when that is done, and needs the foreground
+        // until then: its ImportService and SummaryService starts are made
+        // under it. The notification says it is saving meanwhile (finishing
+        // is set), under the app's name rather than the discarded meeting's,
+        // instead of a frozen "Recording in progress" for this session.
+        if (pendingStops > 0) {
+            title = ""
+            updateNotification()
+        }
         active = false
         isRunning = false
         activeSpeaker = null
-        stopForegroundCompat()
-        // With the start id, not a bare stopSelf() (see lastStartId). A
-        // finish of the session before this one, still issuing its work,
-        // stops the service when that is done.
-        if (pendingStops == 0) stopSelfResult(lastStartId)
+        // With the start id, not a bare stopSelf() (see lastStartId), and
+        // out of the foreground only when that stopped the service.
+        if (pendingStops == 0) stopForNewestStart()
     }
 
     // --- Recognizer path (ported from RecordingActivity) ------------------
@@ -2062,10 +2092,11 @@ class RecordingService : Service() {
                 .setShortCriticalText(chip)
                 .setDeleteIntent(liveDismissedIntent)
         }
-        if (!ended) {
+        if (!ended && !finishing) {
             // No Resume once Android has ended device audio, or the
             // microphone capture stopped: nothing could be resumed. Finish
-            // is all that is left.
+            // is all that is left. Nor once Finish is saving the meeting,
+            // when togglePause ignores it.
             builder.addAction(
                 if (paused) R.drawable.ic_play else R.drawable.ic_pause,
                 getString(if (paused) R.string.resume else R.string.pause),
@@ -2081,6 +2112,14 @@ class RecordingService : Service() {
         }
         builder.addAction(R.drawable.ic_check, getString(R.string.finish_save), stopIntent)
 
+        if (finishing) {
+            // Saving, which takes up to 15 s and then the hand-off of the
+            // meeting's work, also after a swipe from Recents. It read
+            // "Recording in progress" with the clock still running.
+            builder.setContentText(getString(R.string.status_finishing))
+            builder.setUsesChronometer(false)
+            return builder.build()
+        }
         when (line) {
             DeviceAudioLock.NotificationLine.DEVICE_AUDIO_ENDED -> {
                 builder.setContentText(getString(R.string.devaudio_notif_ended))
@@ -2197,7 +2236,7 @@ class RecordingService : Service() {
             markOffered && confirmation != null -> builder.setContentText(confirmation)
             paused -> builder.setContentText(getString(R.string.status_paused))
         }
-        if (!ended && !paused) {
+        if (!ended && !paused && !finishing) {
             builder.setWhen(System.currentTimeMillis() - elapsedMs())
             builder.setUsesChronometer(true)
         }
@@ -2402,8 +2441,10 @@ class RecordingService : Service() {
          * runs then looks for audio to transcribe or check, and the writer
          * holds back 64 KB (about 8 s) before its first byte reaches the
          * disk, so a short recording looked empty when the work ran beside
-         * the close. A close that throws still runs the work. Pure apart
-         * from what it is handed, so the order is unit-tested.
+         * the close. A close that throws still runs the work, and the throw
+         * stops here: escaping the closing thread, it would end the process
+         * (CrashLog chains to Android's handler) before the work ran. Pure
+         * apart from what it is handed, so the order is unit-tested.
          */
         fun closeAudioThen(
             close: (() -> Unit)?,
@@ -2418,6 +2459,8 @@ class RecordingService : Service() {
             background {
                 try {
                     close()
+                } catch (_: Throwable) {
+                    // The file is as complete as it got; ADTS stays playable.
                 } finally {
                     afterClosed?.let(post)
                 }
