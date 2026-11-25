@@ -7,9 +7,9 @@ pre-release review fixes on `r1/integration`: five merged fix chains
 (merge tip `d3ddc47`), the docs commit that adds this file (`6891a73`),
 and the commits after it, all listed under D, up to the closing commit
 of the review series: the last commit of this series, which also brings
-this file and PLAY_RELEASE.md up to date. Until the version bump, which
-the maintainer makes in its own commit on top of this series, the build
-still reads 3.21.0-beta1 (versionCode 116). It is a snapshot:
+this file and PLAY_RELEASE.md up to date. The version bump to
+3.22.0-beta1 (versionCode 117) is its own commit on top of this series,
+pushed together with it. It is a snapshot:
 PLAY_RELEASE.md remains the source of truth.
 
 **Where the items come from.** Sections 1 to 10 of PLAY_RELEASE.md have no
@@ -50,10 +50,10 @@ by CI.
 | Class | Open checklist items | Prose steps (sections 1–10) | Not in the checklist |
 |---|---|---|---|
 | A. Blocks, owner only | 7 | 7 | 1, plus the device pass (A14) |
-| B. Blocks, Claude can do | 4 | 0 | 0 |
+| B. Blocks, Claude can do | 3 | 0 | 0 |
 | C. Can wait | 65 (C1: 20, C2: 45) | 0 | 5 known leftovers, plus the Accessibility checks in C1 |
 | D. Stale or done | 12 | 4 | 0 |
-| **Total** | **88** | **11** | |
+| **Total** | **87** | **11** | |
 
 D also lists two parts of items that stay open (the nlohmann/json half of
 a licence item, the backup-name half of a product decision).
@@ -63,7 +63,8 @@ Not triaged here:
   3.22.0-beta1. Run [DEVICE_TEST_PLAN.md](DEVICE_TEST_PLAN.md) instead
   (A14): it condenses them into one 60 to 90 minute pass, and says which
   ones a step covers in full.
-- The 11 items already ticked in section 11.
+- The 12 items already ticked in section 11 (the version bump among
+  them).
 
 ## A. Owner only, in the order to do them
 
@@ -269,17 +270,18 @@ Not triaged here:
 
 1. **Version bump to 3.22.0-beta1 (117) and a green CI** (§11 Version and
    build, "Bump `versionCode` to 117" and "Run CI on the release commit")
-   - Do: bump `versionCode` and `versionName` in
-     `android/app/build.gradle.kts` in its own commit on top of this
+   - Done: the bump of `versionCode` and `versionName` in
+     `android/app/build.gradle.kts`, in its own commit on top of this
      series (after the closing commit of the review series, its last
-     commit), and push the review-fix merge and the bump to
-     the Android branch together, in one push (or the bump first). CI
-     publishes every Android-branch build to the release named after its
-     versionName, replacing that release's APK, so a push of the merge
-     alone would overwrite the real 3.21.0-beta1 download with unbumped
-     review-fix code. Then get `Build Android APK` green: unit tests,
+     commit), pushed to the Android branch together with the review-fix
+     merge, in one push (the §11 bump item is ticked).
+   - Do: get `Build Android APK` green on that push: unit tests,
      `assembleRelease` with `lintVital`, the export and baseline profile
      checks. The item lists the calls the local check could not verify.
+     (CI publishes every Android-branch build to the release named after
+     its versionName, replacing that release's APK. That is why the merge
+     and the bump went in one push: the merge alone would have overwritten
+     the real 3.21.0-beta1 download with unbumped review-fix code.)
    - Why: Play rejects a versionCode it has seen, and none of the review
      fixes has been through Gradle, lint or R8.
 2. **Dry-run the release workflow and inspect the first AAB** (§11 Version

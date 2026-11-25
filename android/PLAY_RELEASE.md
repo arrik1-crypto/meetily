@@ -1,17 +1,17 @@
 # Recap — Google Play release runbook
 
 Everything needed to take Recap from this repo to the Play Store, in order.
-App ID: **com.recap.mobile** (permanent). Next release:
+App ID: **com.recap.mobile** (permanent). Current release:
 **3.22.0-beta1** (versionCode 117), targetSdk 36 (Android 16):
 pre-release review fixes. For users: a restore asks before replacing
 meetings already on the phone, a recording keeps its first words and
 its audio when the microphone or the live model fails, reminders and
 nudges arrive on time without exact alarms, and many smaller fixes
 land in backups, imports, downloads, the app lock, summaries and the
-meeting screen. Until the maintainer's version bump, its own commit on
-top of the review-fix series (whose last commit is the closing commit
-of the review series), the build still reads
-**3.21.0-beta1** (versionCode 116), the current release: Batch 7
+meeting screen. The version bump is its own commit on top of the
+review-fix series (whose last commit is the closing commit of the
+review series). The previous release, **3.21.0-beta1** (versionCode
+116), was Batch 7
 (Re-time words, which measures the timings of edited transcript words
 against the recording on the phone with an optional English
 forced-alignment model; a Baseline Profile with androidx.profileinstaller
@@ -21,7 +21,7 @@ reached, the local network permission wired up for the targetSdk 37
 bump, system sounds a recording muted put back after a crash, the
 camera's photo grant made explicit, and export and home-list text moved
 into string resources behind an English-only per-app language list).
-The previous release, **3.20.0-beta1** (versionCode 115), was Batch 6
+**3.20.0-beta1** (versionCode 115) was Batch 6
 (Android 16 Live Updates for the recording and for long jobs the user
 starts, meeting playback that carries on in the background with
 lock-screen, headset and car controls and 15-second skips, Recently
@@ -1100,15 +1100,16 @@ Work through it before the first targetSdk 36 upload to any track.
 
 ### Version and build
 
-- [ ] Bump `versionCode` to 117 and `versionName` to `3.22.0-beta1` in
+- [x] Bump `versionCode` to 117 and `versionName` to `3.22.0-beta1` in
   `android/app/build.gradle.kts`, in its own commit on top of the
-  pre-release review-fix series (the maintainer's step; until then the
-  build reads 3.21.0-beta1, 116). The fix commits after `d4d1816` and its
-  docs sync `8397802` are `fe3bcc5` and `8e9aecf`, then `3ae6dd0`, which
-  simplified the end-of-recording and recovery work of the earlier
-  rounds, its three review rounds `efe8127`, `31f014f` and `db0c8c8`,
-  the docs-only sync `df7aaeb`, and the closing commit of the review
-  series, which changes code and docs; the bump goes on top of that.
+  pre-release review-fix series (done: "Bump to 3.22.0-beta1 (117)",
+  pushed together with the review-fix merge). The fix commits after
+  `d4d1816` and its docs sync `8397802` are `fe3bcc5` and `8e9aecf`,
+  then `3ae6dd0`, which simplified the end-of-recording and recovery
+  work of the earlier rounds, its three review rounds `efe8127`,
+  `31f014f` and `db0c8c8`, the docs-only sync `df7aaeb`, and the
+  closing commit of the review series, which changes code and docs;
+  the bump goes on top of that.
   Push the merge and the bump to the Android branch in one push, or the
   bump first: `Build Android APK`
   uploads every Android-branch build to the release named after its
