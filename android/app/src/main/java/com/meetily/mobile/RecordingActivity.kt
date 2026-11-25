@@ -319,13 +319,6 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
         startPulse()
 
-        // Before the session this screen may start writes its own crash-
-        // recovery marker over an interrupted one's: the tile, the widget,
-        // the Record shortcut and a nudge open this screen without
-        // MainActivity, so the recording the process died under was never
-        // recovered. A no-op while a session runs or still issues its work.
-        RecordingService.recoverInterrupted(this)
-
         bindService(
             Intent(this, RecordingService::class.java), connection, Context.BIND_AUTO_CREATE
         )
@@ -1417,8 +1410,9 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         /**
          * The recording notification's tap: show the session it was posted
          * for, or the one running now, and never start a recording. The
-         * notification outlives its session by a moment (saving, then the
-         * hand-off of the meeting's work), and every other way in starts one.
+         * notification goes in the same step that ends its session; this
+         * guards a tap that races that end, and every other way in starts
+         * one.
          */
         const val ACTION_SHOW_SESSION = "com.meetily.mobile.action.SHOW_SESSION"
 

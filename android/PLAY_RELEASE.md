@@ -9,8 +9,8 @@ its audio when the microphone or the live model fails, reminders and
 nudges arrive on time without exact alarms, and many smaller fixes
 land in backups, imports, downloads, the app lock, summaries and the
 meeting screen. Until the maintainer's version bump, its own commit
-right after the last review-fix commit, `d4d1816` (only a docs sync
-commit comes between them), the build still reads
+right after the last review-fix commit, the end-of-recording
+simplification on top of `8e9aecf`, the build still reads
 **3.21.0-beta1** (versionCode 116), the current release: Batch 7
 (Re-time words, which measures the timings of edited transcript words
 against the recording on the phone with an optional English
@@ -480,12 +480,12 @@ The console will ask about these (all have in-app justifications):
   video to show it is optional, not required by policy.) The declaration
   should also cover the end of a recording (3.22.0-beta1): after Finish
   or a swipe from Recents, RecordingService stays in the foreground,
-  capturing nothing, with a "Finishing transcription…" notification,
-  until the first transcript, check or summary has been started or
-  queued, and while the live model is still loading or held, until it
-  is freed and the queued work started (usually seconds, 75 s at most:
-  15 s for the last words, then 60 s while the live model is loading or
-  held, 10 s otherwise).
+  capturing nothing, with a "Finishing transcription…" notification. It
+  stays while the last live words are transcribed: 15 s at most, as in
+  3.21.0-beta1, or up to 60 s when Finish came while the live model was
+  still loading. It then stays for the moment it takes to save the
+  meeting, close its audio file (3 s at most) and start or queue its
+  transcript, check or summary.
 - **FOREGROUND_SERVICE_MEDIA_PROJECTION**: "record device audio" mode for
   webinars — user grants via the system screen-capture dialog each time;
   audio only. On Android 15+, Recap first shows a warning that capture
@@ -1099,9 +1099,10 @@ Work through it before the first targetSdk 36 upload to any track.
 
 - [ ] Bump `versionCode` to 117 and `versionName` to `3.22.0-beta1` in
   `android/app/build.gradle.kts`, in its own commit right after the last
-  pre-release review fix commit, `d4d1816`, and the docs sync on top of
-  it (the maintainer's step; until then the build reads 3.21.0-beta1,
-  116). Push the merge and the bump to the Android branch in one push,
+  pre-release review fix commit, the end-of-recording simplification on
+  top of `8e9aecf` (the fix commits after `d4d1816` and its docs sync
+  are `fe3bcc5`, `8e9aecf` and that one; the maintainer's step; until
+  then the build reads 3.21.0-beta1, 116). Push the merge and the bump to the Android branch in one push,
   or the bump first: `Build Android APK`
   uploads every Android-branch build to the release named after its
   versionName with `--clobber`, so the merge pushed alone replaces the
@@ -1109,20 +1110,22 @@ Work through it before the first targetSdk 36 upload to any track.
   download) with the unbumped review-fix build, under the old notes.
 - [ ] Run CI on the release commit of the pre-release review fixes
   (`r1/integration`, merged into the Android branch): `testReleaseUnitTest`
-  (new AbortScope, ActionItemUpdates, AiSettingsFixes, AppLockRules,
-  BackupRestore, DownloadRunEnd, EditTargets, HeldAudio, LateFrameSink,
+  (new AbortScope, ActionItemUpdates, ActiveMarker, AiSettingsFixes,
+  AppLockRules, BackupRestore, DownloadRunEnd, EditTargets, HeldAudio,
+  LateFrameSink,
   MeetingShareFile, QueuedImport, RecordingSessionEnd, RetainedRun and
   UnkeptAudio tests, plus changes to ClearVoice, DeviceAudioLock,
   DeviceFit, DownloadSpace, LiveUpdates, MeetingLanguage, NemoWords,
   NotificationMark, NudgeTiming, RecordingStartStage, ReminderReArm,
   ResumableDownload, Retention, StorageUsage, SummarizerAndExport,
-  HighlightMarksAndMicKeys and TranscriptResume tests; 1,614 JVM tests
+  HighlightMarksAndMicKeys and TranscriptResume tests; 1,606 JVM tests
   passed locally), then
   `assembleRelease` with `lintVital`, the native export check
   (`llama_jni.c` changed: the empty-reply error now reports the
   tokens sampled; only CI compiles native code) and the baseline profile
-  check (`baseline-prof.txt` has updated `JobQueue`, `JobGate` and
-  `RecordingService` signatures).
+  check (`baseline-prof.txt` has updated `JobQueue` and
+  `RecordingService` signatures; `JobGate` is back to `canStartBatch()Z`,
+  as in 3.21.0-beta1).
   Nothing in these fixes went through Gradle, lint, aapt or R8: they
   were compiled against Android's implementation jar and hand-written
   AndroidX stubs, so fix anything the real build turns up. In
@@ -1471,13 +1474,14 @@ Work through it before the first targetSdk 36 upload to any track.
   permission: FOREGROUND_SERVICE_MEDIA_PROCESSING and
   FOREGROUND_SERVICE_DATA_SYNC were already declared. 3.22.0-beta1 adds
   no type, but the microphone declaration should also cover the end of a
-  recording: after Finish or a swipe from Recents, RecordingService stays
-  in the foreground, capturing nothing, with a "Finishing transcription…"
-  notification, until the first transcript, check or summary has been
-  started or queued, and while the live model is still loading or held,
-  until it is freed and the queued work started (usually seconds, 75 s
-  at most: 15 s for the last words, then 60 s while the live model is
-  loading or held, 10 s otherwise); the wording is in section 5. A batch import's notification
+  recording (3.22.0-beta1): after Finish or a swipe from Recents,
+  RecordingService stays in the foreground, capturing nothing, with a
+  "Finishing transcription…" notification. It stays while the last live
+  words are transcribed: 15 s at most, as in 3.21.0-beta1, or up to 60 s
+  when Finish came while the live model was still loading. It then stays
+  for the moment it takes to save the meeting, close its audio file (3 s
+  at most) and start or queue its transcript, check or summary. The
+  wording is in section 5. A batch import's notification
   now also has Cancel all, which the mediaProcessing video may show.
 - [ ] **Target API 37** (Android 17), whenever Recap moves to it (AGP
   9.1.1 or later is needed; nothing in Batch 7 requires the move):
@@ -2123,42 +2127,41 @@ Work through it before the first targetSdk 36 upload to any track.
   charger, through the same queue as "When charging", instead of getting
   no summary. `setting_auto_summary_desc` does not mention it. Confirm,
   and decide whether the description should.
-- [ ] *Decision* (3.22.0-beta1, recovered live recordings): with "Keep
-  meeting audio" on, a live recording the process died under whose live
-  words had stopped short (live fell behind and stopped, or more than
-  30 s of speech still waited to be transcribed, besides the chunk being
-  spoken) now has its audio transcribed once Recap is next opened (or a
-  recording is next started, from the tile, the widget, the Record
-  shortcut or a nudge), as an accuracy check to review (it waits for a
-  charger with "Only while charging", and is never dropped from the
-  queue meanwhile): the live lines stay, stars, speaker names and edits
-  included, until the user applies what the check found, the missing end
-  among it, with the marks tapped after live stopped starred on its
-  lines. Below 30 s, a kill loses what it always did from the live
-  words, which then exists only in the audio: what still waited to be
-  transcribed (under 30 s) plus the chunk being spoken (up to about
-  28 s), so up to about a minute, and no check is queued. Finish
-  itself, when live fell behind, still replaces the live lines with a
-  transcript of the whole audio, as 3.21.0-beta1 did, and stars and
-  speaker tags on them go with them. Confirm both, or have Finish stage a
-  check too.
-- [ ] *Decision* (3.22.0-beta1, after a live recording): until a finished
-  recording's live model is freed, a transcription, accuracy check,
-  import, Continue transcription and an on-device summary are queued
-  (Enhance notes and Suggest speakers with on-device AI are refused, and
-  the interrupted-work offer waits), so that none of them loads a second
-  model beside it; a new live recording started meanwhile still loads its
-  own. That is usually seconds, or the rest of a slow load when Finish
-  came during it. With "Keep meeting audio" off and live
-  transcription slower than speech, though, the recorder keeps
-  transcribing its backlog after Finish (up to 10 minutes of speech) and
-  holds its model until it is done. That meeting's own summary waits too,
-  so it reads the last lines, while the "Finishing transcription…"
-  notification goes 75 s after Finish at most; work that waits longer may
-  only start when Recap is next opened (Android 12+ refuses a foreground
-  start from the background). A summary, Enhance notes or Suggest speakers
-  asked for on a meeting page with a network AI endpoint does not wait.
-  Confirm.
+- [ ] *Decision* (3.22.0-beta1, recovered recordings): a recording the
+  process died under is recovered the next time the home screen opens:
+  the toast, and the first transcript of an audio-only recording queued.
+  - A live recording keeps the lines saved up to the death. Nothing is
+    queued for its unsaved end, which exists only in its audio, if kept;
+    Check transcript accuracy brings it back. As in 3.21.0-beta1.
+  - A recording started straight from the tile, the widget, the Record
+    shortcut or a nudge after the death replaces the marker. The
+    interrupted meeting then gets no toast and no automatic transcript,
+    as in 3.21.0-beta1.
+  - When live fell behind, Finish itself still replaces the live lines
+    with a transcript of the whole audio, as 3.21.0-beta1 did, and stars
+    and speaker tags on them go with them.
+  - Confirm both, or have Finish stage a check too.
+- [ ] *Decision* (3.22.0-beta1, the end of a live recording): Finish, or a
+  swipe from Recents, while the live model is still loading waits for the
+  load to succeed or fail. The wait lasts up to 60 s after Finish, shows
+  "Finishing transcription…", and allows no new recording meanwhile. It
+  means the meeting gets its words or its audio, and the audio is not
+  transcribed beside the load.
+  - Past 60 s the meeting is saved as 3.21.0-beta1 did. With "Keep
+    meeting audio" on, its transcription may load a second model beside
+    the one still loading. With it off, a load that then fails leaves no
+    words and no audio.
+  - No batch work is held back for a live model. After Finish the model
+    is freed once its current chunk is done, and work started at Finish,
+    or a new live recording, can hold a second model meanwhile.
+  - With "Keep meeting audio" off and live transcription slower than
+    speech, lines still waiting 15 s after Finish are added afterwards:
+    up to 10 minutes of speech, with the model loaded and no foreground
+    service. A summary made before them is marked out of date.
+  - Finish waits up to 3 s for the audio file to close; past that, the
+    first transcript or check is not queued.
+  - Apart from the load wait, all of this is as in 3.21.0-beta1. Confirm,
+    or choose a shorter wait (`FINISH_LOAD_WAIT_MS`).
 - [ ] *Decision* (on-device AI beside transcription, judged deliberate in
   the pre-release review): interactive on-device AI may load the chat
   model while live or batch transcription runs: Catch me up during a
@@ -3412,22 +3415,15 @@ Recording, reminders and nudges:
   Finish no stale recording screen is left behind in Back.
 - [ ] A 5-second audio-only recording gets its transcript queued and made.
 - [ ] Force-stop Recap mid audio-only recording and relaunch: the recovered
-  meeting is transcribed without a manual accuracy check. A live one,
-  with "Keep meeting audio" on, whose live words had stopped short gets
-  an accuracy check instead: a large model on a mid-range phone, killed
-  once the status reads "Recording" instead of "Listening (Whisper)"
-  (live fell behind and stopped), or while lines trail the speech by well
-  over a minute (more than 30 s waiting to be transcribed, besides the
-  chunk being spoken). Star a line and tag a speaker first, tap Mark
-  moment once live has stopped, and wait 5 s after the last mark before
-  the kill. After the relaunch the live lines are still there with that
-  star and tag; the check, once made, has the rest of the meeting among
-  its differences, and applying it keeps the starred line, and marks
-  tapped after live stopped land on their lines. Repeat the audio-only
-  kill, then start a new recording from the Quick Settings tile instead
-  of opening Recap: "Recovered a recording that was interrupted" shows,
-  and once the new recording is finished the first one is transcribed
-  too.
+  meeting is transcribed without a manual accuracy check. Force-stop a
+  live recording ("Keep meeting audio" on) and relaunch: "Recovered a
+  recording that was interrupted"; the meeting keeps its lines up to a
+  few seconds before the kill, its audio plays to about then, and nothing
+  is queued for it (as in 3.21.0-beta1). Repeat the audio-only kill, then
+  start a new recording from the Quick Settings tile instead of opening
+  Recap: no toast, and afterwards the interrupted meeting is in the list
+  with its audio and no transcript (expected, a documented limitation);
+  ⋮ → Check transcript accuracy on its page transcribes it.
 - [ ] Live transcription with a large model (Whisper Turbo or Parakeet):
   speak from the first second; the opening words are in the transcript
   and in the audio. Then make the live model fail to load (debug build:
@@ -3437,13 +3433,13 @@ Recording, reminders and nudges:
   the first second: that transcript starts with the opening words, not
   where the load failed, and a mark lands on the right line. Also with it
   off and a large model, record about 20 s and tap Finish while the
-  status still reads "Loading the model…": the meeting is not saved
-  empty. Its words come from the live model, or, when the load is still
-  running 15 s after Finish, from its audio, transcribed after the
-  meeting ends. That transcription starts only once the live model has
-  been freed, never beside the load (the "Finishing transcription…"
-  notification stays until then, 75 s after Finish at most), with "Keep
-  meeting audio" on as well.
+  status still reads "Loading the model…": the screen and the
+  notification read "Finishing transcription…" until the load ends (a
+  minute after Finish at most), and the meeting is not saved empty: its
+  words come from the live model. With the failing model (debug build),
+  the same Finish gives a meeting with its audio from the first second,
+  transcribed after the meeting ends. With "Keep meeting audio" on as
+  well.
 - [ ] Unplug a USB or wired microphone chosen as the input mid-recording:
   if Android ends the capture (some phones switch to the built-in
   microphone instead), the notification reads "Recording stopped — tap

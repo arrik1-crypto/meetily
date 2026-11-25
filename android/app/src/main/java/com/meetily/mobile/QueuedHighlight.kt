@@ -1,5 +1,7 @@
 package com.meetily.mobile
 
+import com.meetily.mobile.data.TranscriptSegment
+
 /**
  * A star tapped during a recording while the live transcript had no line
  * to put it on, which then goes on the line spoken when it was tapped.
@@ -84,6 +86,30 @@ class QueuedHighlight(private val tapMs: Long?, newestLine: Int = -1) {
                 partialShown -> QueuedHighlight(null)
                 else -> null
             }
+        }
+
+        /**
+         * A copy of [lines] for the recording's snapshot, with each star in
+         * [waiting] on the line it fell in so far ([atEnd]): the newest line
+         * that began before the tap. Only the copy: the star waits in memory
+         * for its own line, which is that one unless a later line also began
+         * before the tap, and the next snapshot follows it there (snapshots
+         * replace the stored lines wholesale). A process that dies first
+         * keeps the star where it is, which is at least the line a tap
+         * starred in 3.21.0-beta1. A star with no line yet, or none by its
+         * tap, adds nothing. [lines] is not changed. Pure, so it is
+         * unit-tested.
+         */
+        fun withWaitingStars(
+            lines: List<TranscriptSegment>,
+            waiting: List<QueuedHighlight>
+        ): MutableList<TranscriptSegment> {
+            val out = lines.toMutableList()
+            for (star in waiting) {
+                val i = star.atEnd() ?: continue
+                if (i in out.indices && !out[i].highlighted) out[i] = out[i].copy(highlighted = true)
+            }
+            return out
         }
     }
 }

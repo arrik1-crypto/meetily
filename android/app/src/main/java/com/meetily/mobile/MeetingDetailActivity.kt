@@ -46,7 +46,6 @@ import com.meetily.mobile.data.TranscriptSplitter
 import com.meetily.mobile.export.DocxExport
 import com.meetily.mobile.export.MeetingExporter
 import com.meetily.mobile.export.SubtitleExport
-import com.meetily.mobile.llm.LocalLlm
 import com.meetily.mobile.notes.NotesMarkdown
 import com.meetily.mobile.notes.NotesRenderer
 import com.meetily.mobile.reminders.Reminders
@@ -2679,7 +2678,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         // summary. This is a short interactive action — asking again later is
         // the right answer. A network endpoint loads no model, so a live
         // model a finished recording still holds does not refuse it.
-        if (!JobGate.canStartBatch(loadsLocalModel = LocalLlm.isSelected())) {
+        if (!JobGate.canStartBatch()) {
             Toast.makeText(this, R.string.busy_heavy_job, Toast.LENGTH_LONG).show()
             return
         }
@@ -2952,7 +2951,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         // to prevent. Queue instead — a summary is only ever delayed. A
         // network endpoint loads no model, so a live model a finished
         // recording still holds does not hold it back.
-        if (!JobGate.canStartBatch(loadsLocalModel = LocalLlm.isSelected())) {
+        if (!JobGate.canStartBatch()) {
             JobGate.requestSummary(
                 this, m.id, template.key, whenCharging = false, required = true
             )
@@ -4803,7 +4802,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         }
         // As with the speaker pass: notes enhancement has no queue kind, so
         // it is refused rather than deferred into something else.
-        if (!JobGate.canStartBatch(loadsLocalModel = LocalLlm.isSelected())) {
+        if (!JobGate.canStartBatch()) {
             Toast.makeText(this, R.string.busy_heavy_job, Toast.LENGTH_LONG).show()
             return
         }

@@ -5,11 +5,11 @@ Dated 2026-11-25. This file sorts the owner checklist in
 Google Play submission. It reflects **3.22.0-beta1** (versionCode 117), the
 pre-release review fixes on `r1/integration`: five merged fix chains
 (merge tip `d3ddc47`), the docs commit that adds this file (`6891a73`),
-and the fix commits after it up to the last fix commit, `d4d1816` (all
-listed under D), plus this sync commit, which changes only the docs.
-Until the version bump, which the maintainer makes in its own commit
-right after the last fix commit (with only this sync commit between
-them), the build still reads 3.21.0-beta1 (versionCode 116). It is a
+and the fix commits after it up to the last fix commit, the
+end-of-recording simplification on top of `8e9aecf`, which changes code
+and these docs together (all listed under D). Until the version bump,
+which the maintainer makes in its own commit right after the last fix
+commit, the build still reads 3.21.0-beta1 (versionCode 116). It is a
 snapshot: PLAY_RELEASE.md remains the source of truth.
 
 **Where the items come from.** Sections 1 to 10 of PLAY_RELEASE.md have no
@@ -20,8 +20,8 @@ words, not by line number: the file grew by about 600 lines in this
 release, and line numbers move with every edit.
 
 **How each item was checked.** Against:
-- the code at `d4d1816`, the last fix commit (3.21.0-beta1 at `818d523`
-  plus every review fix);
+- the code at the last fix commit, the end-of-recording simplification
+  on top of `8e9aecf` (3.21.0-beta1 at `818d523` plus every review fix);
 - the APK that `818d523` published (`android/dist/meetily-android.apk`,
   arm64-v8a only, libraries compressed);
 - the log of the CI run that built it (Build Android APK, run 45216817663,
@@ -186,15 +186,15 @@ Not triaged here:
         words on Android 14 and lower (the four mediaProcessing services
         are declared `dataSync|mediaProcessing`).
       - The microphone declaration should also cover the end of a
-        recording: after Finish, or a swipe from Recents (now a Finish),
-        the recording service stays in the foreground, capturing nothing,
-        with a "Finishing transcription…" notification, until the last
-        words are transcribed and the transcript, check or summary has
-        been started or queued, and while the live model is still
-        loading or held, until it is freed and the queued work started
-        (`RecordingService`'s `WorkThenStop`): usually seconds, 75 s at
-        most (15 s for the words, then 60 s while the live model is
-        still loading or held, 10 s otherwise).
+        recording (3.22.0-beta1): after Finish or a swipe from Recents
+        (now a Finish), RecordingService stays in the foreground,
+        capturing nothing, with a "Finishing transcription…"
+        notification. It stays while the last live words are
+        transcribed: 15 s at most, as in 3.21.0-beta1, or up to 60 s
+        when Finish came while the live model was still loading. It
+        then stays for the moment it takes to save the meeting, close
+        its audio file (3 s at most) and start or queue its transcript,
+        check or summary.
     - Then record the videos (unlisted YouTube is fine). Only the
       mediaProcessing videos need an Android 15+ phone; plan the
       mediaProjection and dataSync ones too. DEVICE_TEST_PLAN.md walks
@@ -268,9 +268,9 @@ Not triaged here:
    build, "Bump `versionCode` to 117" and "Run CI on the release commit")
    - Do: bump `versionCode` and `versionName` in
      `android/app/build.gradle.kts` in its own commit right after the last
-     fix commit, `d4d1816` (only this sync commit, docs only, comes
-     between them), and push the review-fix merge and the bump to the
-     Android branch together, in one push (or the bump first). CI
+     fix commit (the end-of-recording simplification), and push the
+     review-fix merge and the bump to the Android branch together, in one
+     push (or the bump first). CI
      publishes every Android-branch build to the release named after its
      versionName, replacing that release's APK, so a push of the merge
      alone would overwrite the real 3.21.0-beta1 download with unbumped
@@ -376,8 +376,8 @@ Not triaged here:
 | *Decision*: Re-time words never moves a line's start | Product decisions | Protects chapters, highlights and resume points. |
 | *Decision*: Re-time offered on lines whose timings' origin is unknown | Product decisions | UX scope. |
 | *Decision*: Re-time has no auto-start, no Live Update and no fit badge | Product decisions | UX scope. |
-| *Decision*: a recovered live recording whose words stopped short gets a check to review | Product decisions | The safe default ships: the live lines are not replaced without the user. Finish itself still replaces them, as 3.21.0-beta1 did. |
-| *Decision*: batch work waits while a finished recording's live model is held | Product decisions | Usually seconds; the long case needs "Keep meeting audio" off and live transcription slower than speech, and cloud AI asked for on a meeting page does not wait. |
+| *Decision*: recovered recordings (home screen only; live lines kept, nothing queued for their end) | Product decisions | 3.21.0-beta1 behaviour, documented; the audio-only transcript is F19's fix. Finish still replaces live lines that fell behind, as 3.21.0-beta1 did. |
+| *Decision*: the end of a live recording (Finish waits up to 60 s for a loading model) | Product decisions | The wait keeps the meeting's words or audio; the rest is 3.21.0-beta1 behaviour, documented. |
 | *Decision*: a measured Baseline Profile (Macrobenchmark) | Product decisions | The hand-written profile ships and passes CI's check. |
 | Optional: defer `MlKitInitProvider` | Product decisions | Needs a device, and it changes when ML Kit sends diagnostics. |
 | Amber find colours | Product decisions | A visual tweak. |
@@ -421,8 +421,9 @@ none blocking; C2):
 
 The fix commits, for reference, all on `r1/integration`: the five merged
 fix chains (merge tip `d3ddc47`), then, after the docs commit `6891a73`,
-the post-fix review rounds, of which `d4d1816` is the last fix commit.
-This sync commit, on top of them, changes only the docs.
+the post-fix review rounds and the settle rounds, then the
+end-of-recording simplification, the last fix commit, which changes code
+and docs together.
 
 | Commit | Area |
 |---|---|
@@ -442,7 +443,10 @@ This sync commit, on top of them, changes only the docs.
 | c539b08 | Leftover review items: late chunks keep their session's audio and names; a star tapped during the live model load; Ask your library and the brief without waiter threads; the series list off the main thread |
 | 94c5801 | Review round 1: Finish during a live model load keeps the meeting's audio; "Finishing transcription…" notification; sticky restarts and discard stop cleanly |
 | 07266d7 | Review round 2: the recording notification's tap never starts a new recording; stars and Mark during the live backlog |
-| d4d1816 | Review round 3: batch work waits until a finished recording's live model is freed; recovery transcribes live transcripts that stopped short |
+| d4d1816 | Review round 3: batch work waits until a finished recording's live model is freed; recovery transcribes live transcripts that stopped short (the hold and live-short recovery removed by the simplification) |
+| fe3bcc5 | Settle-2 round 1: finished work queued at audio close, recovered live lines kept (superseded by the simplification) |
+| 8e9aecf | Settle-2 round 2: recovered check keeps its marks, recovery from the tile, late lines before the drain (superseded) |
+| (this commit) | End of a recording simplified: the audio file is closed before Finish's work, in the same step; Finish waits for a loading live model; the hand-off, the live-model gate and live-short recovery removed |
 
 ### Done or stale before this release (12 checklist items, 1 prose step)
 

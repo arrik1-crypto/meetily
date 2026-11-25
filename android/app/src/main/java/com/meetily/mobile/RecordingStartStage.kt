@@ -13,8 +13,7 @@ package com.meetily.mobile
  * just been finished, a brand-new recording nobody asked for.
  *
  * A screen the recording notification opens is attach-only for the same
- * reason. The notification stays up a moment after its session has ended,
- * while the audio file closes and the meeting's work is handed off, and a
+ * reason. The notification can be tapped just as its session ends, and a
  * tap then opened a fresh screen that started a new recording.
  */
 enum class RecordingStartStage {

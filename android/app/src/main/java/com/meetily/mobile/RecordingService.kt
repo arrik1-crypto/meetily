@@ -115,9 +115,6 @@ class RecordingService : Service() {
      */
     private var liveIncomplete = false
 
-    /** What the crash-recovery marker says of the live words; see [markLiveShort]. */
-    private var markedLiveShort = false
-
     // Device-audio capture (webinars): AudioPlaybackCapture via MediaProjection.
     private var deviceAudioMode = false
 
@@ -221,21 +218,7 @@ class RecordingService : Service() {
 
     override fun onBind(intent: Intent?): IBinder = binder
 
-    /**
-     * The newest start this instance has been handed, whatever its action.
-     * The service stops with it ([stopForNewestStart]), never with a bare
-     * stopSelf(): that is stopSelf(-1), which also cancels a start already
-     * on its way. A finished session stops the service only once its work
-     * has been issued (WorkThenStop), and a new session can be starting on
-     * this instance by then. Its start was cancelled under it, so it ran on
-     * a service that was only bound: a swipe from Recents no longer reached
-     * onTaskRemoved, and the screen's next unbind brought the service down
-     * mid-meeting.
-     */
-    private var lastStartId = 0
-
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        lastStartId = startId
         when (intent?.action) {
             ACTION_START -> startSessionIfNeeded(
                 intent.getBooleanExtra(EXTRA_DEVICE_AUDIO, false),
@@ -248,35 +231,18 @@ class RecordingService : Service() {
             // (LiveUpdates). Nothing is reposted now; the next change of
             // state posts the ordinary notification.
             ACTION_LIVE_DISMISSED -> if (active) liveUpdateDismissed = true
-            // A null intent is Android restarting the service after a kill:
-            // a new process with nothing to record, since recovering the
-            // meeting is a screen's job (recoverInterrupted). It stops
-            // below, as does an unknown action that finds nothing recording.
-            else -> {}
         }
+        // A null intent (Android restarting the service after a kill) or an
+        // action that raced the end of a session finds nothing recording,
+        // and must not stay started, or be restarted, holding nothing. It
+        // stops with its own start id, which never cancels a newer start:
+        // ids are assigned when startService is called. Recovering an
+        // interrupted meeting is MainActivity's job (recoverInterrupted).
         if (!active) {
-            // A notification action that raced the end of a session can be
-            // what created this service, or reach it after a stop that it
-            // kept from taking effect (see [stopForNewestStart]). With
-            // nothing recording it must not stay started, or be restarted,
-            // holding nothing. A finish still issuing its work stops the
-            // service when that is done, and a session whose start is on
-            // its way (start() has set isRunning) takes the service over.
-            if (pendingStops == 0 && !isRunning) stopForNewestStart()
+            stopSelf(startId)
             return START_NOT_STICKY
         }
         return START_STICKY
-    }
-
-    /**
-     * Stops the service for [lastStartId] and takes it out of the
-     * foreground only if that stopped it. A newer start still on its way
-     * keeps the service started and in the foreground: a session start
-     * takes the foreground over, and any other start, finding nothing
-     * recording, comes back here itself from onStartCommand. Main thread.
-     */
-    private fun stopForNewestStart() {
-        if (stopSelfResult(lastStartId)) stopForegroundCompat()
     }
 
     // --- Observer wiring --------------------------------------------------
@@ -370,7 +336,6 @@ class RecordingService : Service() {
         clusterNames.clear()
         highlightMarks.clear()
         liveIncomplete = false
-        markedLiveShort = false
         silentSinceMs = 0L
         micWarned = false
         deviceAudioEnded = false
@@ -484,6 +449,9 @@ class RecordingService : Service() {
         )
         if (queued != null) {
             pendingHighlights.add(queued)
+            // On disk within one snapshot, as a toggled star is: the snapshot
+            // stars the line it fell in so far (buildMeeting).
+            scheduleSave()
             return HighlightResult.QUEUED
         }
         val index = segments.size - 1
@@ -674,42 +642,56 @@ class RecordingService : Service() {
                 recorder.abandonBacklog()
                 liveIncomplete = true
             }
+            // The normal path: the queue has drained. The watchdog below is
+            // only a cap.
             recorder.finish {
                 main.post { if (meetingId == session) completeFinish(onDone) }
             }
-            main.postDelayed({
-                if (meetingId != session) return@postDelayed
-                if (!finished && liveLoading && audioWriter == null) {
-                    // The live model is still loading, and with "Keep
-                    // meeting audio" off the meeting is held in memory
-                    // until its outcome is known. A load that failed after
-                    // this found the session over (liveModelFailed), and
-                    // the meeting was saved with no words and no audio.
-                    // Hand it to a file now, as a failed load would; the
-                    // backlog is skipped below, and the file is closed and
-                    // transcribed whichever way the load ends. Not if the
-                    // model loaded meanwhile or the hold no longer has the
-                    // whole meeting: the live backlog is then the only
-                    // complete copy, decoded as before.
-                    recorder.attachFrameSinkIfHeldInFull {
-                        openAudioWriter()?.let { writer ->
-                            { frame: FloatArray -> writer.write(frame) }
-                        }
-                    }
-                }
-                if (!finished && audioFileName != null) {
-                    // Still transcribing a backlog. With the audio kept, the
-                    // words are not lost by stopping: skip the rest and have
-                    // the saved file transcribed instead, rather than decode
-                    // for minutes after the service has gone.
-                    recorder.abandonBacklog()
-                    liveIncomplete = true
-                }
-                completeFinish(onDone)
-            }, 15_000)
+            armFinishWatchdog(session, recorder, onDone, 0L)
         } else {
             completeFinish(onDone)
         }
+    }
+
+    /**
+     * Ends a Finish whose transcriber queue has not drained within
+     * [FINISH_WAIT_MS], checked again every [FINISH_WAIT_MS] while the live
+     * model is still loading, up to [FINISH_LOAD_WAIT_MS] after Finish
+     * ([finishWaitsForLoad]); [sinceFinishMs] is the wait so far.
+     *
+     * Waiting for the load's outcome is what keeps the meeting's words or
+     * its audio. A load that succeeds decodes the backlog, and then follows
+     * the 15 s rule: with the audio kept, what is still queued is skipped
+     * and the whole file transcribed after the meeting. One that fails
+     * reaches liveModelFailed while the session is still active, so the
+     * audio held meanwhile goes to a file. Either way no transcript of the
+     * audio is started beside a model still loading, unless the cap is
+     * reached first. A session that has ended meanwhile (completeFinish,
+     * or Discard, which sets finished too) is left alone. Main thread.
+     */
+    private fun armFinishWatchdog(
+        session: String,
+        recorder: WhisperRecorder,
+        onDone: ((String) -> Unit)?,
+        sinceFinishMs: Long
+    ) {
+        main.postDelayed({
+            if (meetingId != session || finished) return@postDelayed
+            val waited = sinceFinishMs + FINISH_WAIT_MS
+            if (finishWaitsForLoad(liveLoading, waited)) {
+                armFinishWatchdog(session, recorder, onDone, waited)
+                return@postDelayed
+            }
+            if (audioFileName != null) {
+                // Still transcribing a backlog. With the audio kept, the
+                // words are not lost by stopping: skip the rest and have the
+                // saved file transcribed instead, rather than decode for
+                // minutes after the service has gone.
+                recorder.abandonBacklog()
+                liveIncomplete = true
+            }
+            completeFinish(onDone)
+        }, FINISH_WAIT_MS)
     }
 
     private var finished = false
@@ -728,28 +710,39 @@ class RecordingService : Service() {
             ?.seal(withAudio = audioFileName != null, clusterNames = clusterNames)
         lateChunks = null
         placeQueuedHighlights()
-        // A live model still loading, or not freed yet, as when the watchdog
-        // ended the session during a slow load: the work, issued as the
-        // audio closes, is only queued until the recorder lets go of it
-        // (JobGate.canStartBatch), and the queue is drained then. The first
-        // transcript or check started at once loaded a second copy of the
-        // model beside it.
-        val heldModel = whisperRecorder?.holdsLiveModel == true
-        val afterSave = WorkThenStop(meetingId, workAfterSave(meetingId), waitsForLiveModel = heldModel)
-        if (heldModel) liveModelWaiters[meetingId] = afterSave
-        // Issues the work once the audio file is closed, and only then
-        // clears the crash-recovery marker: a process that dies first leaves
-        // it for recoverInterrupted, which queues the transcript the work
-        // would have. Leaves the foreground and stops after that (and after
-        // the model is freed).
-        teardownEngines(afterAudioClosed = afterSave)
+        // The audio file closes on its own thread while the meeting is
+        // saved, and the work below reads it: the writer holds back 64 KB
+        // (about 8 s) before its first byte reaches the disk, so a short
+        // recording looked empty when the work ran beside the close. The
+        // wait ends [AUDIO_CLOSE_WAIT_MS] after the close started, and
+        // overlaps saveAndDrain's own bounded wait.
+        val closing = teardownEngines()
+        val closeBy = SystemClock.elapsedRealtime() + AUDIO_CLOSE_WAIT_MS
         saveAndDrain()
+        val closed = closing == null || run {
+            // Never join(0): that waits forever.
+            val wait = closeWaitMs(closeBy, SystemClock.elapsedRealtime())
+            if (wait > 0) {
+                try {
+                    closing.join(wait)
+                } catch (_: InterruptedException) {
+                }
+            }
+            !closing.isAlive
+        }
         active = false
         isRunning = false
         val id = meetingId
         observer?.onFinished(id)
         onDone?.invoke(id)
         activeSpeaker = null
+        issueWorkAfterSave(id, audioFileName.takeIf { closed })
+        // Only once the work has been started or queued (the queue is on
+        // disk): a process that dies before this leaves the marker for
+        // recoverInterrupted.
+        store.clearActive()
+        stopForegroundCompat()
+        stopSelf()
     }
 
     /**
@@ -781,150 +774,25 @@ class RecordingService : Service() {
     }
 
     /**
-     * Finished sessions whose [WorkThenStop] has not run yet. Usually one,
-     * but a session can be started and finished on this instance while the
-     * last one's audio file is still closing, and the first of them to stop
-     * must not take the service out of the foreground under the other.
-     */
-    private var pendingStops = 0
-
-    /** Finished sessions' [WorkThenStop]s waiting for their live model to be freed, by meeting id. */
-    private val liveModelWaiters = mutableMapOf<String, WorkThenStop>()
-
-    /**
-     * [session]'s recorder no longer loads or holds a live model
-     * (WhisperRecorder.onLiveModelReleased). Its finished session drains
-     * the queue, with its own work in it, and stops; otherwise work held
-     * back for it meanwhile (JobGate) is started, unless a finished session
-     * is still to issue its own, which is then first. Main thread.
-     */
-    private fun liveModelReleased(session: String) {
-        val waiter = liveModelWaiters.remove(session)
-        if (waiter != null) {
-            waiter.liveModelReleased()
-        } else if (pendingStops == 0) {
-            JobGate.drain(applicationContext)
-        }
-    }
-
-    /**
-     * Runs a finished session's queued work ([workAfterSave]) and then takes
-     * the service out of the foreground and stops it.
-     *
-     * The work waits for the audio file to close (teardownEngines), and the
-     * service used to leave the foreground before that, as Finish or the
-     * swipe from Recents returned. The work starts ImportService or
-     * SummaryService, which on Android 12+ a background app may do only
-     * while something keeps it exempt, and this service's own foreground is
-     * what does at the end of a meeting. Finish tapped and the app left
-     * while the backlog drained, or a swipe well after the screen went
-     * away, had those starts refused, and the jobs only waited in the queue
-     * until Recap was next opened. So the foreground stays until the work
-     * has been issued, or [STOP_AFTER_WORK_TIMEOUT_MS] at most if the file
-     * is slow to close; the work still runs when it does.
-     *
-     * [waitsForLiveModel]: the recorder still loads or holds its live
-     * model. The work is still issued as the audio closes, and the session's
-     * crash-recovery marker goes then ([id]): JobGate only queues it while
-     * the model is held, and the queue is on disk, so nothing is lost if the
-     * process dies before the model is freed, or a new recording replaces
-     * the marker meanwhile. The queue is drained, and the service stops,
-     * once the model is freed as well ([liveModelReleased], FinishSignals),
-     * [STOP_AFTER_LIVE_MODEL_TIMEOUT_MS] at most in the foreground. Main
-     * thread.
-     */
-    private inner class WorkThenStop(
-        private val id: String,
-        private val work: () -> Unit,
-        private val waitsForLiveModel: Boolean
-    ) : () -> Unit {
-        private var stopped = false
-        private val fallback = Runnable { stop() }
-        private val signals = FinishSignals(waitsForLiveModel)
-        private val app = applicationContext
-
-        init {
-            pendingStops++
-            workPending.incrementAndGet()
-            main.postDelayed(
-                fallback,
-                if (waitsForLiveModel) STOP_AFTER_LIVE_MODEL_TIMEOUT_MS else STOP_AFTER_WORK_TIMEOUT_MS
-            )
-        }
-
-        /** Posted by teardownEngines once the audio file is closed. */
-        override fun invoke() {
-            try {
-                work()
-            } catch (_: Throwable) {
-                // The work guards itself; nothing here may stop the stop.
-            } finally {
-                store.clearActive(id)
-                workPending.decrementAndGet()
-            }
-            if (signals.audioClosed()) drainThenStop()
-        }
-
-        /** The recorder has freed its live model. */
-        fun liveModelReleased() {
-            if (signals.modelReleased()) drainThenStop()
-        }
-
-        private fun drainThenStop() {
-            try {
-                // Work held back while the model was loaded (this session's
-                // own, a screen's drain, a batch job that ended) starts now,
-                // while this service is still in the foreground. So does work
-                // queued while this session recorded: another session's
-                // model freed during it drained into a refusal, and nothing
-                // else here drained again. A no-op when the session's own
-                // work has just started, or anything else runs.
-                JobGate.drain(app)
-            } catch (_: Throwable) {
-            } finally {
-                stop()
-            }
-        }
-
-        private fun stop() {
-            if (stopped) return
-            stopped = true
-            main.removeCallbacks(fallback)
-            pendingStops--
-            // A session started on this instance meanwhile owns the
-            // foreground and the service now. So does one whose start is
-            // still on its way: start() sets isRunning on the main thread
-            // before it sends the start, and onStartCommand runs it later.
-            // That start's id is newer than lastStartId as well, so the
-            // stop below could not cancel it either. Another finished
-            // session still issuing its work stops the service itself.
-            if (!stopsAfterWork(active, isRunning, pendingStops)) return
-            stopForNewestStart()
-        }
-    }
-
-    /**
-     * What a saved session queues: the transcription of its audio when it
-     * has no live words (or they stop short), otherwise the optional
+     * What a saved session starts or queues: the transcription of its audio
+     * when it has no live words (or they stop short), otherwise the optional
      * accuracy check, and the optional summary. Shared by Finish and by
      * swiping the app away, which is a finish too.
      *
-     * Returned to run once the audio file is closed (teardownEngines). The
-     * check for the file ran straight after its close was started, and the
-     * writer buffers 64 KB (about 8 s at 64 kbps) before the first byte
-     * reaches the disk, so a short recording looked empty and its only
-     * transcript was never queued. Everything it reads is taken now, since
-     * the service may be gone by the time it runs.
+     * Run by completeFinish on the closed file, in the same main-thread
+     * turn and while the service is still in the foreground, as in
+     * 3.21.0-beta1: the ImportService and SummaryService starts it makes are
+     * what a background app may be refused on Android 12+, and this
+     * service's foreground is what keeps the app exempt at the end of a
+     * meeting. [audio] is null when the close outlasted its wait
+     * ([AUDIO_CLOSE_WAIT_MS]): no first transcript or check then reads a
+     * file still being written, since a transcript of a truncated file
+     * would let UnkeptAudio delete the audio. The summary still runs.
      */
-    private fun workAfterSave(id: String): () -> Unit {
-        val app = applicationContext
-        val audio = audioFileName
-        val lines = segments.toList()
-        val audioMs = lines.lastOrNull()?.audioMs ?: elapsedMs()
-        val incomplete = liveIncomplete
-        val meetingTitle = title
-        val createdAt = startedAtMs
-        return {
+    private fun issueWorkAfterSave(id: String, audio: String?) {
+        try {
+            val app = applicationContext
+            val lines = segments.toList()
             if (lines.isEmpty()) {
                 // Nothing was transcribed live, so the meeting is audio only
                 // and its transcription is not a bonus pass — it is the
@@ -933,17 +801,22 @@ class RecordingService : Service() {
                 // summary first, summarising an empty transcript.
                 // ImportService starts it when the words actually exist.
                 queueFirstTranscript(app, id, audio)
-            } else if (incomplete) {
+            } else if (liveIncomplete) {
                 // The live transcript stops short of the meeting. The saved
                 // audio is transcribed in full and offered as a comparison,
                 // whatever the accuracy-check setting says — without it the
                 // tail is gone.
                 queueFirstTranscript(app, id, audio)
-                maybeStartAutoSummary(app, id, meetingTitle, createdAt, lines.size)
+                maybeStartAutoSummary(app, id, title, startedAtMs, lines.size)
             } else {
-                maybeStartAutoCheck(app, id, audio, lines, audioMs)
-                maybeStartAutoSummary(app, id, meetingTitle, createdAt, lines.size)
+                maybeStartAutoCheck(
+                    app, id, audio, lines, lines.lastOrNull()?.audioMs ?: elapsedMs()
+                )
+                maybeStartAutoSummary(app, id, title, startedAtMs, lines.size)
             }
+        } catch (_: Throwable) {
+            // Each step guards itself; nothing here may stop the service
+            // from stopping.
         }
     }
 
@@ -1053,22 +926,11 @@ class RecordingService : Service() {
         }
         AudioStore.delete(this, audioFileName)
         audioFileName = null
-        // A finish of the session before this one, still issuing its work,
-        // stops the service when that is done, and needs the foreground
-        // until then: its ImportService and SummaryService starts are made
-        // under it. The notification says it is saving meanwhile (finishing
-        // is set), under the app's name rather than the discarded meeting's,
-        // instead of a frozen "Recording in progress" for this session.
-        if (pendingStops > 0) {
-            title = ""
-            updateNotification()
-        }
         active = false
         isRunning = false
         activeSpeaker = null
-        // With the start id, not a bare stopSelf() (see lastStartId), and
-        // out of the foreground only when that stopped the service.
-        if (pendingStops == 0) stopForNewestStart()
+        stopForegroundCompat()
+        stopSelf()
     }
 
     // --- Recognizer path (ported from RecordingActivity) ------------------
@@ -1487,8 +1349,6 @@ class RecordingService : Service() {
             },
             onProcessingChange = { processing ->
                 main.post {
-                    // The backlog grew or emptied, or live stopped for good.
-                    if (active && meetingId == session) markLiveShort()
                     if (active && meetingId == session && !finishing && !paused && !liveLoading) {
                         setStatus(
                             if (processing) Status.PROCESSING else Status.LISTENING,
@@ -1512,22 +1372,7 @@ class RecordingService : Service() {
             },
             onLiveReady = { main.post { liveModelReady(session) } },
             onLiveUnavailable = { main.post { liveModelFailed(session, modelName) } },
-            onCaptureEnded = { main.post { captureStopped(session) } },
-            // Behind every late line already handed to lateExecutor: the
-            // drain the release triggers can start the meeting's own
-            // summary, which reads the meeting at once and without the
-            // store lock, and the last line's write (a full load and save)
-            // was still pending. Its onSegment was posted before this, so
-            // its write is queued first on that one thread.
-            onLiveModelReleased = {
-                main.post {
-                    try {
-                        lateExecutor.execute { main.post { liveModelReleased(session) } }
-                    } catch (_: java.util.concurrent.RejectedExecutionException) {
-                        liveModelReleased(session)
-                    }
-                }
-            }
+            onCaptureEnded = { main.post { captureStopped(session) } }
         ).also { it.start() }
         liveLoading = liveWhisper
         if (paused) {
@@ -1610,6 +1455,9 @@ class RecordingService : Service() {
      * A transcript chunk that finished after the session was closed out.
      * Persisted straight to the stored meeting so the last words of a long
      * recording are not lost; the open meeting screen picks it up on reload.
+     * A summary made before late lines land is marked out of date
+     * (SummaryAlternatives.markStale); one still being made notices the
+     * change itself (SummaryService's transcript fingerprint).
      */
     private fun appendLateSegment(
         late: LateChunks,
@@ -1635,7 +1483,10 @@ class RecordingService : Service() {
                 // and silently revert — an edit made on the meeting screen
                 // while the tail was still arriving.
                 try {
-                    store.mutate(id) { target -> target.segments.add(segment) }
+                    store.mutate(id) { target ->
+                        target.segments.add(segment)
+                        com.meetily.mobile.data.SummaryAlternatives.markStale(target)
+                    }
                 } catch (_: Exception) {
                 }
             }
@@ -1763,11 +1614,11 @@ class RecordingService : Service() {
     }
 
     /**
-     * [afterAudioClosed] runs on the main thread once the audio file is
-     * complete on disk (at once, posted, when there is none): anything that
-     * reads the recording has to wait for that.
+     * Returns the thread closing the audio file, or null when there is
+     * none: anything that reads the recording has to wait for that thread
+     * (completeFinish joins it, for a bounded time).
      */
-    private fun teardownEngines(afterAudioClosed: (() -> Unit)? = null) {
+    private fun teardownEngines(): Thread? {
         main.removeCallbacks(restartRunnable)
         stopRecognizer()
         restoreSystemSounds()
@@ -1795,17 +1646,20 @@ class RecordingService : Service() {
         // The waveform comes along for free: the writer measured every frame
         // it encoded. A discarded recording's file is deleted meanwhile, and
         // saveWaveform then finds nothing to describe.
+        // A close that throws stops here: escaping its thread, it would end
+        // the process (CrashLog chains to Android's handler).
         val writer = audioWriter
         audioWriter = null
         val context = applicationContext
-        closeAudioThen(
-            close = writer?.let { w ->
-                { if (w.finish()) runCatching { w.saveWaveform(context) } }
-            },
-            afterClosed = afterAudioClosed,
-            post = { main.post(it) },
-            background = { Thread(it).start() }
-        )
+        return writer?.let { w ->
+            Thread({
+                try {
+                    if (w.finish()) w.saveWaveform(context)
+                } catch (_: Throwable) {
+                    // The file is as complete as it got; ADTS stays playable.
+                }
+            }, "meeting-audio-close").apply { start() }
+        }
     }
 
     // --- Incremental persistence -----------------------------------------
@@ -1843,40 +1697,10 @@ class RecordingService : Service() {
         Thread(it, "meeting-save")
     }
 
-    /**
-     * Whether the live words are known to stop short of the saved audio:
-     * [liveIncomplete], or live gave up behind the audio, or more than
-     * [LIVE_SHORT_BACKLOG_MS] of speech waits to be transcribed (lost if
-     * the process dies now). Once the recorder is gone, [liveIncomplete]
-     * alone says it.
-     */
-    private fun liveStopsShort(): Boolean {
-        if (liveIncomplete) return true
-        val recorder = whisperRecorder ?: return false
-        return recorder.liveSuspended || recorder.backlogMs > LIVE_SHORT_BACKLOG_MS
-    }
-
-    /**
-     * Keeps the crash-recovery marker's live-short flag (ActiveRecording) in
-     * step with [liveStopsShort], writing it only when it changes. A
-     * recording the process dies under then has its audio transcribed and
-     * staged for review beside its lines (recoverInterrupted); the
-     * meeting's lines alone looked complete. Main thread.
-     */
-    private fun markLiveShort() {
-        if (!active || meetingId.isEmpty()) return
-        val short = liveStopsShort()
-        if (short == markedLiveShort) return
-        // Only once written: a write that failed is tried again at the next
-        // change or save.
-        if (store.markActive(meetingId, liveShort = short)) markedLiveShort = short
-    }
-
     private fun saveNow() {
         main.removeCallbacks(saveRunnable)
         saveScheduled = false
         if (meetingId.isEmpty()) return
-        markLiveShort()
         val snapshot = buildMeeting()
         val withTitle = titleDirty
         val withNotes = notesDirty
@@ -1926,7 +1750,10 @@ class RecordingService : Service() {
             )
         },
         createdAtMs = startedAtMs,
-        segments = segments.toMutableList(),
+        // A star still waiting for its line is saved on the line it fell in
+        // so far, so a process death does not lose it; the snapshot replaces
+        // the stored lines wholesale, and the next one moves it if needed.
+        segments = QueuedHighlight.withWaitingStars(segments, pendingHighlights),
         notes = notes,
         attendees = Meeting.parseAttendees(attendeesRaw),
         photos = photos.toMutableList(),
@@ -2129,9 +1956,10 @@ class RecordingService : Service() {
 
     // Fixed request codes and extras, so these never change: built once.
     // The action makes the tap attach-only (RecordingActivity.ACTION_SHOW_SESSION):
-    // the notification stays up while a finished session's work is handed off,
-    // and a tap then started a new recording. It also keeps this PendingIntent
-    // apart from the Quick Settings tile's, which has the same request code.
+    // the notification goes in the same turn that ends the session, and the
+    // action covers a tap that races that end, which started a new recording.
+    // It also keeps this PendingIntent apart from the Quick Settings tile's,
+    // which has the same request code (0).
     private val contentIntent: PendingIntent by lazy {
         PendingIntent.getActivity(
             this, 0,
@@ -2260,9 +2088,9 @@ class RecordingService : Service() {
         }
 
         if (finishing) {
-            // Saving, which takes up to 15 s and then the hand-off of the
-            // meeting's work, also after a swipe from Recents. It read
-            // "Recording in progress" with the clock still running.
+            // Saving, which takes up to 15 s (up to a minute while the live
+            // model is still loading), also after a swipe from Recents. It
+            // read "Recording in progress" with the clock still running.
             builder.setContentText(getString(R.string.status_finishing))
             builder.setUsesChronometer(false)
             return builder.build()
@@ -2450,10 +2278,8 @@ class RecordingService : Service() {
     override fun onDestroy() {
         // Safety net: if the process is going away with an active session,
         // persist what we have. The .active marker stays so the next launch
-        // recovers it. Teardown skips the backlog, and takes the recorder
-        // that says whether live fell behind: the marker keeps that.
+        // recovers it.
         if (active && !finished) {
-            if (liveStopsShort()) liveIncomplete = true
             teardownEngines()
             saveAndDrain()
         }
@@ -2470,81 +2296,67 @@ class RecordingService : Service() {
         private const val MIN_SEGMENTS_FOR_AUTO_WORK = 4
 
         /**
-         * How long a finished session stays in the foreground at most while
-         * its audio file closes (WorkThenStop). The close is normally well
-         * under a second; the writer's own wait is bounded at 20 s.
+         * How long Finish waits for the transcriber queue to drain before it
+         * ends the session anyway (armFinishWatchdog), and the step at which
+         * it checks again while the live model is still loading.
          */
-        private const val STOP_AFTER_WORK_TIMEOUT_MS = 10_000L
+        private const val FINISH_WAIT_MS = 15_000L
 
         /**
-         * As [STOP_AFTER_WORK_TIMEOUT_MS], for a session whose live model was
-         * still loading when it finished: the rest of a slow load on a phone
-         * where a large model takes most of a minute.
+         * How long after Finish the session waits at most for a live model
+         * that is still loading ([finishWaitsForLoad]): the rest of a slow
+         * load, on a phone where a large model takes most of a minute.
          */
-        private const val STOP_AFTER_LIVE_MODEL_TIMEOUT_MS = 60_000L
+        const val FINISH_LOAD_WAIT_MS = 60_000L
 
         /**
-         * More speech than this waiting to be transcribed live, and the
-         * crash-recovery marker says the live words stop short (see
-         * liveStopsShort). Under it, a process death loses what it always
-         * did from the live words, which the kept audio still has: what
-         * waited to be transcribed (under this), the chunk being spoken (up
-         * to about 28 s) and lines not yet autosaved, so up to about a
-         * minute, and no check is queued for it.
+         * How long completeFinish waits at most, from the start of the
+         * close, for the audio file to be complete on disk before it issues
+         * the work that reads it. The close is normally well under a second.
          */
-        private const val LIVE_SHORT_BACKLOG_MS = 30_000L
-
-        /** Finished sessions in this process whose work is not issued yet; see WorkThenStop. */
-        private val workPending = java.util.concurrent.atomic.AtomicInteger(0)
+        private const val AUDIO_CLOSE_WAIT_MS = 3_000L
 
         /**
-         * True while a session finished in this process still has its work
-         * to issue, its crash-recovery marker kept until then: the recording
-         * was not interrupted, and MainActivity leaves it alone.
+         * Whether Finish, [sinceFinishMs] after it was tapped, waits another
+         * step for the live model: while it is still loading
+         * ([liveLoading]), up to [FINISH_LOAD_WAIT_MS]. Its outcome decides
+         * where the meeting's words come from: a model that loads decodes
+         * the backlog, and one that fails hands the audio held meanwhile to
+         * a file. Pure, so it is unit-tested.
          */
-        fun finishedWorkPending(): Boolean = workPending.get() > 0
+        fun finishWaitsForLoad(liveLoading: Boolean, sinceFinishMs: Long): Boolean =
+            liveLoading && sinceFinishMs < FINISH_LOAD_WAIT_MS
 
         /**
-         * Whether a recording the process died under has its audio
-         * transcribed once the app is next opened: it has no lines, or the
-         * marker says its live lines stop short of the audio
-         * ([liveShort], ActiveRecording), as Finish would have found. Lines
-         * it has are kept, the transcription staged for review beside them
-         * (queueFirstTranscript's stageForReview), which then checks for
-         * audio and a model. Pure, so it is unit-tested.
+         * How much longer to wait for the audio file's close at [nowMs], when
+         * the wait ends at [closeByMs]; never negative, and 0 means do not
+         * wait (a Thread.join of 0 would wait forever). Pure, so it is
+         * unit-tested.
          */
-        fun recoveryWantsTranscript(hasLines: Boolean, liveShort: Boolean): Boolean =
-            !hasLines || liveShort
+        fun closeWaitMs(closeByMs: Long, nowMs: Long): Long = (closeByMs - nowMs).coerceAtLeast(0L)
 
         /**
          * If a recording was interrupted (process killed mid-session), its
-         * meeting was still saved incrementally. Surface that once and clear
+         * meeting was still saved incrementally. Surface that once, clear
          * the marker, and queue the transcript an audio-only recording has
          * yet to get: Finish and swiping the app away both queue it, and a
          * recording the process died under was left with its audio and no
-         * words until the user found it and transcribed it by hand. So does
-         * one whose live words stop short of its audio (live fell behind
-         * and stopped, or a backlog waited to be transcribed): that is kept
-         * in memory only, and the meeting looked complete with the rest of
-         * it in the audio alone. Its transcription is staged as a check to
-         * review, beside the lines it keeps. Also a session that was
-         * finished but died before its work was issued (queued as its audio
-         * closed): the marker stays until then. Not while this process
-         * still has that work to issue, nor while a session runs or is on
-         * its way (start() sets isRunning): the marker is then its own.
+         * words until the user found it and transcribed it by hand. A live
+         * recording keeps the lines saved up to then, and nothing is queued
+         * for it. Not while a session runs or is on its way (start() sets
+         * isRunning): the marker is then its own.
          *
-         * MainActivity runs it, and so does RecordingActivity before it
-         * starts a session: the Quick Settings tile, the widget, the Record
-         * shortcut and a calendar nudge open that screen directly, and the
-         * new session's marker replaced the interrupted one's before
-         * MainActivity ever read it. Main thread.
+         * MainActivity runs it, in onCreate. A recording started straight
+         * from the Quick Settings tile, the widget, the Record shortcut or a
+         * calendar nudge replaces the marker first, and the interrupted
+         * meeting then gets no toast and no automatic transcript, as in
+         * 3.21.0-beta1. Main thread.
          */
         fun recoverInterrupted(context: Context) {
-            if (isRunning || finishedWorkPending()) return
+            if (isRunning) return
             val app = context.applicationContext
             val store = MeetingStore(app)
-            val marker = store.activeRecording() ?: return
-            val id = marker.id
+            val id = store.activeId() ?: return
             store.clearActive()
             // Whether the meeting is still readable decides the toast and the
             // transcription, and finding out parses the whole file, which an
@@ -2558,39 +2370,24 @@ class RecordingService : Service() {
                     store.load(id)
                 } catch (_: Throwable) {
                     null
+                } ?: return@Thread
+                val main = Handler(Looper.getMainLooper())
+                main.post {
+                    android.widget.Toast.makeText(
+                        app, R.string.recording_recovered, android.widget.Toast.LENGTH_LONG
+                    ).show()
                 }
-                if (meeting != null) {
-                    val main = Handler(Looper.getMainLooper())
-                    main.post {
-                        android.widget.Toast.makeText(
-                            app, R.string.recording_recovered, android.widget.Toast.LENGTH_LONG
-                        ).show()
-                    }
-                    if (recoveryWantsTranscript(
-                            hasLines = meeting.segments.isNotEmpty(),
-                            liveShort = marker.liveShort
-                        )
-                    ) {
-                        // On the main thread, like every other JobGate
-                        // caller: its one-job-at-a-time check and the start
-                        // it guards are two steps, and onResume's drain runs
-                        // at about this time. Raced from here, both could
-                        // start ImportService, which refuses the second
-                        // start, and one job was lost. The main looper, not
-                        // a screen's, so it still happens if the screen is
-                        // gone by then. A session started meanwhile only
-                        // queues it, for the drain at its end.
-                        val audio = meeting.audioFile
-                        // Live lines that stop short are kept, and the pass
-                        // over the audio is staged for review beside them:
-                        // replacing them lost stars, speaker names and
-                        // edits, also any made while the pass waited for a
-                        // charger.
-                        val keepLines = meeting.segments.isNotEmpty()
-                        main.post {
-                            queueFirstTranscript(app, id, audio, stageForReview = keepLines)
-                        }
-                    }
+                if (meeting.segments.isEmpty()) {
+                    // On the main thread, like every other JobGate caller:
+                    // its one-job-at-a-time check and the start it guards
+                    // are two steps, and onResume's drain runs at about this
+                    // time. Raced from here, both could start ImportService,
+                    // which refuses the second start, and one job was lost.
+                    // The main looper, not a screen's, so it still happens if
+                    // the screen is gone by then. A session started meanwhile
+                    // only queues it, for the next drain.
+                    val audio = meeting.audioFile
+                    main.post { queueFirstTranscript(app, id, audio) }
                 }
             }, "recording-recover").start()
         }
@@ -2708,65 +2505,6 @@ class RecordingService : Service() {
             audioExists && modelReady
 
         /**
-         * Closes a finished session's audio file ([close], on a thread of
-         * its own through [background]) and only then hands [afterClosed]
-         * to [post], the main thread; with no file, at once. The work that
-         * runs then looks for audio to transcribe or check, and the writer
-         * holds back 64 KB (about 8 s) before its first byte reaches the
-         * disk, so a short recording looked empty when the work ran beside
-         * the close. A close that throws still runs the work, and the throw
-         * stops here: escaping the closing thread, it would end the process
-         * (CrashLog chains to Android's handler) before the work ran. Pure
-         * apart from what it is handed, so the order is unit-tested.
-         */
-        fun closeAudioThen(
-            close: (() -> Unit)?,
-            afterClosed: (() -> Unit)?,
-            post: (() -> Unit) -> Unit,
-            background: (() -> Unit) -> Unit
-        ) {
-            if (close == null) {
-                afterClosed?.let(post)
-                return
-            }
-            background {
-                try {
-                    close()
-                } catch (_: Throwable) {
-                    // The file is as complete as it got; ADTS stays playable.
-                } finally {
-                    afterClosed?.let(post)
-                }
-            }
-        }
-
-        /**
-         * Whether a finished session's WorkThenStop, its work issued, stops
-         * the service: not while a session runs on it ([active]) or is on
-         * its way ([starting]: start() has set isRunning), and not while
-         * another finished session still has work to issue ([stillIssuing]),
-         * whose own stop comes later. Pure, so it is unit-tested.
-         */
-        fun stopsAfterWork(active: Boolean, starting: Boolean, stillIssuing: Int): Boolean =
-            !active && !starting && stillIssuing <= 0
-
-        /**
-         * Whether [queueFirstTranscript]'s pass staged for review
-         * ([stageForReview]) is queued as never trimmed (JobQueue.Job.required).
-         * Staged, it is no first transcript, and an optional automatic pass
-         * is dropped once more than JobQueue.MAX_JOBS wait: a few meetings'
-         * automatic checks and summaries waiting for a charger took the
-         * only pass that brings the recovered recording's missing end
-         * back, and nothing said the end was missing. Only while it waits
-         * for a charger ([whenCharging]), where it waits long: off one it
-         * starts at once or at the next drain, and a required pass that
-         * does not wait for a charger is shown as one the user started
-         * (LiveUpdates.queuedPassUserStarted). Pure, so it is unit-tested.
-         */
-        fun stagedPassKept(stageForReview: Boolean, whenCharging: Boolean): Boolean =
-            stageForReview && whenCharging
-
-        /**
          * Queues the transcription of a recording captured as audio only, or
          * whose live words stop short: at Finish, when the app is swiped
          * away, and for a recording an interrupted session left behind
@@ -2778,22 +2516,8 @@ class RecordingService : Service() {
          * finished without it. It does honour the same "wait for a charger"
          * preference, since the deferral is about when the work happens, not
          * whether. Call once the audio file is closed.
-         *
-         * [stageForReview]: a recovered recording whose live lines stop
-         * short ([recoverInterrupted]). The pass is staged as an accuracy
-         * check the user reviews, with the missing tail among its
-         * differences, rather than put in place of the lines: it can wait
-         * hours for a charger, and stars, speaker names and edits made on
-         * them meanwhile were replaced with them. It is still the only pass
-         * that brings that tail back, so it is not trimmed from the queue
-         * while it waits for a charger ([stagedPassKept]).
          */
-        fun queueFirstTranscript(
-            context: Context,
-            meetingId: String,
-            audioFile: String?,
-            stageForReview: Boolean = false
-        ) {
+        fun queueFirstTranscript(context: Context, meetingId: String, audioFile: String?) {
             try {
                 val app = context.applicationContext
                 val settings = AppSettings(app)
@@ -2816,10 +2540,7 @@ class RecordingService : Service() {
                     whenCharging = settings.autoCheckWhileChargingOnly,
                     // It is the transcript: never trimmed from the queue, and
                     // resumed as a first pass if an unplug stops it part-way.
-                    // Staged, it is a check like any other, kept while it
-                    // waits for a charger.
-                    firstTranscript = !stageForReview,
-                    required = stagedPassKept(stageForReview, settings.autoCheckWhileChargingOnly)
+                    firstTranscript = true
                 )
             } catch (_: Throwable) {
                 // The audio is saved either way; the meeting screen offers the
@@ -2840,24 +2561,20 @@ class RecordingService : Service() {
             // words, and nothing ever queued its transcription. Doing it in
             // place instead claimed the transcriber at once: the chunk being
             // spoken was dropped from the live transcript with nothing to
-            // cover it, the queued ones kept decoding into the meeting after
-            // the summary had read it, and the summary or accuracy check
-            // started (isRunning off) with the live model still loaded.
-            // finishAndSave flushes the last chunk and waits for the queue,
-            // 15 s at most (with the audio kept, the rest is transcribed from
-            // it), and completeFinish then queues the work and leaves the
-            // foreground once it is issued (WorkThenStop). Meanwhile the
-            // foreground service keeps the process alive. A Finish already
-            // under way is left to do just that: its completeFinish has not
-            // run yet, so there is no pending stop to wait for, and stopping
+            // cover it, and the queued ones kept decoding into the meeting
+            // after the summary had read it. finishAndSave flushes the last
+            // chunk and waits for the queue, as Finish does (with the audio
+            // kept, the rest is transcribed from it), and completeFinish
+            // then merges the speaker clusters, closes the audio file and
+            // starts or queues the work in the foreground before it stops.
+            // Meanwhile the foreground service keeps the process alive. A
+            // Finish already under way is left to do just that; stopping
             // here would cut it short.
             finishAndSave(null)
         } else {
             isRunning = false
-            // A finish still issuing its work stops the service when that is
-            // done; stopping here would take its exemption away first. With
-            // the start id, so a start still on its way is not cancelled.
-            if (pendingStops == 0) stopForNewestStart()
+            stopForegroundCompat()
+            stopSelf()
         }
         super.onTaskRemoved(rootIntent)
     }

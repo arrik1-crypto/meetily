@@ -934,15 +934,14 @@ review are in extra A.
   lines; 3.22.0-beta1: no manual accuracy check needed), and the Mark
   moment star lands on the line at that moment. exit-info lists the crash.
   Covers: CONT 14 (full, with P0-3a), EXIT 4 (full, with P1-9b), RF 15
-  (partial: audio-only, recovered by opening Recap; not a live recording
-  whose live words stopped short, nor recovery by a recording started
-  from the tile).
+  (partial: audio-only, recovered by opening Recap; not the live-recording
+  kill nor the tile start after a kill).
 
 ### P1-10 (+) Live transcription (2 min, Batches 3 and 5, the review fixes)
 
-- [ ] Settings → Transcription → "Transcribe live" on → **Save settings**.
-  Start a recording and speak from the very first second, including a
-  quiet phrase; record for a minute. If the status reads "Loading the
+- [ ] **P1-10a** Settings → Transcription → "Transcribe live" on → **Save
+  settings**. Start a recording and speak from the very first second,
+  including a quiet phrase; record for a minute. If the status reads "Loading the
   model…" for more than a few seconds (a large model), tap the star once
   while it does, saying "star here" as you tap. If the first lines then
   appear while you are still speaking and more keep coming in, tap Mark
@@ -954,11 +953,20 @@ review are in extra A.
   not on the first line, and the toast at the tap read "Will highlight
   the line being spoken now once it's transcribed" (3.22.0-beta1). The
   Mark lands on the line with "mark here" (or the one just before it),
-  not on the newest line when you tapped (3.22.0-beta1). Turn
-  "Transcribe live" off again and save.
+  not on the newest line when you tapped (3.22.0-beta1). Leave
+  "Transcribe live" on for P1-10b.
   Covers: NATLIB 3 (partial: this phone only), VAD 2 (full, with P0-3a),
-  RF 16 (partial: no failing model, and no Finish during the load), RF 49
-  (full; only when the load lasted long enough to tap).
+  RF 16 (partial, with P1-10b: no failing model), RF 49 (full; only when
+  the load lasted long enough to tap).
+- [ ] **P1-10b (+)** Turn "Keep meeting audio" off. With the same large
+  model, start a recording, say one sentence, and tap Finish while the
+  status still reads "Loading the model…".
+  **Expect:** "Finishing transcription…" on the screen and in the
+  notification, no buttons, until the model has loaded (a minute after
+  Finish at most); then the meeting opens with that sentence in its
+  transcript. Turn "Keep meeting audio" back on, turn "Transcribe live"
+  off again, and save.
+  Covers: RF 16 (partial, with P1-10a: no failing model).
 
 ### P1-11 Short recordings and "Keep meeting audio" off (3 min, the review fixes)
 
@@ -1622,11 +1630,10 @@ On purpose, and why; the §11 items stay open for another pass.
    LU 6 batch segments, TRASH 2/4/8/11, RETIME 3/7/10/11, the
    RESTRICT_LOCAL_NETWORK reboot checks (A17 1, 2), anything needing a
    targetSdk 37 build (A17 4), a microphone unplugged mid-recording (RF
-   17), a live recording killed after live fell behind (RF 15 tail: it
-   needs a phone too slow for the model), an interrupted recording
-   recovered by a new one started from the tile (RF 15 tail), Finish
-   during a live model's load and the transcript that waits for the
-   model to be freed (RF 16 tail), quick starring during an import (RF 7), ticks during Enhance
+   17), a live recording killed mid-meeting and a new recording started
+   from the tile after a kill (RF 15 tails), a load still running 60 s
+   after Finish, and the 3 s audio-close fallback, quick starring during
+   an import (RF 7), ticks during Enhance
    notes (RF 35), Clear voice and Remove a passage under the shortened
    daily limit (CV 11, PASS 21 tails: P2-2 runs it on an import, a check
    and Re-time only) and cancelling the first-run summary download from

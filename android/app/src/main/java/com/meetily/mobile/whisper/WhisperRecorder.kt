@@ -119,14 +119,7 @@ class WhisperRecorder(
      * be opened, a read failed, or it stopped delivering audio. Nothing more
      * reaches the frame sink. Audio thread.
      */
-    private val onCaptureEnded: (() -> Unit)? = null,
-    /**
-     * The live model is no longer loading or loaded: freed, failed, or
-     * never loaded. Batch work held back for it ([liveModelsHeld]) may
-     * start. Transcriber thread, or the audio thread when the load could
-     * not be queued.
-     */
-    private val onLiveModelReleased: (() -> Unit)? = null
+    private val onCaptureEnded: (() -> Unit)? = null
 ) {
     private val sampleRate = 16_000
     private val frameSize = sampleRate / 10 // 100 ms
@@ -201,18 +194,6 @@ class WhisperRecorder(
     /** Samples handed to the transcriber and not yet decoded. */
     private val queuedSamples = AtomicLong(0L)
 
-    /** Speech waiting to be transcribed live, in ms of audio. */
-    val backlogMs: Long get() = queuedSamples.get() * 1000 / sampleRate
-
-    /** This recorder's share of [liveModelsHeld]; see [prepareLiveLater]. */
-    private val liveSlot = LiveModelSlot(liveModels)
-
-    /**
-     * True while the live model is loading or loaded, until the release
-     * that frees it: a session finished during a slow load still holds it.
-     */
-    val holdsLiveModel: Boolean get() = liveSlot.isHeld
-
     /**
      * Live transcription cannot be allowed to fall arbitrarily far behind:
      * every queued chunk is a FloatArray on the Java heap (64 KB a second),
@@ -283,16 +264,6 @@ class WhisperRecorder(
         if (frameSink != null) return
         lateFrames.attach(sink)
     }
-
-    /**
-     * [attachFrameSink] with the sink [open] makes, for a Finish that can no
-     * longer wait for the live model's outcome: only while every frame
-     * captured so far is held, checked in one step with a model that loads
-     * meanwhile (LateFrameSink.attachIfHeldInFull). True when the sink now
-     * has the meeting from its first frame; [open] is not called otherwise.
-     */
-    fun attachFrameSinkIfHeldInFull(open: () -> ((FloatArray) -> Unit)?): Boolean =
-        frameSink == null && lateFrames.attachIfHeldInFull(open)
 
     /** True while audio captured before the live model's outcome is held for [attachFrameSink]. */
     val holdsAudio: Boolean
@@ -482,59 +453,38 @@ class WhisperRecorder(
      * Teardown frees what is published here: every release is queued on
      * this executor behind this job (finish and destroy), so it cannot run
      * first. A discarded session skips the load altogether.
-     *
-     * From here until the release the recorder counts in [liveModelsHeld],
-     * finished or not: a Finish that cannot wait for a slow load ends the
-     * session with the load still running, and a transcription or check
-     * started then loaded a second copy of the model beside it.
      */
     private fun prepareLiveLater() {
-        liveSlot.take()
         try {
             transcriber.execute {
-                try {
-                    // A release that ran first leaves nothing to load for.
-                    if (abandoned || gate.isReleased) return@execute
-                    val ready = try {
-                        val load = nemoLoader
-                        if (load != null) loadNemo(load) else loadWhisper()
-                    } catch (_: Throwable) {
-                        false
-                    }
-                    if (!ready) {
-                        liveFailed = true
-                        onLiveUnavailable?.invoke()
-                        return@execute
-                    }
-                    // Finished during the load with its backlog skipped, or
-                    // discarded: the release queued behind this job frees
-                    // the model, and the session that is over needs neither
-                    // the speaker model nor the live words.
-                    if (abandoned) return@execute
-                    // Live has the words from here on, and no file was asked for.
-                    lateFrames.dropHeld()
-                    try {
-                        prepare?.invoke()
-                    } catch (_: Throwable) {
-                    }
-                    onLiveReady?.invoke()
-                } finally {
-                    // Nothing stays loaded after a failed load, nor after a
-                    // release that ran ahead of this job.
-                    if (liveFailed || gate.isReleased) giveBackLiveSlot()
+                // A release that ran first leaves nothing to load for.
+                if (abandoned || gate.isReleased) return@execute
+                val ready = try {
+                    val load = nemoLoader
+                    if (load != null) loadNemo(load) else loadWhisper()
+                } catch (_: Throwable) {
+                    false
                 }
+                if (!ready) {
+                    liveFailed = true
+                    onLiveUnavailable?.invoke()
+                    return@execute
+                }
+                // Finished during the load with its backlog skipped, or
+                // discarded: the release queued behind this job frees the
+                // model, and the session that is over needs neither the
+                // speaker model nor the live words.
+                if (abandoned) return@execute
+                // Live has the words from here on, and no file was asked for.
+                lateFrames.dropHeld()
+                try {
+                    prepare?.invoke()
+                } catch (_: Throwable) {
+                }
+                onLiveReady?.invoke()
             }
         } catch (_: java.util.concurrent.RejectedExecutionException) {
             // Teardown won the race: there is nothing left to load for.
-            giveBackLiveSlot()
-        }
-    }
-
-    private fun giveBackLiveSlot() {
-        if (!liveSlot.giveBack()) return
-        try {
-            onLiveModelReleased?.invoke()
-        } catch (_: Throwable) {
         }
     }
 
@@ -843,7 +793,6 @@ class WhisperRecorder(
             nemo?.release()
         } catch (_: Throwable) {
         }
-        giveBackLiveSlot()
     }
 
     private fun rmsOf(buffer: FloatArray, n: Int): Float {
@@ -861,15 +810,5 @@ class WhisperRecorder(
 
         /** Heap safety cap (~38 MB of floats) when nothing else has the audio. */
         private const val BACKLOG_CAP_UNKEPT_SEC = 600L
-
-        /** Recorders loading or holding a live model; see [liveModelsHeld]. */
-        private val liveModels = AtomicInteger(0)
-
-        /**
-         * True while any recorder in the process is loading its live model
-         * or has not freed it yet, a finished session's included. Batch work
-         * that loads a model of its own waits (JobGate.canStartBatch).
-         */
-        fun liveModelsHeld(): Boolean = liveModels.get() > 0
     }
 }

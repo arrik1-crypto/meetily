@@ -91,9 +91,7 @@ HSPLcom/meetily/mobile/HomeSelection;->setUp(Lcom/meetily/mobile/MeetingAdapter;
 HSPLcom/meetily/mobile/HomeSelection$back$1;-><init>(Lcom/meetily/mobile/HomeSelection;)V
 HSPLcom/meetily/mobile/ImportService;->removeObserver(Lcom/meetily/mobile/ImportService$Observer;)V
 HSPLcom/meetily/mobile/ImportService$Companion;->isRunning()Z
-HSPLcom/meetily/mobile/JobGate;->admits(ZZZ)Z
-HSPLcom/meetily/mobile/JobGate;->canStartBatch(Z)Z
-HSPLcom/meetily/mobile/JobGate;->canStartBatch$default(Lcom/meetily/mobile/JobGate;ZILjava/lang/Object;)Z
+HSPLcom/meetily/mobile/JobGate;->canStartBatch()Z
 HSPLcom/meetily/mobile/JobGate;->drain(Landroid/content/Context;)V
 HSPLcom/meetily/mobile/JobGate;->startPending()Z
 HSPLcom/meetily/mobile/LibraryExportRunner;->releaseFolder(Landroid/content/Context;Landroid/net/Uri;)V

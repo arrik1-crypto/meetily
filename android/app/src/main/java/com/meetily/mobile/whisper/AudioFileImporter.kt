@@ -4,7 +4,6 @@ import android.content.Context
 import android.net.Uri
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
-import com.meetily.mobile.data.HighlightMarks
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingLanguage
 import com.meetily.mobile.data.MeetingStore
@@ -351,13 +350,6 @@ class AudioFileImporter(
         var reachedUpToMs: () -> Long = { startMs }
         // What the last save recorded as that point; null once complete.
         var savedResumeMs: Long? = continueFromMs
-        // A staged check's marks to place on its own lines: those past the
-        // stored lines (HighlightMarks.pastLines).
-        val draftMarks = if (stageOnly && recheckTarget != null) {
-            HighlightMarks.pastLines(recheckTarget.segments, recheckTarget.highlightMarksMs)
-        } else {
-            emptyList()
-        }
         // How this pass relabels the speakers of the lines before its seam,
         // applied to what is stored there at each save (TranscriptResume.Relabel).
         var relabel = TranscriptResume.Relabel()
@@ -375,11 +367,6 @@ class AudioFileImporter(
             val unfinishedAt = if (complete) null else resumePointMs()
             savedResumeMs = unfinishedAt
             if (stageOnly) {
-                // As a first transcript places them: a mark past where the
-                // words stop waits for the pass that reaches it.
-                HighlightMarks.apply(
-                    meeting.segments, TranscriptResume.marksReached(draftMarks, unfinishedAt)
-                )
                 TranscriptDraft.save(
                     context, meeting.id, selectedKey, meeting.segments, complete,
                     meeting.language, meeting.translated, unfinishedAt,

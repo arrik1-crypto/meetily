@@ -30,21 +30,4 @@ object HighlightMarks {
             if (!segment.highlighted) segments[target] = segment.copy(highlighted = true)
         }
     }
-
-    /**
-     * The marks of [marksMs] later than the start of every timed line of
-     * [stored], for an accuracy check over a transcript that stops short of
-     * its audio to place on its own lines (AudioFileImporter): marks tapped
-     * after live transcription fell behind and stopped, which only a first
-     * transcript placed, and a recovered recording's pass is a check. The
-     * accepted lines carry their stars into the transcript
-     * (TranscriptReconcile.merge), and lines left out star nothing. Marks
-     * within [stored] were placed on its lines, or wait on lines the user
-     * may have un-starred since. All of them when [stored] has no timed
-     * line.
-     */
-    fun pastLines(stored: List<TranscriptSegment>, marksMs: List<Long>): List<Long> {
-        val lastStart = stored.mapNotNull { it.audioMs }.maxOrNull() ?: return marksMs
-        return marksMs.filter { it > lastStart }
-    }
 }

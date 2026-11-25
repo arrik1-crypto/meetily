@@ -5,8 +5,9 @@ package com.meetily.mobile.whisper
  * (WhisperRecorder). With "Keep meeting audio" off a live session keeps no
  * file unless its model fails to load, and capture runs before that is
  * known, so the frames are held ([HeldAudio]) until it is: a model that
- * loads drops them ([dropHeld]), and a file opened after all gets them
- * first and then every frame after them ([attach], [attachIfHeldInFull]).
+ * loads drops them ([dropHeld]), and a file opened after all ([attach],
+ * when the model fails, also during Finish's wait for it) gets them first
+ * and then every frame after them.
  * Without the hold, everything said until a failure was in neither the
  * file nor any transcript (the chunks queued for the model are dropped
  * once it fails), and the file started later than the session's clock, so
@@ -54,27 +55,6 @@ internal class LateFrameSink(holdCapSamples: Long?) {
             held?.drainInto(target)
             held = null
             sink = target
-        }
-    }
-
-    /**
-     * As [attach], with the sink [open] makes, but only while the hold has
-     * every frame offered so far: something is held, none of it was refused
-     * for the cap, and the model has not loaded ([dropHeld]). Checked in the
-     * same step as the hand-over, so a model that loads meanwhile cannot
-     * leave a sink with nothing in it. Returns whether it attached; [open]
-     * is not called when the hold does not qualify, and a null from it
-     * attaches nothing.
-     */
-    fun attachIfHeldInFull(open: () -> ((FloatArray) -> Unit)?): Boolean {
-        synchronized(lock) {
-            val hold = held ?: return false
-            if (hold.isEmpty || hold.overflowed) return false
-            val target = open() ?: return false
-            hold.drainInto(target)
-            held = null
-            sink = target
-            return true
         }
     }
 

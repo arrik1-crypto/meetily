@@ -2,7 +2,6 @@ package com.meetily.mobile
 
 import com.meetily.mobile.whisper.LateFrameSink
 import org.junit.Assert.assertArrayEquals
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -10,8 +9,8 @@ import org.junit.Test
 /**
  * Where a live recorder with "Keep meeting audio" off sends its frames:
  * held until the model's outcome is known, then to a file opened after
- * all, or dropped once the model loads. A Finish that cannot wait for the
- * outcome hands the hold to a file only while it has the whole meeting.
+ * all when it fails (also during Finish's wait for it), or dropped once the
+ * model loads.
  */
 class LateFrameSinkTest {
 
@@ -23,40 +22,36 @@ class LateFrameSinkTest {
     private fun joined(out: List<FloatArray>) = out.flatMap { it.toList() }.toFloatArray()
 
     @Test
-    fun aFileOpenedAtFinishGetsTheWholeMeetingThenLaterFrames() {
+    fun aFailedLoadHandsOverTheWholeHoldThenLaterFrames() {
         val late = LateFrameSink(holdCapSamples = 100)
         late.offer(buffer(0, 4), 4)
         late.offer(buffer(4, 4), 4)
         assertTrue(late.holdsAudio)
         val out = mutableListOf<FloatArray>()
-        var opened = 0
-        assertTrue(late.attachIfHeldInFull { opened++; { out.add(it) } })
-        assertEquals(1, opened)
+        late.attach { out.add(it) }
         assertFalse(late.holdsAudio)
         late.offer(buffer(8, 2), 2)
         assertArrayEquals(expected(10), joined(out), 0f)
     }
 
     @Test
-    fun aModelThatLoadedFirstLeavesNoFileToOpen() {
+    fun aModelThatLoadedDropsTheHold() {
         val late = LateFrameSink(holdCapSamples = 100)
         late.offer(buffer(0, 4), 4)
         late.dropHeld()
-        var opened = false
-        assertFalse(late.attachIfHeldInFull { opened = true; { } })
-        assertFalse(opened)
         assertFalse(late.holdsAudio)
+        // A file opened after all gets only what is captured from then on.
+        val out = mutableListOf<FloatArray>()
+        late.attach { out.add(it) }
+        late.offer(buffer(4, 2), 2)
+        assertArrayEquals(floatArrayOf(4f, 5f), joined(out), 0f)
     }
 
     @Test
-    fun aHoldPastItsCapIsNotTheWholeMeeting() {
+    fun aHoldPastItsCapKeepsTheOpening() {
         val late = LateFrameSink(holdCapSamples = 6)
         late.offer(buffer(0, 4), 4)
         late.offer(buffer(4, 4), 4)
-        var opened = false
-        assertFalse(late.attachIfHeldInFull { opened = true; { } })
-        assertFalse(opened)
-        // Still held for a load that fails: liveModelFailed attaches it.
         assertTrue(late.holdsAudio)
         val out = mutableListOf<FloatArray>()
         late.attach { out.add(it) }
@@ -64,25 +59,10 @@ class LateFrameSinkTest {
     }
 
     @Test
-    fun nothingHeldOpensNoFile() {
-        val late = LateFrameSink(holdCapSamples = 100)
-        var opened = false
-        assertFalse(late.attachIfHeldInFull { opened = true; { } })
-        assertFalse(opened)
-        // Not a live session: nothing is held for.
+    fun aSessionThatIsNotLiveHoldsNothing() {
         val notLive = LateFrameSink(holdCapSamples = null)
         notLive.offer(buffer(0, 4), 4)
         assertFalse(notLive.holdsAudio)
-        assertFalse(notLive.attachIfHeldInFull { opened = true; { } })
-        assertFalse(opened)
-    }
-
-    @Test
-    fun aFileThatCouldNotBeOpenedKeepsTheHold() {
-        val late = LateFrameSink(holdCapSamples = 100)
-        late.offer(buffer(0, 4), 4)
-        assertFalse(late.attachIfHeldInFull { null })
-        assertTrue(late.holdsAudio)
     }
 
     @Test
@@ -93,8 +73,6 @@ class LateFrameSinkTest {
         late.attach { out.add(it) }
         late.offer(buffer(3, 3), 3)
         assertArrayEquals(expected(6), joined(out), 0f)
-        // Once attached, a later Finish has nothing more to hand over.
-        assertFalse(late.attachIfHeldInFull { { } })
     }
 
     @Test

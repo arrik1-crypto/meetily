@@ -495,16 +495,19 @@ class MeetingStore(context: Context) {
     private val activeMarkerTmp = File(dir, ".active.tmp")
 
     /**
-     * [liveShort]: see ActiveRecording. Written aside and renamed over the
-     * marker, which is atomic on one filesystem: the marker is rewritten
-     * during a recording when that flag changes, which is when memory is
-     * short, and a kill between writeText's truncate and its write left it
-     * empty, so the recording was not recovered at all. False when it could
-     * not be written; the marker is then as it was.
+     * Written once, as a session starts, and cleared at the end of its
+     * Finish (RecordingService.completeFinish) or by Discard. Its readers
+     * (RetentionRunner, AudioRemoval, PassageService, HomeSelection,
+     * MainActivity.isRecording, MeetingDetailActivity.refuseLineEdit) see it
+     * for the life of the session, as in 3.21.0-beta1. Written aside and
+     * renamed over the marker, which is atomic on one filesystem: a kill
+     * between writeText's truncate and its write left it empty, so the
+     * recording was not recovered at all. False when it could not be
+     * written; the marker is then as it was.
      */
-    fun markActive(id: String, liveShort: Boolean = false): Boolean =
+    fun markActive(id: String): Boolean =
         try {
-            activeMarkerTmp.writeText(ActiveRecording(id, liveShort).format())
+            activeMarkerTmp.writeText(id)
             activeMarkerTmp.renameTo(activeMarker)
         } catch (_: Exception) {
             false
@@ -515,24 +518,14 @@ class MeetingStore(context: Context) {
         activeMarkerTmp.delete()
     }
 
-    /**
-     * [clearActive] while the marker still names [id] only: a session
-     * started since has written its own.
-     */
-    fun clearActive(id: String) {
-        if (activeId() == id) clearActive()
-    }
-
-    fun activeId(): String? = activeRecording()?.id
-
-    fun activeRecording(): ActiveRecording? {
+    fun activeId(): String? {
         if (!activeMarker.exists()) return null
         val text = try {
             activeMarker.readText()
         } catch (_: Exception) {
             ""
         }
-        return ActiveRecording.parse(text)
+        return markerId(text)
     }
 
     /** What saveTranscription last wrote, so the next batch can skip the reload. */
@@ -563,6 +556,15 @@ class MeetingStore(context: Context) {
         internal fun fromHeader(text: String): Meeting =
             Meeting.fromJson(LightJson.parseLeading(text, HEADER_FIELDS))
                 .also { it.loadedPartially = true }
+
+        /**
+         * The meeting the crash-recovery marker's [text] names: its first
+         * line, or null for an empty one. A marker a pre-release build left
+         * with a second line still names its meeting. Pure, so it is
+         * unit-tested.
+         */
+        fun markerId(text: String): String? =
+            text.lineSequence().firstOrNull()?.trim()?.ifBlank { null }
 
         /**
          * What AiDisclaimers needs to decide the fixed notices of a summary

@@ -1,10 +1,7 @@
 package com.meetily.mobile
 
-import com.meetily.mobile.data.ActiveRecording
-import com.meetily.mobile.data.JobQueue
+import com.meetily.mobile.data.TranscriptSegment
 import com.meetily.mobile.data.WordStamp
-import com.meetily.mobile.whisper.LiveModelSlot
-import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -14,11 +11,18 @@ import org.junit.Test
 /**
  * What a recording session leaves behind as it ends, on a service that may
  * already be running the next one: its late transcript chunks
- * (LateChunks), a star tapped before its line existed (QueuedHighlight),
- * when the service may stop (RecordingService.stopsAfterWork,
- * FinishSignals), the live model batch work waits for (LiveModelSlot,
- * JobGate.admits), and what a recording the process died under gets
- * (ActiveRecording, RecordingService.stagedPassKept).
+ * (LateChunks), a star tapped before its line existed (QueuedHighlight,
+ * also as the snapshot saves it while it waits), and the decisions the end
+ * of a recording rests on: how long Finish waits for a live model still
+ * loading (RecordingService.finishWaitsForLoad) and for the audio file to
+ * close (RecordingService.closeWaitMs).
+ *
+ * The service wiring around them (the close joined before the work is
+ * issued, the watchdog re-armed while the model loads, the order in which
+ * the session stops, and recovery from MainActivity) is private Service
+ * code that a JVM test cannot run. Device checks cover it: PLAY_RELEASE.md
+ * RF 14, 15, 16, 48 and 49, and DEVICE_TEST_PLAN.md P1-9c, P1-10, P1-10b,
+ * P1-11a and P1-13.
  */
 class RecordingSessionEndTest {
 
@@ -132,18 +136,6 @@ class RecordingSessionEndTest {
     }
 
     @Test
-    fun theServiceStopsOnlyAfterTheLastFinishedSessionIssuedItsWork() {
-        // Two sessions finished on one service while the first one's audio
-        // file was still closing: the first to issue its work leaves the
-        // foreground to the other.
-        assertFalse(RecordingService.stopsAfterWork(active = false, starting = false, stillIssuing = 1))
-        assertTrue(RecordingService.stopsAfterWork(active = false, starting = false, stillIssuing = 0))
-        // A session running, or one whose start is on its way, owns it.
-        assertFalse(RecordingService.stopsAfterWork(active = true, starting = false, stillIssuing = 0))
-        assertFalse(RecordingService.stopsAfterWork(active = false, starting = true, stillIssuing = 0))
-    }
-
-    @Test
     fun aStarWaitsForItsLineWhileThereIsNoneOrTheDecodingIsBehind() {
         // No line yet, as while the live model loads: timed, for the line
         // spoken at the tap.
@@ -183,102 +175,63 @@ class RecordingSessionEndTest {
     }
 
     @Test
-    fun batchWorkWaitsUntilEveryLiveModelIsFreed() {
-        val count = AtomicInteger(0)
-        val first = LiveModelSlot(count)
-        val second = LiveModelSlot(count)
-        first.take()
-        first.take()
-        second.take()
-        assertEquals(2, count.get())
-        assertTrue(first.isHeld)
-        // Given back once, whichever of the release, a failed load or a
-        // rejected one comes first.
-        assertTrue(first.giveBack())
-        assertFalse(first.giveBack())
-        assertFalse(first.isHeld)
-        assertEquals(1, count.get())
-        assertTrue(second.giveBack())
-        assertEquals(0, count.get())
-        // Never taken: nothing to give back.
-        assertFalse(LiveModelSlot(count).giveBack())
-        assertEquals(0, count.get())
+    fun finishWaitsForALoadingModelUpToItsCap() {
+        // Still loading at the 15 s checks before the cap: wait another step.
+        assertTrue(RecordingService.finishWaitsForLoad(liveLoading = true, sinceFinishMs = 15_000L))
+        assertTrue(RecordingService.finishWaitsForLoad(liveLoading = true, sinceFinishMs = 45_000L))
+        // At the cap, and past it: the session is saved as it stands.
+        assertEquals(60_000L, RecordingService.FINISH_LOAD_WAIT_MS)
+        assertFalse(RecordingService.finishWaitsForLoad(liveLoading = true, sinceFinishMs = 60_000L))
+        assertFalse(RecordingService.finishWaitsForLoad(liveLoading = true, sinceFinishMs = 75_000L))
+        // Loaded or failed: the 15 s rule, as in 3.21.0-beta1.
+        assertFalse(RecordingService.finishWaitsForLoad(liveLoading = false, sinceFinishMs = 15_000L))
     }
 
     @Test
-    fun aFinishedSessionDrainsAndStopsOnceItsAudioIsClosedAndItsModelFreed() {
-        // No live model held at Finish: the audio closing is all it waits for.
-        val plain = FinishSignals(waitsForLiveModel = false)
-        assertTrue(plain.audioClosed())
-        assertFalse(plain.modelReleased())
-        assertFalse(plain.audioClosed())
-        // Held: both, in either order, and only once.
-        val closedFirst = FinishSignals(waitsForLiveModel = true)
-        assertFalse(closedFirst.audioClosed())
-        assertFalse(closedFirst.audioClosed())
-        assertTrue(closedFirst.modelReleased())
-        assertFalse(closedFirst.modelReleased())
-        val releasedFirst = FinishSignals(waitsForLiveModel = true)
-        assertFalse(releasedFirst.modelReleased())
-        assertTrue(releasedFirst.audioClosed())
-        assertFalse(releasedFirst.audioClosed())
+    fun theAudioCloseWaitEndsAtItsDeadlineAndNeverWaitsForever() {
+        assertEquals(2_000L, RecordingService.closeWaitMs(closeByMs = 3_000L, nowMs = 1_000L))
+        // At or past the deadline: 0, which the caller takes as "do not
+        // wait", since a join of 0 would wait forever. Never negative.
+        assertEquals(0L, RecordingService.closeWaitMs(closeByMs = 3_000L, nowMs = 3_000L))
+        assertEquals(0L, RecordingService.closeWaitMs(closeByMs = 3_000L, nowMs = 9_000L))
     }
 
     @Test
-    fun aHeldLiveModelHoldsBackOnlyWorkThatLoadsAModel() {
-        assertTrue(JobGate.admits(busy = false, liveModelHeld = false, loadsLocalModel = true))
-        // A finished recording's live model still loading or held: a
-        // transcription, check, import or on-device summary waits.
-        assertFalse(JobGate.admits(busy = false, liveModelHeld = true, loadsLocalModel = true))
-        // A summary, notes or speakers pass on a network endpoint does not.
-        assertTrue(JobGate.admits(busy = false, liveModelHeld = true, loadsLocalModel = false))
-        // Anything else running holds back both, as before.
-        assertFalse(JobGate.admits(busy = true, liveModelHeld = false, loadsLocalModel = false))
-        assertFalse(JobGate.admits(busy = true, liveModelHeld = true, loadsLocalModel = false))
-    }
-
-    @Test
-    fun theRecoveryMarkerSaysWhetherTheLiveWordsStopShort() {
-        assertEquals("abc", ActiveRecording("abc").format())
-        assertEquals(ActiveRecording("abc", liveShort = true), ActiveRecording.parse(ActiveRecording("abc", true).format()))
-        assertEquals(ActiveRecording("abc", liveShort = false), ActiveRecording.parse(ActiveRecording("abc", false).format()))
-        // A marker from before the flag: the id alone, maybe with a newline.
-        assertEquals(ActiveRecording("abc"), ActiveRecording.parse("abc\n"))
-        assertNull(ActiveRecording.parse(""))
-        assertNull(ActiveRecording.parse("  \nlive-short"))
-    }
-
-    @Test
-    fun aRecoveredRecordingsStagedCheckIsNotTrimmedWhileItWaitsForACharger() {
-        assertTrue(RecordingService.stagedPassKept(stageForReview = true, whenCharging = true))
-        // Off the charger setting it starts at once or at the next drain, and
-        // stays an automatic pass, not one shown as the user's own.
-        assertFalse(RecordingService.stagedPassKept(stageForReview = true, whenCharging = false))
-        // The first transcript is kept in the queue by being one.
-        assertFalse(RecordingService.stagedPassKept(stageForReview = false, whenCharging = true))
-        assertFalse(LiveUpdates.queuedPassUserStarted(required = true, chargingOnly = true))
-
-        // As queueFirstTranscript queues it, then five automatic passes
-        // waiting for power: it is the oldest, and stays.
-        val staged = JobQueue.Job(
-            JobQueue.KIND_CHECK, "recovered", "model", 1L, chargingOnly = true,
-            firstTranscript = false,
-            required = RecordingService.stagedPassKept(stageForReview = true, whenCharging = true)
+    fun aWaitingStarIsSavedOnTheLineItFellInSoFar() {
+        val lines = listOf(line(0L), line(18_000L), line(41_000L))
+        // Tapped 50 s in, line 0 on screen, the backlog still decoding.
+        val star = QueuedHighlight(tapMs = 50_000L, newestLine = 0)
+        assertNull(star.onAppended(1, 18_000L))
+        assertNull(star.onAppended(2, 41_000L))
+        val saved = QueuedHighlight.withWaitingStars(lines, listOf(star))
+        assertEquals(listOf(false, false, true), saved.map { it.highlighted })
+        // Only the copy: the lines themselves are left as they were.
+        assertEquals(listOf(false, false, false), lines.map { it.highlighted })
+        // Tapped during the load with no line yet, or untimed: nothing yet.
+        assertEquals(
+            listOf(false, false, false),
+            QueuedHighlight.withWaitingStars(lines, listOf(QueuedHighlight(tapMs = 40_000L))).map { it.highlighted }
         )
-        var jobs = JobQueue.add(emptyList(), staged)
-        for (i in 2..7) {
-            jobs = JobQueue.add(
-                jobs, JobQueue.Job(JobQueue.KIND_SUMMARY, "m$i", "general", i.toLong(), chargingOnly = true)
-            )
-        }
-        assertTrue(jobs.any { it.meetingId == "recovered" })
-        assertEquals(JobQueue.MAX_JOBS, jobs.count { it.meetingId != "recovered" })
+        assertEquals(
+            listOf(false, false, false),
+            QueuedHighlight.withWaitingStars(lines, listOf(QueuedHighlight(tapMs = null))).map { it.highlighted }
+        )
+        // A line already starred stays starred, and a line that is not there
+        // is ignored.
+        val starred = listOf(line(0L), line(18_000L, highlighted = true))
+        assertEquals(
+            listOf(false, true),
+            QueuedHighlight.withWaitingStars(starred, listOf(QueuedHighlight(50_000L, newestLine = 1)))
+                .map { it.highlighted }
+        )
+        assertEquals(
+            listOf(false, true),
+            QueuedHighlight.withWaitingStars(starred, listOf(QueuedHighlight(50_000L, newestLine = 5)))
+                .map { it.highlighted }
+        )
     }
 
-    @Test
-    fun aRecoveredRecordingIsTranscribedWhenItHasNoLinesOrTheyStopShort() {
-        assertTrue(RecordingService.recoveryWantsTranscript(hasLines = false, liveShort = false))
-        assertTrue(RecordingService.recoveryWantsTranscript(hasLines = true, liveShort = true))
-        assertFalse(RecordingService.recoveryWantsTranscript(hasLines = true, liveShort = false))
-    }
+    private fun line(audioMs: Long, highlighted: Boolean = false) = TranscriptSegment(
+        timestampMs = audioMs, text = "line at $audioMs", highlighted = highlighted, audioMs = audioMs
+    )
 }
