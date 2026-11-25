@@ -363,7 +363,8 @@ class PassageService : Service() {
         val watching = listeners.any { it.showsMeeting(meetingId) }
         listeners.forEach { it.onPassageDone(meetingId, result, span) }
         if (wasTimedOut || (!watching && result != Result.CANCELLED)) {
-            postDoneNotification(meetingId, if (wasTimedOut) Result.TIMED_OUT else result)
+            // A limit that came during the swap stopped nothing: the passage is gone.
+            postDoneNotification(meetingId, if (wasTimedOut && result != Result.REMOVED) Result.TIMED_OUT else result)
         }
         timedOut = false
         // Queued work held back while the meeting was being changed, handed

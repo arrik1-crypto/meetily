@@ -268,7 +268,8 @@ class ClearVoiceService : Service() {
         // The meeting screen shows the outcome itself; the notification is
         // for a run that finished with nobody looking, or one Android cut.
         if (wasTimedOut || (!watching && result != Result.CANCELLED)) {
-            postDoneNotification(meetingId, if (wasTimedOut) Result.TIMED_OUT else result)
+            // A limit that came once the copy was saved stopped nothing: it is kept.
+            postDoneNotification(meetingId, if (wasTimedOut && result != Result.READY) Result.TIMED_OUT else result)
         }
         timedOut = false
         if (stopSelfResult(lastStartId)) stopForegroundCompat()
@@ -518,6 +519,8 @@ class ClearVoiceService : Service() {
             RecordingService.isRunning -> R.string.clearvoice_blocked_recording
             isRunning || claimed() != null ->
                 if (preparingId() == meetingId) null else R.string.clearvoice_blocked_other
+            // Named, rather than as busy recording, transcribing or summarizing.
+            PassageService.isRemoving(meetingId) -> R.string.passage_blocked_running
             AudioRemoval.isWritingContent(context, meetingId) -> R.string.clearvoice_blocked_busy
             else -> null
         }
