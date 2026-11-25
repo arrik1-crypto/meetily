@@ -73,6 +73,13 @@ object JobGate {
      * removes. It is short, and drains the queue when it ends. Words being
      * re-timed (AlignService) hold them back as well: the aligner holds
      * about 200 MB while it runs, and it drains the queue when it ends.
+     *
+     * So does a live model a finished recording has not freed yet
+     * (WhisperRecorder.liveModelsHeld). A Finish, or a swipe from Recents,
+     * that cannot wait for a slow load ends the session while the model is
+     * still loading, and the first transcript queued then loaded a second
+     * copy of the same model beside it. RecordingService drains the queue
+     * once the model is freed.
      */
     fun canStartBatch(): Boolean =
         !RecordingService.isRunning &&
@@ -80,6 +87,7 @@ object JobGate {
             !SummaryService.isRunning &&
             !PassageService.isBusy() &&
             !AlignService.isBusy() &&
+            !com.meetily.mobile.whisper.WhisperRecorder.liveModelsHeld() &&
             !startPending()
 
     /**

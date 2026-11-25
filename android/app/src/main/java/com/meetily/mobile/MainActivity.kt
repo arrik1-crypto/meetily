@@ -669,11 +669,17 @@ class MainActivity : AppCompatActivity() {
      * and queue the transcript an audio-only recording has yet to get: Finish
      * and swiping the app away both queue it, and a recording the process
      * died under was left with its audio and no words until the user found
-     * it and transcribed it by hand.
+     * it and transcribed it by hand. So does one whose live words stop short
+     * of its audio (live fell behind and stopped, or a backlog waited to be
+     * transcribed): that is kept in memory only, and the meeting looked
+     * complete with the rest of it in the audio alone. Also a session that
+     * was finished but died before its work was issued: the marker stays
+     * until then. Not while this process still has that work to issue.
      */
     private fun recoverInterruptedRecording() {
-        if (RecordingService.isRunning) return
-        val id = store.activeId() ?: return
+        if (RecordingService.isRunning || RecordingService.finishedWorkPending()) return
+        val marker = store.activeRecording() ?: return
+        val id = marker.id
         store.clearActive()
         // Whether the meeting is still readable decides the toast and the
         // transcription, and finding out parses the whole file, which an
@@ -693,7 +699,11 @@ class MainActivity : AppCompatActivity() {
                 runOnUiThread {
                     Toast.makeText(app, R.string.recording_recovered, Toast.LENGTH_LONG).show()
                 }
-                if (meeting.segments.isEmpty()) {
+                if (RecordingService.recoveryWantsTranscript(
+                        hasLines = meeting.segments.isNotEmpty(),
+                        liveShort = marker.liveShort
+                    )
+                ) {
                     // On the main thread, like every other JobGate caller: its
                     // one-job-at-a-time check and the start it guards are two
                     // steps, and onResume's drain runs at about this time. Raced

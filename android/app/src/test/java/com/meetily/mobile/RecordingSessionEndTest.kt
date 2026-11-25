@@ -1,6 +1,9 @@
 package com.meetily.mobile
 
+import com.meetily.mobile.data.ActiveRecording
 import com.meetily.mobile.data.WordStamp
+import com.meetily.mobile.whisper.LiveModelSlot
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -11,7 +14,9 @@ import org.junit.Test
  * What a recording session leaves behind as it ends, on a service that may
  * already be running the next one: its late transcript chunks
  * (LateChunks), a star tapped before its line existed (QueuedHighlight),
- * and when the service may stop (RecordingService.stopsAfterWork).
+ * when the service may stop (RecordingService.stopsAfterWork), the live
+ * model batch work waits for (LiveModelSlot), and what a recording the
+ * process died under gets (ActiveRecording).
  */
 class RecordingSessionEndTest {
 
@@ -134,5 +139,85 @@ class RecordingSessionEndTest {
         // A session running, or one whose start is on its way, owns it.
         assertFalse(RecordingService.stopsAfterWork(active = true, starting = false, stillIssuing = 0))
         assertFalse(RecordingService.stopsAfterWork(active = false, starting = true, stillIssuing = 0))
+    }
+
+    @Test
+    fun aStarWaitsForItsLineWhileThereIsNoneOrTheDecodingIsBehind() {
+        // No line yet, as while the live model loads: timed, for the line
+        // spoken at the tap.
+        val loading = QueuedHighlight.forTap(partialShown = false, lines = 0, decodingBehind = false, tapMs = 40_000L)!!
+        assertEquals(40_000L, loading.tapOffsetMs)
+        assertNull(loading.atEnd())
+        // Lines on screen with the backlog still decoding: timed, and the
+        // tap may fall in the newest line so far.
+        val behind = QueuedHighlight.forTap(partialShown = false, lines = 3, decodingBehind = true, tapMs = 50_000L)!!
+        assertEquals(50_000L, behind.tapOffsetMs)
+        assertEquals(2, behind.atEnd())
+        // A partial line on screen: the next line, untimed.
+        val partial = QueuedHighlight.forTap(partialShown = true, lines = 3, decodingBehind = false, tapMs = 50_000L)!!
+        assertNull(partial.tapOffsetMs)
+        assertEquals(3, partial.onAppended(3, 49_000L))
+        // Caught up: the newest line is toggled, nothing waits.
+        assertNull(QueuedHighlight.forTap(partialShown = false, lines = 3, decodingBehind = false, tapMs = 50_000L))
+    }
+
+    @Test
+    fun aTimedStarIsAMarkAtFinishWhenTheLiveWordsStopShort() {
+        val star = QueuedHighlight(tapMs = 40_000L)
+        assertNull(star.onAppended(0, 0L))
+        assertNull(star.onAppended(1, 30_000L))
+        // The line it fell in may never have been decoded: a mark at the tap
+        // for the transcript made from the audio.
+        assertNull(star.lineAtFinish(liveIncomplete = true, hasAudio = true))
+        assertEquals(40_000L, star.markAtFinish(hasAudio = true))
+        // Complete, or no audio to transcribe: the line it fell in.
+        assertEquals(1, star.lineAtFinish(liveIncomplete = false, hasAudio = true))
+        assertEquals(1, star.lineAtFinish(liveIncomplete = true, hasAudio = false))
+        // No audio and no line: nothing to keep.
+        assertNull(QueuedHighlight(tapMs = 40_000L).markAtFinish(hasAudio = false))
+        // Untimed: still the line it waited for.
+        assertNull(QueuedHighlight(tapMs = null).lineAtFinish(liveIncomplete = true, hasAudio = true))
+        assertNull(QueuedHighlight(tapMs = null).markAtFinish(hasAudio = true))
+    }
+
+    @Test
+    fun batchWorkWaitsUntilEveryLiveModelIsFreed() {
+        val count = AtomicInteger(0)
+        val first = LiveModelSlot(count)
+        val second = LiveModelSlot(count)
+        first.take()
+        first.take()
+        second.take()
+        assertEquals(2, count.get())
+        assertTrue(first.isHeld)
+        // Given back once, whichever of the release, a failed load or a
+        // rejected one comes first.
+        assertTrue(first.giveBack())
+        assertFalse(first.giveBack())
+        assertFalse(first.isHeld)
+        assertEquals(1, count.get())
+        assertTrue(second.giveBack())
+        assertEquals(0, count.get())
+        // Never taken: nothing to give back.
+        assertFalse(LiveModelSlot(count).giveBack())
+        assertEquals(0, count.get())
+    }
+
+    @Test
+    fun theRecoveryMarkerSaysWhetherTheLiveWordsStopShort() {
+        assertEquals("abc", ActiveRecording("abc").format())
+        assertEquals(ActiveRecording("abc", liveShort = true), ActiveRecording.parse(ActiveRecording("abc", true).format()))
+        assertEquals(ActiveRecording("abc", liveShort = false), ActiveRecording.parse(ActiveRecording("abc", false).format()))
+        // A marker from before the flag: the id alone, maybe with a newline.
+        assertEquals(ActiveRecording("abc"), ActiveRecording.parse("abc\n"))
+        assertNull(ActiveRecording.parse(""))
+        assertNull(ActiveRecording.parse("  \nlive-short"))
+    }
+
+    @Test
+    fun aRecoveredRecordingIsTranscribedWhenItHasNoLinesOrTheyStopShort() {
+        assertTrue(RecordingService.recoveryWantsTranscript(hasLines = false, liveShort = false))
+        assertTrue(RecordingService.recoveryWantsTranscript(hasLines = true, liveShort = true))
+        assertFalse(RecordingService.recoveryWantsTranscript(hasLines = true, liveShort = false))
     }
 }

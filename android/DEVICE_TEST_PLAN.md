@@ -220,8 +220,8 @@ Play buyers start from a clean install, so P0 runs on one.
   … model" notification, the transcription model first (on Android 16 a
   Live Update with a percentage chip). **Video** (dataSync): record the
   shade during the download.
-  Covers: SETUP 6 (full), LU 8 (partial: first-run download), PRIV 4
-  (partial: these two downloads).
+  Covers: SETUP 6 (partial: no cancel from the notification), LU 8
+  (partial: first-run download), PRIV 4 (partial: these two downloads).
 - [ ] **S2.4 Gate: wait for both models.** Before any force-stop and before
   P0-1, wait for both "… model ready" notifications (or check Settings →
   Transcription and Summaries). ModelDownloadService does not restart
@@ -281,7 +281,7 @@ off` (tag `meetily_vad`).
   **Expect:** the home screen in a second or two, no crash: "Tap to record —
   meetings stay on this phone" under the orb, **Import a recording**, a
   search bar reading "Search meetings…", and "No meetings yet".
-  Covers: NATLIB 8 (full).
+  Covers: NATLIB 8 (partial: cold start only, this phone only).
 
 ### P0-2 Record (6 min)
 
@@ -352,8 +352,9 @@ off` (tag `meetily_vad`).
   that finishes." (3.22.0-beta1). Note whether the lines appear without
   leaving the page. The notification's "Checking" and the card's
   "Importing" wording for the same pass is known and minor.
-  Covers: MPROC 1 (full), NATLIB 1 (full), NATLIB 2 (full), NATLIB 5
-  (full), CONT 14 (partial: marks land on lines), VAD 2 (partial: the
+  Covers: MPROC 1 (full), NATLIB 1 (partial: this phone only), NATLIB 2
+  (partial: this phone only), NATLIB 5 (partial: Whisper only, this phone
+  only), CONT 14 (partial: marks land on lines), VAD 2 (partial: the
   after-meeting transcript; the live part is P1-10).
 ### P0-4 Summarise and ask (5 min)
 
@@ -605,9 +606,11 @@ transcription or summary is running.
   meeting without audio.", "Not added, because there is no sound to
   transcribe: silent_video.mp4." and "Not added, because it is not audio,
   video or a WebVTT or SRT transcript: notes.txt." Tap **OK**. Home shows
-  "File 1 of 2 · …" once "talk video" is done. (No model sheet appears
-  with only an English-only model; with a multilingual one, "Transcribe 2
-  recordings with which model?".)
+  "File n of 3 · …" once "talk video" is done: the silent video still
+  counts in the batch, so "team sync long" can be file 1 or 2 by the
+  picker's order. (No model sheet appears with only an English-only
+  model; with a multilingual one, "Transcribe 3 recordings with which
+  model?", counting the silent video too.)
   Covers: IMP 5 (partial: no 21-file cap, .srt or PDF), IMP 6 (partial:
   Back, no Cancel), IMP 10 (partial), RF 24 (partial: behind an import,
   not a recording's transcript).
@@ -623,18 +626,6 @@ transcription or summary is running.
   current behaviour (home search does not fold accents): note it as an
   enhancement at most.
   Covers: IMP 7 (full), RETIME 8 (partial: caption part), FIND 5 (full).
-- [ ] **P1-1d (+)** Share `short_call.mp3`, `stereo_44k.wav` and
-  `talk_video.mp4` together from Files (a new batch of 3). When file 1
-  runs, tap **Cancel all** in its notification. Share the three again,
-  open the import progress screen and tap **Cancel**.
-  **Expect:** after Cancel all: "Import stopped" with "2 more files of
-  this batch were not imported. Share or pick them again to import them."
-  and nothing more starts. The progress screen's Cancel asks "Stop the
-  other files too?" ("File 1 of 3 is being transcribed. The files after
-  it have not started yet.") with **Stop all** and **Only this file**; Only
-  this file lets file 2 start. Delete the meetings these made (or keep
-  them out of W1's count).
-  Covers: RF 22 (partial: not while files are being added).
 
 ### P1-2 Continue an interrupted transcription (4 min, Batch 5)
 
@@ -849,6 +840,23 @@ First let every import and summary finish (no progress card on home).
   **Delete model**; Storage lists "Word re-timing model"; **Delete unused
   models** does not offer it.
   Covers: RETIME 6 (full).
+- [ ] **P1-6i (+)** Batch cancel. It needs an empty import queue, so it
+  comes here: earlier, "team sync long" and "stereo 44k" from P1-1b were
+  still queued, and Cancel all on the running one's notification stopped
+  "team sync long" and removed "stereo 44k", which P1-4d/e need. Wait
+  until home shows no progress card, then share `short_call.mp3`,
+  `stereo_44k.wav` and `talk_video.mp4` together from Files (a new batch
+  of 3). When file 1 runs ("File 1 of 3 · …"), tap **Cancel all** in its
+  notification. Share the three again, open the import progress screen
+  and tap **Cancel**.
+  **Expect:** after Cancel all: "Import stopped" with "2 more files of
+  this batch were not imported. Share or pick them again to import them."
+  and nothing more starts. The progress screen's Cancel asks "Stop the
+  other files too?" ("File 1 of 3 is being transcribed. The files after
+  it have not started yet.") with **Stop all** and **Only this file**; Only
+  this file lets file 2 start. Delete the meetings these made, the second
+  "stereo 44k" and "talk video" included (or keep them out of W1's count).
+  Covers: RF 22 (partial: not while files are being added).
 
 ### P1-7 Live Updates (2 min, Batch 6, Android 16 QPR1 or later)
 
@@ -926,7 +934,8 @@ review are in extra A.
   lines; 3.22.0-beta1: no manual accuracy check needed), and the Mark
   moment star lands on the line at that moment. exit-info lists the crash.
   Covers: CONT 14 (full, with P0-3a), EXIT 4 (full, with P1-9b), RF 15
-  (full).
+  (partial: audio-only; not a live recording whose live words stopped
+  short).
 
 ### P1-10 (+) Live transcription (2 min, Batches 3 and 5, the review fixes)
 
@@ -946,10 +955,9 @@ review are in extra A.
   Mark lands on the line with "mark here" (or the one just before it),
   not on the newest line when you tapped (3.22.0-beta1). Turn
   "Transcribe live" off again and save.
-  Covers: NATLIB 3 (full), VAD 2 (full, with P0-3a), RF 16 (partial: no
-  failing model, and no Finish during the load with "Keep meeting audio"
-  off), RF 49 (full; only when the load lasted long enough to
-  tap).
+  Covers: NATLIB 3 (partial: this phone only), VAD 2 (full, with P0-3a),
+  RF 16 (partial: no failing model, and no Finish during the load), RF 49
+  (full; only when the load lasted long enough to tap).
 
 ### P1-11 Short recordings and "Keep meeting audio" off (3 min, the review fixes)
 
@@ -1289,8 +1297,9 @@ The APK is arm64 only: a 32-bit-only phone refuses it with
   ClearVoiceService, PassageService and AlignService as dataSync (`0x1`).
   Import `team_sync_long.m4a` and turn the screen off until it finishes;
   then import it again and Cancel half-way: the partial transcript is
-  kept. Covers: MPROC 2 (full), CV 11 (full, with P2-1), PASS 21 (full,
-  with P2-1), RETIME 15 (partial).
+  kept. Covers: MPROC 2 (full), CV 11 (partial: service type only, no
+  limit run), PASS 21 (partial: service type only, no limit run), RETIME
+  15 (partial).
 - [ ] A lock screen that hides contents: Mark moment works without
   unlocking, and the card shows only the generic line, Mark moment and
   "Marked at …". Covers: MARK 2 (full), LU 10 (full).
@@ -1458,9 +1467,10 @@ codes are the "Pre-release review fixes (3.22.0-beta1)" group in §11.
   (no need to wait for the first two summaries to finish).
   Again with the phone's language set to Portuguese or French, where the
   date has words ("Meeting 25 de nov. de 2026 10:30"), then set it back
-  (RF 33, full). "Summarise after the meeting"
-  When the meeting ends, battery under 40 % off the charger: the summary
-  waits for the charger (RF 32, full).
+  (RF 33, full).
+- [ ] "Summarise after the meeting" set to When the meeting ends, battery
+  under 40 % off the charger: the summary waits for the charger (RF 32,
+  full).
 - [ ] Ask your library with the on-device model deleted: "Couldn't get a
   written answer (…). Showing the matching moments instead:"; rotate while
   an answer is being written: it arrives (RF 34, partial).
@@ -1546,8 +1556,10 @@ number is the position of the checkbox in that group. **PD** = §11 →
 | ENG | Engines, prompts and KleidiAI (3.17.0-beta1) |
 | VAD | Speech detection (3.17.0-beta1) |
 | CTX | Longer window for small models and the leaner Gemma cache (3.17.0-beta1) |
+| OPTIN | New opt-in models (3.17.0-beta1) |
 | OPEN | Opening a meeting off the main thread (3.18.0-beta1) |
 | STOR | Storage, Remove audio, automatic clean-up and multi-select (3.18.0-beta1) |
+| LANG | Meeting language (3.18.0-beta1) |
 | FIND | Search that lands on the moment, and Find in meeting (3.18.0-beta1) |
 | REPL | Find & replace (3.18.0-beta1) |
 | SHERPA | sherpa-onnx v2.0.3 and speaker models (3.19.0-beta1) |
@@ -1608,8 +1620,14 @@ On purpose, and why; the §11 items stay open for another pass.
    LU 6 batch segments, TRASH 2/4/8/11, RETIME 3/7/10/11, the
    RESTRICT_LOCAL_NETWORK reboot checks (A17 1, 2), anything needing a
    targetSdk 37 build (A17 4), a microphone unplugged mid-recording (RF
-   17), quick starring during an import (RF 7) and ticks during Enhance
-   notes (RF 35).
+   17), a live recording killed after live fell behind (RF 15 tail: it
+   needs a phone too slow for the model), Finish during a live model's
+   load and the transcript that waits for the model to be freed (RF 16
+   tail), quick starring during an import (RF 7), ticks during Enhance
+   notes (RF 35), Clear voice and Remove a passage under the shortened
+   daily limit (CV 11, PASS 21 tails: P2-2 runs it on an import, a check
+   and Re-time only) and cancelling the first-run summary download from
+   its notification (SETUP 6 tail).
 7. Outside the risk list: calendar nudges and pre-fill, the pre-meeting
    brief, the digest, Ask your library beyond extra E, the widget,
    shortcuts and home search by tags and attachments (HSEARCH beyond the

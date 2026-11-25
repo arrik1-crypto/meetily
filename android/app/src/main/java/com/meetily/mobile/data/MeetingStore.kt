@@ -491,9 +491,10 @@ class MeetingStore(context: Context) {
 
     private val activeMarker = File(dir, ".active")
 
-    fun markActive(id: String) {
+    /** [liveShort]: see ActiveRecording. */
+    fun markActive(id: String, liveShort: Boolean = false) {
         try {
-            activeMarker.writeText(id)
+            activeMarker.writeText(ActiveRecording(id, liveShort).format())
         } catch (_: Exception) {
         }
     }
@@ -502,14 +503,24 @@ class MeetingStore(context: Context) {
         activeMarker.delete()
     }
 
-    fun activeId(): String? {
+    /**
+     * [clearActive] while the marker still names [id] only: a session
+     * started since has written its own.
+     */
+    fun clearActive(id: String) {
+        if (activeId() == id) clearActive()
+    }
+
+    fun activeId(): String? = activeRecording()?.id
+
+    fun activeRecording(): ActiveRecording? {
         if (!activeMarker.exists()) return null
-        val id = try {
-            activeMarker.readText().trim()
+        val text = try {
+            activeMarker.readText()
         } catch (_: Exception) {
             ""
         }
-        return id.ifBlank { null }
+        return ActiveRecording.parse(text)
     }
 
     /** What saveTranscription last wrote, so the next batch can skip the reload. */

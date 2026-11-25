@@ -47,4 +47,43 @@ class QueuedHighlight(private val tapMs: Long?, newestLine: Int = -1) {
 
     /** Where in the recording it was tapped, to keep as a mark when no line takes it. */
     val tapOffsetMs: Long? get() = tapMs
+
+    /**
+     * The line to star as the session finishes, or null to keep a mark
+     * instead ([markAtFinish]). When the live words stop short of the saved
+     * audio ([liveIncomplete]) a timed star is always a mark: the line it
+     * fell in may never have been decoded, and the last one that was can
+     * end long before the tap, while the audio is transcribed in full
+     * after the meeting.
+     */
+    fun lineAtFinish(liveIncomplete: Boolean, hasAudio: Boolean): Int? =
+        if (liveIncomplete && hasAudio && tapMs != null) null else atEnd()
+
+    /**
+     * The mark kept when [lineAtFinish] gave no line: the tap, which the
+     * transcript made from the audio stars (HighlightMarks). Null with no
+     * audio to make it from, or no time to place it.
+     */
+    fun markAtFinish(hasAudio: Boolean): Long? = if (hasAudio) tapMs else null
+
+    companion object {
+        /**
+         * The star a tap queues during a live session with [lines] lines, or
+         * null when it toggles the newest one. It waits for the line spoken
+         * at the tap when a partial line is on screen ([partialShown]: that
+         * one, the next to arrive), and timed when there is no line yet or
+         * the decoding is behind ([decodingBehind]): the lines still to come
+         * are from earlier on, and the newest so far can be from long before
+         * the tap, so starring it marked the start of the recording rather
+         * than the moment tapped. [tapMs] is the session clock at the tap.
+         */
+        fun forTap(partialShown: Boolean, lines: Int, decodingBehind: Boolean, tapMs: Long): QueuedHighlight? {
+            val behind = lines > 0 && decodingBehind
+            return when {
+                lines == 0 || behind -> QueuedHighlight(tapMs, lines - 1)
+                partialShown -> QueuedHighlight(null)
+                else -> null
+            }
+        }
+    }
 }

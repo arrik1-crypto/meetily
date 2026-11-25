@@ -13,7 +13,7 @@ snapshot: PLAY_RELEASE.md remains the source of truth.
 checkboxes, so every open item is in section 11. Some prose steps in
 sections 1 to 10 also block the first upload; they are added here and
 marked *prose*. Items are named by their PLAY_RELEASE.md section and first
-words, not by line number: the file grew by about 400 lines in this
+words, not by line number: the file grew by about 600 lines in this
 release, and line numbers move with every edit.
 
 **How each item was checked.** Against:

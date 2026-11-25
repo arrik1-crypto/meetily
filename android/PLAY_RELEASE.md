@@ -3357,7 +3357,13 @@ Recording, reminders and nudges:
   Finish no stale recording screen is left behind in Back.
 - [ ] A 5-second audio-only recording gets its transcript queued and made.
 - [ ] Force-stop Recap mid audio-only recording and relaunch: the recovered
-  meeting is transcribed without a manual accuracy check.
+  meeting is transcribed without a manual accuracy check. So is a live
+  one, with "Keep meeting audio" on, whose live words had stopped short:
+  a large model on a mid-range phone, killed once the status reads
+  "Recording audio" (live fell behind and stopped) or while lines trail
+  the speech by more than 30 s. Its audio is transcribed in full,
+  replacing the live lines, as at Finish, and marks tapped after live
+  stopped land on their lines.
 - [ ] Live transcription with a large model (Whisper Turbo or Parakeet):
   speak from the first second; the opening words are in the transcript
   and in the audio. Then make the live model fail to load (debug build:
@@ -3370,7 +3376,10 @@ Recording, reminders and nudges:
   status still reads "Loading the model…": the meeting is not saved
   empty. Its words come from the live model, or, when the load is still
   running 15 s after Finish, from its audio, transcribed after the
-  meeting ends.
+  meeting ends. That transcription starts only once the live model has
+  been freed, never beside the load (the "Finishing transcription…"
+  notification stays until then, a minute at most), with "Keep meeting
+  audio" on as well.
 - [ ] Unplug a USB or wired microphone chosen as the input mid-recording:
   if Android ends the capture (some phones switch to the built-in
   microphone instead), the notification reads "Recording stopped — tap
