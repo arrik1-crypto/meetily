@@ -72,6 +72,33 @@ class SummarizerAndExportTest {
     }
 
     @Test
+    fun exporter_fileName_keepsLettersOfAnyScript() {
+        fun name(title: String) =
+            MeetingExporter.suggestedFileName(Meeting(id = "m", title = title, createdAtMs = 1L), "md")
+        assertEquals("Réunion-déquipe.md", name("Réunion d'équipe"))
+        assertEquals("Совещание-2.md", name("Совещание №2"))
+        assertEquals("会议.md", name("会议"))
+        // Vowel signs are marks, not letters; they stay with their letters.
+        assertEquals("बैठक.md", name("बैठक"))
+        // A decomposed accent stays on its letter.
+        assertEquals("Café.md", name("Café"))
+        assertEquals("meeting.md", name("🎉🎉"))
+    }
+
+    @Test
+    fun exporter_fileName_cutNeverSplitsACharacter() {
+        // A letter outside the BMP (two UTF-16 units) straddling the 48 cut.
+        val title = "a".repeat(47) + "𠀀" + "b"
+        val name = MeetingExporter.suggestedFileName(Meeting(id = "m", title = title, createdAtMs = 1L), "md")
+        assertEquals("a".repeat(47) + ".md", name)
+        val whole = "a".repeat(46) + "𠀀" + "b"
+        assertEquals(
+            "a".repeat(46) + "𠀀.md",
+            MeetingExporter.suggestedFileName(Meeting(id = "m", title = whole, createdAtMs = 1L), "md")
+        )
+    }
+
+    @Test
     fun exporter_markdown_includesSections() {
         val meeting = Meeting(
             id = "m",

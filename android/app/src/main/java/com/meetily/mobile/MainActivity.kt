@@ -21,6 +21,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.meetily.mobile.data.AppSettings
 import com.meetily.mobile.data.AudioStore
+import com.meetily.mobile.data.FirstRunSetup
 import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 import com.meetily.mobile.search.HomeSearch
@@ -507,7 +508,11 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         appliedAccent = ThemeManager.apply(this)
-        if (!AppSettings(this).onboardingDone) {
+        if (FirstRunSetup.opensWelcome(
+                restored = savedInstanceState != null,
+                onboardingDone = AppSettings(this).onboardingDone
+            )
+        ) {
             startActivity(Intent(this, OnboardingActivity::class.java))
         }
         setContentView(R.layout.activity_main)
@@ -946,10 +951,20 @@ class MainActivity : AppCompatActivity() {
     /**
      * Serialises library loads, so a burst of refreshes cannot apply out of
      * order and show an older library over a newer one.
+     *
+     * One thread at most, in submission order, as newSingleThreadExecutor
+     * gave; but its thread ends after a short idle spell, so a screen that
+     * is gone (each rotation or theme change makes a new one) does not keep
+     * a parked thread for the rest of the process. Not shut down in
+     * onDestroy: a late refresh() or star write would then be refused.
      */
-    private val libraryLoader = java.util.concurrent.Executors.newSingleThreadExecutor {
-        Thread(it, "library-load")
-    }
+    private val libraryLoader = java.util.concurrent.ThreadPoolExecutor(
+        1,
+        1,
+        LIBRARY_LOADER_IDLE_S,
+        java.util.concurrent.TimeUnit.SECONDS,
+        java.util.concurrent.LinkedBlockingQueue()
+    ) { Thread(it, "library-load") }.apply { allowCoreThreadTimeOut(true) }
 
     private fun refresh() {
         // Listing reads and JSON-parses EVERY meeting file, every segment
@@ -1464,6 +1479,9 @@ class MainActivity : AppCompatActivity() {
 
         /** Quiet time after the last keystroke before the library is searched. */
         private const val SEARCH_DEBOUNCE_MS = 150L
+
+        /** Idle seconds after which the library-load thread ends (a new one starts on demand). */
+        private const val LIBRARY_LOADER_IDLE_S = 30L
 
         /**
          * Works out the interrupted-work prompt (offerInterruptedWork) one

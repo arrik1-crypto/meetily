@@ -1582,7 +1582,7 @@ class SettingsActivity : AppCompatActivity() {
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure() // lists people's names
     }
 
     private fun confirmDeleteVoice(name: String) {
@@ -1593,7 +1593,7 @@ class SettingsActivity : AppCompatActivity() {
                 updateVoicesStatus()
             }
             .setNegativeButton(android.R.string.cancel, null)
-            .show()
+            .showSecure() // names the person
     }
 
     private fun startEnrollment() {
