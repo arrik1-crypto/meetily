@@ -41,6 +41,38 @@ class NemoWordsTest {
     }
 
     @Test
+    fun loneBoundaryKeepsTheSpaceBeforeAnUnmarkedPiece() {
+        // Parakeet's vocabulary has no "▁2": a number after a space is a
+        // lone boundary token, which sherpa-onnx hands over as " ", then
+        // bare digits.
+        val (text, words) = NemoWords.assemble(
+            listOf("▁we", "▁shipped", "▁in", " ", "2", "0", "2", "4"),
+            floatArrayOf(0.0f, 0.3f, 0.8f, 1.0f, 1.1f, 1.2f, 1.3f, 1.4f)
+        )
+        assertEquals("we shipped in 2024", text)
+        assertEquals(listOf("we", "shipped", "in", "2024"), words.map { it.text })
+        // The word starts at its first piece with text.
+        assertEquals(1_100L, words[3].ms)
+
+        val (text2, words2) = NemoWords.assemble(
+            listOf("▁use", "▁", "Z", "oom", "▁now"),
+            floatArrayOf(0.0f, 0.4f, 0.5f, 0.6f, 1.0f)
+        )
+        assertEquals("use Zoom now", text2)
+        assertEquals(listOf("use", "Zoom", "now"), words2.map { it.text })
+    }
+
+    @Test
+    fun loneBoundaryAtTheEndAddsNothing() {
+        val (text, words) = NemoWords.assemble(
+            listOf("▁ok", "▁"),
+            floatArrayOf(0.0f, 0.5f)
+        )
+        assertEquals("ok", text)
+        assertEquals(1, words.size)
+    }
+
+    @Test
     fun firstTokenWithoutMarkStillStartsAWord() {
         val (text, words) = NemoWords.assemble(
             listOf("hey", "▁there"),

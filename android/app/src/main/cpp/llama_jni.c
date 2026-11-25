@@ -728,7 +728,9 @@ Java_com_meetily_mobile_llm_LlamaBridge_generateBytes(
     out[0] = '\0';
     char piece[256];
 
-    for (jint g = 0; g < max_tokens; g++) {
+    /* Outside the loop: the empty-reply message below reports it. */
+    jint g = 0;
+    for (; g < max_tokens; g++) {
         if (g_abort) {
             /*
              * The partial reply is discarded rather than returned. Half a
@@ -797,7 +799,7 @@ Java_com_meetily_mobile_llm_LlamaBridge_generateBytes(
     out[out_len] = '\0';
 
     if (out_len == 0 && g_last_error[0] == '\0') {
-        FAIL("the model produced %d tokens, none of which were text", max_tokens);
+        FAIL("the model produced %d tokens, none of which were text", g);
     }
     /*
      * Bytes, decoded by Kotlin as standard UTF-8. NewStringUTF wants

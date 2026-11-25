@@ -153,6 +153,22 @@ object MeetingLanguage {
     fun whisperRecorded(finalArgument: String?): String? = normalize(finalArgument)
 
     /**
+     * The language to pin after a Whisper call that was asked to detect it,
+     * or null to keep detecting. [detected] reads whisper_full_lang_id and
+     * is only asked when [callSucceeded].
+     *
+     * whisper.cpp starts each context at language 0, which is English, and
+     * stores the detected language only once detection has finished. A call
+     * stopped or failed before that (a Stop or an unplug during the first
+     * batch's detection encode) would read back "en" whatever was spoken,
+     * and pinning it decoded the rest of the meeting as English.
+     */
+    fun detectedPin(callSucceeded: Boolean, detected: () -> String?): String? {
+        if (!callSucceeded) return null
+        return detected()?.takeIf { it.isNotBlank() && it != AUTO }
+    }
+
+    /**
      * The language the transcript TEXT is in. Whisper's translate task turns
      * any speech into English, so a translated meeting reads as English
      * whatever was spoken; otherwise it is the spoken language, if known.

@@ -676,9 +676,9 @@ class AudioFileImporter(
             // once and pin the answer for the rest of the file. Whisper is
             // also better placed to judge from the first real speech than
             // from every later batch of spliced, silence-stripped audio.
+            // Only from a call that finished: see MeetingLanguage.detectedPin.
             if (whisperLanguage == MeetingLanguage.AUTO) {
-                WhisperBridge.lastLanguage(contextPtr)
-                    ?.takeIf { it.isNotBlank() && it != MeetingLanguage.AUTO }
+                MeetingLanguage.detectedPin(raw != null) { WhisperBridge.lastLanguage(contextPtr) }
                     ?.let {
                         whisperLanguage = it
                         // Saved with the words from here on.

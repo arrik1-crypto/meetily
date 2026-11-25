@@ -484,10 +484,12 @@ class WhisperRecorder(
                             // Auto-detect costs a complete extra encoder pass
                             // on EVERY call, and live capture has no batching
                             // to spread it over — so pay it once on the first
-                            // chunk and pin the answer for the rest.
+                            // chunk and pin the answer for the rest. Only
+                            // from a call that finished: a failed one reads
+                            // back English; see MeetingLanguage.detectedPin.
                             if (language == "auto") {
-                                WhisperBridge.lastLanguage(ptr)
-                                    ?.takeIf { it.isNotBlank() && it != "auto" }
+                                com.meetily.mobile.data.MeetingLanguage
+                                    .detectedPin(raw != null) { WhisperBridge.lastLanguage(ptr) }
                                     ?.let { language = it }
                             }
                             WhisperBridge.parseWords(raw)
