@@ -41,6 +41,14 @@ class MainActivity : AppCompatActivity() {
     private var searchBlobs: Map<String, HomeSearch.Indexed> = emptyMap()
 
     /**
+     * The recurring series in [allMeetings], untitled recordings left out,
+     * built with the library load: telling an untitled recording from a
+     * titled one formats and parses dates, too much for the main thread on
+     * every chip tap across a whole library.
+     */
+    private var librarySeries: List<MeetingGroups.Series> = emptyList()
+
+    /**
      * Where each listed meeting matched the search shown, and that search as
      * typed (trimmed, not lowercased), for Find in meeting to start from.
      */
@@ -1008,11 +1016,18 @@ class MainActivity : AppCompatActivity() {
             } catch (_: Throwable) {
                 emptyMap()
             }
+            // Untitled recordings are not a series (MeetingGroups.Untitled).
+            val series = try {
+                MeetingGroups.series(loaded, untitled = MeetingGroups.Untitled.of(this))
+            } catch (_: Throwable) {
+                emptyList()
+            }
             runOnUiThread {
                 if (isFinishing || isDestroyed) return@runOnUiThread
                 allMeetings = loaded
                 homeSelection.onLibraryLoaded()
                 searchBlobs = blobs
+                librarySeries = series
                 searchInput.visibility = if (allMeetings.isEmpty()) View.GONE else View.VISIBLE
                 rebuildFilterChips()
                 applyFilter()
@@ -1026,10 +1041,7 @@ class MainActivity : AppCompatActivity() {
             .groupBy { it.lowercase() }
             .map { (_, variants) -> variants.first() }
             .sortedBy { it.lowercase() }
-        // Untitled recordings are not a series (MeetingGroups.Untitled).
-        val series = MeetingGroups.series(
-            allMeetings, untitled = MeetingGroups.Untitled.of(this)
-        )
+        val series = librarySeries
         // Drop a stale selection (tag removed, series dissolved).
         if (selectedTag != null && tags.none { it.equals(selectedTag, true) }) {
             selectedTag = null
@@ -1144,11 +1156,9 @@ class MainActivity : AppCompatActivity() {
         selectedSeriesKey?.let { key ->
             // As the chip counted them: an untitled recording whose key
             // happens to match is not one of the series.
-            val untitled = MeetingGroups.Untitled.of(this)
-            filtered = filtered.filter {
-                MeetingGroups.normalizeTitle(it.title) == key &&
-                    !untitled.isUntitled(it.title, it.createdAtMs)
-            }
+            val members = librarySeries.firstOrNull { it.key == key }
+                ?.meetings?.mapTo(HashSet()) { it.id }.orEmpty()
+            filtered = filtered.filter { it.id in members }
         }
         if (query.isBlank()) {
             showFiltered(filtered)

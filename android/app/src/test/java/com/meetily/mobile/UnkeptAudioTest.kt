@@ -1,5 +1,8 @@
 package com.meetily.mobile
 
+import com.meetily.mobile.data.Meeting
+import com.meetily.mobile.data.TranscriptSegment
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -11,17 +14,21 @@ import org.junit.Test
  */
 class UnkeptAudioTest {
 
-    @Test
-    fun aMarkedRecordingGoesOnceItsTranscriptIsComplete() {
-        assertTrue(
-            UnkeptAudio.removesNow(marked = true, keepAudio = false, hasWords = true, unfinished = false, hasAudio = true)
-        )
+    private fun transcribed(
+        words: Boolean = true,
+        resumeMs: Long? = null,
+        audio: String? = "rec.aac"
+    ) = Meeting(id = "m", title = "Meeting", createdAtMs = 0L).apply {
+        if (words) segments.add(TranscriptSegment(timestampMs = 0L, text = "hello", audioMs = 0L))
+        transcriptResumeMs = resumeMs
+        audioFile = audio
     }
 
     @Test
-    fun aRecordingTheUserKeepsStays() {
-        assertFalse(
-            UnkeptAudio.removesNow(marked = false, keepAudio = false, hasWords = true, unfinished = false, hasAudio = true)
+    fun aMarkedRecordingGoesOnceItsTranscriptIsComplete() {
+        assertEquals(
+            UnkeptAudio.Outcome.REMOVE,
+            UnkeptAudio.decide(keepAudioNow = false, meeting = transcribed())
         )
     }
 
@@ -29,52 +36,112 @@ class UnkeptAudioTest {
     fun keepMeetingAudioTurnedBackOnBeforeTheTranscriptKeepsTheRecording() {
         // Marked when it was recorded with the switch off, transcribed hours
         // later (on the charger) after the user turned it back on: the
-        // recording is not deleted against the switch as it now stands.
-        assertFalse(
-            UnkeptAudio.removesNow(marked = true, keepAudio = true, hasWords = true, unfinished = false, hasAudio = true)
+        // recording is kept for good and no longer marked, even though it
+        // would otherwise go now.
+        assertEquals(
+            UnkeptAudio.Outcome.KEEP,
+            UnkeptAudio.decide(keepAudioNow = true, meeting = transcribed())
+        )
+        // Decided from the switch alone, before the meeting is read.
+        assertEquals(
+            UnkeptAudio.Outcome.KEEP,
+            UnkeptAudio.decide(keepAudioNow = true, meeting = null)
         )
     }
 
     @Test
     fun aRecordingWithoutWordsStays() {
         // A pass that heard nothing: the recording is all the meeting has.
-        assertFalse(
-            UnkeptAudio.removesNow(marked = true, keepAudio = false, hasWords = false, unfinished = false, hasAudio = true)
+        assertEquals(
+            UnkeptAudio.Outcome.LEAVE,
+            UnkeptAudio.decide(keepAudioNow = false, meeting = transcribed(words = false))
         )
     }
 
     @Test
     fun anUnfinishedTranscriptKeepsItsRecording() {
         // Without the audio the rest could never be transcribed.
-        assertFalse(
-            UnkeptAudio.removesNow(marked = true, keepAudio = false, hasWords = true, unfinished = true, hasAudio = true)
+        assertEquals(
+            UnkeptAudio.Outcome.LEAVE,
+            UnkeptAudio.decide(keepAudioNow = false, meeting = transcribed(resumeMs = 60_000L))
         )
     }
 
     @Test
     fun nothingToRemoveIsNotARemoval() {
-        assertFalse(
-            UnkeptAudio.removesNow(marked = true, keepAudio = false, hasWords = true, unfinished = false, hasAudio = false)
+        assertEquals(
+            UnkeptAudio.Outcome.LEAVE,
+            UnkeptAudio.decide(keepAudioNow = false, meeting = transcribed(audio = null))
+        )
+        // Deleted while its transcript ran.
+        assertEquals(
+            UnkeptAudio.Outcome.LEAVE,
+            UnkeptAudio.decide(keepAudioNow = false, meeting = null)
         )
     }
 
     @Test
-    fun aRecordingWithNoWordsGetsItsFirstTranscriptQueued() {
+    fun aFirstTranscriptIsQueuedOnlyWithAudioAndAModel() {
         // At Finish, on swipe-away and for a recording an interrupted
-        // session left behind.
-        assertTrue(
-            RecordingService.wantsFirstTranscript(hasWords = false, audioExists = true, modelReady = true)
+        // session left behind: with no live words, or live words that stop
+        // short of the meeting.
+        assertTrue(RecordingService.wantsFirstTranscript(audioExists = true, modelReady = true))
+        // No audio (or an empty file), or no model to run: nothing is queued.
+        assertFalse(RecordingService.wantsFirstTranscript(audioExists = false, modelReady = true))
+        assertFalse(RecordingService.wantsFirstTranscript(audioExists = true, modelReady = false))
+    }
+
+    @Test
+    fun theWorkAfterAMeetingWaitsForItsAudioFileToClose() {
+        // teardownEngines: the work looks for audio to transcribe, and the
+        // writer has not put the first 64 KB on the disk until it closes.
+        val order = mutableListOf<String>()
+        var closing: (() -> Unit)? = null
+        val posted = mutableListOf<() -> Unit>()
+        RecordingService.closeAudioThen(
+            close = { order += "file closed" },
+            afterClosed = { order += "work" },
+            post = { posted += it },
+            background = { closing = it }
         )
-        // Words already there, no audio (or an empty file), or no model to
-        // run: nothing is queued.
-        assertFalse(
-            RecordingService.wantsFirstTranscript(hasWords = true, audioExists = true, modelReady = true)
+        // Nothing is handed to the main thread while the file is open.
+        assertTrue(posted.isEmpty())
+        assertTrue(order.isEmpty())
+        closing!!.invoke()
+        assertEquals(listOf("file closed"), order)
+        posted.single().invoke()
+        assertEquals(listOf("file closed", "work"), order)
+    }
+
+    @Test
+    fun theWorkStillRunsWhenClosingTheFileFails() {
+        val order = mutableListOf<String>()
+        val posted = mutableListOf<() -> Unit>()
+        try {
+            RecordingService.closeAudioThen(
+                close = { throw IllegalStateException("encoder") },
+                afterClosed = { order += "work" },
+                post = { posted += it },
+                background = { it() }
+            )
+        } catch (_: IllegalStateException) {
+            // On the device this ends the closing thread, not the app.
+        }
+        posted.single().invoke()
+        assertEquals(listOf("work"), order)
+    }
+
+    @Test
+    fun withNoAudioFileTheWorkIsPostedAtOnce() {
+        val posted = mutableListOf<() -> Unit>()
+        var spawned = false
+        RecordingService.closeAudioThen(
+            close = null,
+            afterClosed = {},
+            post = { posted += it },
+            background = { spawned = true }
         )
-        assertFalse(
-            RecordingService.wantsFirstTranscript(hasWords = false, audioExists = false, modelReady = true)
-        )
-        assertFalse(
-            RecordingService.wantsFirstTranscript(hasWords = false, audioExists = true, modelReady = false)
-        )
+        assertEquals(1, posted.size)
+        assertFalse(spawned)
     }
 }

@@ -2113,9 +2113,13 @@ Work through it before the first targetSdk 36 upload to any track.
   "Hide content from screenshots" off, the Recents card and the snapshot
   Android shows while reopening Recap show the last screen, meeting text
   included, until the lock screen covers it; turning on Hide content
-  blanks them. 3.22.0-beta1 removed the lock screen's slide-in animation,
-  so the lock covers the app from its first frame, but did not change the
-  preview. Should app lock also blank the Recents preview on its own
+  blanks them. With Hide content off or on, the screen being reopened
+  itself can show for a moment first: the lock screen is started as that
+  screen starts (AppLock), and Hide content (FLAG_SECURE) keeps a window
+  out of screenshots and previews, not off the display. 3.22.0-beta1
+  removed the lock screen's slide-in animation, so the lock covers the
+  app from its own first frame, but changed neither of these. Should app
+  lock also blank the Recents preview on its own
   (`setRecentsScreenshotEnabled(false)` on Android 13+, or FLAG_SECURE
   while app lock is on)? The README's security line now says that app
   lock alone does not blank it.
@@ -3328,11 +3332,11 @@ App lock and the home screen:
 - [ ] With app lock on and Hide content off, then on, return after more than
   30 s from Recents, from a notification (Summary ready) and from the
   launcher icon: the lock screen appears without a slide-in animation
-  each time. With Hide content on, no meeting text is readable under it
-  before it appears. With Hide content off, Recap's last screen, meeting
-  text included, may show for a moment before the lock covers it; that
-  is the Recents preview decision under Product decisions, not a
-  failure.
+  each time. With Hide content on, the Recents card and the picture
+  Android shows while reopening Recap are blank. With it off or on,
+  Recap's last screen, meeting text included, may show for a moment
+  before the lock covers it; that is the Recents preview decision under
+  Product decisions, not a failure.
 - [ ] Fresh install: back out of the welcome screen, then rotate the
   phone, tap the home header's theme button and switch system dark mode:
   the welcome screen does not reopen. It returns on the next cold start
@@ -3518,6 +3522,10 @@ items go here, at the end, so its RF codes keep their meaning):
   summary starts only after that, and the last sentence spoken before the
   swipe is in the transcript. Also swipe Recap away while a tapped Finish
   still reads "Finishing transcription…": the same.
+- [ ] With live transcription on and a large model, tap the star while the
+  status reads "Loading the model…", some seconds into the recording:
+  once the words arrive, the star is on the line spoken at the tap, not
+  on the recording's first line.
 
 Accessibility:
 

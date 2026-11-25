@@ -3,6 +3,7 @@ package com.meetily.mobile
 import android.content.Context
 import androidx.annotation.WorkerThread
 import com.meetily.mobile.data.AppSettings
+import com.meetily.mobile.data.Meeting
 import com.meetily.mobile.data.MeetingStore
 
 /**
@@ -48,22 +49,36 @@ object UnkeptAudio {
         prefs(context).edit().putStringSet(KEY_IDS, ids - meetingId).apply()
     }
 
+    /** What the end of a marked meeting's first transcript does with its recording. */
+    enum class Outcome {
+        /** "Keep meeting audio" is on again: kept for good, no longer marked. */
+        KEEP,
+
+        /** Removed now, as Remove audio (keep transcript) would. */
+        REMOVE,
+
+        /** Left as it is, still marked: the meeting still needs it, or is gone. */
+        LEAVE
+    }
+
     /**
-     * Whether a meeting's recording goes now. Only a marked one, only while
-     * "Keep meeting audio" is still off ([keepAudio] is the switch as it is
-     * now, not as it was at recording time: turned back on before the
-     * transcript was made, it keeps the recording), only once it has words,
-     * and only when its transcript is complete: one that stopped part-way
-     * ([unfinished]) still needs the audio to be finished. Pure, so it is
-     * unit-tested.
+     * The decision for a marked meeting whose first transcript just ended.
+     * [keepAudioNow] is the switch as it is now, not as it was at recording
+     * time: turned back on before the transcript was made, it keeps the
+     * recording. Otherwise the recording goes only once the meeting has
+     * words and a complete transcript (one that stopped part-way still
+     * needs the audio to be finished) and there is a recording to remove.
+     * [meeting] is null when it could not be read (deleted meanwhile).
+     * Pure, so it is unit-tested.
      */
-    fun removesNow(
-        marked: Boolean,
-        keepAudio: Boolean,
-        hasWords: Boolean,
-        unfinished: Boolean,
-        hasAudio: Boolean
-    ): Boolean = marked && !keepAudio && hasWords && !unfinished && hasAudio
+    fun decide(keepAudioNow: Boolean, meeting: Meeting?): Outcome = when {
+        keepAudioNow -> Outcome.KEEP
+        meeting == null -> Outcome.LEAVE
+        meeting.segments.isEmpty() -> Outcome.LEAVE
+        meeting.transcriptResumeMs != null -> Outcome.LEAVE
+        meeting.audioFile.isNullOrBlank() -> Outcome.LEAVE
+        else -> Outcome.REMOVE
+    }
 
     /**
      * Called when a first transcript of [meetingId] has finished cleanly
@@ -90,25 +105,18 @@ object UnkeptAudio {
         // against the switch as it now stands is not what they asked for:
         // the recording is kept, and no longer marked.
         val keepAudio = AppSettings(context).saveAudio
-        if (keepAudio) {
+        // Only the switch decides KEEP, so the meeting is not read for it.
+        if (decide(keepAudio, meeting = null) == Outcome.KEEP) {
             unmark(context, meetingId)
             return
         }
         var name: String? = null
         var copy: String? = null
         MeetingStore(context).mutateIf(meetingId) { meeting ->
-            val audio = meeting.audioFile
-            if (!removesNow(
-                    marked = true,
-                    keepAudio = keepAudio,
-                    hasWords = meeting.segments.isNotEmpty(),
-                    unfinished = meeting.transcriptResumeMs != null,
-                    hasAudio = !audio.isNullOrBlank()
-                )
-            ) {
+            if (decide(keepAudio, meeting) != Outcome.REMOVE) {
                 false
             } else {
-                name = audio
+                name = meeting.audioFile
                 copy = meeting.clearVoiceFile
                 meeting.audioFile = null
                 meeting.clearVoiceFile = null

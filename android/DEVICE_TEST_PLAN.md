@@ -547,11 +547,11 @@ off` (tag `meetily_vad`).
   Recap again and unlock. Then leave and come back within 30 s.
   **Expect:** "Recap is locked", "Unlock to open your meetings",
   **Unlock** and Android's fingerprint, face or PIN prompt, covering the
-  app straight away with no slide-in animation (3.22.0-beta1). "Hide
-  content from screenshots" is off here, so the home list, M1's title
-  included, may show for a moment before the lock covers it: expected,
-  not a failure (PD: app lock and the Recents preview). No meeting text
-  before the lock is checked with Hide content on, in P2-5 (+). The first
+  app straight away with no slide-in animation (3.22.0-beta1). The home
+  list, M1's title included, may show for a moment before the lock covers
+  it: expected, not a failure (PD: app lock and the Recents preview).
+  "Hide content from screenshots" (off here) does not change that; what it
+  does change, a blank Recents card, is checked in P2-5 (+). The first
   Back closes only the prompt and leaves the lock screen with its Unlock
   button; the second leaves for the launcher. After unlocking, the home
   list. Within 30 s, no lock.
@@ -565,7 +565,9 @@ off` (tag `meetily_vad`).
   import went ahead behind the lock, a "short call" meeting appears: keep
   it, or delete it before W1.) Then
   Android Settings → Apps → Recap → Storage → **Manage space** (names vary
-  by phone): Recap's lock first; unlock: Recap's "Storage" screen
+  by phone): Recap's lock first. Press Back twice: you are back on
+  Android's storage page for Recap, not on Recap's home screen. Tap
+  **Manage space** again and unlock: Recap's "Storage" screen
   ("Measuring storage…", then the totals), not Android's clear-storage
   dialog (deliberate, PD: Manage space).
   Covers: RF 9 (full), STOR 1 (full).
@@ -634,12 +636,13 @@ transcription or summary is running.
 ### P1-2 Continue an interrupted transcription (4 min, Batch 5)
 
 - [ ] **P1-2a** When "team sync long" is at about 30 %, open it and tap a
-  line's time label → **Edit text…**, and long-press a line. Then tap
-  **Cancel** on its notification. On home long-press it → More actions →
-  **Meeting options**.
-  **Expect:** while it runs, both edits are refused with "This meeting is
-  still being recorded or transcribed. Lines can be edited once that
-  finishes." (3.22.0-beta1). After Cancel the meeting keeps the words so
+  line's time label → **Edit text…**; tap a line's time label again →
+  **Someone else…**, type a name and confirm (the speaker tag); and
+  long-press a line. Then tap **Cancel** on its notification. On home
+  long-press it → More actions → **Meeting options**.
+  **Expect:** while it runs, all three edits are refused with "This
+  meeting is still being recorded or transcribed. Lines can be edited once
+  that finishes." (3.22.0-beta1). After Cancel the meeting keeps the words so
   far and shows "This transcript is unfinished. Transcription can carry on
   from 7:40." with **Continue transcription** (the same item is in ⋮). The
   options sheet has "Continue transcription" with "From 7:40". Leave the
@@ -926,13 +929,18 @@ review are in extra A.
 
 - [ ] Settings → Transcription → "Transcribe live" on → **Save settings**.
   Start a recording and speak from the very first second, including a
-  quiet phrase; record for a minute.
+  quiet phrase; record for a minute. If the status reads "Loading the
+  model…" for more than a few seconds (a large model), tap the star once
+  while it does, saying "star here" as you tap.
   **Expect:** words appear under "Live transcript" as you speak, quiet
   speech included, and the opening words are there (3.22.0-beta1: the
-  microphone opens before the model has loaded); Finish keeps them. Turn
-  "Transcribe live" off again and save.
+  microphone opens before the model has loaded); Finish keeps them. The
+  star lands on the line with "star here" (or the one just before it),
+  not on the first line (3.22.0-beta1). Turn "Transcribe live" off again
+  and save.
   Covers: NATLIB 3 (full), VAD 2 (full, with P0-3a), RF 16 (partial: no
-  failing model).
+  failing model), RF 49 (full; only when the load lasted long enough to
+  tap).
 
 ### P1-11 Short recordings and "Keep meeting audio" off (3 min, the review fixes)
 
@@ -1135,8 +1143,12 @@ While each job below runs, run
 - [ ] **(+)** Turn on "Hide content from screenshots" and app lock, leave
   Recap for more than 30 s, and look at its Recents card, then return
   from it.
-  **Expect:** the Recents card is blank; the lock screen appears with no
-  meeting text before it. Turn both off again.
+  **Expect:** the Recents card is blank, and so is the picture Android
+  shows while Recap reopens; then the lock screen, with no slide-in
+  animation. Recap's last screen may still show for a moment before the
+  lock covers it: Hide content keeps it out of screenshots and previews,
+  not off the screen (PD: app lock and the Recents preview). Turn both
+  off again.
   Covers: RF 10 (full, with P0-11b and P1-5c).
 
 ### P2-6 (+) Large screen, approximated on the phone (Android 16 only, 3 min)
@@ -1413,9 +1425,14 @@ codes are the "Pre-release review fixes (3.22.0-beta1)" group in §11.
   times match the original's, and the Audio tab's waveform is unchanged
   (RF 41, full with P1-3b).
 - [ ] Two untitled recordings ("Meeting <date, time>"): no series chip on
-  home and no brief match; again with the phone's language set to
-  Portuguese or French, where the date has words ("Meeting 25 de nov. de
-  2026 10:30"), then set it back (RF 33, full). "Summarise after the meeting"
+  home and no brief match. No remembered template: on the first, Summarize
+  → **Action items**; on any titled meeting, Summarize → **General
+  minutes**; then Summarize on the second untitled one: "Summary style"
+  has General minutes selected (the last style used), not Action items
+  (no need to wait for the first two summaries to finish).
+  Again with the phone's language set to Portuguese or French, where the
+  date has words ("Meeting 25 de nov. de 2026 10:30"), then set it back
+  (RF 33, full). "Summarise after the meeting"
   When the meeting ends, battery under 40 % off the charger: the summary
   waits for the charger (RF 32, full).
 - [ ] Ask your library with the on-device model deleted: "Couldn't get a

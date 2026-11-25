@@ -18,7 +18,6 @@ import com.meetily.mobile.summarize.AiDisclaimers
 import com.meetily.mobile.summarize.LlmClient
 import java.text.DateFormat
 import java.util.Date
-import java.util.concurrent.FutureTask
 
 /**
  * Ask a question across the whole meeting library. Retrieval is fully
@@ -44,6 +43,9 @@ class AskLibraryActivity : AppCompatActivity() {
      * recreation so the new screen picks the same run back up ([runs]).
      */
     private var asked: String? = null
+
+    /** Takes this screen's listener off the run it waits on; see [RetainedRun.Run.whenDone]. */
+    private var detachRun: (() -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -85,6 +87,9 @@ class AskLibraryActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        // The run outlives this screen and must not keep it.
+        detachRun?.invoke()
+        detachRun = null
         // Left for good: nothing will come back for the answer.
         if (isFinishing) asked?.let { runs.forget(it) }
         super.onDestroy()
@@ -109,7 +114,7 @@ class AskLibraryActivity : AppCompatActivity() {
     }
 
     /** Shows [run] in progress, then its result, on this screen. */
-    private fun attach(question: String, run: FutureTask<Answer>) {
+    private fun attach(question: String, run: RetainedRun.Run<Answer>) {
         asked = question
         asking = true
         progress.visibility = View.VISIBLE
@@ -118,9 +123,10 @@ class AskLibraryActivity : AppCompatActivity() {
         sourcesList.removeAllViews()
         reportButton?.visibility = View.GONE
         sendButton.isEnabled = false
-        Thread {
+        detachRun?.invoke()
+        detachRun = run.whenDone { done ->
             val result: Any = try {
-                run.get()
+                done.get()
             } catch (e: Exception) {
                 // The retrieval itself failed. A failed written answer is
                 // caught inside the run and shown with the moments instead.
@@ -141,7 +147,7 @@ class AskLibraryActivity : AppCompatActivity() {
                     answerView.visibility = View.VISIBLE
                 }
             }
-        }.start()
+        }
     }
 
     private var reportButton: com.google.android.material.button.MaterialButton? = null

@@ -24,7 +24,6 @@ import com.meetily.mobile.summarize.LlmClient
 import com.meetily.mobile.summarize.QuotedAiText
 import java.text.DateFormat
 import java.util.Date
-import java.util.concurrent.FutureTask
 
 /**
  * Prep before a recurring meeting: what happened last time, the open action
@@ -105,6 +104,9 @@ class PreMeetingBriefActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         loader.shutdown()
+        // The run outlives this screen and must not keep it.
+        detachBrief?.invoke()
+        detachBrief = null
         // Left for good: nothing will come back for the brief.
         if (isFinishing && briefAsked) briefRuns.forget(query)
         super.onDestroy()
@@ -293,16 +295,17 @@ class PreMeetingBriefActivity : AppCompatActivity() {
     }
 
     /** Shows [run] in progress, then the brief or why there is none. */
-    private fun attachBrief(run: FutureTask<Brief>) {
+    private fun attachBrief(run: RetainedRun.Run<Brief>) {
         briefAsked = true
         val button = findViewById<MaterialButton>(R.id.generateBriefButton)
         val progress = findViewById<View>(R.id.briefProgress)
         val output = findViewById<TextView>(R.id.briefText)
         button.isEnabled = false
         progress.visibility = View.VISIBLE
-        Thread {
+        detachBrief?.invoke()
+        detachBrief = run.whenDone { done ->
             val result = try {
-                run.get()
+                done.get()
             } catch (e: Exception) {
                 val why = (e.cause ?: e).message ?: getString(R.string.platform_error_unknown)
                 Brief(getString(R.string.brief_failed, why), null, "")
@@ -315,11 +318,11 @@ class PreMeetingBriefActivity : AppCompatActivity() {
                 output.text = result.text
                 showBriefReport(result.raw, result.modelKey)
             }
-        }.apply {
-            name = "pre-brief-wait"
-            start()
         }
     }
+
+    /** Takes this screen's listener off the brief's run; see [RetainedRun.Run.whenDone]. */
+    private var detachBrief: (() -> Unit)? = null
 
     private var briefReportButton: MaterialButton? = null
 

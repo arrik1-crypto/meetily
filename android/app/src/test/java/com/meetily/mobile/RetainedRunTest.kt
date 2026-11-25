@@ -1,9 +1,11 @@
 package com.meetily.mobile
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -71,5 +73,58 @@ class RetainedRunTest {
         assertEquals("first", runs.existing("a")?.get())
         runs.forget("a")
         assertNull(runs.existing("a"))
+    }
+
+    @Test
+    fun aWaitingScreenHearsOfTheResultWithoutAThreadOfItsOwn() {
+        val runs = RetainedRun<String, String>()
+        val release = CountDownLatch(1)
+        val run = runs.start("q", "test-run") {
+            release.await(5, TimeUnit.SECONDS)
+            "answer"
+        }
+        val heard = CountDownLatch(1)
+        val result = java.util.concurrent.atomic.AtomicReference<String>()
+        run.whenDone {
+            result.set(it.get())
+            heard.countDown()
+        }
+        assertNull(result.get())
+        release.countDown()
+        assertTrue(heard.await(5, TimeUnit.SECONDS))
+        assertEquals("answer", result.get())
+    }
+
+    @Test
+    fun aScreenThatWentAwayIsNoLongerHeldOrCalled() {
+        // Rotated mid-run: the old screen takes its listener off in
+        // onDestroy, and only the new one hears of the result.
+        val runs = RetainedRun<String, String>()
+        val release = CountDownLatch(1)
+        val run = runs.start("q", "test-run") {
+            release.await(5, TimeUnit.SECONDS)
+            "answer"
+        }
+        val oldScreen = AtomicInteger()
+        val detach = run.whenDone { oldScreen.incrementAndGet() }
+        detach()
+        val newScreen = CountDownLatch(1)
+        run.whenDone { newScreen.countDown() }
+        release.countDown()
+        assertTrue(newScreen.await(5, TimeUnit.SECONDS))
+        assertEquals(0, oldScreen.get())
+    }
+
+    @Test
+    fun aRecreatedScreenHearsOfAFinishedRunAtOnce() {
+        val runs = RetainedRun<String, String>()
+        val run = runs.start("q", "test-run") { "answer" }
+        run.get(5, TimeUnit.SECONDS)
+        var heard: String? = null
+        val detach = run.whenDone { heard = it.get() }
+        // Called on this thread, before whenDone returned.
+        assertEquals("answer", heard)
+        detach()
+        assertFalse(heard == null)
     }
 }

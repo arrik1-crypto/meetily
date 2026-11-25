@@ -132,7 +132,9 @@ class RecordingService : Service() {
     private var mediaProjection: android.media.projection.MediaProjection? = null
 
     private val segments = mutableListOf<TranscriptSegment>()
-    private var pendingHighlight = false
+
+    /** A star tapped before there was a line to put it on; see [QueuedHighlight]. */
+    private var pendingHighlight: QueuedHighlight? = null
 
     /**
      * Highlight taps in an audio-only session, as offsets into the captured
@@ -156,6 +158,9 @@ class RecordingService : Service() {
     private var diarizeModelKey: String = ""
     private var clusterer: SpeakerClusterer? = null
     private val clusterNames = mutableMapOf<Int, String>()
+
+    /** The running on-device session's [LateChunks], sealed by completeFinish. */
+    private var lateChunks: LateChunks? = null
 
     // Metadata edited from the UI, mirrored here so it is saved incrementally.
     private var title = ""
@@ -246,7 +251,7 @@ class RecordingService : Service() {
             // holding nothing. A finish still issuing its work stops the
             // service when that is done, and a session whose start is on
             // its way (start() has set isRunning) takes the service over.
-            if (pendingStop == null && !isRunning) stopForNewestStart()
+            if (pendingStops == 0 && !isRunning) stopForNewestStart()
             return START_NOT_STICKY
         }
         return START_STICKY
@@ -341,7 +346,7 @@ class RecordingService : Service() {
         saveScheduled = false
         segments.clear()
         photos.clear()
-        pendingHighlight = false
+        pendingHighlight = null
         partial = ""
         captureEnded = false
         liveLoading = false
@@ -460,7 +465,13 @@ class RecordingService : Service() {
             return HighlightResult.MARKED
         }
         if (partial.isNotEmpty() || segments.isEmpty()) {
-            pendingHighlight = true
+            // With no line yet, the star goes on the line spoken at the tap.
+            // While the live model loads that is not the next line to
+            // arrive: those are the backlog, from the start of the recording.
+            // A partial on screen is the line being spoken, so it is the one.
+            if (pendingHighlight == null) {
+                pendingHighlight = QueuedHighlight(if (segments.isEmpty()) elapsedMs() else null)
+            }
             return HighlightResult.QUEUED
         }
         val index = segments.size - 1
@@ -678,9 +689,15 @@ class RecordingService : Service() {
         // On the normal path finish() has barriered on the transcriber
         // queue, so the merge sees every cluster. On the watchdog/paused/
         // discard paths it may not have — late segments then keep their
-        // original cluster ids, which is why appendLateSegment resolves
-        // names through clusterNames rather than assuming a remap.
+        // original cluster ids, which is why they resolve names through
+        // this session's clusterNames rather than assuming a remap.
         applyClusterMerge()
+        // What the session's late chunks need, kept as it is now: a next
+        // session on this instance resets both (LateChunks).
+        lateChunks?.takeIf { it.session == meetingId }
+            ?.seal(withAudio = audioFileName != null, clusterNames = clusterNames)
+        lateChunks = null
+        placeQueuedHighlight()
         // Leaves the foreground and stops once the queued work is issued.
         teardownEngines(afterAudioClosed = WorkThenStop(workAfterSave(meetingId)))
         saveAndDrain()
@@ -693,8 +710,35 @@ class RecordingService : Service() {
         activeSpeaker = null
     }
 
-    /** The finished session's [WorkThenStop] still to run, if any. */
-    private var pendingStop: WorkThenStop? = null
+    /**
+     * A star still waiting for its line as the session finishes goes on the
+     * line it was tapped in. With no line since the tap, it is kept as a
+     * mark, which the transcript made from the audio stars (HighlightMarks).
+     */
+    private fun placeQueuedHighlight() {
+        val queued = pendingHighlight ?: return
+        pendingHighlight = null
+        val line = queued.atEnd()
+        if (line != null) {
+            starQueuedLine(line)
+        } else if (audioFileName != null) {
+            queued.tapOffsetMs?.let { highlightMarks.add(it) }
+        }
+    }
+
+    private fun starQueuedLine(index: Int) {
+        if (index !in segments.indices || segments[index].highlighted) return
+        segments[index] = segments[index].copy(highlighted = true)
+        observer?.onSegmentUpdated(index, segments[index])
+    }
+
+    /**
+     * Finished sessions whose [WorkThenStop] has not run yet. Usually one,
+     * but a session can be started and finished on this instance while the
+     * last one's audio file is still closing, and the first of them to stop
+     * must not take the service out of the foreground under the other.
+     */
+    private var pendingStops = 0
 
     /**
      * Runs a finished session's queued work ([workAfterSave]) and then takes
@@ -717,7 +761,7 @@ class RecordingService : Service() {
         private val fallback = Runnable { stop() }
 
         init {
-            pendingStop = this
+            pendingStops++
             main.postDelayed(fallback, STOP_AFTER_WORK_TIMEOUT_MS)
         }
 
@@ -734,14 +778,15 @@ class RecordingService : Service() {
             if (stopped) return
             stopped = true
             main.removeCallbacks(fallback)
-            if (pendingStop === this) pendingStop = null
+            pendingStops--
             // A session started on this instance meanwhile owns the
             // foreground and the service now. So does one whose start is
             // still on its way: start() sets isRunning on the main thread
             // before it sends the start, and onStartCommand runs it later.
             // That start's id is newer than lastStartId as well, so the
-            // stop below could not cancel it either.
-            if (active || isRunning) return
+            // stop below could not cancel it either. Another finished
+            // session still issuing its work stops the service itself.
+            if (!stopsAfterWork(active, isRunning, pendingStops)) return
             stopForNewestStart()
         }
     }
@@ -870,8 +915,10 @@ class RecordingService : Service() {
         if (!active) return
         finishing = true
         finished = true
-        // Nothing will keep these words; do not decode them.
+        // Nothing will keep these words; do not decode them, and a chunk
+        // that finishes anyway has no meeting to go to (never sealed).
         whisperRecorder?.abandonBacklog()
+        lateChunks = null
         teardownEngines()
         main.removeCallbacks(saveRunnable)
         // Cleared with it: left set, the next session on this instance
@@ -901,7 +948,7 @@ class RecordingService : Service() {
         // With the start id, not a bare stopSelf() (see lastStartId). A
         // finish of the session before this one, still issuing its work,
         // stops the service when that is done.
-        if (pendingStop == null) stopSelfResult(lastStartId)
+        if (pendingStops == 0) stopSelfResult(lastStartId)
     }
 
     // --- Recognizer path (ported from RecordingActivity) ------------------
@@ -1254,6 +1301,7 @@ class RecordingService : Service() {
         if ((settings.saveAudio || mustKeepAudio) && audioWriter == null) openAudioWriter()
         val writer = audioWriter
         val modelName = nemoModel?.displayName ?: model.displayName
+        val late = LateChunks(session).also { lateChunks = it }
 
         whisperRecorder = WhisperRecorder(
             modelPath = if (nemoModel != null) "" else {
@@ -1313,7 +1361,7 @@ class RecordingService : Service() {
                         // The session already finished (the 15 s watchdog can
                         // fire while chunks are still transcribing). Keeping
                         // it silently dropped the tail of long meetings.
-                        appendLateSegment(session, text, speaker, clusterId, audioMs, words)
+                        appendLateSegment(late, text, speaker, clusterId, audioMs, words)
                     }
                 }
             },
@@ -1427,29 +1475,20 @@ class RecordingService : Service() {
      * recording are not lost; the open meeting screen picks it up on reload.
      */
     private fun appendLateSegment(
-        id: String,
+        late: LateChunks,
         text: String,
         speaker: String?,
         clusterId: Int?,
         audioMs: Long?,
         words: List<com.meetily.mobile.data.WordStamp>
     ) {
-        // The session the chunk was cut in, not meetingId: a next session
-        // started on this instance must not receive the last one's tail.
-        if (id.isBlank() || text.isBlank()) return
-        // Resolved on THIS thread: audioFileName and clusterNames belong to
-        // the service and are not safe to read from a worker.
-        val withAudio = audioFileName != null
-        val name = speaker ?: clusterId?.let { clusterNames[it] }
-        val segment = TranscriptSegment(
-            timestampMs = System.currentTimeMillis(),
-            text = text,
-            speaker = name,
-            highlighted = false,
-            clusterId = clusterId,
-            audioMs = if (withAudio) audioMs else null,
-            words = if (withAudio && words.isNotEmpty()) words else null
-        )
+        // The session the chunk was cut in, not meetingId, and that
+        // session's audio and speaker names, not the service's: a next
+        // session started on this instance has its own (LateChunks).
+        val segment = late.segment(
+            text, speaker, clusterId, audioMs, words, System.currentTimeMillis()
+        ) ?: return
+        val id = late.session
         try {
             lateExecutor.execute {
                 // mutate() runs load, change and save inside
@@ -1487,19 +1526,24 @@ class RecordingService : Service() {
         }
         // Precedence: manual/sticky speaker > named cluster > anonymous cluster.
         val resolved = speaker ?: clusterId?.let { clusterNames[it] }
+        val index = segments.size
+        // A queued star goes on this line, an earlier one that the tap fell
+        // in, or (null) waits for the next line (QueuedHighlight).
+        val star = pendingHighlight?.onAppended(index, audioMs)
+        if (star != null) pendingHighlight = null
         val segment = TranscriptSegment(
             timestampMs = System.currentTimeMillis(),
             text = text,
             speaker = resolved,
-            highlighted = pendingHighlight,
+            highlighted = star == index,
             clusterId = clusterId,
             audioMs = if (audioFileName != null) audioMs else null,
             // Word timings only matter when the audio is kept for playback.
             words = if (audioFileName != null && words.isNotEmpty()) words else null
         )
-        pendingHighlight = false
         segments.add(segment)
-        observer?.onSegmentAppended(segments.size - 1, segment)
+        observer?.onSegmentAppended(index, segment)
+        if (star != null && star != index) starQueuedLine(star)
         scheduleSave()
     }
 
@@ -1614,15 +1658,15 @@ class RecordingService : Service() {
         // saveWaveform then finds nothing to describe.
         val writer = audioWriter
         audioWriter = null
-        if (writer != null) {
-            val context = applicationContext
-            Thread {
-                if (writer.finish()) runCatching { writer.saveWaveform(context) }
-                afterAudioClosed?.let { main.post(it) }
-            }.start()
-        } else {
-            afterAudioClosed?.let { main.post(it) }
-        }
+        val context = applicationContext
+        closeAudioThen(
+            close = writer?.let { w ->
+                { if (w.finish()) runCatching { w.saveWaveform(context) } }
+            },
+            afterClosed = afterAudioClosed,
+            post = { main.post(it) },
+            background = { Thread(it).start() }
+        )
     }
 
     // --- Incremental persistence -----------------------------------------
@@ -2339,16 +2383,56 @@ class RecordingService : Service() {
         @Volatile var pendingProjectionCode: Int = 0
 
         /**
-         * Whether a recording with no words yet gets its first transcript
-         * queued: there has to be audio to transcribe and a model on the
+         * Whether a recording's first transcript is queued, once its caller
+         * has found it needs one (no live words, or live words that stop
+         * short): there has to be audio to transcribe and a model on the
          * phone to do it with. With no model yet, as on a fresh install's
          * first meeting, the run could only fail, and an "Import failed"
          * notice would be all the user heard of it; the audio stays with
          * the meeting, whose transcript tab says how to transcribe it.
          * Pure, so it is unit-tested.
          */
-        fun wantsFirstTranscript(hasWords: Boolean, audioExists: Boolean, modelReady: Boolean): Boolean =
-            !hasWords && audioExists && modelReady
+        fun wantsFirstTranscript(audioExists: Boolean, modelReady: Boolean): Boolean =
+            audioExists && modelReady
+
+        /**
+         * Closes a finished session's audio file ([close], on a thread of
+         * its own through [background]) and only then hands [afterClosed]
+         * to [post], the main thread; with no file, at once. The work that
+         * runs then looks for audio to transcribe or check, and the writer
+         * holds back 64 KB (about 8 s) before its first byte reaches the
+         * disk, so a short recording looked empty when the work ran beside
+         * the close. A close that throws still runs the work. Pure apart
+         * from what it is handed, so the order is unit-tested.
+         */
+        fun closeAudioThen(
+            close: (() -> Unit)?,
+            afterClosed: (() -> Unit)?,
+            post: (() -> Unit) -> Unit,
+            background: (() -> Unit) -> Unit
+        ) {
+            if (close == null) {
+                afterClosed?.let(post)
+                return
+            }
+            background {
+                try {
+                    close()
+                } finally {
+                    afterClosed?.let(post)
+                }
+            }
+        }
+
+        /**
+         * Whether a finished session's WorkThenStop, its work issued, stops
+         * the service: not while a session runs on it ([active]) or is on
+         * its way ([starting]: start() has set isRunning), and not while
+         * another finished session still has work to issue ([stillIssuing]),
+         * whose own stop comes later. Pure, so it is unit-tested.
+         */
+        fun stopsAfterWork(active: Boolean, starting: Boolean, stillIssuing: Int): Boolean =
+            !active && !starting && stillIssuing <= 0
 
         /**
          * Queues the transcription of a recording captured as audio only:
@@ -2367,7 +2451,6 @@ class RecordingService : Service() {
                 val app = context.applicationContext
                 val settings = AppSettings(app)
                 if (!wantsFirstTranscript(
-                        hasWords = false,
                         audioExists = AudioStore.exists(app, audioFile),
                         modelReady = com.meetily.mobile.whisper.TranscriptionModels
                             .isDownloaded(app, settings.whisperModel)
@@ -2416,7 +2499,7 @@ class RecordingService : Service() {
             // foreground once it is issued (WorkThenStop). Meanwhile the
             // foreground service keeps the process alive. A Finish already
             // under way is left to do just that: its completeFinish has not
-            // run yet, so there is no pendingStop to wait for, and stopping
+            // run yet, so there is no pending stop to wait for, and stopping
             // here would cut it short.
             finishAndSave(null)
         } else {
@@ -2424,7 +2507,7 @@ class RecordingService : Service() {
             // A finish still issuing its work stops the service when that is
             // done; stopping here would take its exemption away first. With
             // the start id, so a start still on its way is not cancelled.
-            if (pendingStop == null) stopForNewestStart()
+            if (pendingStops == 0) stopForNewestStart()
         }
         super.onTaskRemoved(rootIntent)
     }
