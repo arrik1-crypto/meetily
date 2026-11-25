@@ -250,8 +250,8 @@ class RecordingService : Service() {
             ACTION_LIVE_DISMISSED -> if (active) liveUpdateDismissed = true
             // A null intent is Android restarting the service after a kill:
             // a new process with nothing to record, since recovering the
-            // meeting is MainActivity's job. It stops below, as does an
-            // unknown action that finds nothing recording.
+            // meeting is a screen's job (recoverInterrupted). It stops
+            // below, as does an unknown action that finds nothing recording.
             else -> {}
         }
         if (!active) {
@@ -739,9 +739,9 @@ class RecordingService : Service() {
         if (heldModel) liveModelWaiters[meetingId] = afterSave
         // Issues the work once the audio file is closed, and only then
         // clears the crash-recovery marker: a process that dies first leaves
-        // it for MainActivity, which queues the transcript the work would
-        // have. Leaves the foreground and stops after that (and after the
-        // model is freed).
+        // it for recoverInterrupted, which queues the transcript the work
+        // would have. Leaves the foreground and stops after that (and after
+        // the model is freed).
         teardownEngines(afterAudioClosed = afterSave)
         saveAndDrain()
         active = false
@@ -874,8 +874,12 @@ class RecordingService : Service() {
             try {
                 // Work held back while the model was loaded (this session's
                 // own, a screen's drain, a batch job that ended) starts now,
-                // while this service is still in the foreground.
-                if (waitsForLiveModel) JobGate.drain(app)
+                // while this service is still in the foreground. So does work
+                // queued while this session recorded: another session's
+                // model freed during it drained into a refusal, and nothing
+                // else here drained again. A no-op when the session's own
+                // work has just started, or anything else runs.
+                JobGate.drain(app)
             } catch (_: Throwable) {
             } finally {
                 stop()
@@ -1509,7 +1513,21 @@ class RecordingService : Service() {
             onLiveReady = { main.post { liveModelReady(session) } },
             onLiveUnavailable = { main.post { liveModelFailed(session, modelName) } },
             onCaptureEnded = { main.post { captureStopped(session) } },
-            onLiveModelReleased = { main.post { liveModelReleased(session) } }
+            // Behind every late line already handed to lateExecutor: the
+            // drain the release triggers can start the meeting's own
+            // summary, which reads the meeting at once and without the
+            // store lock, and the last line's write (a full load and save)
+            // was still pending. Its onSegment was posted before this, so
+            // its write is queued first on that one thread.
+            onLiveModelReleased = {
+                main.post {
+                    try {
+                        lateExecutor.execute { main.post { liveModelReleased(session) } }
+                    } catch (_: java.util.concurrent.RejectedExecutionException) {
+                        liveModelReleased(session)
+                    }
+                }
+            }
         ).also { it.start() }
         liveLoading = liveWhisper
         if (paused) {
@@ -1842,8 +1860,8 @@ class RecordingService : Service() {
      * Keeps the crash-recovery marker's live-short flag (ActiveRecording) in
      * step with [liveStopsShort], writing it only when it changes. A
      * recording the process dies under then has its audio transcribed and
-     * staged for review beside its lines (MainActivity); the meeting's lines
-     * alone looked complete. Main thread.
+     * staged for review beside its lines (recoverInterrupted); the
+     * meeting's lines alone looked complete. Main thread.
      */
     private fun markLiveShort() {
         if (!active || meetingId.isEmpty()) return
@@ -2468,8 +2486,11 @@ class RecordingService : Service() {
         /**
          * More speech than this waiting to be transcribed live, and the
          * crash-recovery marker says the live words stop short (see
-         * liveStopsShort). Under it, a process death loses about what it
-         * always does: the chunk being spoken.
+         * liveStopsShort). Under it, a process death loses what it always
+         * did from the live words, which the kept audio still has: what
+         * waited to be transcribed (under this), the chunk being spoken (up
+         * to about 28 s) and lines not yet autosaved, so up to about a
+         * minute, and no check is queued for it.
          */
         private const val LIVE_SHORT_BACKLOG_MS = 30_000L
 
@@ -2494,6 +2515,85 @@ class RecordingService : Service() {
          */
         fun recoveryWantsTranscript(hasLines: Boolean, liveShort: Boolean): Boolean =
             !hasLines || liveShort
+
+        /**
+         * If a recording was interrupted (process killed mid-session), its
+         * meeting was still saved incrementally. Surface that once and clear
+         * the marker, and queue the transcript an audio-only recording has
+         * yet to get: Finish and swiping the app away both queue it, and a
+         * recording the process died under was left with its audio and no
+         * words until the user found it and transcribed it by hand. So does
+         * one whose live words stop short of its audio (live fell behind
+         * and stopped, or a backlog waited to be transcribed): that is kept
+         * in memory only, and the meeting looked complete with the rest of
+         * it in the audio alone. Its transcription is staged as a check to
+         * review, beside the lines it keeps. Also a session that was
+         * finished but died before its work was issued (queued as its audio
+         * closed): the marker stays until then. Not while this process
+         * still has that work to issue, nor while a session runs or is on
+         * its way (start() sets isRunning): the marker is then its own.
+         *
+         * MainActivity runs it, and so does RecordingActivity before it
+         * starts a session: the Quick Settings tile, the widget, the Record
+         * shortcut and a calendar nudge open that screen directly, and the
+         * new session's marker replaced the interrupted one's before
+         * MainActivity ever read it. Main thread.
+         */
+        fun recoverInterrupted(context: Context) {
+            if (isRunning || finishedWorkPending()) return
+            val app = context.applicationContext
+            val store = MeetingStore(app)
+            val marker = store.activeRecording() ?: return
+            val id = marker.id
+            store.clearActive()
+            // Whether the meeting is still readable decides the toast and the
+            // transcription, and finding out parses the whole file, which an
+            // hours-long recording makes megabytes: on its own thread, not
+            // before the screen's first frame, and not on MainActivity's
+            // libraryLoader ahead of the list. The marker is still cleared
+            // here, so a re-created screen never asks twice, and the
+            // application context lets the toast outlive one.
+            Thread({
+                val meeting = try {
+                    store.load(id)
+                } catch (_: Throwable) {
+                    null
+                }
+                if (meeting != null) {
+                    val main = Handler(Looper.getMainLooper())
+                    main.post {
+                        android.widget.Toast.makeText(
+                            app, R.string.recording_recovered, android.widget.Toast.LENGTH_LONG
+                        ).show()
+                    }
+                    if (recoveryWantsTranscript(
+                            hasLines = meeting.segments.isNotEmpty(),
+                            liveShort = marker.liveShort
+                        )
+                    ) {
+                        // On the main thread, like every other JobGate
+                        // caller: its one-job-at-a-time check and the start
+                        // it guards are two steps, and onResume's drain runs
+                        // at about this time. Raced from here, both could
+                        // start ImportService, which refuses the second
+                        // start, and one job was lost. The main looper, not
+                        // a screen's, so it still happens if the screen is
+                        // gone by then. A session started meanwhile only
+                        // queues it, for the drain at its end.
+                        val audio = meeting.audioFile
+                        // Live lines that stop short are kept, and the pass
+                        // over the audio is staged for review beside them:
+                        // replacing them lost stars, speaker names and
+                        // edits, also any made while the pass waited for a
+                        // charger.
+                        val keepLines = meeting.segments.isNotEmpty()
+                        main.post {
+                            queueFirstTranscript(app, id, audio, stageForReview = keepLines)
+                        }
+                    }
+                }
+            }, "recording-recover").start()
+        }
 
         const val ACTION_START = "com.meetily.mobile.action.START"
         const val ACTION_TOGGLE_PAUSE = "com.meetily.mobile.action.TOGGLE_PAUSE"
@@ -2651,10 +2751,26 @@ class RecordingService : Service() {
             !active && !starting && stillIssuing <= 0
 
         /**
+         * Whether [queueFirstTranscript]'s pass staged for review
+         * ([stageForReview]) is queued as never trimmed (JobQueue.Job.required).
+         * Staged, it is no first transcript, and an optional automatic pass
+         * is dropped once more than JobQueue.MAX_JOBS wait: a few meetings'
+         * automatic checks and summaries waiting for a charger took the
+         * only pass that brings the recovered recording's missing end
+         * back, and nothing said the end was missing. Only while it waits
+         * for a charger ([whenCharging]), where it waits long: off one it
+         * starts at once or at the next drain, and a required pass that
+         * does not wait for a charger is shown as one the user started
+         * (LiveUpdates.queuedPassUserStarted). Pure, so it is unit-tested.
+         */
+        fun stagedPassKept(stageForReview: Boolean, whenCharging: Boolean): Boolean =
+            stageForReview && whenCharging
+
+        /**
          * Queues the transcription of a recording captured as audio only, or
          * whose live words stop short: at Finish, when the app is swiped
          * away, and for a recording an interrupted session left behind
-         * (MainActivity).
+         * ([recoverInterrupted]).
          *
          * Not gated on the accuracy-check setting: that one asks whether to
          * spend effort double-checking words the app already has. Here there
@@ -2664,11 +2780,13 @@ class RecordingService : Service() {
          * whether. Call once the audio file is closed.
          *
          * [stageForReview]: a recovered recording whose live lines stop
-         * short (MainActivity). The pass is staged as an accuracy check the
-         * user reviews, with the missing tail among its differences, rather
-         * than put in place of the lines: it can wait hours for a charger,
-         * and stars, speaker names and edits made on them meanwhile were
-         * replaced with them.
+         * short ([recoverInterrupted]). The pass is staged as an accuracy
+         * check the user reviews, with the missing tail among its
+         * differences, rather than put in place of the lines: it can wait
+         * hours for a charger, and stars, speaker names and edits made on
+         * them meanwhile were replaced with them. It is still the only pass
+         * that brings that tail back, so it is not trimmed from the queue
+         * while it waits for a charger ([stagedPassKept]).
          */
         fun queueFirstTranscript(
             context: Context,
@@ -2698,8 +2816,10 @@ class RecordingService : Service() {
                     whenCharging = settings.autoCheckWhileChargingOnly,
                     // It is the transcript: never trimmed from the queue, and
                     // resumed as a first pass if an unplug stops it part-way.
-                    // Staged, it is a check like any other.
-                    firstTranscript = !stageForReview
+                    // Staged, it is a check like any other, kept while it
+                    // waits for a charger.
+                    firstTranscript = !stageForReview,
+                    required = stagedPassKept(stageForReview, settings.autoCheckWhileChargingOnly)
                 )
             } catch (_: Throwable) {
                 // The audio is saved either way; the meeting screen offers the

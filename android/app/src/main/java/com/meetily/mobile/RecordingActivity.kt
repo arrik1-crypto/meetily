@@ -319,6 +319,13 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
 
         startPulse()
 
+        // Before the session this screen may start writes its own crash-
+        // recovery marker over an interrupted one's: the tile, the widget,
+        // the Record shortcut and a nudge open this screen without
+        // MainActivity, so the recording the process died under was never
+        // recovered. A no-op while a session runs or still issues its work.
+        RecordingService.recoverInterrupted(this)
+
         bindService(
             Intent(this, RecordingService::class.java), connection, Context.BIND_AUTO_CREATE
         )

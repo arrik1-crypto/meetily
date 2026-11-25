@@ -74,7 +74,6 @@ HSPLcom/meetily/mobile/MainActivity;->homeSelection$lambda$*(**)**
 HSPLcom/meetily/mobile/MainActivity;->rebuildFilterChips$lambda$*(**)**
 HSPLcom/meetily/mobile/MainActivity;->addFilterChip$lambda$*(**)**
 HSPLcom/meetily/mobile/MainActivity;->startIdleGlow$lambda$*(**)**
-HSPLcom/meetily/mobile/MainActivity;->recoverInterruptedRecording$lambda$*(**)**
 HSPLcom/meetily/mobile/AlignService$Companion;->aligningId()Ljava/lang/String;
 HSPLcom/meetily/mobile/AlignService$Companion;->claimed()Ljava/lang/String;
 HSPLcom/meetily/mobile/AlignService$Companion;->getCurrentMeetingId()Ljava/lang/String;
@@ -115,7 +114,6 @@ HSPLcom/meetily/mobile/MainActivity;->onStart()V
 HSPLcom/meetily/mobile/MainActivity;->onStop()V
 HSPLcom/meetily/mobile/MainActivity;->putMomentExtras(Landroid/content/Intent;Ljava/lang/String;)Landroid/content/Intent;
 HSPLcom/meetily/mobile/MainActivity;->rebuildFilterChips()V
-HSPLcom/meetily/mobile/MainActivity;->recoverInterruptedRecording()V
 HSPLcom/meetily/mobile/MainActivity;->refresh()V
 HSPLcom/meetily/mobile/MainActivity;->renderWork(Lcom/meetily/mobile/MainActivity$Work;Ljava/lang/String;Landroid/view/View;Landroid/widget/TextView;Lcom/google/android/material/progressindicator/LinearProgressIndicator;Landroid/widget/TextView;Lcom/meetily/mobile/ProgressAnnouncer;)Ljava/lang/String;
 HSPLcom/meetily/mobile/MainActivity;->showFiltered(Ljava/util/List;Ljava/util/Map;Ljava/lang/String;)V
@@ -132,6 +130,8 @@ HSPLcom/meetily/mobile/PassageService$Companion;->recoverLeftovers$default(Lcom/
 HSPLcom/meetily/mobile/PassageService$Companion;->removingId()Ljava/lang/String;
 HSPLcom/meetily/mobile/Power;->isCharging(Landroid/content/Context;)Z
 HSPLcom/meetily/mobile/RecordingService$Companion;->isRunning()Z
+HSPLcom/meetily/mobile/RecordingService$Companion;->recoverInterrupted(Landroid/content/Context;)V
+HSPLcom/meetily/mobile/RecordingService$Companion;->recoverInterrupted$lambda$*(**)**
 HSPLcom/meetily/mobile/RetentionJobService$Companion;->ensureScheduled(Landroid/content/Context;)V
 HSPLcom/meetily/mobile/RetentionJobService$Companion;->schedule(Landroid/content/Context;)V
 HSPLcom/meetily/mobile/RetentionRunner;->rule(Landroid/content/Context;)Lcom/meetily/mobile/data/Retention$Rule;

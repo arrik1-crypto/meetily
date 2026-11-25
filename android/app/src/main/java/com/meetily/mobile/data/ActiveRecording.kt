@@ -6,8 +6,9 @@ package com.meetily.mobile.data
  * its saved audio ([liveShort]). That is so when live transcription fell
  * behind and stopped, when its backlog was skipped at Finish, and while
  * much of what was said still waits to be transcribed. Finish then has the
- * audio transcribed in full, and a recording the process died under is
- * transcribed the same way once the app is next opened (MainActivity).
+ * audio transcribed in full, and a recording the process died under has it
+ * transcribed and staged as a check beside its lines once the app is next
+ * opened or a recording next started (RecordingService.recoverInterrupted).
  * The flag only lives in memory otherwise, and the meeting looked complete
  * with the rest of it in the audio alone. Pure, so it is unit-tested.
  */

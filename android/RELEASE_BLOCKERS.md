@@ -190,9 +190,11 @@ Not triaged here:
         the recording service stays in the foreground, capturing nothing,
         with a "Finishing transcription…" notification, until the last
         words are transcribed and the transcript, check or summary has
-        been started or queued (`RecordingService`'s `WorkThenStop`):
-        usually seconds, 75 s at most (15 s for the words, then 60 s
-        while the live model is still loading or held, 10 s otherwise).
+        been started or queued, and while the live model is still
+        loading or held, until it is freed and the queued work started
+        (`RecordingService`'s `WorkThenStop`): usually seconds, 75 s at
+        most (15 s for the words, then 60 s while the live model is
+        still loading or held, 10 s otherwise).
     - Then record the videos (unlisted YouTube is fine). Only the
       mediaProcessing videos need an Android 15+ phone; plan the
       mediaProjection and dataSync ones too. DEVICE_TEST_PLAN.md walks

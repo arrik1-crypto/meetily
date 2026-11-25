@@ -1,6 +1,7 @@
 package com.meetily.mobile
 
 import com.meetily.mobile.data.HighlightMarks
+import com.meetily.mobile.data.TranscriptReconcile
 import com.meetily.mobile.data.TranscriptSegment
 import com.meetily.mobile.whisper.MicDeviceKeys
 import org.junit.Assert.assertEquals
@@ -49,6 +50,45 @@ class HighlightMarksAndMicKeysTest {
         HighlightMarks.apply(segments, listOf(1_000L))
         HighlightMarks.apply(segments, emptyList())
         assertFalse(segments.any { it.highlighted })
+    }
+
+    @Test
+    fun aCheckPlacesOnlyTheMarksPastTheStoredLinesAndTheAcceptedTailKeepsThem() {
+        fun line(audioMs: Long, text: String, highlighted: Boolean = false) =
+            TranscriptSegment(
+                timestampMs = audioMs, text = text, highlighted = highlighted, audioMs = audioMs
+            )
+        // Live stopped after its second line; the first was starred and then
+        // un-starred by the user, and the mark at 45 s came after live stopped.
+        val stored = listOf(line(0L, "hello there"), line(10_000L, "next item"))
+        val marks = listOf(5_000L, 45_000L)
+        assertEquals(listOf(45_000L), HighlightMarks.pastLines(stored, marks))
+        // No timed stored line: every mark is the check's to place.
+        assertEquals(marks, HighlightMarks.pastLines(listOf(seg(null)), marks))
+        assertEquals(marks, HighlightMarks.pastLines(emptyList(), marks))
+
+        val draft = mutableListOf(
+            line(0L, "hello there"), line(10_000L, "next item"),
+            line(40_000L, "the decision"), line(60_000L, "wrap up")
+        )
+        HighlightMarks.apply(draft, HighlightMarks.pastLines(stored, marks))
+        assertEquals(listOf(false, false, true, false), draft.map { it.highlighted })
+
+        val blocks = TranscriptReconcile.align(stored, draft, 0L)
+        // "Use the new transcript": every difference the check has lines for.
+        val tail = TranscriptReconcile.differences(blocks)
+            .filter { it.freshIndices.isNotEmpty() }.map { it.ordinal }.toSet()
+        val merged = TranscriptReconcile.merge(stored, draft, blocks, tail, 0L)
+        assertEquals(
+            listOf(
+                "hello there" to false, "next item" to false,
+                "the decision" to true, "wrap up" to false
+            ),
+            merged.map { it.text to it.highlighted }
+        )
+        // The tail left out: no stored line takes the mark.
+        val kept = TranscriptReconcile.merge(stored, draft, blocks, emptySet(), 0L)
+        assertFalse(kept.any { it.highlighted })
     }
 
     @Test

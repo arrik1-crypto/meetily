@@ -652,7 +652,7 @@ class MainActivity : AppCompatActivity() {
             v.post { ThemeManager.applyNightMode(next) }
         }
 
-        recoverInterruptedRecording()
+        RecordingService.recoverInterrupted(this)
 
         if (intent?.action == ACTION_IMPORT_PICK && savedInstanceState == null) {
             try {
@@ -661,72 +661,6 @@ class MainActivity : AppCompatActivity() {
                 Toast.makeText(this, R.string.import_no_picker, Toast.LENGTH_SHORT).show()
             }
         }
-    }
-
-    /**
-     * If a recording was interrupted (process killed mid-session), its meeting
-     * was still saved incrementally. Surface that once and clear the marker,
-     * and queue the transcript an audio-only recording has yet to get: Finish
-     * and swiping the app away both queue it, and a recording the process
-     * died under was left with its audio and no words until the user found
-     * it and transcribed it by hand. So does one whose live words stop short
-     * of its audio (live fell behind and stopped, or a backlog waited to be
-     * transcribed): that is kept in memory only, and the meeting looked
-     * complete with the rest of it in the audio alone. Its transcription is
-     * staged as a check to review, beside the lines it keeps. Also a
-     * session that was finished but died before its work was issued (queued
-     * as its audio closed): the marker stays until then. Not while this
-     * process still has that work to issue.
-     */
-    private fun recoverInterruptedRecording() {
-        if (RecordingService.isRunning || RecordingService.finishedWorkPending()) return
-        val marker = store.activeRecording() ?: return
-        val id = marker.id
-        store.clearActive()
-        // Whether the meeting is still readable decides the toast and the
-        // transcription, and finding out parses the whole file, which an
-        // hours-long recording makes megabytes: on its own thread, not in
-        // onCreate before the
-        // first frame, and not on libraryLoader ahead of the list. The
-        // marker is still cleared here, so a re-created screen never asks
-        // twice, and the application context lets the toast outlive one.
-        val app = applicationContext
-        Thread({
-            val meeting = try {
-                store.load(id)
-            } catch (_: Throwable) {
-                null
-            }
-            if (meeting != null) {
-                runOnUiThread {
-                    Toast.makeText(app, R.string.recording_recovered, Toast.LENGTH_LONG).show()
-                }
-                if (RecordingService.recoveryWantsTranscript(
-                        hasLines = meeting.segments.isNotEmpty(),
-                        liveShort = marker.liveShort
-                    )
-                ) {
-                    // On the main thread, like every other JobGate caller: its
-                    // one-job-at-a-time check and the start it guards are two
-                    // steps, and onResume's drain runs at about this time. Raced
-                    // from here, both could start ImportService, which refuses
-                    // the second start, and one job was lost. The main looper,
-                    // not this screen's, so it still happens if the screen is
-                    // gone by then.
-                    val audio = meeting.audioFile
-                    // Live lines that stop short are kept, and the pass over
-                    // the audio is staged for review beside them: replacing
-                    // them lost stars, speaker names and edits, also any made
-                    // while the pass waited for a charger.
-                    val keepLines = meeting.segments.isNotEmpty()
-                    android.os.Handler(android.os.Looper.getMainLooper()).post {
-                        RecordingService.queueFirstTranscript(
-                            app, id, audio, stageForReview = keepLines
-                        )
-                    }
-                }
-            }
-        }, "recording-recover").start()
     }
 
     override fun onResume() {

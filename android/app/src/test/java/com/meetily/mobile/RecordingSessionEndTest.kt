@@ -1,6 +1,7 @@
 package com.meetily.mobile
 
 import com.meetily.mobile.data.ActiveRecording
+import com.meetily.mobile.data.JobQueue
 import com.meetily.mobile.data.WordStamp
 import com.meetily.mobile.whisper.LiveModelSlot
 import java.util.concurrent.atomic.AtomicInteger
@@ -17,7 +18,7 @@ import org.junit.Test
  * when the service may stop (RecordingService.stopsAfterWork,
  * FinishSignals), the live model batch work waits for (LiveModelSlot,
  * JobGate.admits), and what a recording the process died under gets
- * (ActiveRecording).
+ * (ActiveRecording, RecordingService.stagedPassKept).
  */
 class RecordingSessionEndTest {
 
@@ -245,6 +246,33 @@ class RecordingSessionEndTest {
         assertEquals(ActiveRecording("abc"), ActiveRecording.parse("abc\n"))
         assertNull(ActiveRecording.parse(""))
         assertNull(ActiveRecording.parse("  \nlive-short"))
+    }
+
+    @Test
+    fun aRecoveredRecordingsStagedCheckIsNotTrimmedWhileItWaitsForACharger() {
+        assertTrue(RecordingService.stagedPassKept(stageForReview = true, whenCharging = true))
+        // Off the charger setting it starts at once or at the next drain, and
+        // stays an automatic pass, not one shown as the user's own.
+        assertFalse(RecordingService.stagedPassKept(stageForReview = true, whenCharging = false))
+        // The first transcript is kept in the queue by being one.
+        assertFalse(RecordingService.stagedPassKept(stageForReview = false, whenCharging = true))
+        assertFalse(LiveUpdates.queuedPassUserStarted(required = true, chargingOnly = true))
+
+        // As queueFirstTranscript queues it, then five automatic passes
+        // waiting for power: it is the oldest, and stays.
+        val staged = JobQueue.Job(
+            JobQueue.KIND_CHECK, "recovered", "model", 1L, chargingOnly = true,
+            firstTranscript = false,
+            required = RecordingService.stagedPassKept(stageForReview = true, whenCharging = true)
+        )
+        var jobs = JobQueue.add(emptyList(), staged)
+        for (i in 2..7) {
+            jobs = JobQueue.add(
+                jobs, JobQueue.Job(JobQueue.KIND_SUMMARY, "m$i", "general", i.toLong(), chargingOnly = true)
+            )
+        }
+        assertTrue(jobs.any { it.meetingId == "recovered" })
+        assertEquals(JobQueue.MAX_JOBS, jobs.count { it.meetingId != "recovered" })
     }
 
     @Test

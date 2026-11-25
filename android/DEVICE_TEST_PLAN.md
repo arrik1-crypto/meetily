@@ -934,8 +934,9 @@ review are in extra A.
   lines; 3.22.0-beta1: no manual accuracy check needed), and the Mark
   moment star lands on the line at that moment. exit-info lists the crash.
   Covers: CONT 14 (full, with P0-3a), EXIT 4 (full, with P1-9b), RF 15
-  (partial: audio-only; not a live recording whose live words stopped
-  short).
+  (partial: audio-only, recovered by opening Recap; not a live recording
+  whose live words stopped short, nor recovery by a recording started
+  from the tile).
 
 ### P1-10 (+) Live transcription (2 min, Batches 3 and 5, the review fixes)
 
@@ -1622,9 +1623,10 @@ On purpose, and why; the §11 items stay open for another pass.
    RESTRICT_LOCAL_NETWORK reboot checks (A17 1, 2), anything needing a
    targetSdk 37 build (A17 4), a microphone unplugged mid-recording (RF
    17), a live recording killed after live fell behind (RF 15 tail: it
-   needs a phone too slow for the model), Finish during a live model's
-   load and the transcript that waits for the model to be freed (RF 16
-   tail), quick starring during an import (RF 7), ticks during Enhance
+   needs a phone too slow for the model), an interrupted recording
+   recovered by a new one started from the tile (RF 15 tail), Finish
+   during a live model's load and the transcript that waits for the
+   model to be freed (RF 16 tail), quick starring during an import (RF 7), ticks during Enhance
    notes (RF 35), Clear voice and Remove a passage under the shortened
    daily limit (CV 11, PASS 21 tails: P2-2 runs it on an import, a check
    and Re-time only) and cancelling the first-run summary download from
