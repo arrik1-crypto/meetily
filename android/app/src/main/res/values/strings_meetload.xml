@@ -4,4 +4,18 @@
          is read, and spoken politely when it appears (MeetingDetailActivity
          showLoading). -->
     <string name="meetload_opening">Opening meeting…</string>
+
+    <!-- Meeting screen: a transcript line edit (text, split, delete, speaker,
+         highlight, suggested speakers) refused while the meeting is being
+         recorded or transcribed, whose next save would put the line back
+         (MeetingDetailActivity refuseLineEdit). -->
+    <string name="line_edit_wait">This meeting is still being recorded or transcribed. Lines can be edited once that finishes.</string>
+    <!-- Meeting screen: a line dialog was confirmed after the line it was
+         opened on was removed or changed meanwhile (a passage removed, a
+         sync); nothing was changed. -->
+    <string name="line_changed">This line changed while the dialog was open, so nothing was changed. Open it again.</string>
+    <!-- Meeting screen: an action item's reminder or removal was confirmed
+         after a new summary replaced the list and the task is gone; nothing
+         was changed. -->
+    <string name="action_item_changed">This task changed while the dialog was open, so nothing was changed.</string>
 </resources>

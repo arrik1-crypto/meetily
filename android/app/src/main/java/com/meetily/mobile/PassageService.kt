@@ -309,6 +309,8 @@ class PassageService : Service() {
         // The recording, its waveform, clips and clear-voice copy hold the
         // passage; nothing points at them now.
         AudioRemoval.deleteFiles(app, audio, copy)
+        // So does a share of the meeting as a file, with its words.
+        com.meetily.mobile.export.MeetingShareFile.deleteFor(app, meetingId)
         written.loudness?.let { Waveform.saveFrom(app, newName, it) }
         File(workDir(app), marker).delete()
         return Result.REMOVED
