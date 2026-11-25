@@ -61,7 +61,7 @@ object JobGate {
      * main-thread message — so two requests in one main-thread turn both see
      * "nothing running" and both start.
      *
-     * That is not a corner case: RecordingService.finishSession clears its own
+     * That is not a corner case: RecordingService.completeFinish clears its own
      * isRunning and then calls maybeStartAutoCheck and maybeStartAutoSummary
      * back to back, so with both auto-passes enabled EVERY finished recording
      * kicked off a full re-transcription and a multi-GB LLM summary at the same

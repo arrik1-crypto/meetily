@@ -744,10 +744,17 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
         applyDeviceAudioEndedUi()
     }
 
+    /**
+     * Finish, Pause, the star and the camera, off while the session is
+     * saved. A photo taken then came back after this screen had opened the
+     * meeting and closed, so it was never added and its file was left
+     * behind.
+     */
     private fun disableForFinish() {
         finishButton.isEnabled = false
         pauseButton.isEnabled = false
         highlightButton.isEnabled = false
+        cameraButton.isEnabled = false
     }
 
     /**
@@ -1125,8 +1132,8 @@ class RecordingActivity : AppCompatActivity(), RecordingService.Observer {
             if (intent.action == ACTION_SHOW_SESSION &&
                 service?.active != true && !RecordingService.isRunning
             ) {
-                // The recording notification, still up while the meeting is
-                // saved: there is no session to show, and a fresh screen
+                // A recording-notification tap that raced the end of its
+                // session: there is no session to show, and a fresh screen
                 // would only close again.
                 attachOnly = true
                 closeWithoutSession()

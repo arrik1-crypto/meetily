@@ -963,9 +963,9 @@ review are in extra A.
   model, start a recording, say one sentence, and tap Finish while the
   status still reads "Loading the model…".
   **Expect:** "Finishing transcription…" on the screen, where Finish,
-  Pause and the star are disabled, and in the notification, which has no
-  buttons, until the model has loaded and then up to 15 s more (a minute
-  after Finish at most); then the meeting opens with
+  Pause, the star and the camera are disabled, and in the notification,
+  which has no buttons, until the model has loaded and then up to 15 s
+  more (a minute after Finish at most); then the meeting opens with
   that sentence in its transcript or, if it opens without it, the
   sentence is there when you go back and reopen the meeting a few
   seconds later. Turn "Keep meeting audio" back on, turn "Transcribe

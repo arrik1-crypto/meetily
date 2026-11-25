@@ -5,10 +5,10 @@ Dated 2026-11-25. This file sorts the owner checklist in
 Google Play submission. It reflects **3.22.0-beta1** (versionCode 117), the
 pre-release review fixes on `r1/integration`: five merged fix chains
 (merge tip `d3ddc47`), the docs commit that adds this file (`6891a73`),
-the fix commits after it up to `db0c8c8`, the last code commit (all
-listed under D), and a docs-only sync on top of them that brings this
-file and PLAY_RELEASE.md up to date. Until the version bump, which the
-maintainer makes in its own commit on top of this series, the build
+and the commits after it, all listed under D, up to the closing commit
+of the review series: the last commit of this series, which also brings
+this file and PLAY_RELEASE.md up to date. Until the version bump, which
+the maintainer makes in its own commit on top of this series, the build
 still reads 3.21.0-beta1 (versionCode 116). It is a snapshot:
 PLAY_RELEASE.md remains the source of truth.
 
@@ -20,8 +20,8 @@ words, not by line number: the file grew by about 700 lines in this
 release, and line numbers move with every edit.
 
 **How each item was checked.** Against:
-- the code at `db0c8c8`, the last code commit (3.21.0-beta1 at `818d523`
-  plus every review fix);
+- the code at the last commit of this series, the closing commit of the
+  review series (3.21.0-beta1 at `818d523` plus every review fix);
 - the APK that `818d523` published (`android/dist/meetily-android.apk`,
   arm64-v8a only, libraries compressed);
 - the log of the CI run that built it (Build Android APK, run 45216817663,
@@ -271,8 +271,8 @@ Not triaged here:
    build, "Bump `versionCode` to 117" and "Run CI on the release commit")
    - Do: bump `versionCode` and `versionName` in
      `android/app/build.gradle.kts` in its own commit on top of this
-     series (after `db0c8c8`, the last code commit, and the docs-only
-     sync that follows it), and push the review-fix merge and the bump to
+     series (after the closing commit of the review series, its last
+     commit), and push the review-fix merge and the bump to
      the Android branch together, in one push (or the bump first). CI
      publishes every Android-branch build to the release named after its
      versionName, replacing that release's APK, so a push of the merge
@@ -429,9 +429,11 @@ the post-fix review rounds and the settle rounds (`8397802`, between
 the end-of-recording and recovery work of those earlier rounds: it took
 out most of what they had added there and went back to 3.21.0-beta1's
 shape, keeping every originally confirmed fix. Three review rounds of
-that simplification follow, each changing code and docs together;
-`db0c8c8` is the last code commit. A docs-only sync of this file and
-PLAY_RELEASE.md sits on top, and the version bump comes after it.
+that simplification follow, each changing code and docs together, up to
+`db0c8c8`, and a docs-only sync of this file and PLAY_RELEASE.md
+(`df7aaeb`) after them. The closing commit of the review series, which
+changes code and docs together, is the last commit of this series, and
+the version bump comes after it.
 
 | Commit | Area |
 |---|---|
@@ -458,6 +460,7 @@ PLAY_RELEASE.md sits on top, and the version bump comes after it.
 | efe8127 | Simplification review round 1, mostly docs: how a Finish during a live-model load behaves, and that the media projection stays until the meeting is saved; the audio-close wait's guard against an endless join moved into its unit-tested helper |
 | 31f014f | Simplification review round 2: a failed live load's audio file is saved to the meeting at once, so recovery after a process death finds and transcribes it; the final save keeps a language learnt during Finish |
 | db0c8c8 | Simplification review round 3: the screen keeps naming a live model that failed to load; the recording screen disables Finish, Pause and the star during a Finish from the notification or a swipe |
+| Closing commit | The closing commit of the review series: the recording screen also disables the camera during a Finish (a photo taken then never reached the meeting, and its file was left behind); docs for a live load that fails during a pause and for the RF 16 test steps; comments that still described mechanisms `3ae6dd0` removed |
 
 ### Done or stale before this release (12 checklist items, 1 prose step)
 

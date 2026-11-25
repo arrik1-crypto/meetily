@@ -62,9 +62,9 @@ class RecordingStartStageTest {
 
     @Test
     fun theRecordingNotificationOnlyEverShowsASession() {
-        // Tapped once the session it was posted for has ended, while its
-        // audio file closes and its work is handed off: the screen closes
-        // instead of starting a new recording.
+        // Tapped just as the session it was posted for ends (the
+        // notification goes in the same step): the screen closes instead of
+        // starting a new recording.
         assertEquals(Resume.CLOSE, resume(RecordingStartStage.IDLE, fromNotification = true))
         assertEquals(
             Resume.CLOSE,

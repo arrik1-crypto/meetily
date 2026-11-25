@@ -2676,8 +2676,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         // Refused rather than queued: JobQueue only carries summaries, checks
         // and imports, so a queued speaker pass would come back as a plain
         // summary. This is a short interactive action — asking again later is
-        // the right answer. A network endpoint loads no model, so a live
-        // model a finished recording still holds does not refuse it.
+        // the right answer.
         if (!JobGate.canStartBatch()) {
             Toast.makeText(this, R.string.busy_heavy_job, Toast.LENGTH_LONG).show()
             return
@@ -2948,9 +2947,7 @@ class MeetingDetailActivity : AppCompatActivity() {
         // SummaryService.isRunning on its own is not admission control: a live
         // recording or a running import would happily have a multi-GB GGUF
         // loaded on top of it, which is the exact double-load JobGate exists
-        // to prevent. Queue instead — a summary is only ever delayed. A
-        // network endpoint loads no model, so a live model a finished
-        // recording still holds does not hold it back.
+        // to prevent. Queue instead — a summary is only ever delayed.
         if (!JobGate.canStartBatch()) {
             JobGate.requestSummary(
                 this, m.id, template.key, whenCharging = false, required = true

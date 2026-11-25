@@ -9,8 +9,8 @@ its audio when the microphone or the live model fails, reminders and
 nudges arrive on time without exact alarms, and many smaller fixes
 land in backups, imports, downloads, the app lock, summaries and the
 meeting screen. Until the maintainer's version bump, its own commit on
-top of the review-fix series (whose last code commit is `db0c8c8`,
-followed by a docs-only sync), the build still reads
+top of the review-fix series (whose last commit is the closing commit
+of the review series), the build still reads
 **3.21.0-beta1** (versionCode 116), the current release: Batch 7
 (Re-time words, which measures the timings of edited transcript words
 against the recording on the phone with an optional English
@@ -1106,10 +1106,11 @@ Work through it before the first targetSdk 36 upload to any track.
   build reads 3.21.0-beta1, 116). The fix commits after `d4d1816` and its
   docs sync `8397802` are `fe3bcc5` and `8e9aecf`, then `3ae6dd0`, which
   simplified the end-of-recording and recovery work of the earlier
-  rounds, and its three review rounds `efe8127`, `31f014f` and `db0c8c8`,
-  the last code commit; a docs-only sync follows it, and the bump goes
-  on top of that. Push the merge and the bump to the Android branch in
-  one push, or the bump first: `Build Android APK`
+  rounds, its three review rounds `efe8127`, `31f014f` and `db0c8c8`,
+  the docs-only sync `df7aaeb`, and the closing commit of the review
+  series, which changes code and docs; the bump goes on top of that.
+  Push the merge and the bump to the Android branch in one push, or the
+  bump first: `Build Android APK`
   uploads every Android-branch build to the release named after its
   versionName with `--clobber`, so the merge pushed alone replaces the
   real 3.21.0-beta1 APK (the upgrade baseline and what beta users
@@ -3460,13 +3461,15 @@ Recording, reminders and nudges:
   makes the recording audio-only from the start, with no load to fail).
   The transcript made after the meeting uses the same file, so once the
   screen says which model did not load, put the copy back with `mv`
-  before Finish or before the force-stop below, and cut the file again
-  for each repeat. The meeting is recorded as audio, the screen says
-  which model did not load (and still does a few seconds later, also
-  when you spoke during the load), and the transcript is made after
-  Finish. Repeat with "Keep meeting audio" off, speaking from
-  the first second: that transcript starts with the opening words, not
-  where the load failed, and a mark lands on the right line. Repeat that
+  before Finish or before the force-stop below, and copy and cut the
+  file again for each repeat. The meeting is recorded as audio, the
+  screen says which model did not load (and still does a few seconds
+  later, also when you spoke during the load; not when the recording
+  is paused as the load fails: Resume then shows "Recording"), and the
+  transcript is made after Finish. Repeat with "Keep meeting audio"
+  off, speaking from the first second: that transcript starts with the
+  opening words, not where the load failed, and a mark lands on the
+  right line. Repeat that
   once more, touch nothing for 10 s after the screen says the model did
   not load, then force-stop Recap and relaunch: the recovered meeting has
   its audio and its transcript is queued. Also with it
@@ -3477,10 +3480,11 @@ Recording, reminders and nudges:
   The words come from the live model: in the meeting when it opens, or,
   for lines still being transcribed when Finish stopped waiting, a moment
   later (go back and reopen it). With the failing model (debug build; a
-  Whisper one, and `mv` the copy back right after tapping Finish: the
-  load already running keeps reading the cut file), the same Finish
-  gives a meeting with its audio from the first second, transcribed
-  after the meeting ends. With "Keep meeting audio" on as
+  Whisper one, and `mv` the copy back a few seconds into the recording,
+  while the status still reads "Loading the model…" and before tapping
+  Finish: the load already running keeps reading the cut file), the
+  same Finish gives a meeting with its audio from the first second,
+  transcribed after the meeting ends. With "Keep meeting audio" on as
   well: lines the live model had not transcribed when Finish stopped
   waiting come from the transcript of the audio made after the meeting
   ends instead.
