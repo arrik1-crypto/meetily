@@ -17,7 +17,8 @@ import java.util.UUID
 /**
  * The free-space check every model download goes through before it starts:
  * Settings' pickers (first downloads and re-downloads alike, via
- * SettingsActivity.pickModel) and the first-run setup step.
+ * SettingsActivity.pickModel), the word re-timing model (AlignModelRow and
+ * AlignUi) and the first-run setup step.
  *
  * With room to spare it says nothing. When the room is short it says by how
  * much, offers Android's storage manager, and lets the user download anyway;
@@ -51,6 +52,29 @@ object ModelSpaceCheck {
             // treated the same way rather than failing the download over it.
             Room(dir.usableSpace, null)
         }
+    }
+
+    /**
+     * The sizes, MB, to check before downloading [key] of [kind]: [ownMb],
+     * plus the rest of the download ModelDownloadService is running and
+     * everything waiting behind it (DownloadSpace.sizesWithQueueMb). Every
+     * model download asks this, so a pick that would queue behind a large
+     * download is checked against what is left once that one has landed.
+     * [ownMb] is the new download's own need, which for the word re-timing
+     * model is less when its archive was kept (AlignerModels.spaceNeededMb).
+     */
+    fun sizesFor(
+        kind: String,
+        key: String,
+        ownMb: Int = PendingModelSelection.downloadSizeMb(kind, key)
+    ): List<Int> {
+        if (!ModelDownloadService.isRunning) return listOf(ownMb)
+        val currentKey = ModelDownloadService.currentKey
+        val current = if (currentKey.isBlank()) null else ModelDownloadService.currentKind to currentKey
+        return DownloadSpace.sizesWithQueueMb(
+            ownMb, kind to key, current, ModelDownloadService.currentPercent,
+            ModelDownloadService.queuedItems
+        ) { (itemKind, itemKey) -> PendingModelSelection.downloadSizeMb(itemKind, itemKey) }
     }
 
     /**

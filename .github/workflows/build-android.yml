@@ -10,16 +10,36 @@ on:
       - "android/**"
       - ".github/workflows/build-android.yml"
 
+# Read-only by default. The build job runs code fetched from outside this
+# repository (llama.cpp, whisper.cpp and KleidiAI's CMake at configure time),
+# so it gets no write token, and checkout leaves no credentials in
+# .git/config. Only the publish job below can push or create a release, and
+# it runs nothing but git and gh on the APK the build uploaded.
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     name: Build APK
     runs-on: ubuntu-latest
+    outputs:
+      have_keystore: ${{ steps.keystore.outputs.have_keystore }}
+      version: ${{ steps.version.outputs.version }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Read from the commit being built, for the release's tag. The publish
+      # job resets its checkout to the branch tip, which may be a newer
+      # commit with another version.
+      - name: Read version
+        id: version
+        run: |
+          version=$(grep -m1 'versionName' android/app/build.gradle.kts \
+            | sed 's/.*"\(.*\)".*/\1/')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
@@ -154,15 +174,34 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
 
+  # Publishing, in its own job: the only one with a write token. It builds
+  # nothing and runs no fetched code, only git and gh on the APK artifact.
+  publish:
+    name: Publish APK
+    needs: build
+    if: github.ref == 'refs/heads/claude/meeting-summarizer-android-apk-41ewdo'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download APK artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: meetily-android-apk
+          path: built-apk
+
       # Also commit the APK to android/dist/ on the development branch so it
       # can be fetched over git (some environments cannot reach the artifact
       # storage host). [skip ci] prevents retriggering this workflow.
       - name: Commit APK to branch
-        if: github.ref == 'refs/heads/claude/meeting-summarizer-android-apk-41ewdo'
         run: |
           # ABI splits: publish the arm64 (real phone) APK to the branch;
           # the x86_64 emulator APK stays available as a workflow artifact.
-          built=android/app/build/outputs/apk/release/app-arm64-v8a-release.apk
+          built=built-apk/app-arm64-v8a-release.apk
+          [ -f "$built" ] || { echo "::error::$built is not in the build's artifact"; exit 1; }
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
@@ -208,15 +247,25 @@ jobs:
       # versioned URL per build, where the committed copy under android/dist/
       # is a single path that always points at whatever was newest.
       - name: Publish APK as a release
-        if: github.ref == 'refs/heads/claude/meeting-summarizer-android-apk-41ewdo'
         env:
           GH_TOKEN: ${{ github.token }}
+          # The built commit's version (the build job), not the branch tip's.
+          VERSION: ${{ needs.build.outputs.version }}
+          HAVE_KEYSTORE: ${{ needs.build.outputs.have_keystore }}
         run: |
-          version=$(grep -m1 'versionName' android/app/build.gradle.kts \
-            | sed 's/.*"\(.*\)".*/\1/')
+          version="$VERSION"
+          if [ -z "$version" ]; then
+            echo "::error::the build job reported no versionName"
+            exit 1
+          fi
           size=$(stat -c%s android/dist/meetily-android.apk)
           tag="v${version}"
           echo "tag=$tag  size=$size bytes"
+          if [ "$HAVE_KEYSTORE" = "true" ]; then
+            signing="signed with the upload key"
+          else
+            signing="signed with a throwaway debug key (no keystore secret), so it cannot be installed over an earlier build"
+          fi
 
           # Re-running a build for the same version replaces the asset rather
           # than failing, so a rebuild after a fix does not need a new tag.
@@ -227,7 +276,7 @@ jobs:
             gh release create "$tag" \
               android/dist/meetily-android.apk \
               --title "Recap $version" \
-              --notes "arm64-v8a APK, $((size / 1048576)) MB, signed with the upload key.
+              --notes "arm64-v8a APK, $((size / 1048576)) MB, ${signing}.
           Built from ${GITHUB_SHA}." \
               --prerelease
           fi

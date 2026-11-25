@@ -423,4 +423,35 @@ class ResumableDownloadTest {
         run(server)
         assertArrayEquals(data, target.readBytes())
     }
+
+    @Test
+    fun aCancelThatEndsTheBodyEarlyNeverFinishesTheFile() {
+        // No Content-Length and no hash: a body the cancel cut short ends like
+        // a whole one. Cancelled is seen only once the body has ended.
+        var ended = false
+        val half = data.copyOf(data.size / 2)
+        val cutShort = RangeTransport { _, _ ->
+            object : RangeResponse {
+                override val status = 200
+                override val contentLength = -1L
+                override fun header(name: String): String? = if (name == "ETag") "\"v1\"" else null
+                override fun body(): InputStream = object : InputStream() {
+                    val inner = ByteArrayInputStream(half)
+                    override fun read(): Int = inner.read().also { if (it < 0) ended = true }
+                    override fun read(b: ByteArray, off: Int, len: Int): Int =
+                        inner.read(b, off, len).also { if (it < 0) ended = true }
+                }
+                override fun close() {}
+            }
+        }
+        try {
+            ResumableDownload.download(
+                url, target, "model.bin", null, { ended }, { _, _ -> }, cutShort
+            )
+            fail("a cancelled download was finished")
+        } catch (_: InterruptedException) {
+        }
+        assertFalse(target.exists())
+        assertEquals(half.size.toLong(), ResumableDownload.partFile(target).length())
+    }
 }

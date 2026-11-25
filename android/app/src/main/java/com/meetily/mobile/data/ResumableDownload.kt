@@ -12,6 +12,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.security.MessageDigest
 import java.util.Collections
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * What the sidecar next to a `.part` file remembers about the response that
@@ -245,7 +246,14 @@ object HttpRangeTransport : RangeTransport {
 
     private const val MAX_REDIRECTS = 10
 
+    /** Connections open now, for [abort]. */
+    private val live: MutableSet<HttpURLConnection> = Collections.synchronizedSet(HashSet())
+
+    /** Bumped by [abort]: an open() that began before it gives up at its next hop. */
+    private val aborts = AtomicInteger()
+
     override fun open(url: String, headers: Map<String, String>): RangeResponse {
+        val generation = aborts.get()
         var current = url
         repeat(MAX_REDIRECTS + 1) {
             if (!ResumeLogic.isHttps(current)) throw IOException("Model downloads must use https")
@@ -254,14 +262,24 @@ object HttpRangeTransport : RangeTransport {
             c.readTimeout = 60_000
             c.instanceFollowRedirects = false
             for ((k, v) in headers) c.setRequestProperty(k, v)
+            live.add(c)
+            // Checked once the connection is listed, so an abort either
+            // finds it in the list or is seen here.
+            if (aborts.get() != generation) {
+                live.remove(c)
+                c.disconnect()
+                throw IOException("Download stopped")
+            }
             val status = try {
                 c.responseCode
             } catch (e: IOException) {
+                live.remove(c)
                 c.disconnect()
                 throw e
             }
             if (status in 300..399 && status != 304) {
                 val next = ResumeLogic.resolveRedirect(current, c.getHeaderField("Location"))
+                live.remove(c)
                 c.disconnect()
                 current = next ?: throw IOException("Unfollowable redirect (HTTP $status)")
                 return@repeat
@@ -269,6 +287,30 @@ object HttpRangeTransport : RangeTransport {
             return ConnectionResponse(c, status)
         }
         throw IOException("Too many redirects")
+    }
+
+    /**
+     * For a cancel: stops the model download connections open now. A
+     * cancel is otherwise noticed only between reads, and a stalled connect
+     * or read takes up to 20 + 60 seconds a hop to give up, during which the
+     * download still read as running. An open() still following redirects
+     * gives up before its next hop; the returned task disconnects the
+     * connections themselves, which ends a blocked connect or read with an
+     * exception. Which connections is decided now, so a download started
+     * after this call is never touched. Run the task off the main thread:
+     * closing a TLS connection can write to it.
+     */
+    fun abort(): Runnable {
+        aborts.incrementAndGet()
+        val open = synchronized(live) { live.toList() }
+        return Runnable {
+            for (c in open) {
+                try {
+                    c.disconnect()
+                } catch (_: Exception) {
+                }
+            }
+        }
     }
 
     private class ConnectionResponse(
@@ -279,6 +321,7 @@ object HttpRangeTransport : RangeTransport {
         override fun header(name: String): String? = c.getHeaderField(name)
         override fun body(): InputStream = c.inputStream
         override fun close() {
+            live.remove(c)
             c.disconnect()
         }
     }
@@ -468,6 +511,10 @@ object ResumableDownload {
                     }
                 }
             }
+            // A cancel that broke the connection can end the body early
+            // without an error; with no length to check it against, the
+            // part would otherwise be taken for the whole file.
+            if (cancelled()) throw InterruptedException("Download cancelled")
 
             if (total > 0L && received < total) {
                 // Early EOF without an exception: keep the part, resume next time.

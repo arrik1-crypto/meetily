@@ -57,6 +57,64 @@ class DownloadSpaceTest {
     }
 
     @Test
+    fun aDownloadThatWouldQueueIsCheckedWithWhatRunsAndWaitsAheadOfIt() {
+        val sizes = mapOf(
+            ("whisper" to "turbo") to 1500,
+            ("llm" to "gemma") to 5000,
+            ("align" to "en") to 101
+        )
+        val sizeOf: (Pair<String, String>) -> Int = { sizes.getValue(it) }
+        // The word re-timing model behind a 1.5 GB model at 0% and a queued
+        // LLM: all three have to fit, not the 101 MB alone.
+        assertEquals(
+            listOf(101, 1500, 5000),
+            DownloadSpace.sizesWithQueueMb(
+                101, "align" to "en", "whisper" to "turbo", 0,
+                listOf("llm" to "gemma"), sizeOf
+            )
+        )
+        // Only what the running one still has to write.
+        assertEquals(
+            listOf(101, 750),
+            DownloadSpace.sizesWithQueueMb(
+                101, "align" to "en", "whisper" to "turbo", 50, emptyList(), sizeOf
+            )
+        )
+        // Its own need is the caller's: a kept archive asks for less than
+        // the catalogue size.
+        assertEquals(
+            listOf(54),
+            DownloadSpace.sizesWithQueueMb(54, "align" to "en", null, 0, emptyList(), sizeOf)
+        )
+    }
+
+    @Test
+    fun theDownloadItselfIsNeverCountedTwice() {
+        val sizeOf: (Pair<String, String>) -> Int = { 1500 }
+        // Picked again while it runs, or while it waits: counted once.
+        assertEquals(
+            listOf(1500),
+            DownloadSpace.sizesWithQueueMb(
+                1500, "whisper" to "turbo", "whisper" to "turbo", 40, emptyList(), sizeOf
+            )
+        )
+        assertEquals(
+            listOf(1500, 900),
+            DownloadSpace.sizesWithQueueMb(
+                1500, "whisper" to "turbo", "llm" to "gemma", 40,
+                listOf("whisper" to "turbo"), sizeOf
+            )
+        )
+        // The same key of another kind is another download.
+        assertEquals(
+            listOf(1500, 1500),
+            DownloadSpace.sizesWithQueueMb(
+                1500, "whisper" to "x", null, 0, listOf("llm" to "x"), sizeOf
+            )
+        )
+    }
+
+    @Test
     fun shortfallIsWhatIsStillMissing() {
         assertEquals(600L, DownloadSpace.shortfallBytes(1_000L, 400L))
         assertEquals(0L, DownloadSpace.shortfallBytes(1_000L, 1_000L))

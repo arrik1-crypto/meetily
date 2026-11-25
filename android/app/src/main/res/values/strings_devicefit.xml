@@ -79,4 +79,19 @@
     <string name="devicefit_metered_message">You seem to be on mobile data or another metered connection. This is about %1$s and may count against your data allowance.</string>
     <string name="devicefit_metered_go">Download now</string>
     <string name="devicefit_offline">You\'re offline. Connect to the internet to download, or choose later.</string>
+    <!-- Under a model download's progress bar in Settings: the same as the
+         download notification's Cancel, for a phone where Recap's
+         notifications are off. Stops the download running and any waiting
+         behind it; what was downloaded is kept for next time. -->
+    <string name="devicefit_download_cancel">Cancel download</string>
+    <!-- After Cancel, until the download has stopped (in Settings and the
+         download notification). -->
+    <string name="devicefit_download_stopping">Stopping the download…</string>
+    <!-- Android 15+ stopped a model download after its daily limit on
+         background downloads. Shown after "<model> model download failed",
+         or after "Download failed: ". -->
+    <string name="devicefit_download_timeout">Android stopped this after its daily background time limit. The part already downloaded has been kept — choose the model again to continue.</string>
+    <!-- A model that was waiting behind the one Android stopped, in the
+         download summary after "✗ <model> — ". -->
+    <string name="devicefit_download_timeout_queued">not started, as Android\'s daily background time limit was reached. Choose the model again to download it.</string>
 </resources>
