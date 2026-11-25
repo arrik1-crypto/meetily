@@ -33,6 +33,29 @@ class MeetingShareFileTest {
     }
 
     @Test
+    fun theNameKeepsLettersOfAnyScriptAsExportNamesDo() {
+        assertEquals("Совещание_2.txt", MeetingShareFile.fileName("Совещание №2"))
+        assertEquals("会议.txt", MeetingShareFile.fileName("会议"))
+        // A letter outside the BMP is a letter too.
+        assertEquals("𠀀.txt", MeetingShareFile.fileName("𠀀"))
+        // Vowel signs and a decomposed accent are marks; they stay.
+        assertEquals("बैठक.txt", MeetingShareFile.fileName("बैठक"))
+        assertEquals("Café.txt", MeetingShareFile.fileName("Café"))
+        assertEquals("meeting.txt", MeetingShareFile.fileName("🎉🎉"))
+        assertEquals("meeting.txt", MeetingShareFile.fileName("***"))
+    }
+
+    @Test
+    fun theTitleCutNeverSplitsACharacter() {
+        // A letter outside the BMP (two UTF-16 units) straddling the 60 cut.
+        assertEquals("a".repeat(59) + ".txt", MeetingShareFile.fileName("a".repeat(59) + "𠀀b"))
+        assertEquals(
+            "a".repeat(58) + "𠀀.txt",
+            MeetingShareFile.fileName("a".repeat(58) + "𠀀b")
+        )
+    }
+
+    @Test
     fun aNewShareDeletesEveryEarlierOne() {
         val first = MeetingShareFile.write(root, "m1", "First", "one")
         // A share written by an earlier version, straight in the folder.

@@ -69,9 +69,28 @@ object MeetingShareFile {
     fun isStale(modifiedMs: Long, nowMs: Long): Boolean =
         modifiedMs <= 0L || nowMs - modifiedMs >= MAX_AGE_MS || modifiedMs - nowMs >= MAX_AGE_MS
 
-    /** The file's name, from the meeting's title, as the receiving app shows it. */
-    fun fileName(title: String): String =
-        title.take(60).replace(Regex("[^\\w\\-]+"), "_").ifBlank { "meeting" } + ".txt"
+    /**
+     * The file's name, from the meeting's title, as the receiving app shows
+     * it. Letters, combining marks and digits of any script stay, as in the
+     * export names (MeetingExporter.suggestedFileName), and every other run
+     * becomes one underscore; `\w` kept only A-Z, so a title in Cyrillic,
+     * Greek or CJK was shared as "_.txt". The cut never splits a character.
+     */
+    fun fileName(title: String): String {
+        val cut = if (title.length > MAX_TITLE && Character.isHighSurrogate(title[MAX_TITLE - 1])) {
+            MAX_TITLE - 1
+        } else {
+            MAX_TITLE
+        }
+        val safe = title.take(cut).replace(NOT_IN_NAME, "_")
+        // Nothing but separators left (emoji, punctuation): the fallback.
+        return (if (safe.trim('_', '-').isEmpty()) "meeting" else safe) + ".txt"
+    }
+
+    /** Title characters kept in [fileName]. */
+    private const val MAX_TITLE = 60
+
+    private val NOT_IN_NAME = Regex("[^\\p{L}\\p{M}\\p{N}_-]+")
 
     private fun folderName(meetingId: String): String =
         if (SafeFiles.isPlainName(meetingId)) meetingId else "meeting"
